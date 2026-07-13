@@ -73,6 +73,18 @@ from .file_library import (
     FileTagMergeEndpoint,
 )
 
+from .finance import (
+    BudgetDetailEndpoint,
+    BudgetEndpoint,
+    BudgetSummaryEndpoint,
+    ExpenseCategoryDetailEndpoint,
+    ExpenseCategoryEndpoint,
+    ExpenseDetailEndpoint,
+    ExpenseDocumentEndpoint,
+    ExpenseDocumentViewEndpoint,
+    ExpenseEndpoint,
+)
+
 from .workspace.member import (
     WorkSpaceMemberViewSet,
     WorkspaceMemberUserEndpoint,
