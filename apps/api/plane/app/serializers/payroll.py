@@ -13,10 +13,16 @@ from .base import BaseSerializer
 
 class OfficeSerializer(BaseSerializer):
     employee_count = serializers.IntegerField(read_only=True, default=0)
+    salary_count = serializers.IntegerField(read_only=True, default=0)
+    payment_count = serializers.IntegerField(read_only=True, default=0)
+    variable_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Office
-        fields = ["id", "name", "aguinaldo_days", "workspace_id", "employee_count", "created_at", "updated_at"]
+        fields = [
+            "id", "name", "aguinaldo_days", "workspace_id", "employee_count",
+            "salary_count", "payment_count", "variable_count", "created_at", "updated_at",
+        ]
         read_only_fields = ["workspace_id", "created_at", "updated_at"]
 
     def validate_name(self, value):
@@ -84,6 +90,10 @@ class AdjustmentSerializer(BaseSerializer):
 
 class EmployeeSerializer(BaseSerializer):
     is_active = serializers.BooleanField(read_only=True)
+    salary_count = serializers.IntegerField(read_only=True, default=0)
+    adjustment_count = serializers.IntegerField(read_only=True, default=0)
+    payment_count = serializers.IntegerField(read_only=True, default=0)
+    scenario_count = serializers.IntegerField(read_only=True, default=0)
     # Only the salaries in force — the full history is its own endpoint
     current_salaries = serializers.SerializerMethodField()
 
@@ -100,6 +110,10 @@ class EmployeeSerializer(BaseSerializer):
             "is_active",
             "notes",
             "current_salaries",
+            "salary_count",
+            "adjustment_count",
+            "payment_count",
+            "scenario_count",
             "workspace_id",
             "created_at",
             "updated_at",

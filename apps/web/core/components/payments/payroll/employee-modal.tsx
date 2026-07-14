@@ -48,6 +48,7 @@ export function EmployeeModal(props: Props) {
   const { workspaceSlug, isOpen, employee, onClose, onSaved } = props;
   const { t } = useTranslation();
   const [form, setForm] = useState<FormState>(emptyForm());
+  const [hasTerminationDate, setHasTerminationDate] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export function EmployeeModal(props: Props) {
           }
         : emptyForm()
     );
+    setHasTerminationDate(Boolean(employee?.termination_date));
   }, [isOpen, employee]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -98,10 +100,13 @@ export function EmployeeModal(props: Props) {
   return (
     <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.XXL}>
       <div className="p-4">
-        <h3 className="text-15 mb-4 font-medium">{t(employee ? "payroll.employees.edit" : "payroll.employees.new")}</h3>
+        <h3 className="text-16 font-semibold text-primary">
+          {t(employee ? "payroll.employees.edit" : "payroll.employees.new")}
+        </h3>
+        <p className="mt-1 mb-5 text-12 text-tertiary">{t("payroll.employees.form_help")}</p>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className={LABEL}>{t("payroll.fields.full_name")}</label>
             <Input
               value={form.full_name}
@@ -109,20 +114,29 @@ export function EmployeeModal(props: Props) {
               className="w-full"
             />
           </div>
-          <div className="col-span-2 sm:col-span-1">
-            <label className={LABEL}>{t("payroll.fields.position")}</label>
+          <div>
+            <label className={LABEL}>
+              {t("payroll.fields.position")}{" "}
+              <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
+            </label>
             <Input value={form.position} onChange={(event) => set("position", event.target.value)} className="w-full" />
           </div>
-          <div className="col-span-2 sm:col-span-1">
-            <label className={LABEL}>{t("payroll.fields.national_id")}</label>
+          <div>
+            <label className={LABEL}>
+              {t("payroll.fields.national_id")}{" "}
+              <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
+            </label>
             <Input
               value={form.national_id}
               onChange={(event) => set("national_id", event.target.value)}
               className="w-full"
             />
+            <p className="mt-1 text-10 text-tertiary">{t("payroll.employees.national_id_help")}</p>
           </div>
-          <div className="col-span-2 sm:col-span-1">
-            <label className={LABEL}>{t("payroll.fields.email")}</label>
+          <div>
+            <label className={LABEL}>
+              {t("payroll.fields.email")} <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
+            </label>
             <Input
               type="email"
               value={form.email}
@@ -130,7 +144,7 @@ export function EmployeeModal(props: Props) {
               className="w-full"
             />
           </div>
-          <div className="col-span-2 sm:col-span-1">
+          <div>
             <label className={LABEL}>{t("payroll.fields.hire_date")}</label>
             <input
               type="date"
@@ -139,17 +153,44 @@ export function EmployeeModal(props: Props) {
               onChange={(event) => set("hire_date", event.target.value)}
             />
           </div>
-          <div className="col-span-2 sm:col-span-1">
-            <label className={LABEL}>{t("payroll.fields.termination_date")}</label>
-            <input
-              type="date"
-              className={FIELD}
-              value={form.termination_date}
-              onChange={(event) => set("termination_date", event.target.value)}
-            />
-          </div>
-          <div className="col-span-2">
-            <label className={LABEL}>{t("payroll.fields.notes")}</label>
+          {employee && (
+            <div className="rounded-md border border-subtle bg-layer-1 p-3 sm:col-span-2">
+              <label
+                aria-label={t("payroll.employees.left_company")}
+                className="flex cursor-pointer items-start gap-2 text-12 text-secondary"
+              >
+                <input
+                  type="checkbox"
+                  checked={hasTerminationDate}
+                  onChange={(event) => {
+                    setHasTerminationDate(event.target.checked);
+                    if (!event.target.checked) set("termination_date", "");
+                  }}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium text-primary">{t("payroll.employees.left_company")}</span>
+                  <span className="mt-0.5 block text-10 text-tertiary">{t("payroll.employees.termination_help")}</span>
+                </span>
+              </label>
+              {hasTerminationDate && (
+                <div className="mt-3 max-w-xs">
+                  <label className={LABEL}>{t("payroll.fields.termination_date")}</label>
+                  <input
+                    type="date"
+                    min={form.hire_date}
+                    className={FIELD}
+                    value={form.termination_date}
+                    onChange={(event) => set("termination_date", event.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <div className="sm:col-span-2">
+            <label className={LABEL}>
+              {t("payroll.fields.notes")} <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
+            </label>
             <textarea
               className={FIELD}
               rows={2}

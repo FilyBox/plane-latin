@@ -150,9 +150,14 @@ from .payroll import (
     SalarySerializer,
 )
 from .finance import (
+    BudgetBonusSerializer,
+    BudgetScenarioEmployeeSerializer,
+    BudgetScenarioSerializer,
+    BudgetScenarioVariableSerializer,
     BudgetSerializer,
     ExpenseCategorySerializer,
     ExpenseSerializer,
+    FinancialVariableSerializer,
 )
 from .contract import (
     ContractChatMessageSerializer,

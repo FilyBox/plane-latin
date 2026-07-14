@@ -76,8 +76,8 @@ export function SalaryModal(props: Props) {
       <div className="p-4">
         <h3 className="text-15 mb-4 font-medium">{t("payroll.employees.new_salary")}</h3>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className={LABEL}>{t("payroll.fields.office")}</label>
             <select className={FIELD} value={office} onChange={(event) => setOffice(event.target.value)}>
               {offices.map((item) => (

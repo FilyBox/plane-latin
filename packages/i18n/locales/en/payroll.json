@@ -1,6 +1,7 @@
 {
   "payroll": {
     "title": "Payroll",
+    "optional": "Optional",
     "tabs": {
       "expenses": "Expenses",
       "employees": "Employees",
@@ -9,6 +10,11 @@
       "annual_cost": "Annual cost"
     },
     "employees": {
+      "form_help": "Only the name and hire date are required. The internal identifier is generated automatically.",
+      "national_id_help": "A tax or legal identifier, not the system's internal ID.",
+      "left_company": "This person no longer works here",
+      "termination_help": "Enable this only when recording a departure; it is not requested for a new employee.",
+      "delete_impact": "{name} will be deleted with {salaries} salaries, {adjustments} adjustments and {payments} payments. They will also be removed from {scenarios} budgets. This cannot be undone.",
       "new": "New employee",
       "edit": "Edit employee",
       "active": "Active",
@@ -24,6 +30,11 @@
       "delete_description": "Their salary history, adjustments and payments go with them. This cannot be undone."
     },
     "offices": {
+      "form_help": "Entities group people, salaries and financial variables. Plane generates their identifiers automatically.",
+      "aguinaldo_help": "Legal minimum: 15 days",
+      "people": "people",
+      "delete_impact": "The {name} entity will be deleted. It has no linked salaries, payments or variables. This cannot be undone.",
+      "delete_blocked_impact": "{name} cannot be deleted: it contains {employees} people, {salaries} salaries, {payments} payments and {variables} variables. Reassign or remove those resources first.",
       "title": "Offices",
       "manage": "Manage offices",
       "new": "New office",
@@ -114,6 +125,7 @@
     "actions": {
       "save": "Save",
       "cancel": "Cancel",
+      "edit": "Edit",
       "delete": "Delete",
       "close": "Close"
     },

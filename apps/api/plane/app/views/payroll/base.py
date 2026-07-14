@@ -68,7 +68,10 @@ class OfficeEndpoint(PayrollBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         offices = Office.objects.filter(workspace__slug=slug).annotate(
-            employee_count=Count("salaries__employee", distinct=True, filter=Q(salaries__deleted_at__isnull=True))
+            employee_count=Count("salaries__employee", distinct=True, filter=Q(salaries__deleted_at__isnull=True)),
+            salary_count=Count("salaries", distinct=True, filter=Q(salaries__deleted_at__isnull=True)),
+            payment_count=Count("payments", distinct=True, filter=Q(payments__deleted_at__isnull=True)),
+            variable_count=Count("financial_variables", distinct=True, filter=Q(financial_variables__deleted_at__isnull=True)),
         )
         return Response(OfficeSerializer(offices, many=True).data, status=status.HTTP_200_OK)
 
@@ -100,11 +103,11 @@ class OfficeDetailEndpoint(PayrollBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, office_id):
         office = Office.objects.get(id=office_id, workspace__slug=slug)
-        # Salaries and payments PROTECT their office: deleting one that still
-        # pays people would orphan the money trail
-        if office.salaries.exists() or office.payments.exists():
+        # Financial variables belong to the entity too. Never cascade-delete a
+        # reusable planning assumption just because the entity was removed.
+        if office.salaries.exists() or office.payments.exists() or office.financial_variables.exists():
             return Response(
-                {"error": "This office still has salaries or payments; it cannot be deleted"},
+                {"error": "This entity still has salaries, payments or financial variables; it cannot be deleted"},
                 status=status.HTTP_409_CONFLICT,
             )
         office.delete()
@@ -117,7 +120,12 @@ class EmployeeEndpoint(PayrollBaseView):
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
-        employees = Employee.objects.filter(workspace__slug=slug).prefetch_related(SALARIES)
+        employees = Employee.objects.filter(workspace__slug=slug).annotate(
+            salary_count=Count("salaries", distinct=True, filter=Q(salaries__deleted_at__isnull=True)),
+            adjustment_count=Count("adjustments", distinct=True, filter=Q(adjustments__deleted_at__isnull=True)),
+            payment_count=Count("payments", distinct=True, filter=Q(payments__deleted_at__isnull=True)),
+            scenario_count=Count("budget_scenarios", distinct=True, filter=Q(budget_scenarios__deleted_at__isnull=True)),
+        ).prefetch_related(SALARIES)
 
         if request.query_params.get("active") == "1":
             employees = employees.filter(termination_date__isnull=True)
@@ -214,6 +222,11 @@ class SalaryDetailEndpoint(PayrollBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, employee_id, salary_id):
         salary = Salary.objects.get(id=salary_id, employee_id=employee_id, workspace__slug=slug)
+        if salary.budget_scenarios.exists():
+            return Response(
+                {"error": "This salary is used by a budget scenario and cannot be deleted"},
+                status=status.HTTP_409_CONFLICT,
+            )
         salary.delete()
         # Reopen the previous row, or the employee silently drops off payroll
         # for that office with no salary in force at all

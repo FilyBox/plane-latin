@@ -1,6 +1,7 @@
 {
   "payroll": {
     "title": "Nómina",
+    "optional": "Opcional",
     "tabs": {
       "expenses": "Gastos",
       "employees": "Empleados",
@@ -9,6 +10,11 @@
       "annual_cost": "Costo anual"
     },
     "employees": {
+      "form_help": "Solo el nombre y la fecha de ingreso son obligatorios. El identificador interno se genera automaticamente.",
+      "national_id_help": "Identificador fiscal o legal, no es el ID interno del sistema.",
+      "left_company": "Esta persona ya no trabaja aqui",
+      "termination_help": "Activalo unicamente al registrar una baja; no se solicita al crear al empleado.",
+      "delete_impact": "Se eliminara a {name} junto con {salaries} sueldos, {adjustments} movimientos y {payments} pagos. Tambien se quitara de {scenarios} presupuestos. Esta accion no se puede deshacer.",
       "new": "Nuevo empleado",
       "edit": "Editar empleado",
       "active": "Activo",
@@ -24,6 +30,11 @@
       "delete_description": "Se van con él su historial de sueldos, sus movimientos y sus pagos. Esta acción no se puede deshacer."
     },
     "offices": {
+      "form_help": "Las entidades agrupan personas, salarios y variables financieras. Plane genera sus identificadores automaticamente.",
+      "aguinaldo_help": "Minimo legal: 15 dias",
+      "people": "personas",
+      "delete_impact": "Se eliminara la entidad {name}. No tiene sueldos, pagos ni variables vinculadas. Esta accion no se puede deshacer.",
+      "delete_blocked_impact": "No se puede eliminar {name}: contiene {employees} personas, {salaries} sueldos, {payments} pagos y {variables} variables. Reasigna o elimina esos recursos primero.",
       "title": "Oficinas",
       "manage": "Administrar oficinas",
       "new": "Nueva oficina",
@@ -114,6 +125,7 @@
     "actions": {
       "save": "Guardar",
       "cancel": "Cancelar",
+      "edit": "Editar",
       "delete": "Eliminar",
       "close": "Cerrar"
     },

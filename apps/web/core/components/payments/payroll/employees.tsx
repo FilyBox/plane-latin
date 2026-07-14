@@ -86,7 +86,17 @@ export function EmployeesTab(props: Props) {
         handleSubmit={() => void handleDelete()}
         isSubmitting={isDeleting}
         title={t("payroll.employees.delete_title")}
-        content={t("payroll.employees.delete_description")}
+        content={
+          deleteTarget
+            ? t("payroll.employees.delete_impact", {
+                name: deleteTarget.full_name,
+                salaries: deleteTarget.salary_count,
+                adjustments: deleteTarget.adjustment_count,
+                payments: deleteTarget.payment_count,
+                scenarios: deleteTarget.scenario_count,
+              })
+            : ""
+        }
       />
 
       <div className="flex items-center justify-end gap-1.5">
@@ -100,13 +110,11 @@ export function EmployeesTab(props: Props) {
         </button>
         <Button
           variant="primary"
-          size="sm"
+          size="xl"
           onClick={() => {
             setEditing(null);
             setIsEmployeeModalOpen(true);
           }}
-          // Without an office there is nowhere to hang a salary
-          disabled={offices.length === 0}
         >
           <Plus className="size-3.5" />
           {t("payroll.employees.new")}
@@ -119,7 +127,7 @@ export function EmployeesTab(props: Props) {
         </div>
       ) : (employees?.length ?? 0) === 0 ? (
         <div className="rounded-md border border-subtle px-4 py-8 text-center text-13 text-tertiary">
-          {offices.length === 0 ? t("payroll.offices.empty") : t("payroll.employees.empty")}
+          {t("payroll.employees.empty")}
         </div>
       ) : (
         <div className="divide-y divide-subtle rounded-md border border-subtle">

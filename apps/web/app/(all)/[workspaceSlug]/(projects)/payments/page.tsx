@@ -38,7 +38,7 @@ const PaymentsPage = observer(function PaymentsPage({ params }: Route.ComponentP
 
   return (
     <>
-      <PageHead title="Payments" />
+      <PageHead title="Budgets" />
       <div className="relative h-full w-full overflow-hidden">
         <PaymentsRoot workspaceSlug={workspaceSlug} />
       </div>

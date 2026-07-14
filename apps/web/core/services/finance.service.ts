@@ -6,13 +6,244 @@
 
 // plane imports
 import { API_BASE_URL } from "@plane/constants";
-import type { TBudget, TBudgetSummary, TExpense, TExpenseCategory, TExpenseFilters } from "@plane/types";
+import type {
+  TBudget,
+  TBudgetBonus,
+  TBudgetForecast,
+  TBudgetScenario,
+  TBudgetScenarioEmployee,
+  TBudgetScenarioVariable,
+  TBudgetSummary,
+  TExpense,
+  TExpenseCategory,
+  TExpenseFilters,
+  TFinancialVariable,
+} from "@plane/types";
 // services
 import { APIService } from "@/services/api.service";
 
 export class FinanceService extends APIService {
   constructor() {
     super(API_BASE_URL);
+  }
+
+  // named annual planning scenarios
+
+  async getScenarios(workspaceSlug: string, year?: number): Promise<TBudgetScenario[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/budget-scenarios/`, { params: year ? { year } : {} })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async createScenario(workspaceSlug: string, data: Partial<TBudgetScenario>): Promise<TBudgetScenario> {
+    return this.post(`/api/workspaces/${workspaceSlug}/budget-scenarios/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async getScenario(workspaceSlug: string, scenarioId: string): Promise<TBudgetScenario> {
+    return this.get(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async updateScenario(
+    workspaceSlug: string,
+    scenarioId: string,
+    data: Partial<TBudgetScenario>
+  ): Promise<TBudgetScenario> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async deleteScenario(workspaceSlug: string, scenarioId: string): Promise<void> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async getScenarioForecast(workspaceSlug: string, scenarioId: string): Promise<TBudgetForecast> {
+    return this.get(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/summary/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async overrideScenarioCell(
+    workspaceSlug: string,
+    scenarioId: string,
+    data: { row_key: string; year: number; month: number; amount: string }
+  ): Promise<void> {
+    return this.put(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/cells/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async restoreScenarioCell(
+    workspaceSlug: string,
+    scenarioId: string,
+    data: { row_key: string; year: number; month: number }
+  ): Promise<void> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/cells/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async exportScenario(workspaceSlug: string, scenarioId: string, format: "csv" | "xlsx"): Promise<void> {
+    const response = await this.get(
+      `/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/export/`,
+      { params: { format } },
+      { responseType: "blob" }
+    );
+    const disposition = response.headers["content-disposition"] as string | undefined;
+    const filename = disposition?.match(/filename="?([^";]+)"?/)?.[1] ?? `budget.${format}`;
+    const url = URL.createObjectURL(response.data);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async getScenarioEmployees(workspaceSlug: string, scenarioId: string): Promise<TBudgetScenarioEmployee[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/employees/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async addScenarioEmployee(
+    workspaceSlug: string,
+    scenarioId: string,
+    data: Partial<TBudgetScenarioEmployee>
+  ): Promise<TBudgetScenarioEmployee> {
+    return this.post(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/employees/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async removeScenarioEmployee(workspaceSlug: string, scenarioId: string, assignmentId: string): Promise<void> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/employees/${assignmentId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async createBudgetBonus(
+    workspaceSlug: string,
+    scenarioId: string,
+    assignmentId: string,
+    data: Partial<TBudgetBonus>
+  ): Promise<TBudgetBonus> {
+    return this.post(
+      `/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/employees/${assignmentId}/bonuses/`,
+      data
+    )
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async deleteBudgetBonus(
+    workspaceSlug: string,
+    scenarioId: string,
+    assignmentId: string,
+    bonusId: string
+  ): Promise<void> {
+    return this.delete(
+      `/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/employees/${assignmentId}/bonuses/${bonusId}/`
+    )
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  // reusable financial variables
+
+  async getFinancialVariables(workspaceSlug: string): Promise<TFinancialVariable[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/financial-variables/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async createFinancialVariable(workspaceSlug: string, data: Partial<TFinancialVariable>): Promise<TFinancialVariable> {
+    return this.post(`/api/workspaces/${workspaceSlug}/financial-variables/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async updateFinancialVariable(
+    workspaceSlug: string,
+    variableId: string,
+    data: Partial<TFinancialVariable>
+  ): Promise<TFinancialVariable> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/financial-variables/${variableId}/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async deleteFinancialVariable(workspaceSlug: string, variableId: string): Promise<void> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/financial-variables/${variableId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async getScenarioVariables(workspaceSlug: string, scenarioId: string): Promise<TBudgetScenarioVariable[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/variables/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async addScenarioVariable(
+    workspaceSlug: string,
+    scenarioId: string,
+    variable: string
+  ): Promise<TBudgetScenarioVariable> {
+    return this.post(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/variables/`, { variable })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async removeScenarioVariable(workspaceSlug: string, scenarioId: string, assignmentId: string): Promise<void> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/variables/${assignmentId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
   }
 
   // categories

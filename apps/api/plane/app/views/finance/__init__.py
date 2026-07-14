@@ -3,8 +3,19 @@
 # See the LICENSE file for details.
 
 from .base import (
+    BudgetBonusDetailEndpoint,
+    BudgetBonusEndpoint,
     BudgetDetailEndpoint,
     BudgetEndpoint,
+    BudgetScenarioDetailEndpoint,
+    BudgetScenarioCellOverrideEndpoint,
+    BudgetScenarioEmployeeDetailEndpoint,
+    BudgetScenarioEmployeeEndpoint,
+    BudgetScenarioEndpoint,
+    BudgetScenarioExportEndpoint,
+    BudgetScenarioSummaryEndpoint,
+    BudgetScenarioVariableDetailEndpoint,
+    BudgetScenarioVariableEndpoint,
     BudgetSummaryEndpoint,
     ExpenseCategoryDetailEndpoint,
     ExpenseCategoryEndpoint,
@@ -12,4 +23,6 @@ from .base import (
     ExpenseDocumentEndpoint,
     ExpenseDocumentViewEndpoint,
     ExpenseEndpoint,
+    FinancialVariableDetailEndpoint,
+    FinancialVariableEndpoint,
 )

@@ -20,6 +20,9 @@ export type TOffice = {
   aguinaldo_days: number;
   workspace_id: string;
   employee_count: number;
+  salary_count: number;
+  payment_count: number;
+  variable_count: number;
   created_at: string;
   updated_at: string;
 };
@@ -49,6 +52,10 @@ export type TEmployee = {
   is_active: boolean;
   notes: string;
   current_salaries: TCurrentSalary[];
+  salary_count: number;
+  adjustment_count: number;
+  payment_count: number;
+  scenario_count: number;
   workspace_id: string;
   created_at: string;
   updated_at: string;

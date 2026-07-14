@@ -5,8 +5,19 @@
 from django.urls import path
 
 from plane.app.views import (
+    BudgetBonusDetailEndpoint,
+    BudgetBonusEndpoint,
     BudgetDetailEndpoint,
     BudgetEndpoint,
+    BudgetScenarioDetailEndpoint,
+    BudgetScenarioCellOverrideEndpoint,
+    BudgetScenarioEmployeeDetailEndpoint,
+    BudgetScenarioEmployeeEndpoint,
+    BudgetScenarioEndpoint,
+    BudgetScenarioExportEndpoint,
+    BudgetScenarioSummaryEndpoint,
+    BudgetScenarioVariableDetailEndpoint,
+    BudgetScenarioVariableEndpoint,
     BudgetSummaryEndpoint,
     ExpenseCategoryDetailEndpoint,
     ExpenseCategoryEndpoint,
@@ -14,9 +25,76 @@ from plane.app.views import (
     ExpenseDocumentEndpoint,
     ExpenseDocumentViewEndpoint,
     ExpenseEndpoint,
+    FinancialVariableDetailEndpoint,
+    FinancialVariableEndpoint,
 )
 
 urlpatterns = [
+    path(
+        "workspaces/<str:slug>/budget-scenarios/",
+        BudgetScenarioEndpoint.as_view(),
+        name="budget-scenarios",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/",
+        BudgetScenarioDetailEndpoint.as_view(),
+        name="budget-scenario-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/summary/",
+        BudgetScenarioSummaryEndpoint.as_view(),
+        name="budget-scenario-summary",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/cells/",
+        BudgetScenarioCellOverrideEndpoint.as_view(),
+        name="budget-scenario-cells",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/export/",
+        BudgetScenarioExportEndpoint.as_view(),
+        name="budget-scenario-export",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/employees/",
+        BudgetScenarioEmployeeEndpoint.as_view(),
+        name="budget-scenario-employees",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/employees/<uuid:assignment_id>/",
+        BudgetScenarioEmployeeDetailEndpoint.as_view(),
+        name="budget-scenario-employee-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/employees/<uuid:assignment_id>/bonuses/",
+        BudgetBonusEndpoint.as_view(),
+        name="budget-scenario-bonuses",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/employees/<uuid:assignment_id>/bonuses/<uuid:bonus_id>/",
+        BudgetBonusDetailEndpoint.as_view(),
+        name="budget-scenario-bonus-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/variables/",
+        BudgetScenarioVariableEndpoint.as_view(),
+        name="budget-scenario-variables",
+    ),
+    path(
+        "workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/variables/<uuid:assignment_id>/",
+        BudgetScenarioVariableDetailEndpoint.as_view(),
+        name="budget-scenario-variable-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/financial-variables/",
+        FinancialVariableEndpoint.as_view(),
+        name="financial-variables",
+    ),
+    path(
+        "workspaces/<str:slug>/financial-variables/<uuid:variable_id>/",
+        FinancialVariableDetailEndpoint.as_view(),
+        name="financial-variable-detail",
+    ),
     path(
         "workspaces/<str:slug>/expense-categories/",
         ExpenseCategoryEndpoint.as_view(),

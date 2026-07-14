@@ -75,8 +75,19 @@ from .file_library import (
 )
 
 from .finance import (
+    BudgetBonusDetailEndpoint,
+    BudgetBonusEndpoint,
     BudgetDetailEndpoint,
     BudgetEndpoint,
+    BudgetScenarioDetailEndpoint,
+    BudgetScenarioCellOverrideEndpoint,
+    BudgetScenarioEmployeeDetailEndpoint,
+    BudgetScenarioEmployeeEndpoint,
+    BudgetScenarioEndpoint,
+    BudgetScenarioExportEndpoint,
+    BudgetScenarioSummaryEndpoint,
+    BudgetScenarioVariableDetailEndpoint,
+    BudgetScenarioVariableEndpoint,
     BudgetSummaryEndpoint,
     ExpenseCategoryDetailEndpoint,
     ExpenseCategoryEndpoint,
@@ -84,6 +95,8 @@ from .finance import (
     ExpenseDocumentEndpoint,
     ExpenseDocumentViewEndpoint,
     ExpenseEndpoint,
+    FinancialVariableDetailEndpoint,
+    FinancialVariableEndpoint,
 )
 
 from .payroll import (

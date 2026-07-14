@@ -26,7 +26,18 @@ from .file_library import (
     FileTagLink,
     WorkspaceFeature,
 )
-from .finance import Budget, Expense, ExpenseCategory, ExpenseDocument
+from .finance import (
+    Budget,
+    BudgetBonus,
+    BudgetCellOverride,
+    BudgetScenario,
+    BudgetScenarioEmployee,
+    BudgetScenarioVariable,
+    Expense,
+    ExpenseCategory,
+    ExpenseDocument,
+    FinancialVariable,
+)
 from .payroll import Adjustment, Employee, Office, PayrollAccess, PayrollPayment, Salary
 from .contract import (
     Contract,
