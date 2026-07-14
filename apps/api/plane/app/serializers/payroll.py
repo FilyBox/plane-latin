@@ -35,6 +35,8 @@ class OfficeSerializer(BaseSerializer):
 class SalarySerializer(BaseSerializer):
     office_name = serializers.CharField(source="office.name", read_only=True)
     is_current = serializers.BooleanField(read_only=True)
+    scenario_count = serializers.IntegerField(read_only=True, default=0)
+    scenario_names = serializers.SerializerMethodField()
 
     class Meta:
         model = Salary
@@ -49,15 +51,27 @@ class SalarySerializer(BaseSerializer):
             "effective_from",
             "effective_to",
             "is_current",
+            "scenario_count",
+            "scenario_names",
             "workspace_id",
             "created_at",
         ]
-        read_only_fields = ["workspace_id", "employee", "effective_to", "created_at"]
+        read_only_fields = ["workspace_id", "employee", "created_at"]
 
     def validate_amount(self, value):
         if value < 0:
             raise serializers.ValidationError("The salary cannot be negative")
         return value
+
+    def validate(self, data):
+        start = data.get("effective_from", getattr(self.instance, "effective_from", None))
+        end = data.get("effective_to", getattr(self.instance, "effective_to", None))
+        if start and end and end < start:
+            raise serializers.ValidationError({"effective_to": "Cannot be before the salary start date"})
+        return data
+
+    def get_scenario_names(self, obj):
+        return sorted({assignment.scenario.name for assignment in obj.budget_scenarios.all()})
 
 
 class AdjustmentSerializer(BaseSerializer):
@@ -94,6 +108,7 @@ class EmployeeSerializer(BaseSerializer):
     adjustment_count = serializers.IntegerField(read_only=True, default=0)
     payment_count = serializers.IntegerField(read_only=True, default=0)
     scenario_count = serializers.IntegerField(read_only=True, default=0)
+    scenario_names = serializers.SerializerMethodField()
     # Only the salaries in force — the full history is its own endpoint
     current_salaries = serializers.SerializerMethodField()
 
@@ -114,6 +129,7 @@ class EmployeeSerializer(BaseSerializer):
             "adjustment_count",
             "payment_count",
             "scenario_count",
+            "scenario_names",
             "workspace_id",
             "created_at",
             "updated_at",
@@ -134,6 +150,9 @@ class EmployeeSerializer(BaseSerializer):
             for salary in obj.salaries.all()
             if salary.effective_to is None
         ]
+
+    def get_scenario_names(self, obj):
+        return sorted({assignment.scenario.name for assignment in obj.budget_scenarios.all()})
 
     def validate(self, data):
         hire = data.get("hire_date", getattr(self.instance, "hire_date", None))

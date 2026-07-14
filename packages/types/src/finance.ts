@@ -149,6 +149,7 @@ export type TBudgetForecastLine = {
   entity_name: string;
   currency: string;
   kind: "EXPENSE" | "INCOME";
+  owner_name?: string;
   months: TBudgetForecastCell[];
   total: TMoney;
 };

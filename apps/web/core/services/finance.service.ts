@@ -21,6 +21,7 @@ import type {
 } from "@plane/types";
 // services
 import { APIService } from "@/services/api.service";
+import { exportBudgetForecast } from "@/lib/budget-export";
 
 export class FinanceService extends APIService {
   constructor() {
@@ -105,30 +106,14 @@ export class FinanceService extends APIService {
       });
   }
 
-  async exportScenario(workspaceSlug: string, scenarioId: string, format: "csv" | "xlsx"): Promise<void> {
-    const response = await this.request({
-      method: "GET",
-      url: `/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/export/`,
-      params: { format },
-      responseType: "blob",
-    });
-    const disposition = response.headers["content-disposition"] as string | undefined;
-    const encodedFilename = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-    const filename = encodedFilename
-      ? decodeURIComponent(encodedFilename)
-      : (disposition?.match(/filename="?([^";]+)"?/i)?.[1] ?? `budget.${format}`);
-    const blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    window.setTimeout(() => {
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    }, 10_000);
+  async exportScenario(
+    workspaceSlug: string,
+    scenarioId: string,
+    format: "csv" | "xlsx",
+    filename = "budget"
+  ): Promise<void> {
+    const forecast = await this.getScenarioForecast(workspaceSlug, scenarioId);
+    exportBudgetForecast(forecast, filename, format);
   }
 
   async getScenarioEmployees(workspaceSlug: string, scenarioId: string): Promise<TBudgetScenarioEmployee[]> {
@@ -192,8 +177,10 @@ export class FinanceService extends APIService {
 
   // reusable financial variables
 
-  async getFinancialVariables(workspaceSlug: string): Promise<TFinancialVariable[]> {
-    return this.get(`/api/workspaces/${workspaceSlug}/financial-variables/`)
+  async getFinancialVariables(workspaceSlug: string, search?: string): Promise<TFinancialVariable[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/financial-variables/`, {
+      params: search ? { search } : {},
+    })
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

@@ -114,6 +114,19 @@ export class PayrollService extends APIService {
       });
   }
 
+  async updateSalary(
+    workspaceSlug: string,
+    employeeId: string,
+    salaryId: string,
+    data: Partial<TSalary>
+  ): Promise<TSalary> {
+    return this.patch(`${this.base(workspaceSlug)}/employees/${employeeId}/salaries/${salaryId}/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
   async deleteSalary(workspaceSlug: string, employeeId: string, salaryId: string): Promise<void> {
     return this.delete(`${this.base(workspaceSlug)}/employees/${employeeId}/salaries/${salaryId}/`)
       .then((response) => response?.data)

@@ -11,11 +11,12 @@ import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TAdjustment, TAdjustmentKind, TEmployee, TOffice, TSalary } from "@plane/types";
+import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
 import { payrollService } from "@/services/payroll.service";
 // local imports
-import { formatMoney } from "../shared";
+import { formatMoney, formatYearRange, getApiErrorMessage } from "../shared";
 import { AdjustmentModal } from "./adjustment-modal";
 import { SalaryModal } from "./salary-modal";
 
@@ -42,7 +43,9 @@ type Props = {
 export function EmployeeDetail(props: Props) {
   const { workspaceSlug, employee, offices, onChanged, onEdit } = props;
   const { t } = useTranslation();
-  const [isSalaryOpen, setIsSalaryOpen] = useState(false);
+  const [salaryTarget, setSalaryTarget] = useState<TSalary | null | undefined>(undefined);
+  const [deleteSalaryTarget, setDeleteSalaryTarget] = useState<TSalary | null>(null);
+  const [isDeletingSalary, setIsDeletingSalary] = useState(false);
   const [isAdjustmentOpen, setIsAdjustmentOpen] = useState(false);
 
   const { data: salaries, mutate: mutateSalaries } = useSWR<TSalary[]>(
@@ -56,13 +59,18 @@ export function EmployeeDetail(props: Props) {
     { revalidateOnFocus: false }
   );
 
-  const removeSalary = async (salaryId: string) => {
+  const removeSalary = async () => {
+    if (!deleteSalaryTarget) return;
+    setIsDeletingSalary(true);
     try {
-      await payrollService.deleteSalary(workspaceSlug, employee.id, salaryId);
+      await payrollService.deleteSalary(workspaceSlug, employee.id, deleteSalaryTarget.id);
+      setDeleteSalaryTarget(null);
       void mutateSalaries();
       onChanged();
-    } catch {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payroll.toasts.error") });
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("payroll.toasts.error"), message: getApiErrorMessage(error) });
+    } finally {
+      setIsDeletingSalary(false);
     }
   };
 
@@ -80,13 +88,40 @@ export function EmployeeDetail(props: Props) {
       <SalaryModal
         workspaceSlug={workspaceSlug}
         employeeId={employee.id}
-        isOpen={isSalaryOpen}
+        salary={salaryTarget ?? null}
+        isOpen={salaryTarget !== undefined}
         offices={offices}
-        onClose={() => setIsSalaryOpen(false)}
+        onClose={() => setSalaryTarget(undefined)}
         onSaved={() => {
           void mutateSalaries();
           onChanged();
         }}
+      />
+      <AlertModalCore
+        isOpen={deleteSalaryTarget !== null}
+        handleClose={() => setDeleteSalaryTarget(null)}
+        handleSubmit={() => (deleteSalaryTarget?.scenario_count ? setDeleteSalaryTarget(null) : void removeSalary())}
+        isSubmitting={isDeletingSalary}
+        title={t("payroll.employees.delete_salary_title")}
+        content={
+          deleteSalaryTarget
+            ? t(
+                deleteSalaryTarget.scenario_count
+                  ? "payroll.employees.delete_salary_blocked"
+                  : "payroll.employees.delete_salary_impact",
+                {
+                  budgets:
+                    deleteSalaryTarget.scenario_names?.join(", ") || String(deleteSalaryTarget.scenario_count ?? 0),
+                }
+              )
+            : ""
+        }
+        variant={deleteSalaryTarget?.scenario_count ? "primary" : "danger"}
+        primaryButtonText={
+          deleteSalaryTarget?.scenario_count
+            ? { default: t("payroll.actions.close"), loading: t("payroll.actions.close") }
+            : undefined
+        }
       />
       <AdjustmentModal
         workspaceSlug={workspaceSlug}
@@ -124,7 +159,7 @@ export function EmployeeDetail(props: Props) {
           <h4 className="text-11 font-medium text-tertiary uppercase">{t("payroll.employees.salaries")}</h4>
           <button
             type="button"
-            onClick={() => setIsSalaryOpen(true)}
+            onClick={() => setSalaryTarget(null)}
             className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-11 text-tertiary hover:bg-layer-1-hover hover:text-primary"
           >
             <Plus className="size-3" />
@@ -151,6 +186,9 @@ export function EmployeeDetail(props: Props) {
                 <span className="flex-1 text-11">
                   {salary.effective_from} → {salary.effective_to ?? "—"}
                 </span>
+                <span className="shrink-0 rounded-full border border-subtle bg-layer-2 px-1.5 py-0.5 text-9 font-medium text-tertiary">
+                  {formatYearRange(salary.effective_from, salary.effective_to)}
+                </span>
                 {salary.is_current && (
                   <span className="shrink-0 rounded-full bg-accent-primary/10 px-2 py-0.5 text-11 text-accent-primary">
                     {t("payroll.employees.current")}
@@ -158,8 +196,17 @@ export function EmployeeDetail(props: Props) {
                 )}
                 <button
                   type="button"
-                  onClick={() => void removeSalary(salary.id)}
+                  onClick={() => setSalaryTarget(salary)}
+                  className="shrink-0 text-tertiary hover:text-primary"
+                  title={t("payroll.actions.edit")}
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteSalaryTarget(salary)}
                   className="shrink-0 text-tertiary hover:text-danger-primary"
+                  title={t("payroll.actions.delete")}
                 >
                   <Trash2 className="size-3.5" />
                 </button>

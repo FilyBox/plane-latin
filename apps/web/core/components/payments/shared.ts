@@ -40,6 +40,13 @@ export const toIsoDate = (value: Date): string =>
 
 export const todayIso = (): string => toIsoDate(new Date());
 
+export const formatYearRange = (from: string, to?: string | null): string => {
+  const startYear = from.slice(0, 4);
+  const endYear = to?.slice(0, 4);
+  if (!endYear) return `${startYear}+`;
+  return startYear === endYear ? startYear : `${startYear}-${endYear}`;
+};
+
 /** The quarter containing `date`, as the default reporting window. */
 export const currentQuarter = (date = new Date()): { from: string; to: string } => {
   const quarter = Math.floor(date.getMonth() / 3);
@@ -51,3 +58,14 @@ export const currentQuarter = (date = new Date()): { from: string; to: string } 
 };
 
 export const CURRENCIES = ["MXN", "USD", "EUR"];
+
+export const getApiErrorMessage = (error: unknown): string | undefined => {
+  if (!error || typeof error !== "object") return typeof error === "string" ? error : undefined;
+  const data = error as Record<string, unknown>;
+  for (const key of ["error", "detail", "name", "fiscal_year", "period_start", "period_end", "effective_from"]) {
+    const value = data[key];
+    if (typeof value === "string" && value) return value;
+    if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+  }
+  return undefined;
+};

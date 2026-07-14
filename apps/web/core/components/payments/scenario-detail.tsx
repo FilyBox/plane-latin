@@ -34,6 +34,7 @@ import type {
 } from "@plane/types";
 import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
+import useDebounce from "@/hooks/use-debounce";
 import { financeService } from "@/services/finance.service";
 import { payrollService } from "@/services/payroll.service";
 import { BudgetBonusModal } from "./bonus-modal";
@@ -44,9 +45,10 @@ import { EmployeesTab } from "./payroll/employees";
 import { OfficesModal } from "./payroll/offices-modal";
 import { BudgetScenarioModal } from "./scenario-modal";
 import { ScenarioEmployeeModal } from "./scenario-employee-modal";
-import { formatMoney } from "./shared";
+import { formatMoney, formatYearRange } from "./shared";
 import { FinancialVariableModal } from "./variable-modal";
 import { BudgetSpreadsheet } from "./budget-spreadsheet";
+import { ResourceSearch } from "./resource-search";
 
 type Panel = "compose" | "resources";
 type ResourceSection = "people" | "variables" | "expenses";
@@ -83,7 +85,12 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onBack, onChange
   const handleExport = async (format: "csv" | "xlsx") => {
     setIsExporting(true);
     try {
-      await financeService.exportScenario(workspaceSlug, scenario.id, format);
+      await financeService.exportScenario(
+        workspaceSlug,
+        scenario.id,
+        format,
+        `${scenario.name}-${scenario.fiscal_year}`
+      );
     } catch {
       setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error") });
     } finally {
@@ -290,6 +297,9 @@ export function ScenarioTeam({ workspaceSlug, scenario }: { workspaceSlug: strin
                     <p className="mt-0.5 text-11 text-tertiary">
                       {assignment.position || t("payments.scenarios.no_position")} / {assignment.office_name}
                     </p>
+                    <span className="mt-1 inline-flex rounded-full border border-subtle bg-layer-2 px-1.5 py-0.5 text-9 font-medium text-tertiary">
+                      {formatYearRange(assignment.effective_from, assignment.effective_to)}
+                    </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -330,6 +340,9 @@ export function ScenarioTeam({ workspaceSlug, scenario }: { workspaceSlug: strin
                       className="flex items-center gap-1.5 rounded-full bg-layer-2 px-2.5 py-1 text-10 text-secondary"
                     >
                       {bonus.name}: {bonus.calculation_type === "PERCENTAGE" ? `${bonus.value}%` : bonus.value}
+                      <span className="rounded-full border border-subtle px-1.5 py-0.5 text-9 text-tertiary">
+                        {formatYearRange(bonus.effective_from, bonus.effective_to)}
+                      </span>
                       <button
                         type="button"
                         onClick={() =>
@@ -368,14 +381,16 @@ function ScenarioVariables({
   const [editing, setEditing] = useState<TFinancialVariable | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TFinancialVariable | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search.trim(), 300);
   const { data: offices, mutate: mutateOffices } = useSWR<TOffice[]>(
     `PAYROLL_OFFICES_${workspaceSlug}`,
     () => payrollService.getOffices(workspaceSlug),
     { revalidateOnFocus: false }
   );
   const { data: variables, mutate: mutateVariables } = useSWR<TFinancialVariable[]>(
-    `FINANCIAL_VARIABLES_${workspaceSlug}`,
-    () => financeService.getFinancialVariables(workspaceSlug),
+    `FINANCIAL_VARIABLES_${workspaceSlug}_${debouncedSearch || "ALL"}`,
+    () => financeService.getFinancialVariables(workspaceSlug, debouncedSearch),
     { revalidateOnFocus: false }
   );
   const { data: assigned, mutate: mutateAssigned } = useSWR<TBudgetScenarioVariable[]>(
@@ -463,7 +478,15 @@ function ScenarioVariables({
         </div>
       )}
 
-      <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <ResourceSearch
+        value={search}
+        onChange={setSearch}
+        placeholder={t("payments.composer.search_variables")}
+        clearLabel={t("payments.composer.clear_search")}
+        className="mt-5"
+      />
+
+      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
         {(variables ?? []).map((variable) => {
           const assignment = assignedByVariable.get(variable.id);
           return (
@@ -481,6 +504,9 @@ function ScenarioVariables({
                       )}
                     >
                       {t(`payments.variables.kind.${variable.kind.toLowerCase()}`)}
+                    </span>
+                    <span className="rounded-full border border-subtle bg-layer-2 px-1.5 py-0.5 text-9 font-medium text-tertiary">
+                      {formatYearRange(variable.effective_from, variable.effective_to)}
                     </span>
                   </div>
                   <p className="mt-1 text-11 text-tertiary">
@@ -534,8 +560,10 @@ function ScenarioVariables({
       {(variables?.length ?? 0) === 0 && (offices?.length ?? 0) > 0 && (
         <div className="mt-5 rounded-xl border border-dashed border-subtle bg-layer-1 p-10 text-center">
           <Variable className="mx-auto size-6 text-tertiary" />
-          <p className="mt-3 text-13 font-medium text-primary">{t("payments.variables.empty_title")}</p>
-          <p className="mt-1 text-12 text-tertiary">{t("payments.variables.empty_description")}</p>
+          <p className="mt-3 text-13 font-medium text-primary">
+            {t(search.trim() ? "payments.composer.no_search_results" : "payments.variables.empty_title")}
+          </p>
+          {!search.trim() && <p className="mt-1 text-12 text-tertiary">{t("payments.variables.empty_description")}</p>}
         </div>
       )}
     </div>

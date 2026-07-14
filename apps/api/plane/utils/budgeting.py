@@ -46,7 +46,16 @@ def _identifier(value, fallback):
     return str(getattr(value, "id", fallback))
 
 
-def _line(row_key, label, category, entity_name, currency, kind, scenario_months):
+def _line(
+    row_key,
+    label,
+    category,
+    entity_name,
+    currency,
+    kind,
+    scenario_months,
+    owner_name="",
+):
     return {
         "key": row_key,
         "label": label,
@@ -54,6 +63,7 @@ def _line(row_key, label, category, entity_name, currency, kind, scenario_months
         "entity_name": entity_name,
         "currency": currency,
         "kind": kind,
+        "owner_name": owner_name,
         "values": {(year, month): Decimal(0) for year, month in scenario_months},
     }
 
@@ -107,6 +117,7 @@ def scenario_forecast(
             salary.currency,
             "EXPENSE",
             scenario_months,
+            employee_name,
         )
         benefit_line = _line(
             f"benefit:{assignment_id}",
@@ -116,6 +127,7 @@ def scenario_forecast(
             salary.currency,
             "EXPENSE",
             scenario_months,
+            employee_name,
         )
 
         for year, month in scenario_months:
@@ -153,6 +165,7 @@ def scenario_forecast(
                 salary.currency,
                 "EXPENSE",
                 scenario_months,
+                employee_name,
             )
             bonus_start = max(bonus.effective_from, assignment_start)
             bonus_end = min(bonus.effective_to or assignment_end, assignment_end)
@@ -271,6 +284,7 @@ def scenario_forecast(
                 "entity_name": line["entity_name"],
                 "currency": line["currency"],
                 "kind": line["kind"],
+                "owner_name": line["owner_name"],
                 "months": serialized_months,
                 "total": _money(total),
             }
