@@ -125,10 +125,12 @@ export function ContractsRoot(props: Props) {
         name: contract.file_name ?? `${contract.titulo ?? contract.id}.pdf`,
       }));
     if (targets.length === 0) return;
-    setToast({
-      type: TOAST_TYPE.SUCCESS,
-      title: t("file_library.download_started", { count: targets.length }),
-    });
+    // A single file has no downloads-panel entry (it's a direct browser
+    // download), so it still gets its own toast; 2+ files are tracked by the
+    // panel already — a second "starting" toast would just duplicate it.
+    if (targets.length === 1) {
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.download_started", { count: 1 }) });
+    }
     try {
       await downloadAssets(workspaceSlug, targets, "contratos");
     } catch {

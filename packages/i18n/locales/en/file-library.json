@@ -11,6 +11,19 @@
     "delete_title": "Delete {name}?",
     "delete_description": "The file will be removed from the library. This action cannot be undone.",
     "delete_failed": "Failed to delete the file",
+    "delete_selected_title": "Delete {count, plural, one {# item} other {# items}}?",
+    "delete_contents_question": "What happens to the folder contents?",
+    "delete_contents_detach": "Keep contents (moved to the parent folder)",
+    "delete_contents_delete": "Delete everything inside (subfolders and files)",
+    "delete_type_to_confirm": "Type \"{name}\" to confirm",
+    "delete_confirm_word": "DELETE",
+    "actions": {
+      "rename": "Rename",
+      "move": "Move",
+      "rename_placeholder": "New name",
+      "move_here": "Move here",
+      "more": "More actions"
+    },
     "empty": {
       "title": "No files yet",
       "description": "Upload your first file by dragging it here or using the button below."

@@ -65,8 +65,23 @@ export type TLibraryFile = {
 };
 
 export type TLibraryBulkAction =
-  | { action: "move"; file_ids: string[]; folder_id?: string | null; new_folder_name?: string; parent_id?: string | null }
-  | { action: "delete"; file_ids: string[] }
+  | {
+      action: "move";
+      file_ids: string[];
+      /** Folders moved (re-parented) into the same destination as the files */
+      folder_ids?: string[];
+      folder_id?: string | null;
+      new_folder_name?: string;
+      parent_id?: string | null;
+    }
+  | {
+      action: "delete";
+      file_ids: string[];
+      folder_ids?: string[];
+      /** What happens to the contents of deleted folders:
+       * "detach" (default) re-parents them; "delete" removes everything inside. */
+      contents?: "detach" | "delete";
+    }
   | { action: "add_categories" | "remove_categories"; file_ids: string[]; category_ids: string[] }
   | { action: "add_tags" | "remove_tags"; file_ids: string[]; tag_ids: string[] };
 

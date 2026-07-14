@@ -247,6 +247,15 @@ export class FileLibraryService extends APIService {
       });
   }
 
+  /** Renames the file's display name (the stored object is untouched) */
+  async renameFile(workspaceSlug: string, assetId: string, name: string): Promise<void> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/`, { name })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
   async deleteFile(workspaceSlug: string, assetId: string): Promise<void> {
     return this.delete(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/`)
       .then((response) => response?.data)

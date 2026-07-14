@@ -121,9 +121,12 @@ function ToastRender({ id, toast }: { id: React.Key; toast: BaseToast.Root.Toast
       toast={toast}
       key={id}
       className={cn(
-        // Base layout and positioning
+        // Base layout and positioning. The bottom offset reads a CSS var so
+        // callers can nudge the whole toast stack up when it would otherwise
+        // render on top of another bottom-anchored panel (see
+        // reserveToastClearance in apps/web's file-library module).
         "group flex w-[350px] items-center rounded-lg border shadow-raised-200",
-        "absolute right-3 bottom-3 z-[calc(1000-var(--toast-index))]",
+        "absolute right-3 bottom-(--toast-viewport-bottom,0.75rem) z-[calc(1000-var(--toast-index))]",
         "ease-&lsqb;cubic-bezier(0.22,1,0.36,1)&rsqb; transition-[opacity,transform] duration-500 select-none",
 
         // Default transform with stacking and scaling

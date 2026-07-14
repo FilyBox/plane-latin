@@ -11,6 +11,19 @@
     "delete_title": "¿Eliminar {name}?",
     "delete_description": "El archivo se eliminará de la biblioteca. Esta acción no se puede deshacer.",
     "delete_failed": "No se pudo eliminar el archivo",
+    "delete_selected_title": "¿Eliminar {count, plural, one {# elemento} other {# elementos}}?",
+    "delete_contents_question": "¿Qué hacer con el contenido de las carpetas?",
+    "delete_contents_detach": "Conservar el contenido (se mueve a la carpeta padre)",
+    "delete_contents_delete": "Eliminar todo el contenido (subcarpetas y archivos)",
+    "delete_type_to_confirm": "Escribe \"{name}\" para confirmar",
+    "delete_confirm_word": "ELIMINAR",
+    "actions": {
+      "rename": "Renombrar",
+      "move": "Mover",
+      "rename_placeholder": "Nuevo nombre",
+      "move_here": "Mover aquí",
+      "more": "Más acciones"
+    },
     "empty": {
       "title": "Aún no hay archivos",
       "description": "Sube tu primer archivo arrastrándolo aquí o con el botón de abajo."

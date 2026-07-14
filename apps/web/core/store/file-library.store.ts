@@ -68,6 +68,7 @@ export interface IFileLibraryStore {
     folderId?: string | null
   ) => Promise<TLibraryFile>;
   deleteFile: (workspaceSlug: string, fileId: string) => Promise<void>;
+  renameFile: (workspaceSlug: string, fileId: string, name: string) => Promise<void>;
   addFileCategories: (workspaceSlug: string, fileId: string, categoryIds: string[]) => Promise<void>;
   removeFileCategory: (workspaceSlug: string, fileId: string, categoryId: string) => Promise<void>;
   addFileTags: (workspaceSlug: string, fileId: string, tagIds: string[]) => Promise<void>;
@@ -126,6 +127,7 @@ export class FileLibraryStore implements IFileLibraryStore {
       fetchFiles: action,
       uploadFile: action,
       deleteFile: action,
+      renameFile: action,
       addFileCategories: action,
       removeFileCategory: action,
       addFileTags: action,
@@ -427,6 +429,14 @@ export class FileLibraryStore implements IFileLibraryStore {
     await this.fileLibraryService.deleteFile(workspaceSlug, fileId);
     runInAction(() => {
       unset(this.filesMap, [fileId]);
+    });
+  };
+
+  renameFile = async (workspaceSlug: string, fileId: string, name: string) => {
+    await this.fileLibraryService.renameFile(workspaceSlug, fileId, name);
+    runInAction(() => {
+      const file = this.filesMap[fileId];
+      if (file) set(this.filesMap, [fileId, "attributes"], { ...file.attributes, name });
     });
   };
 
