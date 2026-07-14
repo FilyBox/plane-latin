@@ -34,7 +34,7 @@ export const TopNavPowerK = observer(() => {
   const [isWorkspaceLevel, setIsWorkspaceLevel] = useState(false);
 
   // store hooks
-  const { activeContext, setActivePage, activePage, setTopNavInputRef } = usePowerK();
+  const { activeContext, setActivePage, activePage, setTopNavInputRef, togglePowerKModal } = usePowerK();
   const { data: currentUser } = useUser();
 
   const handleOnClose = useCallback(() => {
@@ -55,6 +55,9 @@ export const TopNavPowerK = observer(() => {
   } = useExpandableSearch({
     onClose: handleOnClose,
   });
+  useEffect(() => {
+    if (isOpen) inputRef.current?.focus();
+  }, [isOpen, inputRef]);
 
   // derived values
   const {
@@ -106,6 +109,14 @@ export const TopNavPowerK = observer(() => {
   const handleClear = () => {
     setSearchTerm("");
     inputRef.current?.focus();
+  };
+
+  const handleSearchOpen = () => {
+    if (window.matchMedia("(max-width: 639px)").matches) {
+      togglePowerKModal(true);
+      return;
+    }
+    openPanel();
   };
 
   // Handle command selection
@@ -209,21 +220,24 @@ export const TopNavPowerK = observer(() => {
   return (
     <div ref={containerRef} className="relative">
       <div
-        className={cn("relative z-30 flex w-[364px] items-center transition-all duration-300 ease-in-out", {
-          "w-[554px]": isOpen,
-        })}
+        className={cn(
+          "relative z-30 flex w-9 items-center sm:w-[364px] sm:transition-all sm:duration-300 sm:ease-in-out",
+          {
+            "sm:w-[554px]": isOpen,
+          }
+        )}
       >
         <div
           className={cn(
-            "flex h-7 w-full items-center rounded-lg border border-subtle-1 bg-layer-2 p-2 transition-colors duration-200",
+            "flex h-7 w-full items-center justify-center rounded-lg border border-subtle-1 bg-layer-2 p-2 transition-colors duration-200 sm:justify-start",
             {
               "bg-layer-1": isOpen,
             }
           )}
-          onClick={() => inputRef.current?.focus()}
+          onClick={handleSearchOpen}
           role="button"
         >
-          <SearchIcon className="mr-2 size-3.5 shrink-0 text-placeholder" />
+          <SearchIcon className="size-3.5 shrink-0 text-placeholder sm:mr-2" />
           <input
             ref={inputRef}
             type="text"
@@ -236,7 +250,7 @@ export const TopNavPowerK = observer(() => {
             onFocus={handleFocus}
             onKeyDown={handleKeyDown}
             placeholder="Search commands..."
-            className="placeholder-text-placeholder min-w-0 flex-1 bg-transparent text-13 text-primary outline-none"
+            className="placeholder-text-placeholder hidden min-w-0 flex-1 bg-transparent text-13 text-primary outline-none sm:block"
           />
           {searchTerm && (
             <button type="button" onClick={handleClear} className="ml-2 shrink-0">
@@ -247,7 +261,7 @@ export const TopNavPowerK = observer(() => {
       </div>
       <div
         className={cn(
-          "shadow-lg absolute -top-[6px] left-1/2 z-20 flex -translate-x-1/2 flex-col overflow-hidden rounded-md border border-subtle bg-surface-1 px-0 pt-10 transition-all duration-300 ease-in-out",
+          "shadow-lg absolute -top-[6px] left-1/2 z-20 hidden -translate-x-1/2 flex-col overflow-hidden rounded-md border border-subtle bg-surface-1 px-0 pt-10 transition-all duration-300 ease-in-out sm:flex",
           {
             "max-h-[80vh] w-[574px] opacity-100": isOpen,
             "h-0 w-0 opacity-0": !isOpen,
