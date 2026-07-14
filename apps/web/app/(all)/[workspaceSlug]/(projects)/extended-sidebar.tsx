@@ -13,6 +13,7 @@ import type { EUserWorkspaceRoles } from "@plane/types";
 // hooks
 import { useAppTheme } from "@/hooks/store/use-app-theme";
 import { useUserPermissions } from "@/hooks/store/user";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 import { useWorkspaceNavigationPreferences } from "@/hooks/use-navigation-preferences";
 // plane-web imports
 import { ExtendedSidebarItem } from "@/plane-web/components/workspace/sidebar/extended-sidebar-item";
@@ -26,6 +27,7 @@ export const ExtendedAppSidebar = observer(function ExtendedAppSidebar() {
   // store hooks
   const { isExtendedSidebarOpened, toggleExtendedSidebar } = useAppTheme();
   const { allowPermissions } = useUserPermissions();
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
   const { preferences: workspacePreferences, updateWorkspaceItemSortOrder } = useWorkspaceNavigationPreferences();
 
   // derived values
@@ -37,8 +39,14 @@ export const ExtendedAppSidebar = observer(function ExtendedAppSidebar() {
     return WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS.filter((item) => {
       // Permission check
       const hasPermission = allowPermissions(item.access, EUserPermissionsLevel.WORKSPACE, slug);
-
-      return hasPermission;
+      if (!hasPermission) return false;
+      // Feature-flag gated modules must stay hidden here too — otherwise the
+      // "More" menu surfaces a broken link that just redirects home (matches
+      // sidebar-menu-items.tsx and customize-navigation-dialog.tsx).
+      if ((item.key === "file-library" || item.key === "contracts") && !isWorkspaceFeatureEnabled(slug, "file_library"))
+        return false;
+      if (item.key === "payments" && !isWorkspaceFeatureEnabled(slug, "payments")) return false;
+      return true;
     })
       .map((item) => {
         const preference = currentWorkspaceNavigationPreferences?.[item.key];
@@ -56,7 +64,7 @@ export const ExtendedAppSidebar = observer(function ExtendedAppSidebar() {
         // Then sort by sort_order within each group
         return a.sort_order - b.sort_order;
       });
-  }, [workspaceSlug, currentWorkspaceNavigationPreferences, allowPermissions]);
+  }, [workspaceSlug, currentWorkspaceNavigationPreferences, allowPermissions, isWorkspaceFeatureEnabled]);
 
   const sortedNavigationItemsKeys = sortedNavigationItems.map((item) => item.key);
 

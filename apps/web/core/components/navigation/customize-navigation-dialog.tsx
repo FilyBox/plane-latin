@@ -88,6 +88,8 @@ export const CustomizeNavigationDialog = observer(function CustomizeNavigationDi
       // "file-library" / "contracts" only appear once the module is enabled for this workspace
       if ((item.key === "file-library" || item.key === "contracts") && !isWorkspaceFeatureEnabled(slug, "file_library"))
         return false;
+      // "payments" is likewise gated by its own per-workspace feature flag
+      if (item.key === "payments" && !isWorkspaceFeatureEnabled(slug, "payments")) return false;
       return hasPermission;
     }).map((item) => {
       // Get pinned status and sort order from localStorage

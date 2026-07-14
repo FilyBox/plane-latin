@@ -23,31 +23,35 @@ type TWorkspaceListItemProps = {
 
 export const WorkspaceListItem = observer(function WorkspaceListItem({ workspaceId }: TWorkspaceListItemProps) {
   // states
-  const [isUpdatingFeature, setIsUpdatingFeature] = useState(false);
+  const [updatingFeature, setUpdatingFeature] = useState<"file_library" | "payments" | null>(null);
   // store hooks
   const { getWorkspaceById, updateWorkspaceFeature } = useWorkspace();
   // derived values
   const workspace = getWorkspaceById(workspaceId);
 
-  const handleFileLibraryToggle = async () => {
-    if (!workspace || isUpdatingFeature) return;
-    const nextValue = !workspace.is_file_library_enabled;
-    setIsUpdatingFeature(true);
+  const handleFeatureToggle = async (
+    key: "file_library" | "payments",
+    currentValue: boolean | undefined,
+    label: string
+  ) => {
+    if (!workspace || updatingFeature) return;
+    const nextValue = !currentValue;
+    setUpdatingFeature(key);
     try {
-      await updateWorkspaceFeature(workspace.id, "file_library", nextValue);
+      await updateWorkspaceFeature(workspace.id, key, nextValue);
       setToast({
         type: TOAST_TYPE.SUCCESS,
         title: "Success",
-        message: `File library ${nextValue ? "enabled" : "disabled"} for ${workspace.name}`,
+        message: `${label} ${nextValue ? "enabled" : "disabled"} for ${workspace.name}`,
       });
     } catch {
       setToast({
         type: TOAST_TYPE.ERROR,
         title: "Error",
-        message: "Failed to update the file library feature",
+        message: `Failed to update the ${label.toLowerCase()} feature`,
       });
     } finally {
-      setIsUpdatingFeature(false);
+      setUpdatingFeature(null);
     }
   };
 
@@ -109,31 +113,46 @@ export const WorkspaceListItem = observer(function WorkspaceListItem({ workspace
         </div>
       </div>
       <div className="flex flex-shrink-0 items-center gap-4">
-        <Tooltip tooltipContent="Enable the file library + contracts module for this workspace">
-          {/* Not interactive itself — only shields the nested ToggleSwitch (already
-              keyboard-accessible) from the parent anchor's click-to-navigate. Must use
-              React's onClick (not a native addEventListener): React 17+ delegates all
-              event handling from a single listener at the app root, relying on native
-              bubbling to reach it. A native stopPropagation() on an intermediate node
-              would swallow the event before React's root ever sees it, breaking every
-              handler inside — including the switch itself. */}
-          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
-          <div
-            className={`flex items-center gap-2 ${isUpdatingFeature ? "opacity-70" : ""}`}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-          >
-            <span className="text-11 font-medium text-secondary">File library</span>
-            <ToggleSwitch
-              value={Boolean(workspace.is_file_library_enabled)}
-              onChange={handleFileLibraryToggle}
-              size="sm"
-              disabled={isUpdatingFeature}
-            />
-          </div>
-        </Tooltip>
+        {/* Not interactive itself — only shields the nested ToggleSwitches (already
+            keyboard-accessible) from the parent anchor's click-to-navigate. Must use
+            React's onClick (not a native addEventListener): React 17+ delegates all
+            event handling from a single listener at the app root, relying on native
+            bubbling to reach it. A native stopPropagation() on an intermediate node
+            would swallow the event before React's root ever sees it, breaking every
+            handler inside — including the switches themselves. */}
+        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
+        <div
+          className="flex items-center gap-4"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <Tooltip tooltipContent="Enable the file library + contracts module for this workspace">
+            <div className={`flex items-center gap-2 ${updatingFeature === "file_library" ? "opacity-70" : ""}`}>
+              <span className="text-11 font-medium text-secondary">File library</span>
+              <ToggleSwitch
+                value={Boolean(workspace.is_file_library_enabled)}
+                onChange={() =>
+                  handleFeatureToggle("file_library", workspace.is_file_library_enabled, "File library")
+                }
+                size="sm"
+                disabled={updatingFeature !== null}
+              />
+            </div>
+          </Tooltip>
+          <Tooltip tooltipContent="Enable the payments (budgets + payroll) module for this workspace">
+            <div className={`flex items-center gap-2 ${updatingFeature === "payments" ? "opacity-70" : ""}`}>
+              <span className="text-11 font-medium text-secondary">Payments</span>
+              <ToggleSwitch
+                value={Boolean(workspace.is_payments_enabled)}
+                onChange={() => handleFeatureToggle("payments", workspace.is_payments_enabled, "Payments")}
+                size="sm"
+                disabled={updatingFeature !== null}
+              />
+            </div>
+          </Tooltip>
+        </div>
         <NewTabIcon width={14} height={16} className="text-placeholder group-hover:text-secondary" />
       </div>
     </a>

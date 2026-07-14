@@ -20,15 +20,21 @@ const PaymentsPage = observer(function PaymentsPage({ params }: Route.ComponentP
   const { workspaceSlug } = params;
   // store hooks
   const { isWorkspaceFeatureEnabled, featureFlagsMap } = useWorkspace();
-  const { allowPermissions } = useUserPermissions();
+  const { allowPermissions, workspaceInfoBySlug } = useUserPermissions();
   // derived values
   const areFlagsLoaded = featureFlagsMap[workspaceSlug] !== undefined;
+  // On a direct/hard navigation (fresh page load, no warm workspace session)
+  // the member role hasn't been fetched yet — without this check, `isAdmin`
+  // reads as false on the first render and bounces an actual admin home
+  // before `fetchUserWorkspaceInfo` resolves.
+  const isRoleLoaded = workspaceInfoBySlug(workspaceSlug) !== undefined;
   const isPaymentsEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "payments");
   // Money is admin-only. The API enforces this too — this just avoids rendering
   // a page whose every request would come back 403.
   const isAdmin = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
 
-  if (areFlagsLoaded && (!isPaymentsEnabled || !isAdmin)) return <Navigate to={`/${workspaceSlug}`} replace />;
+  if (areFlagsLoaded && isRoleLoaded && (!isPaymentsEnabled || !isAdmin))
+    return <Navigate to={`/${workspaceSlug}`} replace />;
 
   return (
     <>
