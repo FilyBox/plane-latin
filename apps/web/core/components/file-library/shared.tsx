@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { Check, Combine, Folder, Lock, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 // plane imports
@@ -39,14 +39,17 @@ type LabelChecklistProps = {
 };
 
 /** Small "merge into…" picker popover, opened per row when onMerge is set. */
-function MergeIntoPicker(props: {
-  currentId: string;
-  items: TLabelItem[];
-  onPick: (targetId: string) => void;
-}) {
+function MergeIntoPicker(props: { currentId: string; items: TLabelItem[]; onPick: (targetId: string) => void }) {
   const { currentId, items, onPick } = props;
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
+  // Focused on open via a ref rather than autoFocus: the attribute yanks focus
+  // in ways screen readers can't announce, while this only fires once the
+  // popover is actually on screen.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    searchRef.current?.focus();
+  }, []);
   const candidates = items.filter(
     (item) => item.id !== currentId && item.name.toLowerCase().includes(query.trim().toLowerCase())
   );
@@ -62,11 +65,11 @@ function MergeIntoPicker(props: {
           <div className="relative mb-1">
             <Search className="absolute top-1/2 left-2 size-3 -translate-y-1/2 text-tertiary" />
             <input
-              autoFocus
+              ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("file_library.filters.search_placeholder")}
-              className="w-full rounded-sm border border-subtle bg-transparent py-1 pl-6 pr-2 text-12"
+              className="w-full rounded-sm border border-subtle bg-transparent py-1 pr-2 pl-6 text-12"
             />
           </div>
           <div className="max-h-40 space-y-0.5 overflow-y-auto">
@@ -159,7 +162,10 @@ export const LabelChecklist = observer(function LabelChecklist(props: LabelCheck
           const isDisabled = Boolean(item.pdfOnly && disablePdfOnly);
           const isEditing = editingId === item.id;
           return (
-            <div key={item.id} className="group flex items-center gap-1.5 rounded-sm px-1.5 py-1 hover:bg-layer-1-hover">
+            <div
+              key={item.id}
+              className="group flex items-center gap-1.5 rounded-sm px-1.5 py-1 hover:bg-layer-1-hover"
+            >
               {isEditing ? (
                 <>
                   <Input

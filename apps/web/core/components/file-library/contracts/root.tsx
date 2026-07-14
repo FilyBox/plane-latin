@@ -106,7 +106,9 @@ export function ContractsRoot(props: Props) {
       previous.includes(contractId) ? previous.filter((id) => id !== contractId) : [...previous, contractId]
     );
   const toggleSelectAll = () =>
-    setSelectedIds((previous) => (previous.length === (contracts ?? []).length ? [] : (contracts ?? []).map((c) => c.id)));
+    setSelectedIds((previous) =>
+      previous.length === (contracts ?? []).length ? [] : (contracts ?? []).map((c) => c.id)
+    );
 
   // The Files bulk-actions modal (move/categories/tags/delete) operates on
   // file_asset ids, not contract ids — map the selection across
@@ -172,7 +174,7 @@ export function ContractsRoot(props: Props) {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder={t("file_library.contracts.search_placeholder")}
-              className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pl-8 pr-2 text-12 sm:w-64"
+              className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pr-2 pl-8 text-12 sm:w-64"
             />
           </div>
           <ContractFiltersDropdown workspaceSlug={workspaceSlug} filters={filters} onChange={setFilters} />

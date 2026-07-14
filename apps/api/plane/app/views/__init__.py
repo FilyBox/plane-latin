@@ -86,6 +86,22 @@ from .finance import (
     ExpenseEndpoint,
 )
 
+from .payroll import (
+    AdjustmentDetailEndpoint,
+    AdjustmentEndpoint,
+    AguinaldoEndpoint,
+    AnnualCostEndpoint,
+    EmployeeDetailEndpoint,
+    EmployeeEndpoint,
+    OfficeDetailEndpoint,
+    OfficeEndpoint,
+    PayrollAccessEndpoint,
+    PayrollPaymentDetailEndpoint,
+    PayrollPaymentEndpoint,
+    SalaryDetailEndpoint,
+    SalaryEndpoint,
+)
+
 from .workspace.member import (
     WorkSpaceMemberViewSet,
     WorkspaceMemberUserEndpoint,

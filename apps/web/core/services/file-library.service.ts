@@ -164,7 +164,10 @@ export class FileLibraryService extends APIService {
 
   // bulk
 
-  async bulkAction(workspaceSlug: string, payload: TLibraryBulkAction): Promise<{ status: string; skipped?: string[] }> {
+  async bulkAction(
+    workspaceSlug: string,
+    payload: TLibraryBulkAction
+  ): Promise<{ status: string; skipped?: string[] }> {
     return this.post(`/api/workspaces/${workspaceSlug}/file-library/files/bulk/`, payload)
       .then((response) => response?.data)
       .catch((error) => {
