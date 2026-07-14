@@ -6,3 +6,5 @@ approval_mode = "approve"
 
 [mcp_servers.deepwiki.tools.ask_question]
 approval_mode = "approve"
+
+model_verbosity = "low

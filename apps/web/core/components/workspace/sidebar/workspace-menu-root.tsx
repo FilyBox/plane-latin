@@ -79,7 +79,7 @@ export const WorkspaceMenuRoot = observer(function WorkspaceMenuRoot(props: Work
       as="div"
       className={cn("relative flex h-full w-fit max-w-48 truncate whitespace-nowrap", {
         "w-full justify-center text-center": variant === "sidebar",
-        "flex-grow justify-stretch truncate text-left": variant === "top-navigation",
+        "min-w-0 flex-1 justify-stretch text-left": variant === "top-navigation",
       })}
     >
       {({ open, close }: { open: boolean; close: () => void }) => {
@@ -113,18 +113,18 @@ export const WorkspaceMenuRoot = observer(function WorkspaceMenuRoot(props: Work
             {variant === "top-navigation" && (
               <Menu.Button
                 className={cn(
-                  "group/menu-button flex flex-grow items-center justify-between gap-1 truncate rounded-sm p-1 text-13 font-medium text-secondary hover:bg-layer-1 focus:outline-none",
+                  "group/menu-button flex min-w-0 flex-1 items-center justify-between gap-1 truncate rounded-sm p-1 text-13 font-medium text-secondary hover:bg-layer-1 focus:outline-none",
                   {
                     "bg-layer-1": open,
                   }
                 )}
                 aria-label={t("aria_labels.projects_sidebar.open_workspace_switcher")}
               >
-                <div className="flex flex-grow items-center gap-2 truncate">
+                <div className="flex min-w-0 flex-1 items-center gap-2 truncate">
                   <WorkspaceLogo
                     logo={activeWorkspace?.logo_url}
                     name={activeWorkspace?.name}
-                    classNames="border border-subtle rounded-md size-7"
+                    classNames="size-7 shrink-0 rounded-md border border-subtle"
                   />
                   <h4 className="truncate text-14 font-medium text-primary">{activeWorkspace?.name ?? t("loading")}</h4>
                 </div>

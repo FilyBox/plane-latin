@@ -92,7 +92,7 @@ function CsvViewerFromUrl({ url, className }: { url: string; className?: string 
       cancelled = true;
     };
   }, [url]);
-  if (failed) return <div className="text-muted-foreground grid h-full place-items-center text-sm">–</div>;
+  if (failed) return <div className="text-muted-foreground text-sm grid h-full place-items-center">–</div>;
   if (data === null) return <FileSystemViewerLoading />;
   return <LazyCsvViewer data={data} className={className} />;
 }
@@ -211,7 +211,7 @@ function FileSystemBadgePill({ badge }: { badge: FileSystemFileBadge }) {
   return (
     <span
       className={cn(
-        "shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium leading-tight",
+        "shrink-0 rounded-full px-1.5 py-px text-[10px] leading-tight font-medium",
         FILE_BADGE_TONE_CLASSES[badge.tone ?? "neutral"]
       )}
     >
@@ -1375,11 +1375,16 @@ export function FileSystem({
   }, [currentPath, onPathChange]);
 
   const [selectedPath, setSelectedPath] = React.useState<string | null>(null);
+  const [isTouchSelectionMode, setIsTouchSelectionMode] = React.useState(false);
   const selectedEntry = React.useMemo(() => {
     if (selectedPath === null) return null;
 
     return index.files.get(selectedPath) ?? index.folders.get(selectedPath) ?? null;
   }, [index, selectedPath]);
+
+  React.useEffect(() => {
+    if (selectedFilePaths?.size === 0) setIsTouchSelectionMode(false);
+  }, [selectedFilePaths]);
 
   const [searchInput, setSearchInput] = React.useState("");
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -1923,16 +1928,48 @@ export function FileSystem({
   // Selecting a lazy folder (columns view, keyboard nav) prefetches children.
   const selectAndPrefetchEntry = React.useCallback(
     (entry: FileSystemEntry | null) => {
-      // Modifier-click on an entry toggles multi-selection instead of moving
-      // the single selection (works uniformly across all four views).
-      if (entry && multiSelectModifierRef.current && onFileSelectToggle) {
+      // Modifier-click and touch selection mode toggle multi-selection instead
+      // of moving the single selection (works uniformly across item views).
+      if (entry && (multiSelectModifierRef.current || isTouchSelectionMode) && onFileSelectToggle) {
         onFileSelectToggle(entry);
         return;
       }
       selectEntry(entry);
       if (entry?.kind === "folder") ensureChildren(entry.path);
     },
-    [ensureChildren, selectEntry, onFileSelectToggle]
+    [ensureChildren, isTouchSelectionMode, selectEntry, onFileSelectToggle]
+  );
+
+  const longPressTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressNextTouchClickRef = React.useRef(false);
+
+  const clearLongPress = React.useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  React.useEffect(() => clearLongPress, [clearLongPress]);
+
+  const handleSelectionPointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.pointerType !== "touch" || !onFileSelectToggle) return;
+
+      const element = (event.target as HTMLElement).closest<HTMLElement>("[data-file-system-entry-path]");
+      const path = element?.dataset.fileSystemEntryPath;
+      const entry = path ? (sortedIndex.files.get(path) ?? sortedIndex.folders.get(path)) : null;
+      if (!entry) return;
+
+      clearLongPress();
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null;
+        suppressNextTouchClickRef.current = true;
+        setIsTouchSelectionMode(true);
+        onFileSelectToggle(entry);
+      }, 500);
+    },
+    [clearLongPress, onFileSelectToggle, sortedIndex]
   );
 
   const goBack = React.useCallback(() => {
@@ -1995,270 +2032,265 @@ export function FileSystem({
 
   return (
     <FileSystemMultiSelectContext.Provider value={multiSelectValue}>
-    <div
-      ref={rootRef}
-      tabIndex={-1}
-      data-slot="file-system"
-      onKeyDown={(event) => {
-        // ⌘F focuses the toolbar search while focus is inside the component.
-        if ((event.metaKey || event.ctrlKey) && event.key === "f") {
+      <div
+        ref={rootRef}
+        tabIndex={-1}
+        data-slot="file-system"
+        onKeyDown={(event) => {
+          // ⌘F focuses the toolbar search while focus is inside the component.
+          if ((event.metaKey || event.ctrlKey) && event.key === "f") {
+            event.preventDefault();
+            setIsSearchExpanded(true);
+            searchInputRef.current?.focus();
+          }
+        }}
+        // Records whether the click driving the upcoming selection carried a
+        // multi-select modifier (capture phase runs before the item handlers).
+        onPointerDownCapture={(event) => {
+          multiSelectModifierRef.current = event.ctrlKey || event.metaKey;
+          handleSelectionPointerDown(event);
+        }}
+        onPointerMoveCapture={clearLongPress}
+        onPointerUpCapture={clearLongPress}
+        onPointerCancelCapture={clearLongPress}
+        onClickCapture={(event) => {
+          if (!suppressNextTouchClickRef.current) return;
+          suppressNextTouchClickRef.current = false;
           event.preventDefault();
-          setIsSearchExpanded(true);
-          searchInputRef.current?.focus();
-        }
-      }}
-      // Records whether the click driving the upcoming selection carried a
-      // multi-select modifier (capture phase runs before the item handlers).
-      onPointerDownCapture={(event) => {
-        multiSelectModifierRef.current = event.ctrlKey || event.metaKey;
-      }}
-      className={cn("text-foreground flex h-[480px] min-h-0 flex-col overflow-hidden outline-none", className)}
-    >
-      <FileSystemIconSpriteSheet />
-      <div className="border-border/70 bg-muted/40 relative grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b px-2">
-        <div className="flex min-w-0 items-center gap-0.5">
-          <button
-            type="button"
-            aria-label="Back"
-            title="Back"
-            disabled={!canGoBack}
-            onClick={goBack}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring flex size-7 shrink-0 items-center justify-center rounded-md transition-colors outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-40"
-          >
-            <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4.5" />
-          </button>
-          <button
-            type="button"
-            aria-label="Forward"
-            title="Forward"
-            disabled={!canGoForward}
-            onClick={goForward}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring flex size-7 shrink-0 items-center justify-center rounded-md transition-colors outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-40"
-          >
-            <HugeiconsIcon icon={ArrowRight01Icon} className="size-4.5" />
-          </button>
-          {headerLayout !== "minimal" ? (
-            <span className="text-sm ml-1.5 truncate font-semibold">{currentFolderName}</span>
-          ) : null}
-        </div>
-        {headerLayout !== "full" || isBelowIpadWidth ? (
-          <Select value={view} onValueChange={(value) => setView(value as FileSystemView)}>
-            <SelectTrigger
-              size="sm"
-              aria-label="View"
-              // Icon-only like the sort select: sheds the base min-width to
-              // hug icon + chevron at the filter button's 28px height.
-              className="h-7 min-h-7 w-auto min-w-0 [&_svg]:size-4"
+          event.stopPropagation();
+        }}
+        className={cn("text-foreground flex h-[480px] min-h-0 flex-col overflow-hidden outline-none", className)}
+      >
+        <FileSystemIconSpriteSheet />
+        <div className="border-border/70 bg-muted/40 relative grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b px-2">
+          <div className="flex min-w-0 items-center gap-0.5">
+            <button
+              type="button"
+              aria-label="Back"
+              title="Back"
+              disabled={!canGoBack}
+              onClick={goBack}
+              className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring flex size-7 shrink-0 items-center justify-center rounded-md transition-colors outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-40"
             >
-              <SelectValue>
-                {activeViewOption ? <HugeiconsIcon icon={activeViewOption.icon} className="size-4" /> : null}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {VIEW_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  <span className="flex items-center gap-2">
+              <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4.5" />
+            </button>
+            <button
+              type="button"
+              aria-label="Forward"
+              title="Forward"
+              disabled={!canGoForward}
+              onClick={goForward}
+              className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring flex size-7 shrink-0 items-center justify-center rounded-md transition-colors outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-40"
+            >
+              <HugeiconsIcon icon={ArrowRight01Icon} className="size-4.5" />
+            </button>
+            {headerLayout !== "minimal" ? (
+              <span className="text-sm ml-1.5 truncate font-semibold">{currentFolderName}</span>
+            ) : null}
+          </div>
+          {headerLayout !== "full" || isBelowIpadWidth ? (
+            <Select value={view} onValueChange={(value) => setView(value as FileSystemView)}>
+              <SelectTrigger
+                size="sm"
+                aria-label="View"
+                // Icon-only like the sort select: sheds the base min-width to
+                // hug icon + chevron at the filter button's 28px height.
+                className="h-7 min-h-7 w-auto min-w-0 [&_svg]:size-4"
+              >
+                <SelectValue>
+                  {activeViewOption ? <HugeiconsIcon icon={activeViewOption.icon} className="size-4" /> : null}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {VIEW_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    <span className="flex items-center gap-2">
+                      <HugeiconsIcon icon={option.icon} className="size-4" />
+                      {option.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Tabs value={view} onValueChange={(value) => setView(value as FileSystemView)} className="gap-0">
+              <TabsList className="h-8 p-0.5">
+                {VIEW_OPTIONS.map((option) => (
+                  <TabsTrigger
+                    key={option.value}
+                    value={option.value}
+                    aria-label={`${option.label} view`}
+                    title={option.label}
+                    className="h-7 grow-0 px-2.5 sm:h-7"
+                  >
                     <HugeiconsIcon icon={option.icon} className="size-4" />
-                    {option.label}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <Tabs value={view} onValueChange={(value) => setView(value as FileSystemView)} className="gap-0">
-            <TabsList className="h-8 p-0.5">
-              {VIEW_OPTIONS.map((option) => (
-                <TabsTrigger
-                  key={option.value}
-                  value={option.value}
-                  aria-label={`${option.label} view`}
-                  title={option.label}
-                  className="h-7 grow-0 px-2.5 sm:h-7"
-                >
-                  <HugeiconsIcon icon={option.icon} className="size-4" />
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        )}
-        <div className="flex min-w-0 items-center justify-end gap-1">
-          {!hideToolbarControls && (
-            <>
-              <FileSystemSortSelect
-                layout={headerLayout}
-                onKeyChange={applySortKey}
-                showLabel={!isBelowIpadWidth}
-                sort={sort}
-              />
-              <FileSystemFilterMenu
-                fileTypeOptions={fileTypeOptions}
-                filters={filters}
-                onOpenCustomRange={openDateRangeDialog}
-                onSelectDatePreset={setDatePresetFilter}
-                onToggleFileType={toggleFileTypeFilterValue}
-              />
-              <FileSystemSearchField
-                inputRef={searchInputRef}
-                isExpanded={isSearchExpanded}
-                layout={headerLayout}
-                onExpandedChange={setIsSearchExpanded}
-                onValueChange={setSearchInput}
-                value={searchInput}
-              />
-            </>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          )}
+          <div className="flex min-w-0 items-center justify-end gap-1">
+            {!hideToolbarControls && (
+              <>
+                <FileSystemSortSelect
+                  layout={headerLayout}
+                  onKeyChange={applySortKey}
+                  showLabel={!isBelowIpadWidth}
+                  sort={sort}
+                />
+                <FileSystemFilterMenu
+                  fileTypeOptions={fileTypeOptions}
+                  filters={filters}
+                  onOpenCustomRange={openDateRangeDialog}
+                  onSelectDatePreset={setDatePresetFilter}
+                  onToggleFileType={toggleFileTypeFilterValue}
+                />
+                <FileSystemSearchField
+                  inputRef={searchInputRef}
+                  isExpanded={isSearchExpanded}
+                  layout={headerLayout}
+                  onExpandedChange={setIsSearchExpanded}
+                  onValueChange={setSearchInput}
+                  value={searchInput}
+                />
+              </>
+            )}
+          </div>
+        </div>
+        {hasActiveFilters ? (
+          <div className="border-border/70 bg-muted/20 text-xs text-muted-foreground flex shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1.5">
+            {filters.map((filter) => {
+              const dateFilterType = filter.type === "fileType" ? null : filter.type;
+
+              return (
+                <FileSystemFilterPill
+                  key={filter.id}
+                  fileTypeOptions={fileTypeOptions}
+                  filter={filter}
+                  onOpenCustomRange={dateFilterType ? () => openDateRangeDialog(dateFilterType) : undefined}
+                  onOperatorChange={(operator) =>
+                    setFilters((previous) =>
+                      previous.map((entry) => (entry.id === filter.id ? { ...entry, operator } : entry))
+                    )
+                  }
+                  onRemove={() => setFilters((previous) => previous.filter((entry) => entry.id !== filter.id))}
+                  onSelectDatePreset={(preset) =>
+                    setFilters((previous) =>
+                      previous.map((entry) =>
+                        entry.id === filter.id
+                          ? {
+                              ...entry,
+                              operator:
+                                entry.operator === "before" || entry.operator === "after" ? entry.operator : "after",
+                              value: [preset],
+                            }
+                          : entry
+                      )
+                    )
+                  }
+                  onToggleFileType={toggleFileTypeFilterValue}
+                />
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setFilters([])}
+              className="hover:text-foreground focus-visible:ring-ring rounded-md px-1.5 py-0.5 transition-colors outline-none focus-visible:ring-2"
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
+        <div className="relative min-h-0 flex-1">
+          {isLoadingCurrentFolder && currentEntries.length === 0 ? (
+            <FileSystemEmptyState label="Loading…" isLoading />
+          ) : currentEntries.length === 0 && (view !== "columns" || isSearching || hasActiveFilters) ? (
+            <FileSystemEmptyState
+              label={
+                isSearching
+                  ? `No results for “${searchInput.trim()}”`
+                  : hasActiveFilters
+                    ? "No items match the active filters"
+                    : "This folder is empty"
+              }
+            />
+          ) : view === "icons" ? (
+            <FileSystemIconsView {...viewProps} />
+          ) : view === "list" ? (
+            <FileSystemListView {...viewProps} />
+          ) : view === "columns" ? (
+            <FileSystemColumnsView {...viewProps} />
+          ) : (
+            <FileSystemGalleryView {...viewProps} />
           )}
         </div>
-      </div>
-      {hasActiveFilters ? (
-        <div className="border-border/70 bg-muted/20 text-xs text-muted-foreground flex shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1.5">
-          {filters.map((filter) => {
-            const dateFilterType = filter.type === "fileType" ? null : filter.type;
-
-            return (
-              <FileSystemFilterPill
-                key={filter.id}
-                fileTypeOptions={fileTypeOptions}
-                filter={filter}
-                onOpenCustomRange={dateFilterType ? () => openDateRangeDialog(dateFilterType) : undefined}
-                onOperatorChange={(operator) =>
-                  setFilters((previous) =>
-                    previous.map((entry) => (entry.id === filter.id ? { ...entry, operator } : entry))
-                  )
-                }
-                onRemove={() => setFilters((previous) => previous.filter((entry) => entry.id !== filter.id))}
-                onSelectDatePreset={(preset) =>
-                  setFilters((previous) =>
-                    previous.map((entry) =>
-                      entry.id === filter.id
-                        ? {
-                            ...entry,
-                            operator:
-                              entry.operator === "before" || entry.operator === "after" ? entry.operator : "after",
-                            value: [preset],
-                          }
-                        : entry
-                    )
-                  )
-                }
-                onToggleFileType={toggleFileTypeFilterValue}
-              />
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setFilters([])}
-            className="hover:text-foreground focus-visible:ring-ring rounded-md px-1.5 py-0.5 transition-colors outline-none focus-visible:ring-2"
-          >
-            Clear
-          </button>
-        </div>
-      ) : null}
-      <div className="relative min-h-0 flex-1">
-        {isLoadingCurrentFolder && currentEntries.length === 0 ? (
-          <FileSystemEmptyState label="Loading…" isLoading />
-        ) : currentEntries.length === 0 && (view !== "columns" || isSearching || hasActiveFilters) ? (
-          <FileSystemEmptyState
-            label={
-              isSearching
-                ? `No results for “${searchInput.trim()}”`
-                : hasActiveFilters
-                  ? "No items match the active filters"
-                  : "This folder is empty"
-            }
-          />
-        ) : view === "icons" ? (
-          <FileSystemIconsView {...viewProps} />
-        ) : view === "list" ? (
-          <FileSystemListView {...viewProps} />
-        ) : view === "columns" ? (
-          <FileSystemColumnsView {...viewProps} />
-        ) : (
-          <FileSystemGalleryView {...viewProps} />
-        )}
-      </div>
-      <div
-        aria-live="polite"
-        className="border-border/70 bg-muted/40 text-xs text-muted-foreground flex h-11 shrink-0 items-center justify-center gap-1 border-t px-3 py-1"
-      >
-        <span>
-          {currentEntries.length}{" "}
-          {isSearching
-            ? currentEntries.length === 1
-              ? "result"
-              : "results"
-            : currentEntries.length === 1
-              ? "item"
-              : "items"}
-        </span>
-        {selectedEntry ? <span>· “{selectedEntry.name}” selected</span> : null}
-      </div>
-      <Dialog
-        open={openedFile !== null}
-        onOpenChange={(open) => {
-          if (!open) setOpenedFile(null);
-        }}
-      >
-        {openedFile ? (
-          <DialogContent
-            className={cn("overflow-hidden p-0", VIEWER_DIALOG_CLASSNAMES[openedFile.kind])}
-            showCloseButton={openedFile.kind === "image"}
-          >
-            <DialogTitle className="sr-only">{openedFileName}</DialogTitle>
-            {openedFile.kind === "image" ? (
-              // eslint-disable-next-line @next/next/no-img-element -- File previews render caller-provided URLs that may be object or presigned URLs.
-              <img
-                src={openedFile.url}
-                alt={openedFileName}
-                className="max-h-[88vh] w-auto max-w-full rounded-2xl object-contain"
-              />
-            ) : (
-              // The pooled preview reparents into this host (see the layout
-              // effect above), so a viewer the gallery already loaded
-              // carries over live instead of remounting behind a loading
-              // state.
-              <div ref={dialogStageHostRef} className="flex h-full min-h-0 flex-1 flex-col" />
-            )}
-          </DialogContent>
-        ) : null}
-        {/* The pooled previews. Rendered inside <Dialog> so the dialog
+        <Dialog
+          open={openedFile !== null}
+          onOpenChange={(open) => {
+            if (!open) setOpenedFile(null);
+          }}
+        >
+          {openedFile ? (
+            <DialogContent
+              className={cn("overflow-hidden p-0", VIEWER_DIALOG_CLASSNAMES[openedFile.kind])}
+              showCloseButton={openedFile.kind === "image"}
+            >
+              <DialogTitle className="sr-only">{openedFileName}</DialogTitle>
+              {openedFile.kind === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element -- File previews render caller-provided URLs that may be object or presigned URLs.
+                <img
+                  src={openedFile.url}
+                  alt={openedFileName}
+                  className="max-h-[88vh] w-auto max-w-full rounded-2xl object-contain"
+                />
+              ) : (
+                // The pooled preview reparents into this host (see the layout
+                // effect above), so a viewer the gallery already loaded
+                // carries over live instead of remounting behind a loading
+                // state.
+                <div ref={dialogStageHostRef} className="flex h-full min-h-0 flex-1 flex-col" />
+              )}
+            </DialogContent>
+          ) : null}
+          {/* The pooled previews. Rendered inside <Dialog> so the dialog
             variant's close toolbar button keeps its context; each portal's
             container never changes, the container's parent does. */}
-        {stagePool.map((path) => {
-          const file = index.files.get(path);
-          const container = stageContainers.get(path);
+          {stagePool.map((path) => {
+            const file = index.files.get(path);
+            const container = stageContainers.get(path);
 
-          if (!file || !container) return null;
+            if (!file || !container) return null;
 
-          const isOpenedInDialog = openedFile !== null && openedFile.kind !== "image" && openedFile.file.path === path;
+            const isOpenedInDialog =
+              openedFile !== null && openedFile.kind !== "image" && openedFile.file.path === path;
 
-          return createPortal(
-            <FileSystemGalleryStage
-              file={file}
-              getFileUrl={getFileUrl}
-              loadPreviewImageUrl={loadPreviewImageUrl}
-              pageUrlCache={pageUrlCache}
-              renderFilePreview={renderFilePreview}
-              toolbarActions={isOpenedInDialog ? viewerCloseToolbarAction : undefined}
-              urlCache={resolvedUrlCache}
-              variant={isOpenedInDialog ? "dialog" : "stage"}
-            />,
-            container,
-            path
-          );
-        })}
-      </Dialog>
-      {dateRangeDialog ? (
-        <FileSystemDateRangeDialog
-          initialRange={dateRangeDialog.initialRange}
-          onApply={(from, to) => {
-            applyCustomDateRange(dateRangeDialog.type, from, to);
-            setDateRangeDialog(null);
-          }}
-          onClose={() => setDateRangeDialog(null)}
-        />
-      ) : null}
-    </div>
+            return createPortal(
+              <FileSystemGalleryStage
+                file={file}
+                getFileUrl={getFileUrl}
+                loadPreviewImageUrl={loadPreviewImageUrl}
+                pageUrlCache={pageUrlCache}
+                renderFilePreview={renderFilePreview}
+                toolbarActions={isOpenedInDialog ? viewerCloseToolbarAction : undefined}
+                urlCache={resolvedUrlCache}
+                variant={isOpenedInDialog ? "dialog" : "stage"}
+              />,
+              container,
+              path
+            );
+          })}
+        </Dialog>
+        {dateRangeDialog ? (
+          <FileSystemDateRangeDialog
+            initialRange={dateRangeDialog.initialRange}
+            onApply={(from, to) => {
+              applyCustomDateRange(dateRangeDialog.type, from, to);
+              setDateRangeDialog(null);
+            }}
+            onClose={() => setDateRangeDialog(null)}
+          />
+        ) : null}
+      </div>
     </FileSystemMultiSelectContext.Provider>
   );
 }
@@ -3340,6 +3372,7 @@ function FileSystemIconsView({ entries, onOpen, onSelect, renderFilePreview, sel
                 type="button"
                 role="option"
                 aria-selected={isSelected}
+                data-file-system-entry-path={entry.path}
                 tabIndex={entry.path === tabStopPath ? 0 : -1}
                 ref={(element) => {
                   if (element) {
@@ -4314,6 +4347,7 @@ const FileSystemColumn = React.memo(function FileSystemColumn({
                   type="button"
                   role="option"
                   aria-selected={isSelected}
+                  data-file-system-entry-path={entry.path}
                   // Selected rows sit on the primary surface — the opposite
                   // of the mode's background — so the file-type icon swaps
                   // to the opposite palette.
@@ -4681,6 +4715,7 @@ function FileSystemGalleryView(props: FileSystemViewProps) {
                   type="button"
                   role="option"
                   aria-selected={isActive}
+                  data-file-system-entry-path={entry.path}
                   tabIndex={isActive ? 0 : -1}
                   ref={(element) => {
                     if (element) {
