@@ -201,7 +201,11 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onBack, onChange
               onSaved={() => setSheetRefreshToken((value) => value + 1)}
             />
           ) : (
-            <BudgetResourcesPanel workspaceSlug={workspaceSlug} scenario={scenario} />
+            <BudgetResourcesPanel
+              workspaceSlug={workspaceSlug}
+              scenario={scenario}
+              onChanged={() => setSheetRefreshToken((value) => value + 1)}
+            />
           )}
         </BudgetPeekPanel>
       )}
@@ -349,7 +353,15 @@ export function ScenarioTeam({ workspaceSlug, scenario }: { workspaceSlug: strin
   );
 }
 
-function ScenarioVariables({ workspaceSlug, scenario }: { workspaceSlug: string; scenario: TBudgetScenario }) {
+function ScenarioVariables({
+  workspaceSlug,
+  scenario,
+  onChanged,
+}: {
+  workspaceSlug: string;
+  scenario: TBudgetScenario;
+  onChanged?: () => void;
+}) {
   const { t } = useTranslation();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isOfficesOpen, setIsOfficesOpen] = useState(false);
@@ -376,6 +388,7 @@ function ScenarioVariables({ workspaceSlug, scenario }: { workspaceSlug: string;
   const refresh = () => {
     void mutateVariables();
     void mutateAssigned();
+    onChanged?.();
   };
 
   const handleDelete = async () => {
@@ -410,7 +423,10 @@ function ScenarioVariables({ workspaceSlug, scenario }: { workspaceSlug: string;
         offices={offices ?? []}
         isOpen={isOfficesOpen}
         onClose={() => setIsOfficesOpen(false)}
-        onChanged={() => void mutateOffices()}
+        onChanged={() => {
+          void mutateOffices();
+          onChanged?.();
+        }}
       />
       <AlertModalCore
         isOpen={deleteTarget !== null}
@@ -526,7 +542,15 @@ function ScenarioVariables({ workspaceSlug, scenario }: { workspaceSlug: string;
   );
 }
 
-function BudgetResourcesPanel({ workspaceSlug, scenario }: { workspaceSlug: string; scenario: TBudgetScenario }) {
+function BudgetResourcesPanel({
+  workspaceSlug,
+  scenario,
+  onChanged,
+}: {
+  workspaceSlug: string;
+  scenario: TBudgetScenario;
+  onChanged: () => void;
+}) {
   const { t } = useTranslation();
   const [section, setSection] = useState<ResourceSection>("people");
   const sections: { key: ResourceSection; icon: typeof Users; label: string }[] = [
@@ -555,15 +579,17 @@ function BudgetResourcesPanel({ workspaceSlug, scenario }: { workspaceSlug: stri
         ))}
       </nav>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {section === "people" && <ScenarioResources workspaceSlug={workspaceSlug} />}
-        {section === "variables" && <ScenarioVariables workspaceSlug={workspaceSlug} scenario={scenario} />}
-        {section === "expenses" && <ExpensesTab workspaceSlug={workspaceSlug} />}
+        {section === "people" && <ScenarioResources workspaceSlug={workspaceSlug} onChanged={onChanged} />}
+        {section === "variables" && (
+          <ScenarioVariables workspaceSlug={workspaceSlug} scenario={scenario} onChanged={onChanged} />
+        )}
+        {section === "expenses" && <ExpensesTab workspaceSlug={workspaceSlug} onChanged={onChanged} />}
       </div>
     </div>
   );
 }
 
-function ScenarioResources({ workspaceSlug }: { workspaceSlug: string }) {
+function ScenarioResources({ workspaceSlug, onChanged }: { workspaceSlug: string; onChanged: () => void }) {
   const { data: offices, mutate } = useSWR<TOffice[]>(
     `PAYROLL_OFFICES_${workspaceSlug}`,
     () => payrollService.getOffices(workspaceSlug),
@@ -572,7 +598,12 @@ function ScenarioResources({ workspaceSlug }: { workspaceSlug: string }) {
 
   return (
     <div className="mx-auto max-w-[1180px] p-4 sm:p-6">
-      <EmployeesTab workspaceSlug={workspaceSlug} offices={offices ?? []} onOfficesChanged={() => void mutate()} />
+      <EmployeesTab
+        workspaceSlug={workspaceSlug}
+        offices={offices ?? []}
+        onOfficesChanged={() => void mutate()}
+        onChanged={onChanged}
+      />
     </div>
   );
 }

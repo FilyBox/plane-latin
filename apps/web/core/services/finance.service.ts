@@ -106,19 +106,29 @@ export class FinanceService extends APIService {
   }
 
   async exportScenario(workspaceSlug: string, scenarioId: string, format: "csv" | "xlsx"): Promise<void> {
-    const response = await this.get(
-      `/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/export/`,
-      { params: { format } },
-      { responseType: "blob" }
-    );
+    const response = await this.request({
+      method: "GET",
+      url: `/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/export/`,
+      params: { format },
+      responseType: "blob",
+    });
     const disposition = response.headers["content-disposition"] as string | undefined;
-    const filename = disposition?.match(/filename="?([^";]+)"?/)?.[1] ?? `budget.${format}`;
-    const url = URL.createObjectURL(response.data);
+    const encodedFilename = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const filename = encodedFilename
+      ? decodeURIComponent(encodedFilename)
+      : (disposition?.match(/filename="?([^";]+)"?/i)?.[1] ?? `budget.${format}`);
+    const blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
+    const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = filename;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
     anchor.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => {
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    }, 10_000);
   }
 
   async getScenarioEmployees(workspaceSlug: string, scenarioId: string): Promise<TBudgetScenarioEmployee[]> {

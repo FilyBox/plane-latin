@@ -69,7 +69,11 @@
       "form_description": "Give this plan a clear name and define the period it covers.",
       "fiscal_year": "Fiscal year",
       "status_label": "Status",
-      "status": { "draft": "Draft", "active": "Active", "archived": "Archived" },
+      "status": {
+        "draft": "Draft",
+        "active": "Active",
+        "archived": "Archived"
+      },
       "search": "Search budgets",
       "all_years": "All years",
       "empty_title": "No budgets found",
@@ -166,7 +170,10 @@
       "entity": "Entity",
       "entity_required": "Create an entity in Resources before adding financial variables.",
       "kind_label": "Movement",
-      "kind": { "expense": "Expense", "income": "Income" },
+      "kind": {
+        "expense": "Expense",
+        "income": "Income"
+      },
       "recurrence_label": "Recurrence",
       "recurrence": {
         "one_time": "One time",
@@ -188,6 +195,8 @@
       "create": "New bonus or extra",
       "add": "Add bonus",
       "saved": "Bonus saved",
+      "delete_title": "Delete bonus",
+      "delete_description": "{name} will be removed from this budget and its automatic calculations will be updated. Manual cell overrides will remain unchanged.",
       "calculation": "Calculation",
       "fixed": "Fixed amount",
       "percentage": "Salary percentage",

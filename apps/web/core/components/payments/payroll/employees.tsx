@@ -26,10 +26,11 @@ type Props = {
   workspaceSlug: string;
   offices: TOffice[];
   onOfficesChanged: () => void;
+  onChanged?: () => void;
 };
 
 export function EmployeesTab(props: Props) {
-  const { workspaceSlug, offices, onOfficesChanged } = props;
+  const { workspaceSlug, offices, onOfficesChanged, onChanged } = props;
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
@@ -54,6 +55,7 @@ export function EmployeesTab(props: Props) {
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("payroll.toasts.deleted") });
       setDeleteTarget(null);
       void mutate();
+      onChanged?.();
     } catch {
       setToast({ type: TOAST_TYPE.ERROR, title: t("payroll.toasts.error") });
     } finally {
@@ -71,14 +73,20 @@ export function EmployeesTab(props: Props) {
           setIsEmployeeModalOpen(false);
           setEditing(null);
         }}
-        onSaved={() => void mutate()}
+        onSaved={() => {
+          void mutate();
+          onChanged?.();
+        }}
       />
       <OfficesModal
         workspaceSlug={workspaceSlug}
         isOpen={isOfficesOpen}
         offices={offices}
         onClose={() => setIsOfficesOpen(false)}
-        onChanged={onOfficesChanged}
+        onChanged={() => {
+          onOfficesChanged();
+          onChanged?.();
+        }}
       />
       <AlertModalCore
         isOpen={deleteTarget !== null}
@@ -191,7 +199,10 @@ export function EmployeesTab(props: Props) {
                     workspaceSlug={workspaceSlug}
                     employee={employee}
                     offices={offices}
-                    onChanged={() => void mutate()}
+                    onChanged={() => {
+                      void mutate();
+                      onChanged?.();
+                    }}
                     onEdit={() => {
                       setEditing(employee);
                       setIsEmployeeModalOpen(true);

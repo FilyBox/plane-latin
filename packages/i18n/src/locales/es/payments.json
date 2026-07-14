@@ -195,6 +195,8 @@
       "create": "Nuevo bono o extra",
       "add": "Agregar bono",
       "saved": "Bono guardado",
+      "delete_title": "Eliminar bono",
+      "delete_description": "Se quitara {name} de este presupuesto y se actualizaran sus calculos automaticos. Las celdas modificadas manualmente conservaran su valor.",
       "calculation": "Calculo",
       "fixed": "Cantidad fija",
       "percentage": "Porcentaje del sueldo",
