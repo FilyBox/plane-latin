@@ -69,7 +69,11 @@
       "form_description": "Asigna un nombre claro al plan y define el periodo que cubre.",
       "fiscal_year": "Ano fiscal",
       "status_label": "Estado",
-      "status": { "draft": "Borrador", "active": "Activo", "archived": "Archivado" },
+      "status": {
+        "draft": "Borrador",
+        "active": "Activo",
+        "archived": "Archivado"
+      },
       "search": "Buscar presupuestos",
       "all_years": "Todos los anos",
       "empty_title": "No se encontraron presupuestos",
@@ -166,7 +170,10 @@
       "entity": "Entidad",
       "entity_required": "Crea una entidad en Recursos antes de agregar variables financieras.",
       "kind_label": "Movimiento",
-      "kind": { "expense": "Gasto", "income": "Ingreso" },
+      "kind": {
+        "expense": "Gasto",
+        "income": "Ingreso"
+      },
       "recurrence_label": "Recurrencia",
       "recurrence": {
         "one_time": "Una vez",
@@ -188,6 +195,8 @@
       "create": "Nuevo bono o extra",
       "add": "Agregar bono",
       "saved": "Bono guardado",
+      "delete_title": "Eliminar bono",
+      "delete_description": "Se quitara {name} de este presupuesto y se actualizaran sus calculos automaticos. Las celdas modificadas manualmente conservaran su valor.",
       "calculation": "Calculo",
       "fixed": "Cantidad fija",
       "percentage": "Porcentaje del sueldo",

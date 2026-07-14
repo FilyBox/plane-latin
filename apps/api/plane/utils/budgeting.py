@@ -36,6 +36,12 @@ def _money(value):
     return str(Decimal(value).quantize(CENTS))
 
 
+def _salary_amount_for_month(salary, active_days, month_days):
+    if getattr(salary, "periodicity", None) == "MONTHLY":
+        return salary.amount * Decimal(active_days) / Decimal(month_days)
+    return salary.daily_amount() * Decimal(active_days)
+
+
 def _identifier(value, fallback):
     return str(getattr(value, "id", fallback))
 
@@ -74,8 +80,22 @@ def scenario_forecast(
         employee_name = getattr(employee, "full_name", "Employee")
         office_name = getattr(salary.office, "name", "")
         assignment_id = _identifier(assignment, f"employee-{assignment_index}")
-        assignment_start = max(assignment.effective_from, scenario.period_start)
-        assignment_end = min(assignment.effective_to or scenario.period_end, scenario.period_end)
+        active_starts = [assignment.effective_from, scenario.period_start]
+        active_ends = [assignment.effective_to or scenario.period_end, scenario.period_end]
+        employee_hire_date = getattr(employee, "hire_date", None)
+        employee_termination_date = getattr(employee, "termination_date", None)
+        salary_start = getattr(salary, "effective_from", None)
+        salary_end = getattr(salary, "effective_to", None)
+        if employee_hire_date:
+            active_starts.append(employee_hire_date)
+        if employee_termination_date:
+            active_ends.append(employee_termination_date)
+        if salary_start:
+            active_starts.append(salary_start)
+        if salary_end:
+            active_ends.append(salary_end)
+        assignment_start = max(active_starts)
+        assignment_end = min(active_ends)
         if assignment_start > assignment_end:
             continue
 
@@ -102,8 +122,17 @@ def scenario_forecast(
             month_start, month_end = _month_bounds(year, month)
             active_days = _overlap_days(assignment_start, assignment_end, month_start, month_end)
             if active_days:
-                salary_line["values"][(year, month)] += salary.daily_amount() * Decimal(active_days)
-            if month == 12 and active_days:
+                month_days = (month_end - month_start).days + 1
+                salary_line["values"][(year, month)] += _salary_amount_for_month(
+                    salary, active_days, month_days
+                )
+            termination_month = bool(
+                employee_termination_date
+                and assignment_end == employee_termination_date
+                and employee_termination_date.year == year
+                and employee_termination_date.month == month
+            )
+            if (month == 12 and active_days) or termination_month:
                 calendar_start = max(assignment_start, date(year, 1, 1))
                 calendar_end = min(assignment_end, date(year, 12, 31))
                 worked_days = Decimal((calendar_end - calendar_start).days + 1)

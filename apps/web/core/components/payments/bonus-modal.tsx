@@ -33,6 +33,7 @@ export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, 
   const [effectiveFrom, setEffectiveFrom] = useState(scenario.period_start);
   const [effectiveTo, setEffectiveTo] = useState(scenario.period_end);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const assignmentEnd = assignment?.effective_to ?? scenario.period_end;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -120,6 +121,8 @@ export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, 
               <input
                 type="date"
                 className={FIELD}
+                min={assignment?.effective_from ?? scenario.period_start}
+                max={assignmentEnd}
                 value={effectiveFrom}
                 onChange={(event) => setEffectiveFrom(event.target.value)}
               />
@@ -130,6 +133,7 @@ export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, 
                 type="date"
                 className={FIELD}
                 min={effectiveFrom}
+                max={assignmentEnd}
                 value={effectiveTo}
                 onChange={(event) => setEffectiveTo(event.target.value)}
               />

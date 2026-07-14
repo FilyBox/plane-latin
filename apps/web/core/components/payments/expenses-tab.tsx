@@ -30,10 +30,11 @@ const FIELD = "h-8 rounded-sm border border-subtle bg-layer-1 px-2 text-12 outli
 
 type Props = {
   workspaceSlug: string;
+  onChanged?: () => void;
 };
 
 export function ExpensesTab(props: Props) {
-  const { workspaceSlug } = props;
+  const { workspaceSlug, onChanged } = props;
   const { t } = useTranslation();
   // The window every number on this page is reported for
   const [period, setPeriod] = useState(currentQuarter());
@@ -85,6 +86,7 @@ export function ExpensesTab(props: Props) {
   const refresh = () => {
     void mutateExpenses();
     void mutateSummary();
+    onChanged?.();
   };
 
   const toggleStatus = (status: TExpenseStatus) =>

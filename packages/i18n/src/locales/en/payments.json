@@ -195,6 +195,8 @@
       "create": "New bonus or extra",
       "add": "Add bonus",
       "saved": "Bonus saved",
+      "delete_title": "Delete bonus",
+      "delete_description": "{name} will be removed from this budget and its automatic calculations will be updated. Manual cell overrides will remain unchanged.",
       "calculation": "Calculation",
       "fixed": "Fixed amount",
       "percentage": "Salary percentage",
