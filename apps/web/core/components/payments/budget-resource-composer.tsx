@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Building2, Check, Loader2, Pencil, Plus, Trash2, Users, Variable } from "lucide-react";
 import useSWR, { useSWRConfig } from "swr";
 import { useTranslation } from "@plane/i18n";
@@ -19,22 +19,28 @@ import type {
   TOffice,
   TSalary,
 } from "@plane/types";
-import { AlertModalCore } from "@plane/ui";
+import { AlertModalCore, ToggleSwitch } from "@plane/ui";
 import { cn } from "@plane/utils";
+import useDebounce from "@/hooks/use-debounce";
+import { getSalaryBudgetAvailability } from "@/lib/budget-availability";
 import { financeService } from "@/services/finance.service";
 import { payrollService } from "@/services/payroll.service";
 import { BudgetBonusModal } from "./bonus-modal";
 import { EmployeeModal } from "./payroll/employee-modal";
 import { OfficesModal } from "./payroll/offices-modal";
 import { SalaryModal } from "./payroll/salary-modal";
-import { formatMoney } from "./shared";
+import { formatMoney, formatYearRange, getApiErrorMessage } from "./shared";
 import { FinancialVariableModal } from "./variable-modal";
+import { ResourceSearch } from "./resource-search";
 
 type EmployeeSelection = {
+  employee: string;
   salary: string;
   effective_from: string;
   effective_to: string;
 };
+
+type SalaryTarget = { employee: TEmployee; salary: TSalary | null };
 
 type Props = {
   workspaceSlug: string;
@@ -54,13 +60,19 @@ const earliestDate = (...dates: (string | null | undefined)[]) =>
     .sort()
     .at(0) ?? "";
 
+const YearBadge = ({ from, to }: { from: string; to?: string | null }) => (
+  <span className="shrink-0 rounded-full border border-subtle bg-layer-2 px-1.5 py-0.5 text-9 font-medium text-tertiary">
+    {formatYearRange(from, to)}
+  </span>
+);
+
 export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Props) {
   const { t } = useTranslation();
   const { mutate: mutateGlobal } = useSWRConfig();
   const [employeeSelections, setEmployeeSelections] = useState<Record<string, EmployeeSelection>>({});
   const [variableSelections, setVariableSelections] = useState<Set<string>>(new Set());
   const [editingEmployee, setEditingEmployee] = useState<TEmployee | null | undefined>(undefined);
-  const [salaryTarget, setSalaryTarget] = useState<TEmployee | null>(null);
+  const [salaryTarget, setSalaryTarget] = useState<SalaryTarget | null>(null);
   const [isOfficesOpen, setIsOfficesOpen] = useState(false);
   const [editingVariable, setEditingVariable] = useState<TFinancialVariable | null | undefined>(undefined);
   const [bonusTarget, setBonusTarget] = useState<TBudgetScenarioEmployee | null>(null);
@@ -74,10 +86,15 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
     | null
   >(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hideInapplicable, setHideInapplicable] = useState(true);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [variableSearch, setVariableSearch] = useState("");
+  const debouncedEmployeeSearch = useDebounce(employeeSearch.trim(), 300);
+  const debouncedVariableSearch = useDebounce(variableSearch.trim(), 300);
 
   const { data: employees, mutate: mutateEmployees } = useSWR<TEmployee[]>(
-    `PAYROLL_EMPLOYEES_${workspaceSlug}`,
-    () => payrollService.getEmployees(workspaceSlug),
+    `PAYROLL_EMPLOYEES_${workspaceSlug}_${debouncedEmployeeSearch || "ALL"}`,
+    () => payrollService.getEmployees(workspaceSlug, debouncedEmployeeSearch),
     { revalidateOnFocus: false }
   );
   const { data: offices, mutate: mutateOffices } = useSWR<TOffice[]>(
@@ -86,8 +103,8 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
     { revalidateOnFocus: false }
   );
   const { data: variables, mutate: mutateVariables } = useSWR<TFinancialVariable[]>(
-    `FINANCIAL_VARIABLES_${workspaceSlug}`,
-    () => financeService.getFinancialVariables(workspaceSlug),
+    `FINANCIAL_VARIABLES_${workspaceSlug}_${debouncedVariableSearch || "ALL"}`,
+    () => financeService.getFinancialVariables(workspaceSlug, debouncedVariableSearch),
     { revalidateOnFocus: false }
   );
   const { data: assignments, mutate: mutateAssignments } = useSWR<TBudgetScenarioEmployee[]>(
@@ -103,15 +120,23 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
 
   const assignedSalaryIds = new Set((assignments ?? []).map((assignment) => assignment.salary));
   const assignedVariableIds = new Set((assignedVariables ?? []).map((assignment) => assignment.variable));
+  const assignedVariableById = new Map(
+    (assignedVariables ?? []).map((assignment) => [assignment.variable, assignment])
+  );
   const selectedCount = Object.keys(employeeSelections).length + variableSelections.size;
+
+  useEffect(() => {
+    setEmployeeSelections({});
+    setVariableSelections(new Set());
+  }, [scenario.id]);
 
   const handleSubmit = async () => {
     if (selectedCount === 0) return;
     setIsSubmitting(true);
     try {
       await Promise.all([
-        ...Object.entries(employeeSelections).map(([employee, selection]) =>
-          financeService.addScenarioEmployee(workspaceSlug, scenario.id, { employee, ...selection })
+        ...Object.values(employeeSelections).map((selection) =>
+          financeService.addScenarioEmployee(workspaceSlug, scenario.id, selection)
         ),
         ...Array.from(variableSelections).map((variable) =>
           financeService.addScenarioVariable(workspaceSlug, scenario.id, variable)
@@ -122,8 +147,8 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
       await Promise.all([mutateAssignments(), mutateAssignedVariables()]);
       onSaved();
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("payments.composer.saved") });
-    } catch (error: any) {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: error?.error });
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
     } finally {
       setIsSubmitting(false);
     }
@@ -142,8 +167,8 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
       }
       setRemoveTarget(null);
       onSaved();
-    } catch {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error") });
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
     } finally {
       setIsSubmitting(false);
     }
@@ -166,8 +191,8 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
       );
       setDeleteBonusTarget(null);
       await refreshAssignmentsAndSheet();
-    } catch {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error") });
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
     } finally {
       setIsSubmitting(false);
     }
@@ -187,13 +212,23 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
       />
       <SalaryModal
         workspaceSlug={workspaceSlug}
-        employeeId={salaryTarget?.id ?? ""}
+        employeeId={salaryTarget?.employee.id ?? ""}
+        salary={salaryTarget?.salary ?? null}
         offices={offices ?? []}
+        defaultEffectiveFrom={scenario.period_start}
         isOpen={salaryTarget !== null}
         onClose={() => setSalaryTarget(null)}
         onSaved={() => {
-          if (salaryTarget) void mutateGlobal(`BUDGET_COMPOSER_SALARIES_${workspaceSlug}_${salaryTarget.id}`);
+          if (salaryTarget) {
+            void mutateGlobal(`BUDGET_COMPOSER_SALARIES_${workspaceSlug}_${salaryTarget.employee.id}`);
+            setEmployeeSelections((current) => {
+              return Object.fromEntries(
+                Object.entries(current).filter(([, selection]) => selection.employee !== salaryTarget.employee.id)
+              );
+            });
+          }
           void mutateEmployees();
+          onSaved();
         }}
       />
       <OfficesModal
@@ -214,6 +249,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         onClose={() => setEditingVariable(undefined)}
         onSaved={() => {
           void mutateVariables();
+          setVariableSelections(new Set());
           onSaved();
         }}
       />
@@ -254,6 +290,26 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
       />
 
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-subtle bg-layer-1 px-3 py-2.5">
+          <div>
+            <p className="text-11 font-medium text-primary">{t("payments.composer.period_filter")}</p>
+            <p className="mt-0.5 text-9 text-tertiary">
+              {t(
+                hideInapplicable ? "payments.composer.period_filter_help" : "payments.composer.period_filter_all_help",
+                {
+                  from: scenario.period_start,
+                  to: scenario.period_end,
+                }
+              )}
+            </p>
+          </div>
+          <ToggleSwitch
+            value={hideInapplicable}
+            onChange={() => setHideInapplicable((current) => !current)}
+            label={t("payments.composer.period_filter")}
+            size="sm"
+          />
+        </div>
         {((assignments?.length ?? 0) > 0 || (assignedVariables?.length ?? 0) > 0) && (
           <section>
             <div>
@@ -263,7 +319,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
             <div className="mt-3 divide-y divide-subtle overflow-hidden rounded-lg border border-subtle">
               {(assignments ?? []).map((assignment) => (
                 <div key={assignment.id} className="px-3 py-2.5">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <Users className="size-4 shrink-0 text-tertiary" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-11 font-medium text-primary">{assignment.employee_name}</p>
@@ -274,6 +330,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
                     <span className="hidden text-9 text-tertiary sm:inline">
                       {assignment.effective_from} / {assignment.effective_to ?? scenario.period_end}
                     </span>
+                    <YearBadge from={assignment.effective_from} to={assignment.effective_to ?? scenario.period_end} />
                     <Button variant="secondary" size="base" onClick={() => setBonusTarget(assignment)}>
                       <Plus className="size-3" /> {t("payments.bonuses.add")}
                     </Button>
@@ -294,6 +351,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
                           className="flex items-center gap-1.5 rounded-md bg-layer-2 px-2 py-1 text-9 text-secondary"
                         >
                           <span className="font-medium text-primary">{bonus.name}</span>
+                          <YearBadge from={bonus.effective_from} to={bonus.effective_to} />
                           <span>
                             {bonus.calculation_type === "PERCENTAGE" ? `${bonus.value}%` : bonus.value} /{" "}
                             {bonus.effective_from}
@@ -314,7 +372,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
                 </div>
               ))}
               {(assignedVariables ?? []).map((assignment) => (
-                <div key={assignment.id} className="flex items-center gap-3 px-3 py-2.5">
+                <div key={assignment.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
                   <Variable className="size-4 shrink-0 text-tertiary" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-11 font-medium text-primary">{assignment.variable_detail.name}</p>
@@ -323,6 +381,10 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
                       {formatMoney(assignment.variable_detail.amount, assignment.variable_detail.currency)}
                     </p>
                   </div>
+                  <YearBadge
+                    from={assignment.variable_detail.effective_from}
+                    to={assignment.variable_detail.effective_to}
+                  />
                   <button
                     type="button"
                     onClick={() => setRemoveTarget({ type: "variable", assignment })}
@@ -354,6 +416,14 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
             </div>
           </div>
 
+          <ResourceSearch
+            value={employeeSearch}
+            onChange={setEmployeeSearch}
+            placeholder={t("payments.composer.search_people")}
+            clearLabel={t("payments.composer.clear_search")}
+            className="mt-3"
+          />
+
           <div className="mt-3 space-y-2">
             {(employees ?? []).map((employee) => (
               <EmployeeComposerRow
@@ -363,26 +433,28 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
                 employee={employee}
                 offices={offices ?? []}
                 assignedSalaryIds={assignedSalaryIds}
-                selection={employeeSelections[employee.id]}
-                onChange={(selection) =>
+                selections={employeeSelections}
+                onChange={(salaryId, selection) =>
                   setEmployeeSelections((current) => {
                     const next = { ...current };
-                    if (selection) next[employee.id] = selection;
-                    else delete next[employee.id];
+                    if (selection) next[salaryId] = selection;
+                    else delete next[salaryId];
                     return next;
                   })
                 }
                 onEdit={() => setEditingEmployee(employee)}
-                onAddSalary={() => setSalaryTarget(employee)}
+                onAddSalary={() => setSalaryTarget({ employee, salary: null })}
+                onEditSalary={(salary) => setSalaryTarget({ employee, salary })}
                 onAddOffice={() => setIsOfficesOpen(true)}
+                hideInapplicable={hideInapplicable}
               />
             ))}
             {(employees?.length ?? 0) === 0 && (
               <EmptyComposerState
                 icon={Users}
-                title={t("payments.composer.no_people")}
-                action={t("payroll.employees.new")}
-                onAction={() => setEditingEmployee(null)}
+                title={t(employeeSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_people")}
+                action={t(employeeSearch.trim() ? "payments.composer.clear_search" : "payroll.employees.new")}
+                onAction={() => (employeeSearch.trim() ? setEmployeeSearch("") : setEditingEmployee(null))}
               />
             )}
           </div>
@@ -406,31 +478,49 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
             </Button>
           </div>
 
+          <ResourceSearch
+            value={variableSearch}
+            onChange={setVariableSearch}
+            placeholder={t("payments.composer.search_variables")}
+            clearLabel={t("payments.composer.clear_search")}
+            className="mt-3"
+          />
+
           <div className="mt-3 space-y-2">
             {(variables ?? []).map((variable) => {
               const isAssigned = assignedVariableIds.has(variable.id);
               const isSelected = variableSelections.has(variable.id);
+              const isEligible =
+                variable.effective_from <= scenario.period_end &&
+                (!variable.effective_to || variable.effective_to >= scenario.period_start);
+              if (hideInapplicable && !isEligible && !isAssigned) return null;
               return (
                 <div
                   key={variable.id}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg border border-subtle p-3",
+                    "flex flex-wrap items-center gap-3 rounded-lg border border-subtle p-3",
                     isSelected && "border-accent-primary bg-accent-primary/5",
-                    isAssigned && "bg-layer-2/60"
+                    isAssigned && "bg-layer-2/60",
+                    !isEligible && !isAssigned && "opacity-60"
                   )}
                 >
                   <input
                     type="checkbox"
                     checked={isSelected || isAssigned}
-                    disabled={isAssigned}
-                    onChange={(event) =>
+                    disabled={!isEligible && !isAssigned}
+                    onChange={(event) => {
+                      const assignedVariable = assignedVariableById.get(variable.id);
+                      if (!event.target.checked && assignedVariable) {
+                        setRemoveTarget({ type: "variable", assignment: assignedVariable });
+                        return;
+                      }
                       setVariableSelections((current) => {
                         const next = new Set(current);
                         if (event.target.checked) next.add(variable.id);
                         else next.delete(variable.id);
                         return next;
-                      })
-                    }
+                      });
+                    }}
                     className="accent-accent-primary size-4"
                     aria-label={variable.name}
                   />
@@ -443,10 +533,14 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
                   <p className="text-11 font-semibold text-primary">
                     {formatMoney(variable.amount, variable.currency)}
                   </p>
+                  <YearBadge from={variable.effective_from} to={variable.effective_to} />
                   {isAssigned && (
                     <span className="flex items-center gap-1 text-10 text-success-primary">
                       <Check className="size-3" /> {t("payments.composer.in_budget")}
                     </span>
+                  )}
+                  {!isEligible && !isAssigned && (
+                    <span className="text-10 text-tertiary">{t("payments.composer.outside_period")}</span>
                   )}
                   <button
                     type="button"
@@ -462,9 +556,21 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
             {(variables?.length ?? 0) === 0 && (
               <EmptyComposerState
                 icon={Variable}
-                title={t("payments.composer.no_variables")}
-                action={t(offices?.length ? "payments.variables.create" : "payroll.offices.new")}
-                onAction={() => (offices?.length ? setEditingVariable(null) : setIsOfficesOpen(true))}
+                title={t(
+                  variableSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_variables"
+                )}
+                action={t(
+                  variableSearch.trim()
+                    ? "payments.composer.clear_search"
+                    : offices?.length
+                      ? "payments.variables.create"
+                      : "payroll.offices.new"
+                )}
+                onAction={() => {
+                  if (variableSearch.trim()) setVariableSearch("");
+                  else if (offices?.length) setEditingVariable(null);
+                  else setIsOfficesOpen(true);
+                }}
               />
             )}
           </div>
@@ -493,11 +599,13 @@ type EmployeeRowProps = {
   employee: TEmployee;
   offices: TOffice[];
   assignedSalaryIds: Set<string>;
-  selection?: EmployeeSelection;
-  onChange: (selection?: EmployeeSelection) => void;
+  selections: Record<string, EmployeeSelection>;
+  onChange: (salaryId: string, selection?: EmployeeSelection) => void;
   onEdit: () => void;
   onAddSalary: () => void;
+  onEditSalary: (salary: TSalary) => void;
   onAddOffice: () => void;
+  hideInapplicable: boolean;
 };
 
 function EmployeeComposerRow(props: EmployeeRowProps) {
@@ -507,11 +615,13 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
     employee,
     offices,
     assignedSalaryIds,
-    selection,
+    selections,
     onChange,
     onEdit,
     onAddSalary,
+    onEditSalary,
     onAddOffice,
+    hideInapplicable,
   } = props;
   const { t } = useTranslation();
   const { data: salaries, isLoading } = useSWR<TSalary[]>(
@@ -519,18 +629,23 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
     () => payrollService.getSalaries(workspaceSlug, employee.id),
     { revalidateOnFocus: false }
   );
-  const availableSalaries = (salaries ?? []).filter((salary) => {
-    const activeFrom = latestDate(scenario.period_start, employee.hire_date, salary.effective_from);
-    const activeTo = earliestDate(
-      scenario.period_end,
-      employee.termination_date ?? scenario.period_end,
-      salary.effective_to ?? scenario.period_end
-    );
-    return !assignedSalaryIds.has(salary.id) && activeFrom <= activeTo;
-  });
-  const isFullyAssigned = (salaries?.length ?? 0) > 0 && availableSalaries.length === 0;
+  const salaryAvailability = (salary: TSalary) =>
+    getSalaryBudgetAvailability({
+      budgetStart: scenario.period_start,
+      budgetEnd: scenario.period_end,
+      salaryStart: salary.effective_from,
+      salaryEnd: salary.effective_to,
+      employeeStart: employee.hire_date,
+      employeeEnd: employee.termination_date,
+    });
+  const eligibleSalaries = (salaries ?? []).filter((salary) => salaryAvailability(salary).isEligible);
+  const visibleSalaries = hideInapplicable ? eligibleSalaries : (salaries ?? []);
+  const assignedCount = eligibleSalaries.filter((salary) => assignedSalaryIds.has(salary.id)).length;
+  const selectedCount = eligibleSalaries.filter((salary) => Boolean(selections[salary.id])).length;
+  const isFullyAssigned = eligibleSalaries.length > 0 && assignedCount === eligibleSalaries.length;
 
   const selectionForSalary = (salary: TSalary): EmployeeSelection => ({
+    employee: employee.id,
     salary: salary.id,
     effective_from: latestDate(scenario.period_start, employee.hire_date, salary.effective_from),
     effective_to: earliestDate(
@@ -540,27 +655,13 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
     ),
   });
 
-  const selectedSalary = availableSalaries.find((salary) => salary.id === selection?.salary);
-  const selectedMaximumDate = selectedSalary
-    ? earliestDate(
-        scenario.period_end,
-        employee.termination_date ?? scenario.period_end,
-        selectedSalary.effective_to ?? scenario.period_end
-      )
-    : scenario.period_end;
-
-  const toggle = () => {
-    if (selection) onChange(undefined);
-    else if (availableSalaries[0]) {
-      onChange(selectionForSalary(availableSalaries[0]));
-    }
-  };
+  if (hideInapplicable && !isLoading && (salaries?.length ?? 0) > 0 && visibleSalaries.length === 0) return null;
 
   return (
     <div
       className={cn(
         "rounded-lg border border-subtle p-3",
-        selection && "border-accent-primary bg-accent-primary/5",
+        selectedCount > 0 && "border-accent-primary bg-accent-primary/5",
         isFullyAssigned && "bg-layer-2/60"
       )}
     >
@@ -568,14 +669,7 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
         {isLoading ? (
           <Loader2 className="size-4 animate-spin text-tertiary" />
         ) : (
-          <input
-            type="checkbox"
-            checked={Boolean(selection) || isFullyAssigned}
-            disabled={availableSalaries.length === 0}
-            onChange={toggle}
-            className="accent-accent-primary size-4"
-            aria-label={employee.full_name}
-          />
+          <Users className="size-4 text-tertiary" />
         )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-12 font-medium text-primary">{employee.full_name}</p>
@@ -583,10 +677,21 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
             {employee.position || t("payments.scenarios.no_position")}
           </p>
         </div>
-        {isFullyAssigned && (
+        {assignedCount > 0 && (
           <span className="flex items-center gap-1 text-10 text-success-primary">
             <Check className="size-3" /> {t("payments.composer.in_budget")}
           </span>
+        )}
+        {(salaries?.length ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={offices.length ? onAddSalary : onAddOffice}
+            className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+            aria-label={t("payroll.employees.new_salary")}
+            title={t("payroll.employees.new_salary")}
+          >
+            <Plus className="size-3.5" />
+          </button>
         )}
         <button
           type="button"
@@ -607,53 +712,110 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
         </div>
       )}
 
-      {selection && (
-        <div className="mt-3 grid grid-cols-1 gap-3 border-t border-subtle pt-3 sm:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-10 font-medium text-secondary">
-              {t("payments.scenarios.salary_to_apply")}
-            </label>
-            <select
-              className="h-8 w-full rounded-sm border border-subtle bg-layer-1 px-2 text-11"
-              value={selection.salary}
-              onChange={(event) => {
-                const salary = availableSalaries.find((item) => item.id === event.target.value);
-                if (salary) onChange(selectionForSalary(salary));
-              }}
-            >
-              {availableSalaries.map((salary) => (
-                <option key={salary.id} value={salary.id}>
-                  {salary.office_name} / {formatMoney(salary.amount, salary.currency)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-10 font-medium text-secondary">{t("payments.fields.period_start")}</label>
-            <input
-              type="date"
-              min={
-                selectedSalary
-                  ? latestDate(scenario.period_start, employee.hire_date, selectedSalary.effective_from)
-                  : scenario.period_start
-              }
-              max={selectedMaximumDate}
-              className="h-8 w-full rounded-sm border border-subtle bg-layer-1 px-2 text-11"
-              value={selection.effective_from}
-              onChange={(event) => onChange({ ...selection, effective_from: event.target.value })}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-10 font-medium text-secondary">{t("payments.fields.period_end")}</label>
-            <input
-              type="date"
-              min={selection.effective_from}
-              max={selectedMaximumDate}
-              className="h-8 w-full rounded-sm border border-subtle bg-layer-1 px-2 text-11"
-              value={selection.effective_to}
-              onChange={(event) => onChange({ ...selection, effective_to: event.target.value })}
-            />
-          </div>
+      {!isLoading && visibleSalaries.length > 0 && (
+        <div className="mt-3 space-y-2 border-t border-subtle pt-3">
+          {visibleSalaries.map((salary) => {
+            const availability = salaryAvailability(salary);
+            const isEligible = availability.isEligible;
+            const unavailabilityMessage = availability.isEligible
+              ? null
+              : t(`payments.composer.availability.${availability.reason.toLowerCase()}`, {
+                  date: availability.conflictingDate,
+                });
+            const isAssigned = assignedSalaryIds.has(salary.id);
+            const selection = selections[salary.id];
+            const maximumDate = earliestDate(
+              scenario.period_end,
+              employee.termination_date ?? scenario.period_end,
+              salary.effective_to ?? scenario.period_end
+            );
+            return (
+              <div
+                key={salary.id}
+                className={cn(
+                  "rounded-lg border border-subtle bg-layer-1 p-3",
+                  selection && "border-accent-primary bg-accent-primary/5",
+                  (isAssigned || !isEligible) && "bg-layer-2/60"
+                )}
+              >
+                <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={isAssigned || Boolean(selection)}
+                    disabled={isAssigned || !isEligible}
+                    onChange={(event) =>
+                      onChange(salary.id, event.target.checked ? selectionForSalary(salary) : undefined)
+                    }
+                    className="accent-accent-primary size-4"
+                    aria-label={`${employee.full_name} - ${salary.office_name}`}
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-11 font-medium text-primary">{salary.office_name}</span>
+                      <span className="text-11 font-semibold text-primary">
+                        {formatMoney(salary.amount, salary.currency)}
+                      </span>
+                      <YearBadge from={salary.effective_from} to={salary.effective_to} />
+                    </div>
+                    <p className="mt-1 text-9 text-tertiary">
+                      {salary.effective_from} / {salary.effective_to ?? t("payroll.employees.current")}
+                    </p>
+                    {unavailabilityMessage && (
+                      <p className="mt-1 text-9 text-warning-primary sm:hidden">{unavailabilityMessage}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isAssigned && (
+                      <span className="hidden items-center gap-1 text-9 text-success-primary sm:flex">
+                        <Check className="size-3" /> {t("payments.composer.in_budget")}
+                      </span>
+                    )}
+                    {!isEligible && (
+                      <span className="hidden text-9 text-tertiary sm:inline">{unavailabilityMessage}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onEditSalary(salary)}
+                      className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+                      aria-label={t("payroll.employees.edit_salary")}
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+                {selection && (
+                  <div className="mt-3 grid grid-cols-1 gap-3 border-t border-subtle pt-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-10 font-medium text-secondary">
+                        {t("payments.fields.period_start")}
+                      </label>
+                      <input
+                        type="date"
+                        min={latestDate(scenario.period_start, employee.hire_date, salary.effective_from)}
+                        max={maximumDate}
+                        className="h-8 w-full rounded-sm border border-subtle bg-layer-1 px-2 text-11"
+                        value={selection.effective_from}
+                        onChange={(event) => onChange(salary.id, { ...selection, effective_from: event.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-10 font-medium text-secondary">
+                        {t("payments.fields.period_end")}
+                      </label>
+                      <input
+                        type="date"
+                        min={selection.effective_from}
+                        max={maximumDate}
+                        className="h-8 w-full rounded-sm border border-subtle bg-layer-1 px-2 text-11"
+                        value={selection.effective_to}
+                        onChange={(event) => onChange(salary.id, { ...selection, effective_to: event.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

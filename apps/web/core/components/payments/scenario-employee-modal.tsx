@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
@@ -12,7 +12,8 @@ import type { TBudgetScenario, TEmployee, TSalary } from "@plane/types";
 import { EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { financeService } from "@/services/finance.service";
 import { payrollService } from "@/services/payroll.service";
-import { formatMoney } from "./shared";
+import { formatMoney, formatYearRange } from "./shared";
+import { ResourceSearch } from "./resource-search";
 
 const FIELD =
   "h-9 w-full rounded-sm border border-subtle bg-layer-1 px-2.5 text-13 outline-none focus:border-accent-primary";
@@ -34,6 +35,11 @@ export function ScenarioEmployeeModal({ workspaceSlug, scenario, employees, isOp
   const [effectiveFrom, setEffectiveFrom] = useState(scenario.period_start);
   const [effectiveTo, setEffectiveTo] = useState(scenario.period_end);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const deferredEmployeeSearch = useDeferredValue(employeeSearch.trim().toLocaleLowerCase());
+  const filteredEmployees = employees.filter((employee) =>
+    employee.full_name.toLocaleLowerCase().includes(deferredEmployeeSearch)
+  );
 
   const { data: salaries } = useSWR<TSalary[]>(
     isOpen && employeeId ? `SCENARIO_SALARIES_${workspaceSlug}_${employeeId}` : null,
@@ -44,10 +50,17 @@ export function ScenarioEmployeeModal({ workspaceSlug, scenario, employees, isOp
   useEffect(() => {
     if (!isOpen) return;
     setEmployeeId(employees[0]?.id ?? "");
+    setEmployeeSearch("");
     setSalaryId("");
     setEffectiveFrom(scenario.period_start);
     setEffectiveTo(scenario.period_end);
   }, [employees, isOpen, scenario.period_end, scenario.period_start]);
+
+  useEffect(() => {
+    if (!isOpen || filteredEmployees.some((employee) => employee.id === employeeId)) return;
+    setEmployeeId(filteredEmployees[0]?.id ?? "");
+    setSalaryId("");
+  }, [employeeId, filteredEmployees, isOpen]);
 
   useEffect(() => {
     if (salaries?.length && !salaries.some((salary) => salary.id === salaryId)) setSalaryId(salaries[0].id);
@@ -81,12 +94,20 @@ export function ScenarioEmployeeModal({ workspaceSlug, scenario, employees, isOp
         <div className="mt-5 space-y-4">
           <div>
             <label className={LABEL}>{t("payroll.fields.employee")}</label>
+            <ResourceSearch
+              value={employeeSearch}
+              onChange={setEmployeeSearch}
+              placeholder={t("payments.composer.search_people")}
+              clearLabel={t("payments.composer.clear_search")}
+              className="mb-2"
+            />
             <select className={FIELD} value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>
-              {employees.map((employee) => (
+              {filteredEmployees.map((employee) => (
                 <option key={employee.id} value={employee.id}>
                   {employee.full_name} {employee.position ? `- ${employee.position}` : ""}
                 </option>
               ))}
+              {filteredEmployees.length === 0 && <option value="">{t("payments.composer.no_search_results")}</option>}
             </select>
           </div>
           <div>
@@ -106,6 +127,9 @@ export function ScenarioEmployeeModal({ workspaceSlug, scenario, employees, isOp
                     <p className="mt-0.5 text-11 text-tertiary">
                       {salary.effective_from} - {salary.effective_to ?? t("payroll.employees.current")}
                     </p>
+                    <span className="mt-1 inline-flex rounded-full border border-subtle bg-layer-2 px-1.5 py-0.5 text-9 font-medium text-tertiary">
+                      {formatYearRange(salary.effective_from, salary.effective_to)}
+                    </span>
                   </div>
                   <div className="text-right">
                     <p className="text-13 font-semibold text-primary">{formatMoney(salary.amount, salary.currency)}</p>

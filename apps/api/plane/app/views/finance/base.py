@@ -215,7 +215,11 @@ class BudgetScenarioEndpoint(FinanceBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         scenarios = BudgetScenario.objects.filter(workspace__slug=slug).annotate(
-            employee_count=Count("employees", filter=Q(employees__deleted_at__isnull=True), distinct=True),
+            employee_count=Count(
+                "employees__employee",
+                filter=Q(employees__deleted_at__isnull=True),
+                distinct=True,
+            ),
             variable_count=Count("variables", filter=Q(variables__deleted_at__isnull=True), distinct=True),
         )
         year = request.query_params.get("year")
@@ -248,7 +252,11 @@ class BudgetScenarioDetailEndpoint(FinanceBaseView):
 
     def _scenario(self, slug, scenario_id):
         return BudgetScenario.objects.filter(id=scenario_id, workspace__slug=slug).annotate(
-            employee_count=Count("employees", filter=Q(employees__deleted_at__isnull=True), distinct=True),
+            employee_count=Count(
+                "employees__employee",
+                filter=Q(employees__deleted_at__isnull=True),
+                distinct=True,
+            ),
             variable_count=Count("variables", filter=Q(variables__deleted_at__isnull=True), distinct=True),
         ).get()
 
@@ -290,6 +298,9 @@ class FinancialVariableEndpoint(FinanceBaseView):
         office_id = request.query_params.get("office")
         if office_id:
             variables = variables.filter(office_id=office_id)
+        search = request.query_params.get("search")
+        if search:
+            variables = variables.filter(name__icontains=search.strip())
         return Response(FinancialVariableSerializer(variables, many=True).data, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
@@ -363,11 +374,24 @@ class BudgetScenarioEmployeeEndpoint(FinanceBaseView):
         salary = serializer.validated_data["salary"]
         if employee.workspace_id != scenario.workspace_id or salary.workspace_id != scenario.workspace_id:
             return Response({"error": "Employee and salary must belong to this workspace"}, status=status.HTTP_400_BAD_REQUEST)
+        if salary.employee_id != employee.id:
+            return Response({"error": "The selected salary does not belong to this employee"}, status=status.HTTP_400_BAD_REQUEST)
         start = serializer.validated_data["effective_from"]
         end = serializer.validated_data.get("effective_to") or scenario.period_end
         if start < scenario.period_start or end > scenario.period_end:
             return Response(
                 {"error": "The employee dates must stay inside the budget period"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        valid_start = max(scenario.period_start, employee.hire_date, salary.effective_from)
+        valid_end = min(
+            scenario.period_end,
+            employee.termination_date or scenario.period_end,
+            salary.effective_to or scenario.period_end,
+        )
+        if valid_start > valid_end or start < valid_start or end > valid_end:
+            return Response(
+                {"error": "The selected salary is not valid for these budget dates"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if BudgetScenarioEmployee.objects.filter(
@@ -397,6 +421,8 @@ class BudgetScenarioEmployeeDetailEndpoint(FinanceBaseView):
         salary = serializer.validated_data.get("salary", assignment.salary)
         if employee.workspace_id != assignment.workspace_id or salary.workspace_id != assignment.workspace_id:
             return Response({"error": "Employee and salary must belong to this workspace"}, status=status.HTTP_400_BAD_REQUEST)
+        if salary.employee_id != employee.id:
+            return Response({"error": "The selected salary does not belong to this employee"}, status=status.HTTP_400_BAD_REQUEST)
         start = serializer.validated_data.get("effective_from", assignment.effective_from)
         end = serializer.validated_data.get("effective_to", assignment.effective_to) or assignment.scenario.period_end
         if start < assignment.scenario.period_start or end > assignment.scenario.period_end:
@@ -488,6 +514,13 @@ class BudgetScenarioVariableEndpoint(FinanceBaseView):
         variable = serializer.validated_data["variable"]
         if variable.workspace_id != scenario.workspace_id:
             return Response({"variable": ["The variable does not belong to this workspace"]}, status=status.HTTP_400_BAD_REQUEST)
+        if variable.effective_from > scenario.period_end or (
+            variable.effective_to and variable.effective_to < scenario.period_start
+        ):
+            return Response(
+                {"error": "This variable is outside the budget period"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if BudgetScenarioVariable.objects.filter(scenario=scenario, variable=variable).exists():
             return Response({"error": "This variable is already included"}, status=status.HTTP_409_CONFLICT)
         serializer.save(workspace_id=scenario.workspace_id, scenario_id=scenario.id)

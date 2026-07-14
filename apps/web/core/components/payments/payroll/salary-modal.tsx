@@ -19,44 +19,50 @@ import { CURRENCIES, FIELD, LABEL, PERIODICITIES, todayIso } from "./shared";
 type Props = {
   workspaceSlug: string;
   employeeId: string;
+  salary?: TSalary | null;
   isOpen: boolean;
   offices: TOffice[];
+  defaultEffectiveFrom?: string;
   onClose: () => void;
   onSaved: () => void;
 };
 
 export function SalaryModal(props: Props) {
-  const { workspaceSlug, employeeId, isOpen, offices, onClose, onSaved } = props;
+  const { workspaceSlug, employeeId, salary, isOpen, offices, defaultEffectiveFrom, onClose, onSaved } = props;
   const { t } = useTranslation();
   const [office, setOffice] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(CURRENCIES[0]);
   const [periodicity, setPeriodicity] = useState<TPeriodicity>("MONTHLY");
   const [effectiveFrom, setEffectiveFrom] = useState(todayIso());
+  const [effectiveTo, setEffectiveTo] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setOffice(offices[0]?.id ?? "");
-    setAmount("");
-    setCurrency(CURRENCIES[0]);
-    setPeriodicity("MONTHLY");
-    setEffectiveFrom(todayIso());
-  }, [isOpen, offices]);
+    setOffice(salary?.office ?? offices[0]?.id ?? "");
+    setAmount(salary?.amount ?? "");
+    setCurrency(salary?.currency ?? CURRENCIES[0]);
+    setPeriodicity(salary?.periodicity ?? "MONTHLY");
+    setEffectiveFrom(salary?.effective_from ?? defaultEffectiveFrom ?? todayIso());
+    setEffectiveTo(salary?.effective_to ?? "");
+  }, [defaultEffectiveFrom, isOpen, offices, salary]);
 
   const handleSubmit = async () => {
     if (!office || !amount.trim()) return;
     setIsSubmitting(true);
     try {
-      // Posting a salary for an office that already has one is a *raise*: the
-      // API closes the previous row and opens this one, keeping the history.
-      await payrollService.createSalary(workspaceSlug, employeeId, {
+      // The API inserts this record into the employee's dated salary history.
+      const payload = {
         office,
         amount,
         currency,
         periodicity,
         effective_from: effectiveFrom,
-      } as Partial<TSalary>);
+        ...(salary ? { effective_to: effectiveTo || null } : {}),
+      } as Partial<TSalary>;
+      if (salary) await payrollService.updateSalary(workspaceSlug, employeeId, salary.id, payload);
+      else await payrollService.createSalary(workspaceSlug, employeeId, payload);
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("payroll.toasts.saved") });
       onSaved();
       onClose();
@@ -64,7 +70,8 @@ export function SalaryModal(props: Props) {
       setToast({
         type: TOAST_TYPE.ERROR,
         title: t("payroll.toasts.error"),
-        message: error?.effective_from?.[0] ?? error?.office?.[0] ?? undefined,
+        message:
+          error?.effective_from?.[0] ?? error?.effective_to?.[0] ?? error?.office?.[0] ?? error?.error ?? undefined,
       });
     } finally {
       setIsSubmitting(false);
@@ -74,12 +81,19 @@ export function SalaryModal(props: Props) {
   return (
     <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.XL}>
       <div className="p-4">
-        <h3 className="text-15 mb-4 font-medium">{t("payroll.employees.new_salary")}</h3>
+        <h3 className="text-15 mb-4 font-medium">
+          {t(salary ? "payroll.employees.edit_salary" : "payroll.employees.new_salary")}
+        </h3>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <label className={LABEL}>{t("payroll.fields.office")}</label>
-            <select className={FIELD} value={office} onChange={(event) => setOffice(event.target.value)}>
+            <select
+              className={FIELD}
+              value={office}
+              disabled={Boolean(salary)}
+              onChange={(event) => setOffice(event.target.value)}
+            >
               {offices.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
@@ -132,6 +146,21 @@ export function SalaryModal(props: Props) {
               onChange={(event) => setEffectiveFrom(event.target.value)}
             />
           </div>
+          {salary && (
+            <div>
+              <label className={LABEL}>
+                {t("payroll.fields.effective_to")} ({t("payroll.optional")})
+              </label>
+              <input
+                type="date"
+                className={FIELD}
+                min={effectiveFrom}
+                value={effectiveTo}
+                onChange={(event) => setEffectiveTo(event.target.value)}
+              />
+              <p className="mt-1 text-10 text-tertiary">{t("payroll.employees.open_ended_salary_help")}</p>
+            </div>
+          )}
         </div>
 
         <div className="mt-5 flex justify-end gap-2">

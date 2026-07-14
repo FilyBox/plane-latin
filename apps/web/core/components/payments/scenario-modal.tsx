@@ -10,7 +10,7 @@ import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TBudgetScenario, TBudgetScenarioStatus } from "@plane/types";
 import { EModalPosition, EModalWidth, Input, ModalCore, TextArea } from "@plane/ui";
 import { financeService } from "@/services/finance.service";
-import { CURRENCIES } from "./shared";
+import { CURRENCIES, getApiErrorMessage } from "./shared";
 
 const FIELD =
   "h-9 w-full rounded-sm border border-subtle bg-layer-1 px-2.5 text-13 outline-none focus:border-accent-primary";
@@ -35,6 +35,17 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
   const [currency, setCurrency] = useState("MXN");
   const [status, setStatus] = useState<TBudgetScenarioStatus>("DRAFT");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const startYear = Number(periodStart.slice(0, 4));
+  const endYear = Number(periodEnd.slice(0, 4));
+  const monthSpan = (endYear - startYear) * 12 + Number(periodEnd.slice(5, 7)) - Number(periodStart.slice(5, 7));
+  const periodError =
+    periodEnd < periodStart
+      ? t("payments.scenarios.errors.end_before_start")
+      : year < startYear || year > endYear
+        ? t("payments.scenarios.errors.year_outside_period", { year })
+        : monthSpan > 11
+          ? t("payments.scenarios.errors.period_too_long")
+          : undefined;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -55,7 +66,7 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
   };
 
   const handleSubmit = async () => {
-    if (!name.trim() || periodEnd < periodStart) return;
+    if (!name.trim() || periodError) return;
     setIsSubmitting(true);
     try {
       const payload = {
@@ -77,7 +88,7 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
       setToast({
         type: TOAST_TYPE.ERROR,
         title: t("payments.toasts.error"),
-        message: error?.name?.[0] ?? error?.error,
+        message: getApiErrorMessage(error),
       });
     } finally {
       setIsSubmitting(false);
@@ -101,6 +112,7 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder={t("payments.scenarios.name_placeholder")}
+              className="w-full"
             />
           </div>
           <div>
@@ -169,6 +181,7 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
               />
             </div>
           </div>
+          {periodError && <p className="text-11 text-danger-primary">{periodError}</p>}
         </div>
 
         <div className="mt-6 flex justify-end gap-2">
@@ -179,7 +192,7 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
             variant="primary"
             size="sm"
             loading={isSubmitting}
-            disabled={!name.trim() || periodEnd < periodStart}
+            disabled={!name.trim() || Boolean(periodError)}
             onClick={() => void handleSubmit()}
           >
             {t("payments.actions.save")}

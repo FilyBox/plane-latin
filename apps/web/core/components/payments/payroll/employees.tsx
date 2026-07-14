@@ -15,9 +15,11 @@ import type { TEmployee, TOffice } from "@plane/types";
 import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
+import useDebounce from "@/hooks/use-debounce";
 import { payrollService } from "@/services/payroll.service";
 // local imports
-import { formatMoney } from "../shared";
+import { formatMoney, formatYearRange, getApiErrorMessage } from "../shared";
+import { ResourceSearch } from "../resource-search";
 import { EmployeeDetail } from "./employee-detail";
 import { EmployeeModal } from "./employee-modal";
 import { OfficesModal } from "./offices-modal";
@@ -38,14 +40,18 @@ export function EmployeesTab(props: Props) {
   const [isOfficesOpen, setIsOfficesOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<TEmployee | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search.trim(), 300);
 
   const {
     data: employees,
     mutate,
     isLoading,
-  } = useSWR<TEmployee[]>(`PAYROLL_EMPLOYEES_${workspaceSlug}`, () => payrollService.getEmployees(workspaceSlug), {
-    revalidateOnFocus: false,
-  });
+  } = useSWR<TEmployee[]>(
+    `PAYROLL_EMPLOYEES_${workspaceSlug}_${debouncedSearch || "ALL"}`,
+    () => payrollService.getEmployees(workspaceSlug, debouncedSearch),
+    { revalidateOnFocus: false }
+  );
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -56,8 +62,8 @@ export function EmployeesTab(props: Props) {
       setDeleteTarget(null);
       void mutate();
       onChanged?.();
-    } catch {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payroll.toasts.error") });
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("payroll.toasts.error"), message: getApiErrorMessage(error) });
     } finally {
       setIsDeleting(false);
     }
@@ -91,42 +97,63 @@ export function EmployeesTab(props: Props) {
       <AlertModalCore
         isOpen={deleteTarget !== null}
         handleClose={() => setDeleteTarget(null)}
-        handleSubmit={() => void handleDelete()}
+        handleSubmit={() => (deleteTarget?.scenario_count ? setDeleteTarget(null) : void handleDelete())}
         isSubmitting={isDeleting}
         title={t("payroll.employees.delete_title")}
         content={
           deleteTarget
-            ? t("payroll.employees.delete_impact", {
-                name: deleteTarget.full_name,
-                salaries: deleteTarget.salary_count,
-                adjustments: deleteTarget.adjustment_count,
-                payments: deleteTarget.payment_count,
-                scenarios: deleteTarget.scenario_count,
-              })
+            ? t(
+                deleteTarget.scenario_count
+                  ? "payroll.employees.delete_blocked_impact"
+                  : "payroll.employees.delete_impact",
+                {
+                  name: deleteTarget.full_name,
+                  salaries: deleteTarget.salary_count,
+                  adjustments: deleteTarget.adjustment_count,
+                  payments: deleteTarget.payment_count,
+                  scenarios: deleteTarget.scenario_count,
+                  budgets: deleteTarget.scenario_names?.join(", ") || String(deleteTarget.scenario_count),
+                }
+              )
             : ""
+        }
+        variant={deleteTarget?.scenario_count ? "primary" : "danger"}
+        primaryButtonText={
+          deleteTarget?.scenario_count
+            ? { default: t("payroll.actions.close"), loading: t("payroll.actions.close") }
+            : undefined
         }
       />
 
-      <div className="flex items-center justify-end gap-1.5">
-        <button
-          type="button"
-          onClick={() => setIsOfficesOpen(true)}
-          className="flex h-8 items-center gap-1 rounded-sm border border-subtle px-2 text-12 hover:bg-layer-1-hover"
-        >
-          <Building2 className="size-3.5" />
-          {t("payroll.offices.title")}
-        </button>
-        <Button
-          variant="primary"
-          size="xl"
-          onClick={() => {
-            setEditing(null);
-            setIsEmployeeModalOpen(true);
-          }}
-        >
-          <Plus className="size-3.5" />
-          {t("payroll.employees.new")}
-        </Button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <ResourceSearch
+          value={search}
+          onChange={setSearch}
+          placeholder={t("payments.composer.search_people")}
+          clearLabel={t("payments.composer.clear_search")}
+          className="min-w-0 flex-1"
+        />
+        <div className="flex items-center justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIsOfficesOpen(true)}
+            className="flex h-8 items-center gap-1 rounded-sm border border-subtle px-2 text-12 hover:bg-layer-1-hover"
+          >
+            <Building2 className="size-3.5" />
+            {t("payroll.offices.title")}
+          </button>
+          <Button
+            variant="primary"
+            size="xl"
+            onClick={() => {
+              setEditing(null);
+              setIsEmployeeModalOpen(true);
+            }}
+          >
+            <Plus className="size-3.5" />
+            {t("payroll.employees.new")}
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -135,7 +162,7 @@ export function EmployeesTab(props: Props) {
         </div>
       ) : (employees?.length ?? 0) === 0 ? (
         <div className="rounded-md border border-subtle px-4 py-8 text-center text-13 text-tertiary">
-          {t("payroll.employees.empty")}
+          {t(search.trim() ? "payments.composer.no_search_results" : "payroll.employees.empty")}
         </div>
       ) : (
         <div className="divide-y divide-subtle rounded-md border border-subtle">
@@ -172,6 +199,7 @@ export function EmployeesTab(props: Props) {
                         title={salary.office_name}
                       >
                         {salary.office_name}: {formatMoney(salary.amount, salary.currency)}
+                        <span className="ml-1 text-9 text-tertiary">{formatYearRange(salary.effective_from)}</span>
                       </span>
                     ))}
                   </div>

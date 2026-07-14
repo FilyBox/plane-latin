@@ -56,6 +56,7 @@ export type TEmployee = {
   adjustment_count: number;
   payment_count: number;
   scenario_count: number;
+  scenario_names?: string[];
   workspace_id: string;
   created_at: string;
   updated_at: string;
@@ -75,6 +76,8 @@ export type TSalary = {
   effective_from: string;
   effective_to: string | null;
   is_current: boolean;
+  scenario_count?: number;
+  scenario_names?: string[];
   workspace_id: string;
   created_at: string;
 };

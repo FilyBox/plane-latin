@@ -119,7 +119,7 @@ export function OfficesModal(props: Props) {
           <h3 className="text-16 font-semibold text-primary">{t("payroll.offices.manage")}</h3>
           <p className="mt-1 mb-5 text-12 text-tertiary">{t("payroll.offices.form_help")}</p>
 
-          <div className="mb-4 grid grid-cols-1 gap-3 rounded-lg border border-subtle bg-layer-1 p-3 sm:grid-cols-[1fr_9rem_auto] sm:items-end">
+          <div className="mb-4 grid grid-cols-1 gap-3 rounded-lg border border-subtle bg-layer-1 p-3 sm:grid-cols-[minmax(0,1fr)_9rem_auto] sm:items-start">
             <div className="flex-1">
               <label className={LABEL}>{t("payroll.fields.name")}</label>
               <Input value={name} onChange={(event) => setName(event.target.value)} className="w-full" />
@@ -135,10 +135,10 @@ export function OfficesModal(props: Props) {
               />
               <p className="mt-1 text-9 text-tertiary">{t("payroll.offices.aguinaldo_help")}</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 sm:pt-[1.4rem]">
               <Button
                 variant="primary"
-                size="sm"
+                size="xl"
                 onClick={() => void handleSave()}
                 disabled={!name.trim() || isSubmitting}
               >
@@ -146,7 +146,7 @@ export function OfficesModal(props: Props) {
                 {t(editingOffice ? "payroll.actions.save" : "payroll.offices.new")}
               </Button>
               {editingOffice && (
-                <Button variant="secondary" size="sm" onClick={resetForm}>
+                <Button variant="secondary" size="xl" onClick={resetForm}>
                   <X className="size-4" />
                 </Button>
               )}

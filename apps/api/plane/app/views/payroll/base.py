@@ -13,6 +13,7 @@ are themselves admins. See PayrollAccess and the README.
 from datetime import date, timedelta
 
 # Django imports
+from django.db import transaction
 from django.db.models import Count, Prefetch, Q
 
 # Third party imports
@@ -125,7 +126,7 @@ class EmployeeEndpoint(PayrollBaseView):
             adjustment_count=Count("adjustments", distinct=True, filter=Q(adjustments__deleted_at__isnull=True)),
             payment_count=Count("payments", distinct=True, filter=Q(payments__deleted_at__isnull=True)),
             scenario_count=Count("budget_scenarios", distinct=True, filter=Q(budget_scenarios__deleted_at__isnull=True)),
-        ).prefetch_related(SALARIES)
+        ).prefetch_related(SALARIES, "budget_scenarios__scenario")
 
         if request.query_params.get("active") == "1":
             employees = employees.filter(termination_date__isnull=True)
@@ -155,7 +156,9 @@ class EmployeeDetailEndpoint(PayrollBaseView):
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, employee_id):
-        employee = Employee.objects.prefetch_related(SALARIES).get(id=employee_id, workspace__slug=slug)
+        employee = Employee.objects.prefetch_related(SALARIES, "budget_scenarios__scenario").get(
+            id=employee_id, workspace__slug=slug
+        )
         return Response(EmployeeSerializer(employee).data, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
@@ -169,7 +172,19 @@ class EmployeeDetailEndpoint(PayrollBaseView):
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, employee_id):
-        Employee.objects.get(id=employee_id, workspace__slug=slug).delete()
+        employee = Employee.objects.get(id=employee_id, workspace__slug=slug)
+        scenario_names = sorted(
+            employee.budget_scenarios.values_list("scenario__name", flat=True).distinct()
+        )
+        if scenario_names:
+            return Response(
+                {
+                    "error": "Remove this employee from their budgets before deleting them",
+                    "scenario_names": scenario_names,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        employee.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -181,7 +196,18 @@ class SalaryEndpoint(PayrollBaseView):
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, employee_id):
-        salaries = Salary.objects.filter(employee_id=employee_id, workspace__slug=slug).select_related("office")
+        salaries = (
+            Salary.objects.filter(employee_id=employee_id, workspace__slug=slug)
+            .select_related("office")
+            .annotate(
+                scenario_count=Count(
+                    "budget_scenarios",
+                    distinct=True,
+                    filter=Q(budget_scenarios__deleted_at__isnull=True),
+                )
+            )
+            .prefetch_related("budget_scenarios__scenario")
+        )
         return Response(SalarySerializer(salaries, many=True).data, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
@@ -197,27 +223,67 @@ class SalaryEndpoint(PayrollBaseView):
 
         effective_from = serializer.validated_data["effective_from"]
 
-        # A raise is not an edit: close the running salary for this office the
-        # day before the new one starts, and open a new row. That is what keeps
-        # the history — and lets the aguinaldo use the rate actually in force.
-        running = Salary.objects.filter(
-            employee=employee, office=office, effective_to__isnull=True
-        ).first()
-        if running is not None:
-            if effective_from <= running.effective_from:
-                return Response(
-                    {"effective_from": ["Must be after the current salary started"]},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            running.effective_to = effective_from - timedelta(days=1)
-            running.save(update_fields=["effective_to"])
+        salaries = Salary.objects.filter(employee=employee, office=office)
+        if salaries.filter(effective_from=effective_from).exists():
+            return Response(
+                {"effective_from": ["A salary already starts on this date. Edit that salary instead."]},
+                status=status.HTTP_409_CONFLICT,
+            )
 
-        serializer.save(workspace_id=employee.workspace_id, employee=employee)
+        # Insert the salary anywhere in the timeline and derive its end from the
+        # next record. This supports historical budgets without rewriting newer data.
+        with transaction.atomic():
+            locked = Salary.objects.select_for_update().filter(employee=employee, office=office)
+            previous = locked.filter(effective_from__lt=effective_from).order_by("-effective_from").first()
+            following = locked.filter(effective_from__gt=effective_from).order_by("effective_from").first()
+
+            if previous is not None and (
+                previous.effective_to is None or previous.effective_to >= effective_from
+            ):
+                previous.effective_to = effective_from - timedelta(days=1)
+                previous.save(update_fields=["effective_to"])
+
+            serializer.save(
+                workspace_id=employee.workspace_id,
+                employee=employee,
+                effective_to=following.effective_from - timedelta(days=1) if following else None,
+            )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class SalaryDetailEndpoint(PayrollBaseView):
+    serializer_class = SalarySerializer
     model = Salary
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def patch(self, request, slug, employee_id, salary_id):
+        salary = Salary.objects.get(id=salary_id, employee_id=employee_id, workspace__slug=slug)
+        serializer = SalarySerializer(salary, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        office = serializer.validated_data.get("office", salary.office)
+        if office.id != salary.office_id:
+            return Response(
+                {"office": ["The entity cannot be changed on an existing salary; create a new salary instead"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        start = serializer.validated_data.get("effective_from", salary.effective_from)
+        end = serializer.validated_data.get("effective_to", salary.effective_to)
+        overlapping = Salary.objects.filter(
+            employee_id=employee_id,
+            office_id=salary.office_id,
+        ).exclude(id=salary.id).filter(
+            Q(effective_to__isnull=True) | Q(effective_to__gte=start)
+        )
+        if end is not None:
+            overlapping = overlapping.filter(effective_from__lte=end)
+        if overlapping.exists():
+            return Response(
+                {"effective_from": ["This period overlaps another salary for the same entity"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        updated = serializer.save()
+        return Response(SalarySerializer(updated).data, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, employee_id, salary_id):
@@ -227,18 +293,21 @@ class SalaryDetailEndpoint(PayrollBaseView):
                 {"error": "This salary is used by a budget scenario and cannot be deleted"},
                 status=status.HTTP_409_CONFLICT,
             )
-        salary.delete()
-        # Reopen the previous row, or the employee silently drops off payroll
-        # for that office with no salary in force at all
-        previous = (
-            Salary.objects.filter(employee_id=employee_id, office_id=salary.office_id)
-            .exclude(id=salary.id)
-            .order_by("-effective_from")
-            .first()
-        )
-        if previous is not None and previous.effective_to is not None:
-            previous.effective_to = None
-            previous.save(update_fields=["effective_to"])
+        deleted_start = salary.effective_from
+        deleted_end = salary.effective_to
+        office_id = salary.office_id
+        with transaction.atomic():
+            salary.delete()
+            previous = (
+                Salary.objects.select_for_update()
+                .filter(employee_id=employee_id, office_id=office_id, effective_from__lt=deleted_start)
+                .order_by("-effective_from")
+                .first()
+            )
+            # Heal only a range that touched the deleted row; deliberate gaps stay gaps.
+            if previous is not None and previous.effective_to == deleted_start - timedelta(days=1):
+                previous.effective_to = deleted_end
+                previous.save(update_fields=["effective_to"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

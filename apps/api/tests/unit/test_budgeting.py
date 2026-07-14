@@ -37,9 +37,13 @@ def test_monthly_salary_stays_constant_across_calendar_month_lengths():
 
     forecast = scenario_forecast(scenario, [assignment], [])
     salary_line = next(line for line in forecast["lines"] if line["category"] == "SALARY")
+    benefit_line = next(line for line in forecast["lines"] if line["category"] == "BENEFIT")
 
     assert {month["amount"] for month in salary_line["months"]} == {"30000.00"}
     assert salary_line["total"] == "360000.00"
+    assert salary_line["owner_name"] == "Oscar"
+    assert benefit_line["label"] == "Aguinaldo - Oscar"
+    assert benefit_line["owner_name"] == "Oscar"
 
 
 @pytest.mark.unit
