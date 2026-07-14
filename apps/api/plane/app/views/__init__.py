@@ -64,6 +64,7 @@ from .file_library import (
     FileLibraryAssetDetailEndpoint,
     FileLibraryAssetDownloadEndpoint,
     FileLibraryAssetEndpoint,
+    FileLibraryAssetThumbnailEndpoint,
     FileLibraryBulkActionEndpoint,
     FileLibraryExportEndpoint,
     FileLibraryExportStatusEndpoint,

@@ -13,6 +13,7 @@ from plane.app.views import (
     FileLibraryAssetDetailEndpoint,
     FileLibraryAssetDownloadEndpoint,
     FileLibraryAssetEndpoint,
+    FileLibraryAssetThumbnailEndpoint,
     FileLibraryBulkActionEndpoint,
     FileLibraryExportEndpoint,
     FileLibraryExportStatusEndpoint,
@@ -87,6 +88,11 @@ urlpatterns = [
         "workspaces/<str:slug>/file-library/files/<uuid:asset_id>/download/",
         FileLibraryAssetDownloadEndpoint.as_view(),
         name="file-library-asset-download",
+    ),
+    path(
+        "workspaces/<str:slug>/file-library/files/<uuid:asset_id>/thumbnail/",
+        FileLibraryAssetThumbnailEndpoint.as_view(),
+        name="file-library-asset-thumbnail",
     ),
     path(
         "workspaces/<str:slug>/file-library/files/<uuid:asset_id>/categories/",

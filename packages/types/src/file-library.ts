@@ -59,6 +59,8 @@ export type TLibraryFile = {
   /** Set when the file is tracked as a contract (PDF linked to "Contratos") */
   contract_id: string | null;
   contract_processing_status: "PENDING" | "PROCESSING" | "COMPLETED" | "ERROR" | null;
+  /** Contract PDFs get a page-1 thumbnail from the AI pipeline; see `getFileThumbnailUrl` */
+  has_thumbnail: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;

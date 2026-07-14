@@ -60,6 +60,8 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
     createFolder,
     bulkAction,
     getPresignedViewUrl,
+    getFileViewUrl,
+    getFileThumbnailUrl,
     filesLoader,
   } = useFileLibrary();
   // states
@@ -197,6 +199,15 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
             ? { label: t("file_library.contracts.processing.error"), tone: "danger" as const }
             : { label: t("file_library.contracts.badge"), tone: "success" as const }
         : null;
+      // Thumbnails: images render inline (their own file IS the thumbnail);
+      // contract PDFs get the AI pipeline's page-1 render. Everything else
+      // falls back to the built-in generic file-type tile.
+      const isImage = file.attributes.type.startsWith("image/");
+      const previewImageUrl = isImage
+        ? getFileViewUrl(workspaceSlug, file.id)
+        : file.has_thumbnail
+          ? getFileThumbnailUrl(workspaceSlug, file.id)
+          : undefined;
       manifest.push({
         kind: "file",
         path: uniquePath(`${prefix}${file.attributes.name}`),
@@ -206,6 +217,7 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
         createdAt: file.created_at,
         updatedAt: file.updated_at,
         badge: contractBadge,
+        previewImageUrl,
         metadata: { assetId: file.id },
       });
     }

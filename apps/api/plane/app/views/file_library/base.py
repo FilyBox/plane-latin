@@ -302,6 +302,32 @@ class FileLibraryAssetDownloadEndpoint(FileLibraryBaseView):
         return HttpResponseRedirect(signed_url)
 
 
+class FileLibraryAssetThumbnailEndpoint(FileLibraryBaseView):
+    """Redirects to the presigned URL of a contract's generated page-1
+    thumbnail (see the contracts AI pipeline's `extract_thumbnail` stage).
+    Only PDFs categorized as contracts have one; anything else 404s so the
+    frontend can fall back to a generic file-type tile.
+    """
+
+    model = FileAsset
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    def get(self, request, slug, asset_id):
+        asset = FileAsset.objects.get(
+            id=asset_id,
+            workspace__slug=slug,
+            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+        )
+        contract = getattr(asset, "contract", None)
+        if contract is None or contract.thumbnail_asset is None:
+            return Response({"error": "No thumbnail available"}, status=status.HTTP_404_NOT_FOUND)
+
+        thumbnail = contract.thumbnail_asset
+        storage = S3Storage(request=request)
+        signed_url = storage.generate_presigned_url(object_name=thumbnail.asset.name, disposition="inline")
+        return HttpResponseRedirect(signed_url)
+
+
 class FileLibraryExportEndpoint(FileLibraryBaseView):
     """Streams the requested assets as one ZIP. Files are pulled from S3 and
     zipped on the fly (zipstream-ng) — nothing is buffered server-side, so the

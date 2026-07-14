@@ -268,6 +268,11 @@ export class FileLibraryService extends APIService {
     return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/`;
   }
 
+  /** Contract PDFs only — 404s (broken image, handled gracefully by the UI) when absent */
+  getFileThumbnailUrl(workspaceSlug: string, assetId: string): string {
+    return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/thumbnail/`;
+  }
+
   /** Resolves the storage presigned URL so in-app viewers can fetch the file directly */
   async getPresignedViewUrl(workspaceSlug: string, assetId: string): Promise<string> {
     return this.get(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/`, {

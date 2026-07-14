@@ -98,6 +98,7 @@ class FileLibraryAssetSerializer(BaseSerializer):
     tag_ids = serializers.SerializerMethodField()
     contract_id = serializers.SerializerMethodField()
     contract_processing_status = serializers.SerializerMethodField()
+    has_thumbnail = serializers.SerializerMethodField()
 
     class Meta:
         model = FileAsset
@@ -112,6 +113,7 @@ class FileLibraryAssetSerializer(BaseSerializer):
             "tag_ids",
             "contract_id",
             "contract_processing_status",
+            "has_thumbnail",
             "created_by",
             "created_at",
             "updated_at",
@@ -139,3 +141,7 @@ class FileLibraryAssetSerializer(BaseSerializer):
     def get_contract_processing_status(self, obj):
         contract = self._contract(obj)
         return contract.processing_status if contract else None
+
+    def get_has_thumbnail(self, obj):
+        contract = self._contract(obj)
+        return bool(contract and contract.thumbnail_asset_id)

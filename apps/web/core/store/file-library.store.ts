@@ -77,6 +77,7 @@ export interface IFileLibraryStore {
   // url helpers
   getFileViewUrl: (workspaceSlug: string, fileId: string) => string;
   getFileDownloadUrl: (workspaceSlug: string, fileId: string) => string;
+  getFileThumbnailUrl: (workspaceSlug: string, fileId: string) => string;
   getPresignedViewUrl: (workspaceSlug: string, fileId: string) => Promise<string>;
 }
 
@@ -474,6 +475,9 @@ export class FileLibraryStore implements IFileLibraryStore {
 
   getFileDownloadUrl = (workspaceSlug: string, fileId: string) =>
     this.fileLibraryService.getFileDownloadUrl(workspaceSlug, fileId);
+
+  getFileThumbnailUrl = (workspaceSlug: string, fileId: string) =>
+    this.fileLibraryService.getFileThumbnailUrl(workspaceSlug, fileId);
 
   getPresignedViewUrl = (workspaceSlug: string, fileId: string) =>
     this.fileLibraryService.getPresignedViewUrl(workspaceSlug, fileId);
