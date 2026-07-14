@@ -2,6 +2,9 @@
     "mcpServers": {
         "cloudflare-api": {
             "serverUrl": "https://mcp.cloudflare.com/mcp"
+        },
+        "deepwiki": {
+            "url": "https://mcp.deepwiki.com/mcp"
         }
     }
 }

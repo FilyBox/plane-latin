@@ -84,7 +84,7 @@
       "clear_all": "Limpiar todo",
       "button": "Filtros",
       "search_placeholder": "Buscar filtro",
-      "no_results": "No hay tags que coincidan"
+      "no_results": "Sin coincidencias"
     },
     "bulk": {
       "button": "Acciones masivas",

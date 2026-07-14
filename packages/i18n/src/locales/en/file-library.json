@@ -84,7 +84,7 @@
       "clear_all": "Clear all",
       "button": "Filters",
       "search_placeholder": "Search filters",
-      "no_results": "No matching tags"
+      "no_results": "No matches found"
     },
     "bulk": {
       "button": "Bulk actions",
