@@ -68,6 +68,7 @@ export interface IFileLibraryStore {
     folderId?: string | null
   ) => Promise<TLibraryFile>;
   deleteFile: (workspaceSlug: string, fileId: string) => Promise<void>;
+  renameFile: (workspaceSlug: string, fileId: string, name: string) => Promise<void>;
   addFileCategories: (workspaceSlug: string, fileId: string, categoryIds: string[]) => Promise<void>;
   removeFileCategory: (workspaceSlug: string, fileId: string, categoryId: string) => Promise<void>;
   addFileTags: (workspaceSlug: string, fileId: string, tagIds: string[]) => Promise<void>;
@@ -76,6 +77,7 @@ export interface IFileLibraryStore {
   // url helpers
   getFileViewUrl: (workspaceSlug: string, fileId: string) => string;
   getFileDownloadUrl: (workspaceSlug: string, fileId: string) => string;
+  getFileThumbnailUrl: (workspaceSlug: string, fileId: string) => string;
   getPresignedViewUrl: (workspaceSlug: string, fileId: string) => Promise<string>;
 }
 
@@ -126,6 +128,7 @@ export class FileLibraryStore implements IFileLibraryStore {
       fetchFiles: action,
       uploadFile: action,
       deleteFile: action,
+      renameFile: action,
       addFileCategories: action,
       removeFileCategory: action,
       addFileTags: action,
@@ -430,6 +433,14 @@ export class FileLibraryStore implements IFileLibraryStore {
     });
   };
 
+  renameFile = async (workspaceSlug: string, fileId: string, name: string) => {
+    await this.fileLibraryService.renameFile(workspaceSlug, fileId, name);
+    runInAction(() => {
+      const file = this.filesMap[fileId];
+      if (file) set(this.filesMap, [fileId, "attributes"], { ...file.attributes, name });
+    });
+  };
+
   addFileCategories = async (workspaceSlug: string, fileId: string, categoryIds: string[]) => {
     const updated = await this.fileLibraryService.addFileCategories(workspaceSlug, fileId, categoryIds);
     runInAction(() => {
@@ -464,6 +475,9 @@ export class FileLibraryStore implements IFileLibraryStore {
 
   getFileDownloadUrl = (workspaceSlug: string, fileId: string) =>
     this.fileLibraryService.getFileDownloadUrl(workspaceSlug, fileId);
+
+  getFileThumbnailUrl = (workspaceSlug: string, fileId: string) =>
+    this.fileLibraryService.getFileThumbnailUrl(workspaceSlug, fileId);
 
   getPresignedViewUrl = (workspaceSlug: string, fileId: string) =>
     this.fileLibraryService.getPresignedViewUrl(workspaceSlug, fileId);

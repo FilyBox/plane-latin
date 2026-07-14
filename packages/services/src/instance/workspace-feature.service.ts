@@ -9,7 +9,7 @@ import { API_BASE_URL } from "@plane/constants";
 // api service
 import { APIService } from "../api.service";
 
-export type TWorkspaceFeatureKey = "file_library";
+export type TWorkspaceFeatureKey = "file_library" | "payments";
 
 export type TInstanceWorkspaceFeatures = {
   workspace_id: string;

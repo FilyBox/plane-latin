@@ -430,6 +430,7 @@ class WorkspaceUserPreference(BaseModel):
         # endpoint silently no-ops for any key without a pre-seeded row here.
         FILE_LIBRARY = "file-library", "File Library"
         CONTRACTS = "contracts", "Contracts"
+        PAYMENTS = "payments", "Payments"
 
     workspace = models.ForeignKey(
         "db.Workspace",

@@ -106,7 +106,9 @@ export function ContractsRoot(props: Props) {
       previous.includes(contractId) ? previous.filter((id) => id !== contractId) : [...previous, contractId]
     );
   const toggleSelectAll = () =>
-    setSelectedIds((previous) => (previous.length === (contracts ?? []).length ? [] : (contracts ?? []).map((c) => c.id)));
+    setSelectedIds((previous) =>
+      previous.length === (contracts ?? []).length ? [] : (contracts ?? []).map((c) => c.id)
+    );
 
   // The Files bulk-actions modal (move/categories/tags/delete) operates on
   // file_asset ids, not contract ids — map the selection across
@@ -125,10 +127,12 @@ export function ContractsRoot(props: Props) {
         name: contract.file_name ?? `${contract.titulo ?? contract.id}.pdf`,
       }));
     if (targets.length === 0) return;
-    setToast({
-      type: TOAST_TYPE.SUCCESS,
-      title: t("file_library.download_started", { count: targets.length }),
-    });
+    // A single file has no downloads-panel entry (it's a direct browser
+    // download), so it still gets its own toast; 2+ files are tracked by the
+    // panel already — a second "starting" toast would just duplicate it.
+    if (targets.length === 1) {
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.download_started", { count: 1 }) });
+    }
     try {
       await downloadAssets(workspaceSlug, targets, "contratos");
     } catch {
@@ -170,7 +174,7 @@ export function ContractsRoot(props: Props) {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder={t("file_library.contracts.search_placeholder")}
-              className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pl-8 pr-2 text-12 sm:w-64"
+              className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pr-2 pl-8 text-12 sm:w-64"
             />
           </div>
           <ContractFiltersDropdown workspaceSlug={workspaceSlug} filters={filters} onChange={setFilters} />

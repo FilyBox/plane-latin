@@ -165,15 +165,15 @@ const FILE_BADGE_TONE_CLASSES: Record<NonNullable<FileSystemFileBadge["tone"]>, 
  */
 const FileSystemMultiSelectContext = React.createContext<{
   selectedPaths: ReadonlySet<string>;
-  toggle: ((file: FileSystemFileItem) => void) | null;
+  toggle: ((item: FileSystemItem) => void) | null;
   /** Replace-semantics sync used by the list tree's native multi-selection */
-  replace: ((files: FileSystemFileItem[]) => void) | null;
+  replace: ((items: FileSystemItem[]) => void) | null;
 }>({ selectedPaths: new Set(), toggle: null, replace: null });
 
-/** Toggle checkbox rendered on file entries when multi-select is enabled. */
+/** Toggle checkbox rendered on file/folder entries when multi-select is enabled. */
 function FileSystemMultiSelectCheckbox({ entry, className }: { entry: FileSystemEntry; className?: string }) {
   const { selectedPaths, toggle } = React.useContext(FileSystemMultiSelectContext);
-  if (!toggle || entry.kind !== "file") return null;
+  if (!toggle) return null;
   const isChecked = selectedPaths.has(entry.path);
   const anyActive = selectedPaths.size > 0;
   return (
@@ -240,18 +240,19 @@ export type FileSystemProps = {
   view?: FileSystemView;
   onViewChange?: (view: FileSystemView) => void;
   /**
-   * Local addition: multi-selection over files (keyed by `path`). When
-   * `onFileSelectToggle` is provided, files show a toggle checkbox in the
-   * icons/columns/gallery views and Ctrl/Cmd+click toggles in every view.
+   * Local addition: multi-selection over files AND folders (keyed by `path`;
+   * folder paths end with "/"). When `onFileSelectToggle` is provided, entries
+   * show a toggle checkbox in the icons/columns/gallery views and
+   * Ctrl/Cmd+click toggles in every view.
    */
   selectedFilePaths?: ReadonlySet<string>;
-  onFileSelectToggle?: (file: FileSystemFileItem) => void;
+  onFileSelectToggle?: (item: FileSystemItem) => void;
   /**
    * Local addition: the list view's tree has native multi-selection
-   * (Ctrl/Cmd-union, Shift-range); it reports the full selected file set
+   * (Ctrl/Cmd-union, Shift-range); it reports the full selected entry set
    * here with replace semantics (2+ rows) or an empty array (0-1 rows).
    */
-  onFileSelectionReplace?: (files: FileSystemFileItem[]) => void;
+  onFileSelectionReplace?: (items: FileSystemItem[]) => void;
   /** Folder prefix to open initially, e.g. `"invoices/"`. */
   defaultPath?: string;
   /** Local addition: reports the folder prefix the user navigated to. */
@@ -1922,9 +1923,9 @@ export function FileSystem({
   // Selecting a lazy folder (columns view, keyboard nav) prefetches children.
   const selectAndPrefetchEntry = React.useCallback(
     (entry: FileSystemEntry | null) => {
-      // Modifier-click on a file toggles multi-selection instead of moving
+      // Modifier-click on an entry toggles multi-selection instead of moving
       // the single selection (works uniformly across all four views).
-      if (entry?.kind === "file" && multiSelectModifierRef.current && onFileSelectToggle) {
+      if (entry && multiSelectModifierRef.current && onFileSelectToggle) {
         onFileSelectToggle(entry);
         return;
       }
@@ -3461,6 +3462,17 @@ function FileSystemListView({
         paths.push(relativePath);
       }
     }
+    // Folders with no files anywhere inside them (including nested
+    // subfolders) have no file path to imply their existence — the tree
+    // input needs them listed explicitly (a trailing "/" marks a directory).
+    for (const path of index.folders.keys()) {
+      if (currentPath === "" || path.startsWith(currentPath)) {
+        const relativePath = path.slice(currentPath.length);
+
+        if (!relativePath) continue;
+        paths.push(relativePath);
+      }
+    }
     return paths.sort();
   }, [currentPath, fileFilter, index]);
 
@@ -3735,9 +3747,7 @@ function FileSystemPierreTree({
 
       const entry = entries[0] ?? null;
       onSelect(entry);
-      multiSelect.replace?.(
-        selectedPaths.length > 1 ? entries.filter((resolved): resolved is FileEntry => resolved.kind === "file") : []
-      );
+      multiSelect.replace?.(selectedPaths.length > 1 ? entries : []);
     },
   });
 

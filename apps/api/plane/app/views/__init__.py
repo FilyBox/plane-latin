@@ -64,6 +64,7 @@ from .file_library import (
     FileLibraryAssetDetailEndpoint,
     FileLibraryAssetDownloadEndpoint,
     FileLibraryAssetEndpoint,
+    FileLibraryAssetThumbnailEndpoint,
     FileLibraryBulkActionEndpoint,
     FileLibraryExportEndpoint,
     FileLibraryExportStatusEndpoint,
@@ -71,6 +72,47 @@ from .file_library import (
     FileTagEndpoint,
     FileTagLinkEndpoint,
     FileTagMergeEndpoint,
+)
+
+from .finance import (
+    BudgetBonusDetailEndpoint,
+    BudgetBonusEndpoint,
+    BudgetDetailEndpoint,
+    BudgetEndpoint,
+    BudgetScenarioDetailEndpoint,
+    BudgetScenarioCellOverrideEndpoint,
+    BudgetScenarioEmployeeDetailEndpoint,
+    BudgetScenarioEmployeeEndpoint,
+    BudgetScenarioEndpoint,
+    BudgetScenarioExportEndpoint,
+    BudgetScenarioSummaryEndpoint,
+    BudgetScenarioVariableDetailEndpoint,
+    BudgetScenarioVariableEndpoint,
+    BudgetSummaryEndpoint,
+    ExpenseCategoryDetailEndpoint,
+    ExpenseCategoryEndpoint,
+    ExpenseDetailEndpoint,
+    ExpenseDocumentEndpoint,
+    ExpenseDocumentViewEndpoint,
+    ExpenseEndpoint,
+    FinancialVariableDetailEndpoint,
+    FinancialVariableEndpoint,
+)
+
+from .payroll import (
+    AdjustmentDetailEndpoint,
+    AdjustmentEndpoint,
+    AguinaldoEndpoint,
+    AnnualCostEndpoint,
+    EmployeeDetailEndpoint,
+    EmployeeEndpoint,
+    OfficeDetailEndpoint,
+    OfficeEndpoint,
+    PayrollAccessEndpoint,
+    PayrollPaymentDetailEndpoint,
+    PayrollPaymentEndpoint,
+    SalaryDetailEndpoint,
+    SalaryEndpoint,
 )
 
 from .workspace.member import (

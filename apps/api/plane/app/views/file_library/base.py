@@ -250,6 +250,10 @@ class FileLibraryAssetDetailEndpoint(FileLibraryBaseView):
         if not asset.storage_metadata:
             get_asset_object_metadata.delay(asset_id=str(asset_id))
         asset.attributes = request.data.get("attributes", asset.attributes)
+        # Rename: only the display name changes; the stored object is untouched
+        new_name = (request.data.get("name") or "").strip()
+        if new_name:
+            asset.attributes = {**asset.attributes, "name": new_name}
         asset.save(update_fields=["is_uploaded", "attributes"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -295,6 +299,32 @@ class FileLibraryAssetDownloadEndpoint(FileLibraryBaseView):
         # the resolved presigned URL rather than a cookie-authenticated redirect
         if request.query_params.get("response") == "json":
             return Response({"url": signed_url}, status=status.HTTP_200_OK)
+        return HttpResponseRedirect(signed_url)
+
+
+class FileLibraryAssetThumbnailEndpoint(FileLibraryBaseView):
+    """Redirects to the presigned URL of a contract's generated page-1
+    thumbnail (see the contracts AI pipeline's `extract_thumbnail` stage).
+    Only PDFs categorized as contracts have one; anything else 404s so the
+    frontend can fall back to a generic file-type tile.
+    """
+
+    model = FileAsset
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    def get(self, request, slug, asset_id):
+        asset = FileAsset.objects.get(
+            id=asset_id,
+            workspace__slug=slug,
+            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+        )
+        contract = getattr(asset, "contract", None)
+        if contract is None or contract.thumbnail_asset is None:
+            return Response({"error": "No thumbnail available"}, status=status.HTTP_404_NOT_FOUND)
+
+        thumbnail = contract.thumbnail_asset
+        storage = S3Storage(request=request)
+        signed_url = storage.generate_presigned_url(object_name=thumbnail.asset.name, disposition="inline")
         return HttpResponseRedirect(signed_url)
 
 
@@ -666,18 +696,36 @@ class FileTagLinkEndpoint(FileLibraryBaseView):
 
 
 class FileLibraryBulkActionEndpoint(FileLibraryBaseView):
-    """Bulk operations over library files: move, delete, categorize, tag."""
+    """Bulk operations over library files and folders: move, delete, categorize, tag."""
 
     model = FileAsset
+
+    def _descendant_folder_ids(self, folders):
+        """All folders in the given list plus every folder nested inside them."""
+        collected = {folder.id for folder in folders}
+        frontier = list(collected)
+        while frontier:
+            children = list(
+                FileFolder.objects.filter(parent_id__in=frontier).values_list("id", flat=True)
+            )
+            frontier = [child for child in children if child not in collected]
+            collected.update(frontier)
+        return collected
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
         workspace = Workspace.objects.get(slug=slug)
         action = request.data.get("action")
         file_ids = request.data.get("file_ids", [])
+        folder_ids = request.data.get("folder_ids", [])
 
-        if not isinstance(file_ids, list) or not file_ids:
-            return Response({"error": "file_ids must be a non-empty list"}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(file_ids, list) or not isinstance(folder_ids, list):
+            return Response({"error": "file_ids and folder_ids must be lists"}, status=status.HTTP_400_BAD_REQUEST)
+        if not file_ids and not folder_ids:
+            return Response({"error": "Nothing selected"}, status=status.HTTP_400_BAD_REQUEST)
+        # Only move/delete understand folders; label actions are file-only
+        if folder_ids and action not in ("move", "delete"):
+            return Response({"error": "Folders only support move and delete"}, status=status.HTTP_400_BAD_REQUEST)
 
         assets = FileAsset.objects.filter(
             id__in=file_ids,
@@ -687,6 +735,10 @@ class FileLibraryBulkActionEndpoint(FileLibraryBaseView):
         )
         if assets.count() != len(set(file_ids)):
             return Response({"error": "One or more files were not found"}, status=status.HTTP_400_BAD_REQUEST)
+
+        selected_folders = list(FileFolder.objects.filter(id__in=folder_ids, workspace=workspace))
+        if len(selected_folders) != len(set(folder_ids)):
+            return Response({"error": "One or more folders were not found"}, status=status.HTTP_400_BAD_REQUEST)
 
         if action == "move":
             # Move to an existing folder, a new folder, or the root
@@ -704,10 +756,46 @@ class FileLibraryBulkActionEndpoint(FileLibraryBaseView):
                 folder = FileFolder.objects.filter(id=folder_id, workspace=workspace).first()
                 if folder is None:
                     return Response({"error": "Folder not found"}, status=status.HTTP_400_BAD_REQUEST)
+            if selected_folders:
+                # Destination inside a moved folder (or the folder itself) would
+                # detach the subtree into a cycle
+                if folder is not None and folder.id in self._descendant_folder_ids(selected_folders):
+                    return Response(
+                        {"error": "A folder cannot be moved inside itself"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                for moved in selected_folders:
+                    moved.parent = folder
+                    try:
+                        moved.save(update_fields=["parent"])
+                    except IntegrityError:
+                        return Response(
+                            {"error": "A folder with this name already exists here"},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
             assets.update(folder=folder)
 
         elif action == "delete":
             assets.update(is_deleted=True, deleted_at=timezone.now())
+            if selected_folders:
+                if request.data.get("contents") == "delete":
+                    # Remove the whole subtree: nested files first, then folders
+                    doomed_ids = self._descendant_folder_ids(selected_folders)
+                    FileAsset.objects.filter(folder_id__in=doomed_ids, is_deleted=False).update(
+                        is_deleted=True, deleted_at=timezone.now()
+                    )
+                    FileFolder.objects.filter(id__in=doomed_ids).delete()
+                else:
+                    # Default: re-parent contents so nothing is lost. Re-fetch
+                    # each folder — deleting a selected parent may have already
+                    # re-parented (or cascaded away) a selected child.
+                    for stale in selected_folders:
+                        doomed = FileFolder.objects.filter(id=stale.id).first()
+                        if doomed is None:
+                            continue
+                        FileAsset.objects.filter(folder=doomed).update(folder=doomed.parent)
+                        FileFolder.objects.filter(parent=doomed).update(parent=doomed.parent)
+                        doomed.delete()
 
         elif action in ("add_categories", "remove_categories"):
             category_ids = request.data.get("category_ids", [])

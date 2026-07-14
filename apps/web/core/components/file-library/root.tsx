@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { useDropzone } from "react-dropzone";
 import useSWR from "swr";
-import { Check, Download, Files, FileText, FolderPlus, Layers, Loader2, Search, Tags, Trash2, Upload, X } from "lucide-react";
+import { Download, Files, FileText, FolderPlus, Loader2, MoreHorizontal, Search, Upload } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
 // plane imports
 import type { FileSystemFileItem, FileSystemItem, FileSystemView } from "@plane/extend-ui";
@@ -19,7 +19,6 @@ import { Button } from "@plane/propel/button";
 import { Popover } from "@plane/propel/popover";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";
-import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // hooks
 import { useFileLibrary } from "@/hooks/store/use-file-library";
@@ -33,6 +32,8 @@ import { FilePreviewModal } from "./file-preview-modal";
 import { AppliedFiltersList } from "./filters-bar";
 import { FiltersDropdown } from "./filters-dropdown";
 import { FolderBreadcrumbs } from "./folder-breadcrumbs";
+import { SafeDeleteModal } from "./safe-delete-modal";
+import { SelectionActionBar } from "./selection-action-bar";
 import { FolderSelect } from "./shared";
 import { UploadModal } from "./upload-modal";
 
@@ -45,11 +46,8 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
   const { t } = useTranslation();
   // store
   const {
-    categoryIds,
-    getCategoryById,
-    tagIds,
-    getTagById,
     folderIds,
+    getFolderById,
     getFolderPath,
     getFilteredFileIds,
     getFileById,
@@ -60,13 +58,10 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
     fetchTags,
     fetchFiles,
     createFolder,
-    deleteFile,
-    addFileCategories,
-    removeFileCategory,
-    addFileTags,
-    removeFileTag,
-    getFileDownloadUrl,
+    bulkAction,
     getPresignedViewUrl,
+    getFileViewUrl,
+    getFileThumbnailUrl,
     filesLoader,
   } = useFileLibrary();
   // states
@@ -76,11 +71,10 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
   const [pendingUploads, setPendingUploads] = useState<File[]>([]);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [bulkInitialIds, setBulkInitialIds] = useState<string[] | undefined>(undefined);
-  // Multi-selection over the browser (path → asset id), fed by checkboxes
-  // and Ctrl/Cmd+click in every view
-  const [multiSelected, setMultiSelected] = useState<Map<string, string>>(new Map());
+  // Multi-selection over the browser (path → file/folder id), fed by
+  // checkboxes and Ctrl/Cmd+click in every view
+  const [multiSelected, setMultiSelected] = useState<Map<string, { kind: "file" | "folder"; id: string }>>(new Map());
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [currentPath, setCurrentPath] = useState("");
   const [browseKey, setBrowseKey] = useState(0);
   const [browsePath, setBrowsePath] = useState("");
@@ -205,6 +199,15 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
             ? { label: t("file_library.contracts.processing.error"), tone: "danger" as const }
             : { label: t("file_library.contracts.badge"), tone: "success" as const }
         : null;
+      // Thumbnails: images render inline (their own file IS the thumbnail);
+      // contract PDFs get the AI pipeline's page-1 render. Everything else
+      // falls back to the built-in generic file-type tile.
+      const isImage = file.attributes.type.startsWith("image/");
+      const previewImageUrl = isImage
+        ? getFileViewUrl(workspaceSlug, file.id)
+        : file.has_thumbnail
+          ? getFileThumbnailUrl(workspaceSlug, file.id)
+          : undefined;
       manifest.push({
         kind: "file",
         path: uniquePath(`${prefix}${file.attributes.name}`),
@@ -214,6 +217,7 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
         createdAt: file.created_at,
         updatedAt: file.updated_at,
         badge: contractBadge,
+        previewImageUrl,
         metadata: { assetId: file.id },
       });
     }
@@ -263,33 +267,94 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
     setPreviewFile({ assetId, name: fsFile.name ?? fsFile.path, contentType: fsFile.contentType ?? "" });
   }, []);
 
-  // ── Multi-selection + downloads ─────────────────────────────────────
+  // ── Multi-selection (files + folders) + downloads ───────────────────
   const selectedFilePaths = useMemo(() => new Set(multiSelected.keys()), [multiSelected]);
-  const selectedAssetIds = useMemo(() => Array.from(multiSelected.values()), [multiSelected]);
 
-  const handleFileSelectToggle = useCallback((file: FileSystemFileItem) => {
-    const assetId = file.metadata?.assetId;
-    if (!assetId) return;
-    setMultiSelected((previous) => {
-      const next = new Map(previous);
-      if (next.has(file.path)) next.delete(file.path);
-      else next.set(file.path, assetId);
-      return next;
-    });
-  }, []);
+  // Folder paths end in "/", so the id is resolved from the folder tree
+  const resolveEntryId = useCallback(
+    (item: FileSystemItem): { kind: "file" | "folder"; id: string } | null => {
+      if (item.kind === "file") {
+        const assetId = item.metadata?.assetId;
+        return assetId ? { kind: "file", id: assetId } : null;
+      }
+      const match = folderIds.find((id) => folderPathString(id) === item.path);
+      return match ? { kind: "folder", id: match } : null;
+    },
+    [folderIds, folderPathString]
+  );
+
+  const handleFileSelectToggle = useCallback(
+    (item: FileSystemItem) => {
+      const resolved = resolveEntryId(item);
+      if (!resolved) return;
+      setMultiSelected((previous) => {
+        const next = new Map(previous);
+        if (next.has(item.path)) next.delete(item.path);
+        else next.set(item.path, resolved);
+        return next;
+      });
+    },
+    [resolveEntryId]
+  );
 
   // The list view's tree reports its native multi-selection (Ctrl/Cmd-union,
   // Shift-range) with replace semantics
-  const handleFileSelectionReplace = useCallback((files: FileSystemFileItem[]) => {
-    setMultiSelected(() => {
-      const next = new Map<string, string>();
-      files.forEach((file) => {
-        const assetId = file.metadata?.assetId;
-        if (assetId) next.set(file.path, assetId);
+  const handleFileSelectionReplace = useCallback(
+    (entries: FileSystemItem[]) => {
+      setMultiSelected(() => {
+        const next = new Map<string, { kind: "file" | "folder"; id: string }>();
+        entries.forEach((entry) => {
+          const resolved = resolveEntryId(entry);
+          if (resolved) next.set(entry.path, resolved);
+        });
+        return next;
       });
-      return next;
-    });
+    },
+    [resolveEntryId]
+  );
+
+  const clearSelection = useCallback(() => {
+    setMultiSelected(new Map());
+    setSelectedAssetId(null);
+    setSelectedFolderId(null);
   }, []);
+
+  // Effective selection driving the floating action bar: the multi-selection
+  // when active, else the single-clicked item
+  const { effectiveFiles, effectiveFolders } = useMemo(() => {
+    const files: string[] = [];
+    const folders: string[] = [];
+    if (multiSelected.size > 0) {
+      multiSelected.forEach((entry) => (entry.kind === "file" ? files : folders).push(entry.id));
+    } else if (selectedAssetId) {
+      files.push(selectedAssetId);
+    } else if (selectedFolderId) {
+      folders.push(selectedFolderId);
+    }
+    return {
+      effectiveFiles: files.map((id) => getFileById(id)).filter((file): file is NonNullable<typeof file> => !!file),
+      effectiveFolders: folders
+        .map((id) => getFolderById(id))
+        .filter((folder): folder is NonNullable<typeof folder> => !!folder),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [multiSelected, selectedAssetId, selectedFolderId, getFileById, getFolderById, filesLoader]);
+
+  // Selected folders download their whole subtree (every file whose folder
+  // path lives under the folder's path)
+  const collectSelectionAssetIds = useCallback(() => {
+    const ids = new Set(effectiveFiles.map((file) => file.id));
+    const prefixes = effectiveFolders.map((folder) => folderPathString(folder.id));
+    if (prefixes.length > 0) {
+      getFilteredFileIds().forEach((fileId) => {
+        const file = getFileById(fileId);
+        if (!file) return;
+        const filePrefix = folderPathString(file.folder_id);
+        if (prefixes.some((prefix) => filePrefix.startsWith(prefix))) ids.add(file.id);
+      });
+    }
+    return Array.from(ids);
+  }, [effectiveFiles, effectiveFolders, folderPathString, getFilteredFileIds, getFileById]);
 
   // One file downloads directly; several are bundled into a single ZIP
   const downloadAssets = useCallback(
@@ -299,10 +364,12 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
         .filter((file): file is NonNullable<typeof file> => !!file)
         .map((file) => ({ assetId: file.id, name: file.attributes.name }));
       if (targets.length === 0) return;
-      setToast({
-        type: TOAST_TYPE.SUCCESS,
-        title: t("file_library.download_started", { count: targets.length }),
-      });
+      // A single file has no downloads-panel entry (it's a direct browser
+      // download), so it still gets its own toast; 2+ files are tracked by
+      // the panel already — a second "starting" toast would just duplicate it.
+      if (targets.length === 1) {
+        setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.download_started", { count: 1 }) });
+      }
       try {
         await downloadAssetsBundle(workspaceSlug, targets);
       } catch {
@@ -318,20 +385,16 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
     setBrowseKey((k) => k + 1);
   };
 
-  const selectedFile = selectedAssetId ? getFileById(selectedAssetId) : undefined;
-
-  const handleDelete = async () => {
-    if (!selectedFile) return;
-    setIsDeleting(true);
-    try {
-      await deleteFile(workspaceSlug, selectedFile.id);
-      setSelectedAssetId(null);
-      setIsDeleteModalOpen(false);
-    } catch (error: any) {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("error"), message: error?.error ?? t("file_library.delete_failed") });
-    } finally {
-      setIsDeleting(false);
-    }
+  // Safe delete: the modal collects the contents strategy for folders and
+  // requires typed confirmation before this runs
+  const handleDeleteConfirm = async (contents: "detach" | "delete") => {
+    await bulkAction(workspaceSlug, {
+      action: "delete",
+      file_ids: effectiveFiles.map((file) => file.id),
+      folder_ids: effectiveFolders.map((folder) => folder.id),
+      contents,
+    });
+    clearSelection();
   };
 
   const handleCreateFolder = async () => {
@@ -359,47 +422,6 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
     return map[filters.order ?? "-created_at"];
   }, [filters.order]);
 
-  const labelPopover = (
-    kind: "categories" | "tags",
-    ids: string[],
-    getById: (id: string) => { id: string; name: string; pdf_only?: boolean } | undefined,
-    assigned: string[],
-    onToggle: (id: string) => void
-  ) => (
-    <Popover>
-      <Popover.Button className="flex items-center gap-1 rounded-sm border border-subtle px-2 py-1 text-12 hover:bg-layer-1-hover">
-        {kind === "categories" ? <Layers className="size-3.5" /> : <Tags className="size-3.5" />}
-        <span className="hidden sm:inline">{t(`file_library.${kind}.title`)}</span>
-      </Popover.Button>
-      <Popover.Panel side="bottom" align="end">
-        <div className="max-h-60 w-56 space-y-0.5 overflow-y-auto rounded-md border border-subtle bg-layer-1 p-2 shadow-raised-200">
-          {ids.map((id) => {
-            const item = getById(id);
-            if (!item) return null;
-            const isAssigned = assigned.includes(id);
-            const isDisabled = Boolean(item.pdf_only) && selectedFile?.attributes.type !== "application/pdf";
-            return (
-              <button
-                key={id}
-                type="button"
-                disabled={isDisabled}
-                title={isDisabled ? t("file_library.categories.pdf_only_hint") : undefined}
-                className={cn(
-                  "flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-13",
-                  isDisabled ? "cursor-not-allowed text-placeholder" : "hover:bg-layer-1-hover"
-                )}
-                onClick={() => onToggle(id)}
-              >
-                <span className="truncate">{item.name}</span>
-                {isAssigned && <Check className="size-3.5 shrink-0" />}
-              </button>
-            );
-          })}
-        </div>
-      </Popover.Panel>
-    </Popover>
-  );
-
   const iconAction = "flex size-8 items-center justify-center rounded-sm border border-subtle text-secondary hover:bg-layer-1-hover";
 
   return (
@@ -423,13 +445,12 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
         initialFileIds={bulkInitialIds}
       />
       <FilePreviewModal workspaceSlug={workspaceSlug} file={previewFile} onClose={() => setPreviewFile(null)} />
-      <AlertModalCore
+      <SafeDeleteModal
         isOpen={isDeleteModalOpen}
-        handleClose={() => setIsDeleteModalOpen(false)}
-        handleSubmit={handleDelete}
-        isSubmitting={isDeleting}
-        title={t("file_library.delete_title", { name: selectedFile?.attributes.name ?? "" })}
-        content={t("file_library.delete_description")}
+        files={effectiveFiles}
+        folders={effectiveFolders}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleDeleteConfirm}
       />
 
       {/* toolbar — single compact row: folder breadcrumbs + actions */}
@@ -439,56 +460,8 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
           <FolderBreadcrumbs currentFolderId={currentFolderId} onNavigate={(id) => navigateTo(folderPathString(id))} />
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {/* selected-file quick actions */}
-          {(selectedFile && !multiSelected.size) && (
-            <>
-              <span className="hidden max-w-32 truncate text-12 text-tertiary lg:inline">
-                {selectedFile.attributes.name}
-              </span>
-              {labelPopover(
-                "categories",
-                categoryIds,
-                (id) => getCategoryById(id),
-                selectedFile.category_ids,
-                (id) =>
-                  void (selectedFile.category_ids.includes(id)
-                    ? removeFileCategory(workspaceSlug, selectedFile.id, id)
-                    : addFileCategories(workspaceSlug, selectedFile.id, [id])
-                  ).catch((error: any) =>
-                    setToast({ type: TOAST_TYPE.ERROR, title: t("error"), message: error?.error ?? t("error") })
-                  )
-              )}
-              {labelPopover(
-                "tags",
-                tagIds,
-                (id) => getTagById(id),
-                selectedFile.tag_ids,
-                (id) =>
-                  void (selectedFile.tag_ids.includes(id)
-                    ? removeFileTag(workspaceSlug, selectedFile.id, id)
-                    : addFileTags(workspaceSlug, selectedFile.id, [id])
-                  ).catch((error: any) =>
-                    setToast({ type: TOAST_TYPE.ERROR, title: t("error"), message: error?.error ?? t("error") })
-                  )
-              )}
-              <a
-                href={getFileDownloadUrl(workspaceSlug, selectedFile.id)}
-                className={iconAction}
-                title={t("file_library.download")}
-              >
-                <Download className="size-4" />
-              </a>
-              <button
-                type="button"
-                className={cn(iconAction, "text-danger-primary")}
-                onClick={() => setIsDeleteModalOpen(true)}
-                title={t("file_library.delete")}
-              >
-                <Trash2 className="size-4" />
-              </button>
-              <span className="mx-1 h-5 w-px bg-subtle" />
-            </>
-          )}
+          {/* Selected-item actions live in the floating bar — the toolbar
+              stays lean: navigation, search/filter/order, and primary actions */}
 
           {/* contracts sub-module (AI-analyzed PDFs) */}
           <Link
@@ -498,18 +471,6 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
             <FileText className="size-3.5" />
             <span className="hidden sm:inline">{t("file_library.contracts.title")}</span>
           </Link>
-
-          {/* contextual download: everything matching the current filters */}
-          <button
-            type="button"
-            onClick={() => void downloadAssets(getFilteredFileIds())}
-            disabled={getFilteredFileIds().length === 0}
-            title={t("file_library.download_all_hint")}
-            className="flex h-8 items-center gap-1 rounded-sm border border-subtle px-2 text-12 hover:bg-layer-1-hover disabled:opacity-50"
-          >
-            <Download className="size-3.5" />
-            <span className="hidden lg:inline">{t("file_library.download_all")}</span>
-          </button>
 
           {/* live pipeline monitor — mirrors the contracts page badge */}
           {(activeJobs?.length ?? 0) > 0 && (
@@ -584,48 +545,39 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
               </div>
             </Popover.Panel>
           </Popover>
-          <Tooltip tooltipContent={t("file_library.bulk.button")}>
-            <button type="button" className={iconAction} onClick={() => setIsBulkOpen(true)}>
-              <Files className="size-4" />
-            </button>
-          </Tooltip>
+          {/* overflow: secondary actions that used to crowd the toolbar */}
+          <Popover>
+            <Popover.Button className={iconAction} title={t("file_library.actions.more")}>
+              <MoreHorizontal className="size-4" />
+            </Popover.Button>
+            <Popover.Panel side="bottom" align="end" positionerClassName="z-[30]">
+              <div className="w-56 space-y-0.5 rounded-md border border-subtle bg-layer-1 p-1.5 shadow-raised-200">
+                <button
+                  type="button"
+                  onClick={() => void downloadAssets(getFilteredFileIds())}
+                  disabled={getFilteredFileIds().length === 0}
+                  title={t("file_library.download_all_hint")}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-13 hover:bg-layer-1-hover disabled:opacity-50"
+                >
+                  <Download className="size-3.5 text-tertiary" />
+                  {t("file_library.download_all")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsBulkOpen(true)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-13 hover:bg-layer-1-hover"
+                >
+                  <Files className="size-3.5 text-tertiary" />
+                  {t("file_library.bulk.button")}
+                </button>
+              </div>
+            </Popover.Panel>
+          </Popover>
         </div>
       </div>
 
       {/* applied filters row — pills grouped by property, like work items */}
       <AppliedFiltersList />
-
-      {/* multi-selection action bar */}
-      {multiSelected.size > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle bg-layer-1 px-3 py-2 sm:px-4">
-          <span className="text-12 font-medium">
-            {t("file_library.bulk.selected_count", { count: multiSelected.size })}
-          </span>
-          <Button variant="secondary" size="sm" onClick={() => void downloadAssets(selectedAssetIds)}>
-            <Download className="size-3.5" />
-            {t("file_library.download_selected")}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              setBulkInitialIds(selectedAssetIds);
-              setIsBulkOpen(true);
-            }}
-          >
-            <Layers className="size-3.5" />
-            {t("file_library.bulk.button")}
-          </Button>
-          <button
-            type="button"
-            onClick={() => setMultiSelected(new Map())}
-            className="flex items-center gap-1 rounded-sm px-2 py-1 text-12 text-tertiary hover:bg-layer-1-hover"
-          >
-            <X className="size-3.5" />
-            {t("file_library.contracts.bulk.clear")}
-          </button>
-        </div>
-      )}
 
       {/* browser + dropzone */}
       <div {...getRootProps()} className="relative h-full min-h-0 w-full">
@@ -664,6 +616,22 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
             selectedFilePaths={selectedFilePaths}
             onFileSelectToggle={handleFileSelectToggle}
             onFileSelectionReplace={handleFileSelectionReplace}
+          />
+        )}
+
+        {/* floating contextual action bar — appears with any selection */}
+        {(effectiveFiles.length > 0 || effectiveFolders.length > 0) && (
+          <SelectionActionBar
+            workspaceSlug={workspaceSlug}
+            files={effectiveFiles}
+            folders={effectiveFolders}
+            onDownload={() => void downloadAssets(collectSelectionAssetIds())}
+            onOpenBulkModal={() => {
+              setBulkInitialIds(effectiveFiles.map((file) => file.id));
+              setIsBulkOpen(true);
+            }}
+            onRequestDelete={() => setIsDeleteModalOpen(true)}
+            onClear={clearSelection}
           />
         )}
       </div>

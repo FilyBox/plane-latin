@@ -164,7 +164,10 @@ export class FileLibraryService extends APIService {
 
   // bulk
 
-  async bulkAction(workspaceSlug: string, payload: TLibraryBulkAction): Promise<{ status: string; skipped?: string[] }> {
+  async bulkAction(
+    workspaceSlug: string,
+    payload: TLibraryBulkAction
+  ): Promise<{ status: string; skipped?: string[] }> {
     return this.post(`/api/workspaces/${workspaceSlug}/file-library/files/bulk/`, payload)
       .then((response) => response?.data)
       .catch((error) => {
@@ -247,6 +250,15 @@ export class FileLibraryService extends APIService {
       });
   }
 
+  /** Renames the file's display name (the stored object is untouched) */
+  async renameFile(workspaceSlug: string, assetId: string, name: string): Promise<void> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/`, { name })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
   async deleteFile(workspaceSlug: string, assetId: string): Promise<void> {
     return this.delete(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/`)
       .then((response) => response?.data)
@@ -257,6 +269,11 @@ export class FileLibraryService extends APIService {
 
   getFileViewUrl(workspaceSlug: string, assetId: string): string {
     return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/`;
+  }
+
+  /** Contract PDFs only — 404s (broken image, handled gracefully by the UI) when absent */
+  getFileThumbnailUrl(workspaceSlug: string, assetId: string): string {
+    return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/thumbnail/`;
   }
 
   /** Resolves the storage presigned URL so in-app viewers can fetch the file directly */

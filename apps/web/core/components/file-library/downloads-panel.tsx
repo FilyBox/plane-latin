@@ -4,13 +4,14 @@
  * See the LICENSE file for details.
  */
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { AlertTriangle, CheckCircle2, Download, Loader2, X } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import { cn } from "@plane/utils";
 // local imports
 import { downloadManager } from "./download-manager";
+import { releaseToastClearance, reserveToastClearance } from "./toast-offset";
 
 const formatBytes = (bytes: number) => {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -26,10 +27,18 @@ export function DownloadsPanel() {
   const { t } = useTranslation();
   const items = useSyncExternalStore(downloadManager.subscribe, downloadManager.getSnapshot, downloadManager.getSnapshot);
 
+  // While entries are showing, push ephemeral toasts up so a new one doesn't
+  // land directly on top of this panel — both anchor to the same corner
+  useEffect(() => {
+    if (items.length > 0) reserveToastClearance("downloads-panel", 4);
+    else releaseToastClearance("downloads-panel");
+    return () => releaseToastClearance("downloads-panel");
+  }, [items.length]);
+
   if (items.length === 0) return null;
 
   return (
-    <div className="fixed right-4 bottom-4 z-[40] w-80 max-w-[calc(100vw-2rem)] space-y-2">
+    <div className="fixed right-4 bottom-4 z-40 w-80 max-w-[calc(100vw-2rem)] space-y-2">
       {items.map((item) => (
         <div
           key={item.id}

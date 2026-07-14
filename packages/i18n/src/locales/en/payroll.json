@@ -1,0 +1,139 @@
+{
+  "payroll": {
+    "title": "Payroll",
+    "optional": "Optional",
+    "tabs": {
+      "expenses": "Expenses",
+      "employees": "Employees",
+      "payments": "Payroll",
+      "aguinaldo": "Aguinaldo",
+      "annual_cost": "Annual cost"
+    },
+    "employees": {
+      "form_help": "Only the name and hire date are required. The internal identifier is generated automatically.",
+      "national_id_help": "A tax or legal identifier, not the system's internal ID.",
+      "left_company": "This person no longer works here",
+      "termination_help": "Enable this only when recording a departure; it is not requested for a new employee.",
+      "delete_impact": "{name} will be deleted with {salaries} salaries, {adjustments} adjustments and {payments} payments. They will also be removed from {scenarios} budgets. This cannot be undone.",
+      "new": "New employee",
+      "edit": "Edit employee",
+      "active": "Active",
+      "inactive": "Inactive",
+      "salaries": "Salaries",
+      "history": "History",
+      "new_salary": "New salary",
+      "current": "Current",
+      "adjustments": "Adjustments",
+      "new_adjustment": "New adjustment",
+      "empty": "No employees yet.",
+      "delete_title": "Delete employee",
+      "delete_description": "Their salary history, adjustments and payments go with them. This cannot be undone."
+    },
+    "offices": {
+      "form_help": "Entities group people, salaries and financial variables. Plane generates their identifiers automatically.",
+      "aguinaldo_help": "Legal minimum: 15 days",
+      "people": "people",
+      "delete_impact": "The {name} entity will be deleted. It has no linked salaries, payments or variables. This cannot be undone.",
+      "delete_blocked_impact": "{name} cannot be deleted: it contains {employees} people, {salaries} salaries, {payments} payments and {variables} variables. Reassign or remove those resources first.",
+      "title": "Offices",
+      "manage": "Manage offices",
+      "new": "New office",
+      "empty": "No offices yet. Create one to start paying people.",
+      "in_use": "This office still has salaries or payments; it cannot be deleted",
+      "delete_title": "Delete office",
+      "delete_description": "Only an office with no salaries or payments can be deleted."
+    },
+    "kinds": {
+      "bonus": "Bonus",
+      "debt": "Debt",
+      "support": "Support"
+    },
+    "periodicity": {
+      "monthly": "Monthly",
+      "biweekly": "Biweekly",
+      "weekly": "Weekly",
+      "daily": "Daily"
+    },
+    "payments": {
+      "given": "Paid",
+      "upcoming": "Upcoming",
+      "new": "New payment",
+      "mark_paid": "Mark as paid",
+      "empty": "No payments recorded yet.",
+      "empty_upcoming": "No payments due.",
+      "delete_title": "Delete payment",
+      "delete_description": "This payment will be removed from the ledger. This cannot be undone."
+    },
+    "concepts": {
+      "salary": "Salary",
+      "aguinaldo": "Aguinaldo",
+      "bonus": "Bonus",
+      "other": "Other"
+    },
+    "status": {
+      "pending": "Pending",
+      "paid": "Paid",
+      "cancelled": "Cancelled"
+    },
+    "aguinaldo": {
+      "title": "Aguinaldo",
+      "explainer": "Days of salary per office, prorated by days worked in the year.",
+      "days_worked": "Days worked",
+      "daily_salary": "Daily salary",
+      "days": "Days",
+      "amount": "Aguinaldo",
+      "empty": "Nothing to compute for this year."
+    },
+    "annual_cost": {
+      "title": "Annual cost",
+      "restricted": "Restricted. Only people granted access see this.",
+      "headcount": "Headcount",
+      "salaries": "Salaries",
+      "aguinaldo": "Aguinaldo",
+      "bonuses": "Bonuses",
+      "support": "Support",
+      "debts": "Debts",
+      "total": "Total",
+      "empty": "No cost for this year."
+    },
+    "fields": {
+      "full_name": "Full name",
+      "email": "Email",
+      "national_id": "ID",
+      "position": "Position",
+      "hire_date": "Hire date",
+      "termination_date": "End date",
+      "notes": "Notes",
+      "office": "Office",
+      "amount": "Amount",
+      "currency": "Currency",
+      "periodicity": "Periodicity",
+      "effective_from": "From",
+      "effective_to": "To",
+      "kind": "Kind",
+      "description": "Description",
+      "concept": "Concept",
+      "period_start": "Period start",
+      "period_end": "Period end",
+      "scheduled_date": "Due date",
+      "status": "Status",
+      "employee": "Employee",
+      "aguinaldo_days": "Aguinaldo days",
+      "name": "Name",
+      "date": "Date"
+    },
+    "actions": {
+      "save": "Save",
+      "cancel": "Cancel",
+      "edit": "Edit",
+      "delete": "Delete",
+      "close": "Close"
+    },
+    "year": "Year",
+    "toasts": {
+      "saved": "Saved",
+      "deleted": "Deleted",
+      "error": "Something went wrong"
+    }
+  }
+}

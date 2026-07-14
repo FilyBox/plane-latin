@@ -36,6 +36,7 @@ export interface IWorkspace {
   timezone: string;
   // Per-workspace feature flags (annotated on instance-admin responses)
   is_file_library_enabled?: boolean;
+  is_payments_enabled?: boolean;
 }
 
 export interface IWorkspaceLite {

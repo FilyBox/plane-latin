@@ -171,6 +171,8 @@ export class WorkspaceStore implements IWorkspaceStore {
     runInAction(() => {
       if (key === "file_library") {
         set(this.workspaces, [workspaceId, "is_file_library_enabled"], response.is_enabled);
+      } else if (key === "payments") {
+        set(this.workspaces, [workspaceId, "is_payments_enabled"], response.is_enabled);
       }
     });
   };

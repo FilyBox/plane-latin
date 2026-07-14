@@ -1,0 +1,8 @@
+[mcp_servers.deepwiki]
+url = "https://mcp.deepwiki.com/mcp"
+
+[mcp_servers.deepwiki.tools.read_wiki_structure]
+approval_mode = "approve"
+
+[mcp_servers.deepwiki.tools.ask_question]
+approval_mode = "approve"

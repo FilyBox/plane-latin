@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { Check, Combine, Folder, Lock, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 // plane imports
@@ -39,14 +39,17 @@ type LabelChecklistProps = {
 };
 
 /** Small "merge into…" picker popover, opened per row when onMerge is set. */
-function MergeIntoPicker(props: {
-  currentId: string;
-  items: TLabelItem[];
-  onPick: (targetId: string) => void;
-}) {
+function MergeIntoPicker(props: { currentId: string; items: TLabelItem[]; onPick: (targetId: string) => void }) {
   const { currentId, items, onPick } = props;
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
+  // Focused on open via a ref rather than autoFocus: the attribute yanks focus
+  // in ways screen readers can't announce, while this only fires once the
+  // popover is actually on screen.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    searchRef.current?.focus();
+  }, []);
   const candidates = items.filter(
     (item) => item.id !== currentId && item.name.toLowerCase().includes(query.trim().toLowerCase())
   );
@@ -62,11 +65,11 @@ function MergeIntoPicker(props: {
           <div className="relative mb-1">
             <Search className="absolute top-1/2 left-2 size-3 -translate-y-1/2 text-tertiary" />
             <input
-              autoFocus
+              ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("file_library.filters.search_placeholder")}
-              className="w-full rounded-sm border border-subtle bg-transparent py-1 pl-6 pr-2 text-12"
+              className="w-full rounded-sm border border-subtle bg-transparent py-1 pr-2 pl-6 text-12"
             />
           </div>
           <div className="max-h-40 space-y-0.5 overflow-y-auto">
@@ -96,6 +99,11 @@ export const LabelChecklist = observer(function LabelChecklist(props: LabelCheck
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [search, setSearch] = useState("");
+
+  const visibleItems = search.trim()
+    ? items.filter((item) => item.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : items;
 
   const run = async (fn: () => Promise<void>) => {
     try {
@@ -139,13 +147,25 @@ export const LabelChecklist = observer(function LabelChecklist(props: LabelCheck
           <Plus className="size-3.5" />
         </button>
       </div>
+      <div className="relative">
+        <Search className="absolute top-1/2 left-2 size-3 -translate-y-1/2 text-tertiary" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("file_library.filters.search_placeholder")}
+          className="w-full rounded-sm border border-subtle bg-transparent py-1 pr-2 pl-7 text-12"
+        />
+      </div>
       <div className="max-h-44 space-y-0.5 overflow-y-auto">
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const isChecked = checkedIds.includes(item.id);
           const isDisabled = Boolean(item.pdfOnly && disablePdfOnly);
           const isEditing = editingId === item.id;
           return (
-            <div key={item.id} className="group flex items-center gap-1.5 rounded-sm px-1.5 py-1 hover:bg-layer-1-hover">
+            <div
+              key={item.id}
+              className="group flex items-center gap-1.5 rounded-sm px-1.5 py-1 hover:bg-layer-1-hover"
+            >
               {isEditing ? (
                 <>
                   <Input
@@ -231,7 +251,11 @@ export const LabelChecklist = observer(function LabelChecklist(props: LabelCheck
             </div>
           );
         })}
-        {items.length === 0 && <p className="px-1.5 py-1 text-11 text-tertiary">—</p>}
+        {visibleItems.length === 0 && (
+          <p className="px-1.5 py-1 text-11 text-tertiary">
+            {items.length === 0 ? "—" : t("file_library.filters.no_results")}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -250,6 +274,7 @@ export const FolderSelect = observer(function FolderSelect(props: FolderSelectPr
   const { value, onChange, allowCreate, newFolderName, onNewFolderNameChange } = props;
   const { t } = useTranslation();
   const { folderIds, getFolderById, getFolderPath } = useFileLibrary();
+  const [search, setSearch] = useState("");
 
   const options = folderIds
     .map((id) => {
@@ -259,9 +284,21 @@ export const FolderSelect = observer(function FolderSelect(props: FolderSelectPr
       return { id, depth: path.length - 1, label: folder.name };
     })
     .filter(Boolean) as { id: string; depth: number; label: string }[];
+  const visibleOptions = search.trim()
+    ? options.filter((option) => option.label.toLowerCase().includes(search.trim().toLowerCase()))
+    : options;
 
   return (
     <div className="space-y-1.5">
+      <div className="relative">
+        <Search className="absolute top-1/2 left-2 size-3 -translate-y-1/2 text-tertiary" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("file_library.filters.search_placeholder")}
+          className="w-full rounded-sm border border-subtle bg-transparent py-1 pr-2 pl-7 text-12"
+        />
+      </div>
       <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-sm border border-subtle p-1">
         <button
           type="button"
@@ -274,7 +311,7 @@ export const FolderSelect = observer(function FolderSelect(props: FolderSelectPr
           <Folder className="size-3.5 text-tertiary" />
           {t("file_library.folders.root")}
         </button>
-        {options.map((option) => (
+        {visibleOptions.map((option) => (
           <button
             key={option.id}
             type="button"
@@ -289,6 +326,9 @@ export const FolderSelect = observer(function FolderSelect(props: FolderSelectPr
             <span className="truncate">{option.label}</span>
           </button>
         ))}
+        {search.trim() && visibleOptions.length === 0 && (
+          <p className="px-1.5 py-1 text-11 text-tertiary">{t("file_library.filters.no_results")}</p>
+        )}
       </div>
       {allowCreate && (
         <Input
