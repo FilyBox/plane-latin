@@ -173,6 +173,8 @@ export class WorkspaceStore implements IWorkspaceStore {
         set(this.workspaces, [workspaceId, "is_file_library_enabled"], response.is_enabled);
       } else if (key === "payments") {
         set(this.workspaces, [workspaceId, "is_payments_enabled"], response.is_enabled);
+      } else if (key === "music_catalog") {
+        set(this.workspaces, [workspaceId, "is_music_catalog_enabled"], response.is_enabled);
       }
     });
   };

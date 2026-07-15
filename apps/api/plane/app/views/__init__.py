@@ -98,6 +98,23 @@ from .finance import (
     FinancialVariableDetailEndpoint,
     FinancialVariableEndpoint,
 )
+from .music import (
+    MusicCatalogOptionsEndpoint,
+    MusicCompanyDetailEndpoint,
+    MusicCompanyEndpoint,
+    MusicGenreDetailEndpoint,
+    MusicGenreEndpoint,
+    MusicImportEndpoint,
+    MusicImportPreviewEndpoint,
+    MusicPartyDetailEndpoint,
+    MusicPartyEndpoint,
+    MusicReleaseDetailEndpoint,
+    MusicReleaseEndpoint,
+    MusicReportEndpoint,
+    MusicTrackBulkDeleteEndpoint,
+    MusicTrackDetailEndpoint,
+    MusicTrackEndpoint,
+)
 
 from .payroll import (
     AdjustmentDetailEndpoint,

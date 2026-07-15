@@ -38,6 +38,19 @@ from .finance import (
     ExpenseDocument,
     FinancialVariable,
 )
+from .music import (
+    MusicCompany,
+    MusicCredit,
+    MusicDistribution,
+    MusicGenre,
+    MusicLink,
+    MusicParty,
+    MusicRelease,
+    MusicReleaseArtist,
+    MusicReleaseTrack,
+    MusicTrack,
+    MusicTrackGenre,
+)
 from .payroll import Adjustment, Employee, Office, PayrollAccess, PayrollPayment, Salary
 from .contract import (
     Contract,

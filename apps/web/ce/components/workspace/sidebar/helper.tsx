@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { FileText, Files, Wallet } from "lucide-react";
+import { Disc3, FileText, Files, Wallet } from "lucide-react";
 import {
   AnalyticsIcon,
   ArchiveIcon,
@@ -47,5 +47,7 @@ export const getSidebarNavigationItemIcon = (key: string, className: string = ""
       return <FileText className={cn("size-4 flex-shrink-0", className)} />;
     case "payments":
       return <Wallet className={cn("size-4 flex-shrink-0", className)} />;
+    case "music-catalog":
+      return <Disc3 className={cn("size-4 flex-shrink-0", className)} />;
   }
 };
