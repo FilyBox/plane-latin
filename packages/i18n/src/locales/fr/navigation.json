@@ -2,35 +2,37 @@
   "command_k": {
     "empty_state": {
       "search": {
-        "title": "Aucun résultat trouvé"
+        "title": "No results found"
       }
     }
   },
   "sidebar": {
     "stickies": "Stickies",
-    "your_work": "Votre travail",
-    "projects": "Projets",
+    "your_work": "Your work",
+    "projects": "Projects",
     "pages": "Pages",
-    "new_work_item": "Nouvel élément de travail",
-    "home": "Accueil",
-    "inbox": "Boîte de réception",
-    "workspace": "Espace de travail",
-    "views": "Vues",
-    "analytics": "Analyses",
-    "work_items": "Éléments de travail",
+    "new_work_item": "New work item",
+    "home": "Home",
+    "inbox": "Inbox",
+    "workspace": "Workspace",
+    "views": "Views",
+    "analytics": "Analytics",
+    "work_items": "Work items",
     "cycles": "Cycles",
     "modules": "Modules",
     "intake": "Intake",
-    "drafts": "Brouillons",
-    "favorites": "Favoris",
+    "drafts": "Drafts",
+    "favorites": "Favorites",
     "pro": "Pro",
-    "upgrade": "Mettre à niveau",
+    "upgrade": "Upgrade",
     "pi_chat": "Plane AI",
     "epics": "Epics",
-    "upgrade_plan": "Mettre à niveau",
+    "upgrade_plan": "Upgrade plan",
     "plane_pro": "Plane Pro",
     "business": "Business",
     "library": "Files",
-    "contracts": "Contrats"
+    "contracts": "Contracts",
+    "music_catalog": "Music catalog",
+    "assistant": "Assistant"
   }
 }

@@ -431,6 +431,8 @@ class WorkspaceUserPreference(BaseModel):
         FILE_LIBRARY = "file-library", "File Library"
         CONTRACTS = "contracts", "Contracts"
         PAYMENTS = "payments", "Payments"
+        MUSIC_CATALOG = "music-catalog", "Music Catalog"
+        ASSISTANT = "assistant", "Assistant"
 
     workspace = models.ForeignKey(
         "db.Workspace",

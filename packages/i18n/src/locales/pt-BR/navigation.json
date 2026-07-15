@@ -2,35 +2,37 @@
   "command_k": {
     "empty_state": {
       "search": {
-        "title": "Nenhum resultado encontrado"
+        "title": "No results found"
       }
     }
   },
   "sidebar": {
-    "stickies": "Notas adesivas",
-    "your_work": "Seu trabalho",
-    "projects": "Projetos",
-    "pages": "Páginas",
-    "new_work_item": "Novo item",
+    "stickies": "Stickies",
+    "your_work": "Your work",
+    "projects": "Projects",
+    "pages": "Pages",
+    "new_work_item": "New work item",
     "home": "Home",
     "inbox": "Inbox",
     "workspace": "Workspace",
-    "views": "Visualizações",
+    "views": "Views",
     "analytics": "Analytics",
-    "work_items": "Itens",
-    "cycles": "Ciclos",
-    "modules": "Módulos",
+    "work_items": "Work items",
+    "cycles": "Cycles",
+    "modules": "Modules",
     "intake": "Intake",
-    "drafts": "Rascunhos",
-    "favorites": "Favoritos",
+    "drafts": "Drafts",
+    "favorites": "Favorites",
     "pro": "Pro",
     "upgrade": "Upgrade",
-    "pi_chat": "Chat AI",
-    "epics": "Épicos",
-    "upgrade_plan": "Atualizar plano",
+    "pi_chat": "Plane AI",
+    "epics": "Epics",
+    "upgrade_plan": "Upgrade plan",
     "plane_pro": "Plane Pro",
     "business": "Business",
     "library": "Files",
-    "contracts": "Contratos"
+    "contracts": "Contracts",
+    "music_catalog": "Music catalog",
+    "assistant": "Assistant"
   }
 }

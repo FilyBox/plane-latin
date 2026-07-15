@@ -1,3 +1,9 @@
+from .internal import (
+    InternalMusicImportEndpoint,
+    InternalMusicTracksEndpoint,
+    InternalWorkspaceAssetsEndpoint,
+)
+
 from .base import (
     MusicCatalogOptionsEndpoint,
     MusicCompanyDetailEndpoint,
@@ -17,6 +23,9 @@ from .base import (
 )
 
 __all__ = [
+    "InternalMusicImportEndpoint",
+    "InternalMusicTracksEndpoint",
+    "InternalWorkspaceAssetsEndpoint",
     "MusicCatalogOptionsEndpoint",
     "MusicCompanyDetailEndpoint",
     "MusicCompanyEndpoint",

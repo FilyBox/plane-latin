@@ -5,6 +5,7 @@
  * Django never needs a broad Cloudflare account token.
  */
 
+import { handleAssistantChat, type AssistantChatRequest } from "./assistant";
 import { handleChat, type ChatRequest } from "./chat";
 import { listChatModels } from "./lib/ai";
 import { ContractPipelineWorkflow, type PipelineParams } from "./workflows/contract-pipeline";
@@ -73,6 +74,14 @@ export default {
         });
         console.log(JSON.stringify({ message: "query instance created", id: instance.id, job: params.job_id }));
         return Response.json({ workflow_instance_id: instance.id });
+      }
+
+      if (url.pathname === "/assistant/chat") {
+        const body = await request.json<AssistantChatRequest>();
+        if (!body.workspace_id || !Array.isArray(body.messages) || body.messages.length === 0) {
+          return Response.json({ error: "workspace_id and messages are required" }, { status: 400 });
+        }
+        return handleAssistantChat(env, body);
       }
 
       if (url.pathname === "/chat") {

@@ -1,6 +1,9 @@
 from django.urls import path
 
 from plane.app.views import (
+    InternalMusicImportEndpoint,
+    InternalMusicTracksEndpoint,
+    InternalWorkspaceAssetsEndpoint,
     MusicCatalogOptionsEndpoint,
     MusicCompanyDetailEndpoint,
     MusicCompanyEndpoint,
@@ -38,5 +41,21 @@ urlpatterns = [
         "workspaces/<str:slug>/music/reports/releases.csv",
         MusicReportEndpoint.as_view(),
         name="music-report-legacy",
+    ),
+    # Internal (Worker assistant agent, shared-secret auth)
+    path(
+        "internal/workspaces/<uuid:workspace_id>/music/tracks/",
+        InternalMusicTracksEndpoint.as_view(),
+        name="internal-music-tracks",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/music/import/",
+        InternalMusicImportEndpoint.as_view(),
+        name="internal-music-import",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assets/",
+        InternalWorkspaceAssetsEndpoint.as_view(),
+        name="internal-workspace-assets",
     ),
 ]

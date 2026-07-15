@@ -89,6 +89,30 @@ def chat_with_contracts(workspace_id, mode, query, history, contract_id=None, mo
     )
 
 
+def stream_assistant_chat(payload, timeout=120):
+    """Opens a streaming POST against the Worker's assistant agent and returns
+    the raw `requests` response (SSE body) so the caller can pipe it through a
+    StreamingHttpResponse without buffering.
+    """
+    base_url = settings.CF_WORKER_TRIGGER_URL
+    secret = settings.CF_WORKER_TRIGGER_SECRET
+    if not base_url or not secret:
+        raise WorkerTriggerError("CF_WORKER_TRIGGER_URL / CF_WORKER_TRIGGER_SECRET are not configured")
+
+    response = requests.post(
+        f"{base_url.rstrip('/')}/assistant/chat",
+        json=payload,
+        headers={"X-Trigger-Secret": secret},
+        stream=True,
+        timeout=timeout,
+    )
+    if response.status_code >= 400:
+        detail = response.text[:500]
+        response.close()
+        raise WorkerTriggerError(f"Assistant chat failed ({response.status_code}): {detail}")
+    return response
+
+
 def trigger_contract_query(job_id, query_id, workspace_id, user_query):
     """Starts a ContractQueryWorkflow instance; returns the workflow instance id."""
     data = _post(

@@ -1,22 +1,34 @@
 {
   "payroll": {
-    "title": "Зарплата",
+    "title": "Payroll",
+    "optional": "Optional",
     "tabs": {
-      "expenses": "Расходы",
-      "employees": "Сотрудники",
-      "payments": "Зарплата",
+      "expenses": "Expenses",
+      "employees": "Employees",
+      "payments": "Payroll",
       "aguinaldo": "Aguinaldo",
-      "annual_cost": "Годовые расходы"
+      "annual_cost": "Annual cost"
     },
     "employees": {
+      "form_help": "Only the name and hire date are required. The internal identifier is generated automatically.",
+      "national_id_help": "A tax or legal identifier, not the system's internal ID.",
+      "left_company": "This person no longer works here",
+      "termination_help": "Enable this only when recording a departure; it is not requested for a new employee.",
+      "delete_impact": "{name} will be deleted with {salaries} salaries, {adjustments} adjustments and {payments} payments. They will also be removed from {scenarios} budgets. This cannot be undone.",
+      "delete_blocked_impact": "{name} cannot be deleted because they are used in: {budgets}. Remove them from those budgets first.",
       "new": "New employee",
       "edit": "Edit employee",
       "active": "Active",
       "inactive": "Inactive",
-      "salaries": "Зарплаты",
-      "history": "История",
+      "salaries": "Salaries",
+      "history": "History",
       "new_salary": "New salary",
+      "edit_salary": "Edit salary",
+      "delete_salary_title": "Delete salary",
+      "delete_salary_impact": "This salary history entry will be deleted. This cannot be undone.",
+      "delete_salary_blocked": "This salary cannot be deleted because it is used in: {budgets}. Select a different salary or remove the employee from those budgets first.",
       "current": "Current",
+      "open_ended_salary_help": "Leave this empty to keep the salary active indefinitely.",
       "adjustments": "Adjustments",
       "new_adjustment": "New adjustment",
       "empty": "No employees yet.",
@@ -24,6 +36,11 @@
       "delete_description": "Their salary history, adjustments and payments go with them. This cannot be undone."
     },
     "offices": {
+      "form_help": "Entities group people, salaries and financial variables. Plane generates their identifiers automatically.",
+      "aguinaldo_help": "Legal minimum: 15 days",
+      "people": "people",
+      "delete_impact": "The {name} entity will be deleted. It has no linked salaries, payments or variables. This cannot be undone.",
+      "delete_blocked_impact": "{name} cannot be deleted: it contains {employees} people, {salaries} salaries, {payments} payments and {variables} variables. Reassign or remove those resources first.",
       "title": "Offices",
       "manage": "Manage offices",
       "new": "New office",
@@ -33,19 +50,19 @@
       "delete_description": "Only an office with no salaries or payments can be deleted."
     },
     "kinds": {
-      "bonus": "Премия",
-      "debt": "Долг",
-      "support": "Помощь"
+      "bonus": "Bonus",
+      "debt": "Debt",
+      "support": "Support"
     },
     "periodicity": {
-      "monthly": "Ежемесячно",
-      "biweekly": "Раз в полмесяца",
-      "weekly": "Еженедельно",
-      "daily": "Ежедневно"
+      "monthly": "Monthly",
+      "biweekly": "Biweekly",
+      "weekly": "Weekly",
+      "daily": "Daily"
     },
     "payments": {
-      "given": "Выплачено",
-      "upcoming": "Предстоящие",
+      "given": "Paid",
+      "upcoming": "Upcoming",
       "new": "New payment",
       "mark_paid": "Mark as paid",
       "empty": "No payments recorded yet.",
@@ -56,13 +73,13 @@
     "concepts": {
       "salary": "Salary",
       "aguinaldo": "Aguinaldo",
-      "bonus": "Премия",
+      "bonus": "Bonus",
       "other": "Other"
     },
     "status": {
-      "pending": "В ожидании",
-      "paid": "Оплачено",
-      "cancelled": "Отменено"
+      "pending": "Pending",
+      "paid": "Paid",
+      "cancelled": "Cancelled"
     },
     "aguinaldo": {
       "title": "Aguinaldo",
@@ -112,16 +129,17 @@
       "date": "Date"
     },
     "actions": {
-      "save": "Сохранить",
-      "cancel": "Отмена",
-      "delete": "Удалить",
-      "close": "Закрыть"
+      "save": "Save",
+      "cancel": "Cancel",
+      "edit": "Edit",
+      "delete": "Delete",
+      "close": "Close"
     },
-    "year": "Год",
+    "year": "Year",
     "toasts": {
       "saved": "Saved",
       "deleted": "Deleted",
-      "error": "Что-то пошло не так"
+      "error": "Something went wrong"
     }
   }
 }

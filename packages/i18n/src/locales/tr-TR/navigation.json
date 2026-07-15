@@ -2,35 +2,37 @@
   "command_k": {
     "empty_state": {
       "search": {
-        "title": "Sonuç bulunamadı"
+        "title": "No results found"
       }
     }
   },
   "sidebar": {
-    "stickies": "Yapışkan Notlar",
-    "your_work": "Çalışmalarınız",
-    "projects": "Projeler",
-    "pages": "Sayfalar",
-    "new_work_item": "Yeni iş öğesi",
-    "home": "Ana Sayfa",
-    "inbox": "Gelen Kutusu",
-    "workspace": "Çalışma Alanı",
-    "views": "Görünümler",
-    "analytics": "Analizler",
-    "work_items": "İş öğeleri",
-    "cycles": "Döngüler",
-    "modules": "Modüller",
-    "intake": "Talep",
-    "drafts": "Taslaklar",
-    "favorites": "Favoriler",
+    "stickies": "Stickies",
+    "your_work": "Your work",
+    "projects": "Projects",
+    "pages": "Pages",
+    "new_work_item": "New work item",
+    "home": "Home",
+    "inbox": "Inbox",
+    "workspace": "Workspace",
+    "views": "Views",
+    "analytics": "Analytics",
+    "work_items": "Work items",
+    "cycles": "Cycles",
+    "modules": "Modules",
+    "intake": "Intake",
+    "drafts": "Drafts",
+    "favorites": "Favorites",
     "pro": "Pro",
-    "upgrade": "Yükselt",
-    "pi_chat": "AI Çet",
-    "epics": "Epiks",
-    "upgrade_plan": "Apgreyd plen",
-    "plane_pro": "Pleyn Pro",
-    "business": "Biznis",
+    "upgrade": "Upgrade",
+    "pi_chat": "Plane AI",
+    "epics": "Epics",
+    "upgrade_plan": "Upgrade plan",
+    "plane_pro": "Plane Pro",
+    "business": "Business",
     "library": "Files",
-    "contracts": "Sözleşmeler"
+    "contracts": "Contracts",
+    "music_catalog": "Music catalog",
+    "assistant": "Assistant"
   }
 }

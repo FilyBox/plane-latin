@@ -94,5 +94,7 @@ export function internalApi(env: Env) {
           asset_id: string | null;
         }>;
       }>("POST", `/internal/workspaces/${workspaceId}/chunks/search/`, { embedding, limit }),
+    // Generic escape hatch for one-off internal endpoints (assistant tools)
+    request,
   };
 }

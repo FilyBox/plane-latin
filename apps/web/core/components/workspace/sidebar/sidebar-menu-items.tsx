@@ -99,6 +99,7 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
         .filter((item) => (item.key !== "file-library" && item.key !== "contracts") || isFileLibraryEnabled)
         .filter((item) => item.key !== "payments" || isPaymentsEnabled)
         .filter((item) => item.key !== "music-catalog" || isMusicCatalogEnabled)
+        .filter((item) => item.key !== "assistant" || isFileLibraryEnabled || isMusicCatalogEnabled)
         .map((item) => {
           const preference = workspacePreferences.items[item.key];
           return Object.assign({}, item, {

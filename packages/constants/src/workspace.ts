@@ -257,6 +257,14 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS: Record<string, IWorkspa
     access: [EUserWorkspaceRoles.ADMIN],
     highlight: (pathname: string, url: string) => pathname.includes(url),
   },
+  // Workspace AI assistant — shown when file_library OR music_catalog is on
+  assistant: {
+    key: "assistant",
+    labelTranslationKey: "sidebar.assistant",
+    href: `/assistant/`,
+    access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
+    highlight: (pathname: string, url: string) => pathname.includes(url),
+  },
 };
 
 export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebarNavigationItem[] = [
@@ -267,6 +275,7 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebar
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["contracts"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["payments"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["music-catalog"],
+  WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["assistant"],
 ];
 
 export const WORKSPACE_SIDEBAR_STATIC_NAVIGATION_ITEMS: Record<string, IWorkspaceSidebarNavigationItem> = {
