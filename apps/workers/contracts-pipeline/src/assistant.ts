@@ -20,9 +20,13 @@ export type AssistantChatRequest = {
   messages: UIMessage[];
   model?: string | null;
   capabilities?: { contracts?: boolean; music?: boolean };
+  locale?: string | null;
 };
 
-const SYSTEM_PROMPT = (caps: { contracts: boolean; music: boolean }) => `Eres el asistente del workspace. Respondes SIEMPRE en el idioma del usuario (por defecto español), claro y conciso.
+const SYSTEM_PROMPT = (caps: {
+  contracts: boolean;
+  music: boolean;
+}) => `Eres el asistente del workspace. Respondes SIEMPRE en el idioma del usuario (por defecto español), claro y conciso.
 
 Herramientas disponibles y cuándo usarlas:
 ${caps.contracts ? "- search_contracts: preguntas sobre el CONTENIDO de contratos (cláusulas, artistas, fechas de contratos, resúmenes). Cita de qué contrato proviene cada dato." : ""}
@@ -48,6 +52,14 @@ Reglas:
 - Para listados largos, muestra un resumen y ofrece el Excel.
 - Fechas siempre en formato ISO (YYYY-MM-DD) al llamar tools.
 - Los archivos adjuntados en el chat llegan con su asset_id — úsalo directo, no llames list_music_files para buscarlos.`;
+
+const LANGUAGE_PROMPT = (locale?: string | null) => `
+IDIOMA OBLIGATORIO:
+- Responde en el mismo idioma del ultimo mensaje escrito por el usuario. Su interfaz usa ${locale || "un locale desconocido"} como referencia secundaria.
+- El idioma de columnas, archivos, contratos y resultados de herramientas es contenido y nunca cambia el idioma de tu respuesta.
+- Si el usuario escribe en espanol, responde completamente en espanol, incluidos resumenes y preguntas.
+- Nunca pegues un JSON de mapeo para pedir confirmacion. Usa ask_user para decisiones y propose_music_import mode=propose para mostrar la tarjeta interactiva.
+`;
 
 function pickModel(env: Env, requested?: string | null): { model: LanguageModel; id: string } {
   const gemini = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY });
@@ -204,11 +216,12 @@ function buildTools(env: Env, body: AssistantChatRequest) {
       }),
       execute: async ({ asset_id, mode, sheet, mapping, duplicate_strategy }) => {
         if (mode === "read") {
-          return api.request("POST", `/internal/workspaces/${body.workspace_id}/music/import/`, {
-            asset_id,
-            sheet,
-            mode: "read",
-          });
+          const inspected = await api.request<Record<string, unknown>>(
+            "POST",
+            `/internal/workspaces/${body.workspace_id}/music/import/`,
+            { asset_id, sheet, mode: "read" }
+          );
+          return { ...inspected, asset_id, selected_sheet: sheet ?? inspected.selected_sheet ?? null };
         }
         const result = await api.request<Record<string, unknown>>(
           "POST",
@@ -223,7 +236,10 @@ function buildTools(env: Env, body: AssistantChatRequest) {
           }
         );
         // Everything the Apply button needs travels in the tool result
-        return { ...result, proposal: { asset_id, sheet: sheet ?? null, mapping, duplicate_strategy: duplicate_strategy ?? "skip" } };
+        return {
+          ...result,
+          proposal: { asset_id, sheet: sheet ?? null, mapping, duplicate_strategy: duplicate_strategy ?? "skip" },
+        };
       },
     });
 
@@ -258,7 +274,12 @@ function buildTools(env: Env, body: AssistantChatRequest) {
         if (total > 1 && !track_isrc) {
           return {
             error: "Coinciden varias canciones; pide al usuario que precise (ISRC o artista)",
-            matches: results.map((track) => ({ id: track.id, title: track.title, isrc: track.isrc, artists: track.artists })),
+            matches: results.map((track) => ({
+              id: track.id,
+              title: track.title,
+              isrc: track.isrc,
+              artists: track.artists,
+            })),
           };
         }
         const track = results[0];
@@ -276,15 +297,17 @@ export async function handleAssistantChat(env: Env, body: AssistantChatRequest):
 
   const result = streamText({
     model,
-    system: SYSTEM_PROMPT(caps),
+    system: `${LANGUAGE_PROMPT(body.locale)}\n${SYSTEM_PROMPT(caps)}`,
     messages: await convertToModelMessages(body.messages),
     tools,
     // Import loops (read → analyze → ask → propose → refine) take more steps
-    stopWhen: stepCountIs(12),
+    stopWhen: stepCountIs(8),
     onError: ({ error }) => {
       console.error(JSON.stringify({ message: "assistant stream error", model: id, error: String(error) }));
     },
   });
 
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    messageMetadata: ({ part }) => (part.type === "finish" ? { model: id, usage: part.totalUsage } : { model: id }),
+  });
 }

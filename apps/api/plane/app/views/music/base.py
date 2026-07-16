@@ -2,7 +2,7 @@ import csv
 import json
 import re
 import unicodedata
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO
 
@@ -139,13 +139,41 @@ def _mapped_date(row, mapping, key):
 def _duration_ms(value):
     if value in (None, ""):
         return None
+
+    if isinstance(value, timedelta):
+        return max(0, round(value.total_seconds() * 1000))
+    if isinstance(value, (datetime, time)):
+        return round(
+            (value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000) * 1000
+        )
+
     text = str(value).strip()
-    if ":" in text:
-        parts = [int(float(part)) for part in text.split(":")]
-        seconds = sum(part * (60 ** index) for index, part in enumerate(reversed(parts)))
-        return seconds * 1000
+    clock = re.search(r"(?<!\d)(\d{1,3}):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?", text)
+    if clock:
+        first, second, third = clock.groups()
+        seconds = (
+            int(first) * 3600 + int(second) * 60 + float(third)
+            if third is not None
+            else int(first) * 60 + float(second)
+        )
+        return max(0, round(seconds * 1000))
+
+    normalized = _plain(text).replace(",", ".")
+    unit_parts = re.findall(
+        r"(\d+(?:\.\d+)?)\s*(horas?|hrs?|h|minutos?|mins?|min|m|segundos?|segs?|secs?|seg|sec|s)\b",
+        normalized,
+    )
+    if unit_parts:
+        hours = sum(float(number) for number, unit in unit_parts if unit.startswith(("h", "hora")))
+        minutes = sum(float(number) for number, unit in unit_parts if unit.startswith(("m", "minuto")))
+        seconds = sum(float(number) for number, unit in unit_parts if unit.startswith(("s", "seg")))
+        return max(0, round((hours * 3600 + minutes * 60 + seconds) * 1000))
+
     try:
-        number = float(text)
+        number = float(normalized)
+        # Excel stores formatted times as a fraction of one day.
+        if 0 < number < 1:
+            return round(number * 86_400_000)
         return round(number * 1000) if number < 36000 else round(number)
     except ValueError:
         return None

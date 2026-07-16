@@ -9,8 +9,22 @@
  */
 
 import type { PropsWithChildren, ReactNode } from "react";
-import { AlertTriangle, ArrowUp, Bot, MessageSquarePlus, Paperclip, Square, Trash2, Wrench } from "lucide-react";
 import {
+  AlertTriangle,
+  ArrowUp,
+  Bot,
+  Check,
+  Copy,
+  MessageSquarePlus,
+  Paperclip,
+  Pencil,
+  RefreshCw,
+  Square,
+  Trash2,
+  Wrench,
+} from "lucide-react";
+import {
+  ActionBarPrimitive,
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
@@ -32,11 +46,22 @@ const SUGGESTIONS = [
 
 /** Pulsing dot-matrix activity indicator (replaces spinner icons) */
 export function DotMatrix({ className = "size-4" }: { className?: string }) {
+  const dots = [
+    ["top-left", 0],
+    ["top-center", 300],
+    ["top-right", 600],
+    ["middle-left", 450],
+    ["middle-center", 0],
+    ["middle-right", 150],
+    ["bottom-left", 600],
+    ["bottom-center", 150],
+    ["bottom-right", 300],
+  ] as const;
   return (
     <span className={`grid shrink-0 grid-cols-3 gap-px ${className}`} role="status" aria-label="Trabajando…">
-      {[0, 300, 600, 450, 0, 150, 600, 150, 300].map((delay, index) => (
+      {dots.map(([position, delay]) => (
         <span
-          key={index}
+          key={position}
           className="animate-pulse rounded-full bg-accent-primary"
           style={{ animationDelay: `${delay}ms`, animationDuration: "900ms" }}
         />
@@ -50,7 +75,7 @@ function MarkdownText() {
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
-      className="[&_a]:text-accent-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_code]:rounded-sm [&_code]:bg-layer-2 [&_code]:px-1 [&_code]:font-mono [&_code]:text-12 [&_h1]:text-15 [&_h1]:font-semibold [&_h2]:text-14 [&_h2]:font-semibold [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5 [&_pre]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-layer-2 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:my-1.5 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-subtle [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-subtle [&_th]:bg-layer-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_ul]:list-disc [&_ul]:pl-5"
+      className="[&_code]:font-mono [&_h1]:text-15 [&_a]:text-accent-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_code]:rounded-sm [&_code]:bg-layer-2 [&_code]:px-1 [&_code]:text-12 [&_h1]:font-semibold [&_h2]:text-14 [&_h2]:font-semibold [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5 [&_pre]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-layer-2 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:my-1.5 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-subtle [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-subtle [&_th]:bg-layer-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_ul]:list-disc [&_ul]:pl-5"
     />
   );
 }
@@ -87,20 +112,39 @@ function ToolFallback({ toolName, status }: { toolName: string; status: { type: 
 
 function AssistantMessage() {
   return (
-    <MessagePrimitive.Root className="flex gap-2.5 py-2">
+    <MessagePrimitive.Root className="group flex gap-2.5 py-2">
       <span className="mt-1 flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-primary/10 text-accent-primary">
         <Bot className="size-3.5" />
       </span>
       <div className="min-w-0 flex-1 text-13 leading-relaxed">
-        <MessagePrimitive.Parts
-          components={{ Text: MarkdownText, ToolGroup, tools: { Fallback: ToolFallback } }}
-        />
+        <MessagePrimitive.Parts components={{ Text: MarkdownText, ToolGroup, tools: { Fallback: ToolFallback } }} />
         <MessagePrimitive.Error>
           <ErrorPrimitive.Root className="mt-1.5 flex items-center gap-2 rounded-md border border-danger-strong bg-danger-subtle px-3 py-2 text-12 text-danger-primary">
             <AlertTriangle className="size-3.5 shrink-0" />
             <ErrorPrimitive.Message className="line-clamp-3" />
           </ErrorPrimitive.Root>
         </MessagePrimitive.Error>
+        <ActionBarPrimitive.Root
+          hideWhenRunning
+          autohide="not-last"
+          autohideFloat="single-branch"
+          className="mt-1 flex h-7 items-center gap-0.5 text-tertiary data-[floating]:opacity-0 data-[floating]:transition-opacity data-[floating]:group-hover:opacity-100"
+        >
+          <ActionBarPrimitive.Copy
+            copiedDuration={1800}
+            className="group/copy flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover hover:text-primary"
+            title="Copiar respuesta"
+          >
+            <Copy className="size-3.5 group-data-[copied]/copy:hidden" />
+            <Check className="hidden size-3.5 text-success-primary group-data-[copied]/copy:block" />
+          </ActionBarPrimitive.Copy>
+          <ActionBarPrimitive.Reload
+            className="flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover hover:text-primary disabled:opacity-40"
+            title="Regenerar respuesta"
+          >
+            <RefreshCw className="size-3.5" />
+          </ActionBarPrimitive.Reload>
+        </ActionBarPrimitive.Root>
       </div>
     </MessagePrimitive.Root>
   );
@@ -108,13 +152,21 @@ function AssistantMessage() {
 
 function UserMessage() {
   return (
-    <MessagePrimitive.Root className="flex flex-col items-end gap-1 py-2">
+    <MessagePrimitive.Root className="group flex flex-col items-end gap-1 py-2">
       <div className="flex flex-wrap justify-end gap-1.5 empty:hidden">
         <MessageAttachmentsRow />
       </div>
       <div className="max-w-[80%] rounded-lg bg-layer-2 px-3 py-2 text-13 whitespace-pre-wrap">
         <MessagePrimitive.Parts />
       </div>
+      <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="h-7 text-tertiary">
+        <ActionBarPrimitive.Edit
+          className="flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover hover:text-primary"
+          title="Editar mensaje"
+        >
+          <Pencil className="size-3.5" />
+        </ActionBarPrimitive.Edit>
+      </ActionBarPrimitive.Root>
     </MessagePrimitive.Root>
   );
 }
@@ -186,7 +238,7 @@ export function AssistantThread({ composerAccessory }: { composerAccessory?: Rea
 
       <div className="shrink-0 border-t border-subtle p-3 sm:px-8">
         {composerAccessory && <div className="mx-auto mb-1.5 flex max-w-3xl justify-end">{composerAccessory}</div>}
-        <ComposerPrimitive.AttachmentDropzone className="mx-auto max-w-3xl rounded-lg data-dragging:outline-2 data-dragging:outline-dashed data-dragging:outline-accent-strong">
+        <ComposerPrimitive.AttachmentDropzone className="mx-auto max-w-3xl rounded-lg data-dragging:outline-2 data-dragging:outline-accent-strong data-dragging:outline-dashed">
           <div className="mb-1.5 flex flex-wrap gap-1.5 empty:hidden">
             <ComposerAttachmentsRow />
           </div>
@@ -199,7 +251,6 @@ export function AssistantThread({ composerAccessory }: { composerAccessory?: Rea
             </ComposerPrimitive.AddAttachment>
             <ComposerPrimitive.Input
               rows={1}
-              autoFocus
               placeholder="Pregunta por canciones, contratos, o adjunta un archivo para importarlo…"
               className="max-h-40 min-h-9 w-full resize-none bg-transparent px-2 py-1.5 text-13 outline-none"
             />
