@@ -2,35 +2,37 @@
   "command_k": {
     "empty_state": {
       "search": {
-        "title": "未找到结果"
+        "title": "No results found"
       }
     }
   },
   "sidebar": {
-    "stickies": "便签",
-    "your_work": "我的工作",
-    "projects": "项目",
-    "pages": "页面",
-    "new_work_item": "新工作项",
-    "home": "主页",
-    "inbox": "收件箱",
-    "workspace": "工作区",
-    "views": "视图",
-    "analytics": "分析",
-    "work_items": "工作项",
-    "cycles": "周期",
-    "modules": "模块",
-    "intake": "收集",
-    "drafts": "草稿",
-    "favorites": "收藏",
-    "pro": "专业版",
-    "upgrade": "升级",
-    "pi_chat": "AI 聊天",
-    "epics": "史诗",
-    "upgrade_plan": "升级计划",
+    "stickies": "Stickies",
+    "your_work": "Your work",
+    "projects": "Projects",
+    "pages": "Pages",
+    "new_work_item": "New work item",
+    "home": "Home",
+    "inbox": "Inbox",
+    "workspace": "Workspace",
+    "views": "Views",
+    "analytics": "Analytics",
+    "work_items": "Work items",
+    "cycles": "Cycles",
+    "modules": "Modules",
+    "intake": "Intake",
+    "drafts": "Drafts",
+    "favorites": "Favorites",
+    "pro": "Pro",
+    "upgrade": "Upgrade",
+    "pi_chat": "Plane AI",
+    "epics": "Epics",
+    "upgrade_plan": "Upgrade plan",
     "plane_pro": "Plane Pro",
-    "business": "商业版",
+    "business": "Business",
     "library": "Files",
-    "contracts": "合同"
+    "contracts": "Contracts",
+    "music_catalog": "Music catalog",
+    "assistant": "Assistant"
   }
 }

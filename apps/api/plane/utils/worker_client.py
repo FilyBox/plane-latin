@@ -70,6 +70,11 @@ def get_chat_models():
     return _get("/models")
 
 
+def get_assistant_models():
+    """Same list, but the default follows the worker's ASSISTANT_AI_PROVIDER."""
+    return _get("/assistant/models")
+
+
 def chat_with_contracts(workspace_id, mode, query, history, contract_id=None, model=None):
     """Synchronous chat turn against the Worker. `mode` is GENERAL (RAG over
     vectorized chunks) or CONTRACT (full extracted text as system context).
@@ -87,6 +92,30 @@ def chat_with_contracts(workspace_id, mode, query, history, contract_id=None, mo
         },
         timeout=90,
     )
+
+
+def stream_assistant_chat(payload, timeout=120):
+    """Opens a streaming POST against the Worker's assistant agent and returns
+    the raw `requests` response (SSE body) so the caller can pipe it through a
+    StreamingHttpResponse without buffering.
+    """
+    base_url = settings.CF_WORKER_TRIGGER_URL
+    secret = settings.CF_WORKER_TRIGGER_SECRET
+    if not base_url or not secret:
+        raise WorkerTriggerError("CF_WORKER_TRIGGER_URL / CF_WORKER_TRIGGER_SECRET are not configured")
+
+    response = requests.post(
+        f"{base_url.rstrip('/')}/assistant/chat",
+        json=payload,
+        headers={"X-Trigger-Secret": secret},
+        stream=True,
+        timeout=timeout,
+    )
+    if response.status_code >= 400:
+        detail = response.text[:500]
+        response.close()
+        raise WorkerTriggerError(f"Assistant chat failed ({response.status_code}): {detail}")
+    return response
 
 
 def trigger_contract_query(job_id, query_id, workspace_id, user_query):

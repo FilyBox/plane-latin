@@ -159,6 +159,15 @@ from .finance import (
     ExpenseSerializer,
     FinancialVariableSerializer,
 )
+from .music import (
+    MusicCompanySerializer,
+    MusicCreditSerializer,
+    MusicGenreSerializer,
+    MusicLinkSerializer,
+    MusicPartySerializer,
+    MusicReleaseSerializer,
+    MusicTrackSerializer,
+)
 from .contract import (
     ContractChatMessageSerializer,
     ContractChatSerializer,

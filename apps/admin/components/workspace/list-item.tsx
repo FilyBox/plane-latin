@@ -23,14 +23,14 @@ type TWorkspaceListItemProps = {
 
 export const WorkspaceListItem = observer(function WorkspaceListItem({ workspaceId }: TWorkspaceListItemProps) {
   // states
-  const [updatingFeature, setUpdatingFeature] = useState<"file_library" | "payments" | null>(null);
+  const [updatingFeature, setUpdatingFeature] = useState<"file_library" | "payments" | "music_catalog" | null>(null);
   // store hooks
   const { getWorkspaceById, updateWorkspaceFeature } = useWorkspace();
   // derived values
   const workspace = getWorkspaceById(workspaceId);
 
   const handleFeatureToggle = async (
-    key: "file_library" | "payments",
+    key: "file_library" | "payments" | "music_catalog",
     currentValue: boolean | undefined,
     label: string
   ) => {
@@ -133,9 +133,7 @@ export const WorkspaceListItem = observer(function WorkspaceListItem({ workspace
               <span className="text-11 font-medium text-secondary">File library</span>
               <ToggleSwitch
                 value={Boolean(workspace.is_file_library_enabled)}
-                onChange={() =>
-                  handleFeatureToggle("file_library", workspace.is_file_library_enabled, "File library")
-                }
+                onChange={() => handleFeatureToggle("file_library", workspace.is_file_library_enabled, "File library")}
                 size="sm"
                 disabled={updatingFeature !== null}
               />
@@ -147,6 +145,19 @@ export const WorkspaceListItem = observer(function WorkspaceListItem({ workspace
               <ToggleSwitch
                 value={Boolean(workspace.is_payments_enabled)}
                 onChange={() => handleFeatureToggle("payments", workspace.is_payments_enabled, "Payments")}
+                size="sm"
+                disabled={updatingFeature !== null}
+              />
+            </div>
+          </Tooltip>
+          <Tooltip tooltipContent="Enable the admin-only music catalog for this workspace">
+            <div className={`flex items-center gap-2 ${updatingFeature === "music_catalog" ? "opacity-70" : ""}`}>
+              <span className="text-11 font-medium text-secondary">Music</span>
+              <ToggleSwitch
+                value={Boolean(workspace.is_music_catalog_enabled)}
+                onChange={() =>
+                  handleFeatureToggle("music_catalog", workspace.is_music_catalog_enabled, "Music catalog")
+                }
                 size="sm"
                 disabled={updatingFeature !== null}
               />

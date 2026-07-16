@@ -132,7 +132,12 @@ export const WorkspaceAuthWrapper = observer(function WorkspaceAuthWrapper(props
   useSWR(
     workspaceSlug ? `WORKSPACE_FEATURES_${workspaceSlug.toString()}` : null,
     workspaceSlug ? () => fetchWorkspaceFeatures(workspaceSlug.toString()) : null,
-    { revalidateIfStale: false, revalidateOnFocus: false }
+    {
+      revalidateIfStale: true,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      refreshInterval: 30_000,
+    }
   );
 
   const handleSignOut = async () => {

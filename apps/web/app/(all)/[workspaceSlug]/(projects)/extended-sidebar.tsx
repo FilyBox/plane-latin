@@ -46,6 +46,13 @@ export const ExtendedAppSidebar = observer(function ExtendedAppSidebar() {
       if ((item.key === "file-library" || item.key === "contracts") && !isWorkspaceFeatureEnabled(slug, "file_library"))
         return false;
       if (item.key === "payments" && !isWorkspaceFeatureEnabled(slug, "payments")) return false;
+      if (item.key === "music-catalog" && !isWorkspaceFeatureEnabled(slug, "music_catalog")) return false;
+      if (
+        item.key === "assistant" &&
+        !isWorkspaceFeatureEnabled(slug, "file_library") &&
+        !isWorkspaceFeatureEnabled(slug, "music_catalog")
+      )
+        return false;
       return true;
     })
       .map((item) => {

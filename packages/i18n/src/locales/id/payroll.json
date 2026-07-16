@@ -1,22 +1,34 @@
 {
   "payroll": {
-    "title": "Penggajian",
+    "title": "Payroll",
+    "optional": "Optional",
     "tabs": {
       "expenses": "Expenses",
-      "employees": "Karyawan",
+      "employees": "Employees",
       "payments": "Payroll",
       "aguinaldo": "Aguinaldo",
-      "annual_cost": "Biaya tahunan"
+      "annual_cost": "Annual cost"
     },
     "employees": {
+      "form_help": "Only the name and hire date are required. The internal identifier is generated automatically.",
+      "national_id_help": "A tax or legal identifier, not the system's internal ID.",
+      "left_company": "This person no longer works here",
+      "termination_help": "Enable this only when recording a departure; it is not requested for a new employee.",
+      "delete_impact": "{name} will be deleted with {salaries} salaries, {adjustments} adjustments and {payments} payments. They will also be removed from {scenarios} budgets. This cannot be undone.",
+      "delete_blocked_impact": "{name} cannot be deleted because they are used in: {budgets}. Remove them from those budgets first.",
       "new": "New employee",
       "edit": "Edit employee",
       "active": "Active",
       "inactive": "Inactive",
-      "salaries": "Gaji",
+      "salaries": "Salaries",
       "history": "History",
       "new_salary": "New salary",
+      "edit_salary": "Edit salary",
+      "delete_salary_title": "Delete salary",
+      "delete_salary_impact": "This salary history entry will be deleted. This cannot be undone.",
+      "delete_salary_blocked": "This salary cannot be deleted because it is used in: {budgets}. Select a different salary or remove the employee from those budgets first.",
       "current": "Current",
+      "open_ended_salary_help": "Leave this empty to keep the salary active indefinitely.",
       "adjustments": "Adjustments",
       "new_adjustment": "New adjustment",
       "empty": "No employees yet.",
@@ -24,6 +36,11 @@
       "delete_description": "Their salary history, adjustments and payments go with them. This cannot be undone."
     },
     "offices": {
+      "form_help": "Entities group people, salaries and financial variables. Plane generates their identifiers automatically.",
+      "aguinaldo_help": "Legal minimum: 15 days",
+      "people": "people",
+      "delete_impact": "The {name} entity will be deleted. It has no linked salaries, payments or variables. This cannot be undone.",
+      "delete_blocked_impact": "{name} cannot be deleted: it contains {employees} people, {salaries} salaries, {payments} payments and {variables} variables. Reassign or remove those resources first.",
       "title": "Offices",
       "manage": "Manage offices",
       "new": "New office",
@@ -34,8 +51,8 @@
     },
     "kinds": {
       "bonus": "Bonus",
-      "debt": "Utang",
-      "support": "Bantuan"
+      "debt": "Debt",
+      "support": "Support"
     },
     "periodicity": {
       "monthly": "Monthly",
@@ -60,9 +77,9 @@
       "other": "Other"
     },
     "status": {
-      "pending": "Tertunda",
-      "paid": "Dibayar",
-      "cancelled": "Dibatalkan"
+      "pending": "Pending",
+      "paid": "Paid",
+      "cancelled": "Cancelled"
     },
     "aguinaldo": {
       "title": "Aguinaldo",
@@ -112,16 +129,17 @@
       "date": "Date"
     },
     "actions": {
-      "save": "Simpan",
-      "cancel": "Batal",
-      "delete": "Hapus",
-      "close": "Tutup"
+      "save": "Save",
+      "cancel": "Cancel",
+      "edit": "Edit",
+      "delete": "Delete",
+      "close": "Close"
     },
-    "year": "Tahun",
+    "year": "Year",
     "toasts": {
       "saved": "Saved",
       "deleted": "Deleted",
-      "error": "Terjadi kesalahan"
+      "error": "Something went wrong"
     }
   }
 }

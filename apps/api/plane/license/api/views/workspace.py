@@ -72,11 +72,18 @@ class InstanceWorkSpaceEndpoint(BaseAPIView):
             is_enabled=True,
         )
 
+        music_catalog_enabled = WorkspaceFeature.objects.filter(
+            workspace_id=OuterRef("id"),
+            key=WorkspaceFeature.FeatureKey.MUSIC_CATALOG,
+            is_enabled=True,
+        )
+
         workspaces = Workspace.objects.annotate(
             total_projects=project_count,
             total_members=member_count,
             is_file_library_enabled=Exists(file_library_enabled),
             is_payments_enabled=Exists(payments_enabled),
+            is_music_catalog_enabled=Exists(music_catalog_enabled),
         )
 
         # Add search functionality

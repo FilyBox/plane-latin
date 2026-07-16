@@ -51,6 +51,7 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
   // derived values
   const isFileLibraryEnabled = isWorkspaceFeatureEnabled(workspaceSlug?.toString() ?? "", "file_library");
   const isPaymentsEnabled = isWorkspaceFeatureEnabled(workspaceSlug?.toString() ?? "", "payments");
+  const isMusicCatalogEnabled = isWorkspaceFeatureEnabled(workspaceSlug?.toString() ?? "", "music_catalog");
 
   const toggleListDisclosure = (isOpen: boolean) => {
     toggleWorkspaceMenu(isOpen);
@@ -97,6 +98,8 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
         // pin dialog alike) when the module is off for this workspace.
         .filter((item) => (item.key !== "file-library" && item.key !== "contracts") || isFileLibraryEnabled)
         .filter((item) => item.key !== "payments" || isPaymentsEnabled)
+        .filter((item) => item.key !== "music-catalog" || isMusicCatalogEnabled)
+        .filter((item) => item.key !== "assistant" || isFileLibraryEnabled || isMusicCatalogEnabled)
         .map((item) => {
           const preference = workspacePreferences.items[item.key];
           return Object.assign({}, item, {
@@ -104,7 +107,7 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
           });
         })
         .sort((a, b) => a.sort_order - b.sort_order),
-    [workspacePreferences, isFileLibraryEnabled, isPaymentsEnabled]
+    [workspacePreferences, isFileLibraryEnabled, isPaymentsEnabled, isMusicCatalogEnabled]
   );
 
   return (

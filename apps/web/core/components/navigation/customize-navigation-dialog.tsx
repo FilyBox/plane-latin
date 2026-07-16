@@ -90,6 +90,13 @@ export const CustomizeNavigationDialog = observer(function CustomizeNavigationDi
         return false;
       // "payments" is likewise gated by its own per-workspace feature flag
       if (item.key === "payments" && !isWorkspaceFeatureEnabled(slug, "payments")) return false;
+      if (item.key === "music-catalog" && !isWorkspaceFeatureEnabled(slug, "music_catalog")) return false;
+      if (
+        item.key === "assistant" &&
+        !isWorkspaceFeatureEnabled(slug, "file_library") &&
+        !isWorkspaceFeatureEnabled(slug, "music_catalog")
+      )
+        return false;
       return hasPermission;
     }).map((item) => {
       // Get pinned status and sort order from localStorage

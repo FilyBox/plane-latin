@@ -11,6 +11,8 @@ from .external import urlpatterns as external_urls
 from .contract import urlpatterns as contract_urls
 from .file_library import urlpatterns as file_library_urls
 from .finance import urlpatterns as finance_urls
+from .assistant import urlpatterns as assistant_urls
+from .music import urlpatterns as music_urls
 from .payroll import urlpatterns as payroll_urls
 from .intake import urlpatterns as intake_urls
 from .issue import urlpatterns as issue_urls
@@ -36,6 +38,8 @@ urlpatterns = [
     *contract_urls,
     *file_library_urls,
     *finance_urls,
+    *music_urls,
+    *assistant_urls,
     *payroll_urls,
     *intake_urls,
     *issue_urls,

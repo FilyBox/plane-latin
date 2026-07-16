@@ -1,0 +1,44 @@
+from .internal import (
+    InternalMusicImportEndpoint,
+    InternalMusicTracksEndpoint,
+    InternalWorkspaceAssetsEndpoint,
+)
+
+from .base import (
+    MusicCatalogOptionsEndpoint,
+    MusicCompanyDetailEndpoint,
+    MusicCompanyEndpoint,
+    MusicGenreDetailEndpoint,
+    MusicGenreEndpoint,
+    MusicImportEndpoint,
+    MusicImportPreviewEndpoint,
+    MusicPartyDetailEndpoint,
+    MusicPartyEndpoint,
+    MusicReleaseDetailEndpoint,
+    MusicReleaseEndpoint,
+    MusicReportEndpoint,
+    MusicTrackBulkDeleteEndpoint,
+    MusicTrackDetailEndpoint,
+    MusicTrackEndpoint,
+)
+
+__all__ = [
+    "InternalMusicImportEndpoint",
+    "InternalMusicTracksEndpoint",
+    "InternalWorkspaceAssetsEndpoint",
+    "MusicCatalogOptionsEndpoint",
+    "MusicCompanyDetailEndpoint",
+    "MusicCompanyEndpoint",
+    "MusicGenreDetailEndpoint",
+    "MusicGenreEndpoint",
+    "MusicImportEndpoint",
+    "MusicImportPreviewEndpoint",
+    "MusicPartyDetailEndpoint",
+    "MusicPartyEndpoint",
+    "MusicReleaseDetailEndpoint",
+    "MusicReleaseEndpoint",
+    "MusicReportEndpoint",
+    "MusicTrackBulkDeleteEndpoint",
+    "MusicTrackDetailEndpoint",
+    "MusicTrackEndpoint",
+]

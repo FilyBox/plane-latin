@@ -28,6 +28,10 @@
   "vars": {
     // Base provider/model selection — never hardcoded in source
     "AI_PROVIDER": "deepseek",
+    // Workspace assistant chat's provider — independent from AI_PROVIDER so
+    // the contracts pipeline can stay on DeepSeek while the assistant defaults
+    // to Gemini (or vice versa).
+    "ASSISTANT_AI_PROVIDER": "gemini",
     "GEMINI_MODEL_FALLBACK_LIST": "gemini-2.5-flash-lite,gemini-3.1-flash-lite",
     "DEEPSEEK_MODEL": "deepseek-v4-flash",
     // Chat model picker: selectable DeepSeek models + the default selection
@@ -43,6 +47,6 @@
     "TEXT_EXTRACTION_MODE": "textract",
     "AWS_REGION": "us-east-1",
     // External text-extraction service (TEXT_EXTRACTION_MODE=api fallback)
-    "TEXT_EXTRACTOR_API_URL": "https://aws-textract.onrender.com/extract-text"
+    "TEXT_EXTRACTOR_API_URL": ""
   }
 }

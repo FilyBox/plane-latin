@@ -2,35 +2,37 @@
   "command_k": {
     "empty_state": {
       "search": {
-        "title": "結果が見つかりません"
+        "title": "No results found"
       }
     }
   },
   "sidebar": {
-    "stickies": "付箋",
-    "your_work": "あなたの作業",
-    "projects": "プロジェクト",
-    "pages": "ページ",
-    "new_work_item": "新規作業項目",
-    "home": "ホーム",
-    "inbox": "受信トレイ",
-    "workspace": "ワークスペース",
-    "views": "ビュー",
-    "analytics": "アナリティクス",
-    "work_items": "作業項目",
-    "cycles": "サイクル",
-    "modules": "モジュール",
-    "intake": "インテーク",
-    "drafts": "下書き",
-    "favorites": "お気に入り",
-    "pro": "プロ",
-    "upgrade": "アップグレード",
-    "pi_chat": "AIチャット",
-    "epics": "エピック",
-    "upgrade_plan": "プランをアップグレード",
+    "stickies": "Stickies",
+    "your_work": "Your work",
+    "projects": "Projects",
+    "pages": "Pages",
+    "new_work_item": "New work item",
+    "home": "Home",
+    "inbox": "Inbox",
+    "workspace": "Workspace",
+    "views": "Views",
+    "analytics": "Analytics",
+    "work_items": "Work items",
+    "cycles": "Cycles",
+    "modules": "Modules",
+    "intake": "Intake",
+    "drafts": "Drafts",
+    "favorites": "Favorites",
+    "pro": "Pro",
+    "upgrade": "Upgrade",
+    "pi_chat": "Plane AI",
+    "epics": "Epics",
+    "upgrade_plan": "Upgrade plan",
     "plane_pro": "Plane Pro",
-    "business": "ビジネス",
+    "business": "Business",
     "library": "Files",
-    "contracts": "契約書"
+    "contracts": "Contracts",
+    "music_catalog": "Music catalog",
+    "assistant": "Assistant"
   }
 }

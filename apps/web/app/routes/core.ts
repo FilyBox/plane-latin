@@ -91,9 +91,19 @@ export const coreRoutes: RouteConfigEntry[] = [
           ),
         ]),
 
+        // Workspace AI assistant
+        layout("./(all)/[workspaceSlug]/(projects)/assistant/layout.tsx", [
+          route(":workspaceSlug/assistant", "./(all)/[workspaceSlug]/(projects)/assistant/page.tsx"),
+        ]),
+
         // Payments (budgets + expense ledger)
         layout("./(all)/[workspaceSlug]/(projects)/payments/layout.tsx", [
           route(":workspaceSlug/payments", "./(all)/[workspaceSlug]/(projects)/payments/page.tsx"),
+        ]),
+
+        // Music catalog
+        layout("./(all)/[workspaceSlug]/(projects)/music/layout.tsx", [
+          route(":workspaceSlug/music", "./(all)/[workspaceSlug]/(projects)/music/page.tsx"),
         ]),
 
         // Notifications

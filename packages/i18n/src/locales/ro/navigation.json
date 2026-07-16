@@ -2,35 +2,37 @@
   "command_k": {
     "empty_state": {
       "search": {
-        "title": "Niciun rezultat găsit"
+        "title": "No results found"
       }
     }
   },
   "sidebar": {
-    "stickies": "Notițe",
-    "your_work": "Munca ta",
-    "projects": "Proiecte",
-    "pages": "Documentație",
-    "new_work_item": "Activitate nouă",
-    "home": "Acasă",
-    "inbox": "Căsuță de mesaje",
-    "workspace": "Spațiu de lucru",
-    "views": "Perspective",
-    "analytics": "Statistici",
-    "work_items": "Activități",
-    "cycles": "Cicluri",
-    "modules": "Module",
-    "intake": "Cereri",
-    "drafts": "Schițe",
-    "favorites": "Favorite",
+    "stickies": "Stickies",
+    "your_work": "Your work",
+    "projects": "Projects",
+    "pages": "Pages",
+    "new_work_item": "New work item",
+    "home": "Home",
+    "inbox": "Inbox",
+    "workspace": "Workspace",
+    "views": "Views",
+    "analytics": "Analytics",
+    "work_items": "Work items",
+    "cycles": "Cycles",
+    "modules": "Modules",
+    "intake": "Intake",
+    "drafts": "Drafts",
+    "favorites": "Favorites",
     "pro": "Pro",
-    "upgrade": "Treci la versiunea superioară",
+    "upgrade": "Upgrade",
     "pi_chat": "Plane AI",
-    "epics": "Epice",
-    "upgrade_plan": "Actualizare plan",
+    "epics": "Epics",
+    "upgrade_plan": "Upgrade plan",
     "plane_pro": "Plane Pro",
     "business": "Business",
     "library": "Files",
-    "contracts": "Contracte"
+    "contracts": "Contracts",
+    "music_catalog": "Music catalog",
+    "assistant": "Assistant"
   }
 }
