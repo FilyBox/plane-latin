@@ -5,7 +5,7 @@
  * Django never needs a broad Cloudflare account token.
  */
 
-import { handleAssistantChat, type AssistantChatRequest } from "./assistant";
+import { handleAssistantChat, listAssistantModels, type AssistantChatRequest } from "./assistant";
 import { handleChat, type ChatRequest } from "./chat";
 import { listChatModels } from "./lib/ai";
 import { ContractPipelineWorkflow, type PipelineParams } from "./workflows/contract-pipeline";
@@ -40,6 +40,11 @@ export default {
     // Env-declared chat models for the UI picker
     if (url.pathname === "/models" && request.method === "GET") {
       return Response.json(listChatModels(env));
+    }
+
+    // Same list, but the default follows ASSISTANT_AI_PROVIDER
+    if (url.pathname === "/assistant/models" && request.method === "GET") {
+      return Response.json(listAssistantModels(env));
     }
 
     if (request.method !== "POST") {

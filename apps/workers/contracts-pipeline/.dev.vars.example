@@ -11,3 +11,7 @@ AWS_SECRET_ACCESS_KEY=""
 # wrangler.jsonc's top-level `vars.PLANE_INTERNAL_API_URL` is the production
 # value; this overrides it back to localhost for local `wrangler dev` only.
 PLANE_INTERNAL_API_URL="http://localhost:8000"
+# Optional: override the workspace assistant chat's provider for local dev
+# only (independent from AI_PROVIDER, which stays DeepSeek for the contracts
+# pipeline). Defaults to wrangler.jsonc's vars.ASSISTANT_AI_PROVIDER ("gemini").
+# ASSISTANT_AI_PROVIDER="deepseek"

@@ -11,7 +11,7 @@ import type { LanguageModel, ToolSet, UIMessage } from "ai";
 import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 
-import { generateEmbeddings } from "./lib/ai";
+import { generateEmbeddings, listChatModels } from "./lib/ai";
 import { internalApi } from "./lib/internal-api";
 
 export type AssistantChatRequest = {
@@ -57,11 +57,25 @@ function pickModel(env: Env, requested?: string | null): { model: LanguageModel;
     if (deepseekModels.includes(requested)) return { model: deepseek(requested), id: requested };
     if (geminiModels.includes(requested)) return { model: gemini(requested), id: requested };
   }
-  const provider = (env.AI_PROVIDER || "deepseek").toLowerCase();
-  if (provider === "gemini" && geminiModels.length > 0) {
+  // Independent from AI_PROVIDER: the contracts pipeline stays on DeepSeek by
+  // default while this chat can default to a different provider (Gemini).
+  const provider = (env.ASSISTANT_AI_PROVIDER || "gemini").toLowerCase();
+  if (provider === "deepseek" && deepseekModels.length > 0) {
+    return { model: deepseek(deepseekModels[0]), id: deepseekModels[0] };
+  }
+  if (geminiModels.length > 0) {
     return { model: gemini(geminiModels[0]), id: geminiModels[0] };
   }
   return { model: deepseek(deepseekModels[0]), id: deepseekModels[0] };
+}
+
+/** Same env-declared model list as the contract chat, but the default follows
+ * ASSISTANT_AI_PROVIDER instead of CHAT_DEFAULT_MODEL. */
+export function listAssistantModels(env: Env): ReturnType<typeof listChatModels> {
+  const { models, default_model } = listChatModels(env);
+  const provider = (env.ASSISTANT_AI_PROVIDER || "gemini").toLowerCase();
+  const preferred = models.find((model) => model.provider === provider);
+  return { models, default_model: preferred?.id ?? default_model };
 }
 
 const trackFilterSchema = {

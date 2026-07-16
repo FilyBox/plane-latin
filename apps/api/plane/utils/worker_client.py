@@ -70,6 +70,11 @@ def get_chat_models():
     return _get("/models")
 
 
+def get_assistant_models():
+    """Same list, but the default follows the worker's ASSISTANT_AI_PROVIDER."""
+    return _get("/assistant/models")
+
+
 def chat_with_contracts(workspace_id, mode, query, history, contract_id=None, model=None):
     """Synchronous chat turn against the Worker. `mode` is GENERAL (RAG over
     vectorized chunks) or CONTRACT (full extracted text as system context).

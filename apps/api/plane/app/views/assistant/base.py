@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
 from plane.db.models import Workspace, WorkspaceFeature
-from plane.utils.worker_client import WorkerTriggerError, get_chat_models, stream_assistant_chat
+from plane.utils.worker_client import WorkerTriggerError, get_assistant_models, stream_assistant_chat
 
 
 def _assistant_enabled(workspace):
@@ -34,7 +34,7 @@ class AssistantModelsEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def get(self, request, slug):
         try:
-            return Response(get_chat_models(), status=status.HTTP_200_OK)
+            return Response(get_assistant_models(), status=status.HTTP_200_OK)
         except WorkerTriggerError as e:
             return Response({"error": str(e)[:300]}, status=status.HTTP_502_BAD_GATEWAY)
 
