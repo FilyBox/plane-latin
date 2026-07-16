@@ -256,6 +256,9 @@ IMPORT_ALIASES = {
     "release.release_date": ("album release date", "release date", "fecha ano", "fecha"),
     "artists": ("artist", "artists", "artista", "main artist"),
     "record_label": ("label", "label name", "licencia", "statement"),
+    "track.video_url": ("video url", "video link", "link video", "url video", "youtube", "music video url"),
+    "track.video_release_date": ("video release date", "fecha video", "fecha lanzamiento video"),
+    "track.streaming_url": ("streaming url", "spotify", "spotify url", "enlace", "song url"),
 }
 
 IMPORT_FIELDS = [
@@ -268,7 +271,27 @@ IMPORT_FIELDS = [
     "release.catalog_number", "release.release_date", "release.p_line", "release.c_line", "artists",
     "featured_artists", "authors", "composers", "producers", "recording_engineers", "mixers",
     "mastering_engineers", "legal_representatives", "genres", "record_label", "aggregator", "distributor",
+    # Content-detected columns: a column of URLs maps here even when its
+    # header says nothing useful (the assistant decides by LOOKING at values)
+    "track.video_url", "track.video_release_date", "track.streaming_url",
 ]
+
+
+def _link_platform(url):
+    """Readable platform name from a URL's host ("YouTube", "Spotify"…)."""
+    match = re.search(r"https?://(?:www\.)?([^/:]+)", str(url or ""))
+    if not match:
+        return ""
+    host = match.group(1)
+    known = {
+        "youtube.com": "YouTube", "youtu.be": "YouTube", "open.spotify.com": "Spotify",
+        "music.apple.com": "Apple Music", "deezer.com": "Deezer", "tidal.com": "Tidal",
+        "soundcloud.com": "SoundCloud", "music.amazon.com": "Amazon Music",
+    }
+    for domain, name in known.items():
+        if host == domain or host.endswith("." + domain):
+            return name
+    return host.split(".")[0].capitalize()
 
 
 def _infer_mapping(headers, fields):
@@ -767,10 +790,12 @@ class MusicImportEndpoint(MusicBaseView):
         if not title:
             raise ValueError("Track title is empty")
         isrc = _mapped(row, mapping, "track.isrc").upper().replace("-", "")
-        track = MusicTrack.objects.filter(workspace=workspace, isrc__iexact=isrc).first() if isrc else None
+        # Dedupe against SONGS only: music-video children share the parent's
+        # title, so an unfiltered title match could wrongly hit the video.
+        songs = MusicTrack.objects.filter(workspace=workspace, parent_track__isnull=True)
+        track = songs.filter(isrc__iexact=isrc).first() if isrc else None
         if not track:
-            track = MusicTrack.objects.filter(
-                workspace=workspace,
+            track = songs.filter(
                 title__iexact=title,
                 original_release_date=_mapped_date(row, mapping, "track.original_release_date"),
             ).first()
@@ -874,8 +899,62 @@ class MusicImportEndpoint(MusicBaseView):
                 company = MusicCompany.objects.filter(workspace=workspace, kind=kind, name__iexact=name).first()
                 company = company or MusicCompany.objects.create(workspace=workspace, kind=kind, name=name)
                 MusicDistribution.objects.get_or_create(workspace=workspace, track=track, company=company)
+        self._import_links(workspace, track, row, mapping, values)
         self._apply_defaults(workspace, track, release, defaults or {})
         return outcome
+
+    @staticmethod
+    def _import_links(workspace, track, row, mapping, values):
+        """Content-detected URL columns: a music-video URL materializes the
+        video child track (with its ISRC/date when mapped) and both kinds
+        attach as MusicLink rows — idempotent per URL so re-imports don't
+        duplicate.
+        """
+        video_url = _mapped(row, mapping, "track.video_url")
+        if video_url.startswith(("http://", "https://")):
+            video = track.videos.filter(kind=MusicTrack.Kind.MUSIC_VIDEO).first()
+            video_release_date = _mapped_date(row, mapping, "track.video_release_date")
+            if video is None:
+                video = MusicTrack.objects.create(
+                    workspace=workspace,
+                    parent_track=track,
+                    title=track.title,
+                    kind=MusicTrack.Kind.MUSIC_VIDEO,
+                    isrc_video=values.get("isrc_video", ""),
+                    release_date=video_release_date,
+                )
+            else:
+                changed = False
+                if video_release_date and not video.release_date:
+                    video.release_date = video_release_date
+                    changed = True
+                if values.get("isrc_video") and not video.isrc_video:
+                    video.isrc_video = values["isrc_video"]
+                    changed = True
+                if changed:
+                    video.save()
+            if not video.links.filter(url=video_url).exists():
+                MusicLink.objects.create(
+                    workspace=workspace,
+                    track=video,
+                    kind=MusicLink.Kind.MUSIC_VIDEO,
+                    platform=_link_platform(video_url),
+                    name=_link_platform(video_url) or "Music video",
+                    url=video_url,
+                    isrc=values.get("isrc_video", ""),
+                )
+
+        streaming_url = _mapped(row, mapping, "track.streaming_url")
+        if streaming_url.startswith(("http://", "https://")) and not track.links.filter(url=streaming_url).exists():
+            MusicLink.objects.create(
+                workspace=workspace,
+                track=track,
+                kind=MusicLink.Kind.STREAMING,
+                platform=_link_platform(streaming_url),
+                name=_link_platform(streaming_url) or "Streaming",
+                url=streaming_url,
+                isrc=values.get("isrc", ""),
+            )
 
     @staticmethod
     def _apply_defaults(workspace, track, release, defaults):

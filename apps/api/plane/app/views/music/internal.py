@@ -181,18 +181,40 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
         if request.data.get("mode", "read") == "read":
             from datetime import date, datetime
 
-            sample = [
-                {
-                    key: value.isoformat() if isinstance(value, (date, datetime)) else value
-                    for key, value in row.items()
+            def jsonable(value, limit=120):
+                if isinstance(value, (date, datetime)):
+                    return value.isoformat()
+                text = str(value)
+                return text[:limit] + "…" if len(text) > limit else value
+
+            sample = [{key: jsonable(value) for key, value in row.items()} for row in rows[:10]]
+
+            # Per-column samples scanned over the WHOLE file: a column that is
+            # empty for the first thousand rows but holds URLs later must
+            # still be classifiable — the contiguous head sample can't see it.
+            column_samples = {}
+            for header in headers:
+                examples = []
+                non_empty = 0
+                for row in rows:
+                    value = row.get(header)
+                    if value in (None, ""):
+                        continue
+                    non_empty += 1
+                    if len(examples) < 5:
+                        examples.append(jsonable(value))
+                column_samples[header] = {
+                    "non_empty": non_empty,
+                    "total": len(rows),
+                    "examples": examples,
                 }
-                for row in rows[:10]
-            ]
+
             return Response(
                 {
                     "file_name": (asset.attributes or {}).get("name"),
                     "headers": headers,
                     "sample_rows": sample,
+                    "column_samples": column_samples,
                     "total_rows": len(rows),
                     "sheets": sheets,
                     "selected_sheet": sheet or (sheets[0] if sheets else None),

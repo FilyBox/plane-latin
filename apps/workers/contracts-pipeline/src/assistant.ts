@@ -31,15 +31,23 @@ ${
     ? `- query_music_tracks: preguntas sobre el catálogo musical (canciones, artistas, ISRC, fechas de lanzamiento, videos). Úsala antes de responder cualquier dato del catálogo.
 - export_music_excel: cuando el usuario pida un listado/reporte descargable, llámala con los MISMOS filtros que usaste en query_music_tracks; la UI muestra el botón de descarga.
 - list_music_files: para resolver de qué archivo habla el usuario cuando quiere importar datos.
-- propose_music_import: para importar un archivo (CSV/XLSX) al catálogo. Primero llama con mode=read para ver columnas y filas de muestra; razona el mapping hacia los campos canónicos; luego llama con mode=propose y ese mapping. NUNCA inventes columnas que no existen. El usuario aplicará la importación desde la UI.
+- propose_music_import: importación AI-driven de un CSV/XLSX al catálogo. Flujo OBLIGATORIO:
+  1. mode=read → recibes columnas, filas de muestra Y column_samples: por CADA columna, hasta 5 valores no-vacíos tomados de TODO el archivo más su conteo de llenado (non_empty/total). Una columna puede venir vacía en las primeras mil filas y tener datos después — column_samples es tu fuente de verdad para clasificarla, no las filas de muestra.
+  2. Analiza el CONTENIDO de cada columna (sus examples), no solo su nombre: una columna sin nombre útil cuyo contenido son URLs de YouTube se mapea a track.video_url; URLs de Spotify/Apple Music a track.streaming_url; códigos tipo "USRC17607839" son ISRC aunque la columna se llame "código"; fechas se reconocen por su formato. Los campos canónicos disponibles vienen en canonical_fields. Reporta al usuario columnas con muy pocos datos (non_empty bajo) por si son basura.
+  3. Si una columna es ambigua (no sabes a qué campo va), si hay columnas importantes sin mapeo posible, o si hay que elegir entre interpretaciones, usa ask_user ANTES de proponer — no adivines en silencio.
+  4. mode=propose con el mapping → recibes el dry-run (created/updated/skipped/errors).
+  5. Si el dry-run trae errores por fila, explícalos y usa ask_user para decidir cómo resolverlos (corregir mapping, cambiar duplicate_strategy, ignorar esas filas).
+  6. Cuando el resultado sea correcto, dile al usuario que presione "Aplicar importación" en la tarjeta.
 - update_music_track: cuando pidan modificar una canción (agregar link de video, ISRC, fechas). Devuelve una propuesta de cambio que el usuario confirma en la UI.`
     : ""
 }
+- ask_user: pregunta al usuario cuando necesites una decisión o dato para continuar (columna ambigua, estrategia de duplicados, fila problemática). Ofrece opciones concretas cuando existan. Úsala las veces necesarias hasta completar la tarea — no dejes trabajo a medias por falta de información.
 
 Reglas:
 - No inventes datos: si una tool no devuelve resultados, dilo.
 - Para listados largos, muestra un resumen y ofrece el Excel.
-- Fechas siempre en formato ISO (YYYY-MM-DD) al llamar tools.`;
+- Fechas siempre en formato ISO (YYYY-MM-DD) al llamar tools.
+- Los archivos adjuntados en el chat llegan con su asset_id — úsalo directo, no llames list_music_files para buscarlos.`;
 
 function pickModel(env: Env, requested?: string | null): { model: LanguageModel; id: string } {
   const gemini = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY });
@@ -102,6 +110,18 @@ function buildTools(env: Env, body: AssistantChatRequest) {
   const api = internalApi(env);
   const caps = { contracts: body.capabilities?.contracts !== false, music: body.capabilities?.music !== false };
   const tools: ToolSet = {};
+
+  // No `execute`: the run pauses with the call in the stream; the chat UI
+  // collects the user's answer and resumes the conversation with the result.
+  tools.ask_user = tool({
+    description:
+      "Pregunta al usuario y espera su respuesta antes de continuar. Úsala para columnas ambiguas, decisiones de importación, filas con problemas, o cualquier dato que falte.",
+    inputSchema: z.object({
+      question: z.string().describe("La pregunta, clara y concreta"),
+      options: z.array(z.string()).max(6).optional().describe("Opciones sugeridas para responder con un clic"),
+      context: z.string().optional().describe("Contexto breve (p. ej. valores de muestra de la columna en duda)"),
+    }),
+  });
 
   if (caps.contracts) {
     tools.search_contracts = tool({
@@ -259,7 +279,8 @@ export async function handleAssistantChat(env: Env, body: AssistantChatRequest):
     system: SYSTEM_PROMPT(caps),
     messages: await convertToModelMessages(body.messages),
     tools,
-    stopWhen: stepCountIs(8),
+    // Import loops (read → analyze → ask → propose → refine) take more steps
+    stopWhen: stepCountIs(12),
     onError: ({ error }) => {
       console.error(JSON.stringify({ message: "assistant stream error", model: id, error: String(error) }));
     },

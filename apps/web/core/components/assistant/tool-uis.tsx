@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { Check, Download, FileSpreadsheet, FileText, Loader2, Music2, Search } from "lucide-react";
+import { Check, CircleHelp, Download, FileSpreadsheet, FileText, Loader2, Music2, Search, Send } from "lucide-react";
 import { makeAssistantToolUI } from "@assistant-ui/react";
 // plane imports
 import { API_BASE_URL } from "@plane/constants";
@@ -302,4 +302,71 @@ export const UpdateMusicTrackToolUI = makeAssistantToolUI<Record<string, unknown
     if (!result) return <Running label="Buscando la canción…" />;
     return <UpdateTrackCard result={result} />;
   },
+});
+
+type TAskUserArgs = { question: string; options?: string[]; context?: string };
+
+/** Human-in-the-loop: the agent pauses on ask_user; answering here resumes it */
+function AskUserCard({ args, result, addResult }: { args: TAskUserArgs; result?: { answer: string }; addResult: (r: { answer: string }) => void }) {
+  const [freeText, setFreeText] = useState("");
+
+  if (result) {
+    return (
+      <div className={card}>
+        <p className="flex items-start gap-1.5 text-secondary">
+          <CircleHelp className="mt-0.5 size-3.5 shrink-0 text-tertiary" /> {args.question}
+        </p>
+        <p className="mt-1 flex items-center gap-1 text-12 text-success-primary">
+          <Check className="size-3.5" /> Respondiste: {result.answer}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${card} border-accent-strong/40`}>
+      <p className="flex items-start gap-1.5 font-medium">
+        <CircleHelp className="mt-0.5 size-3.5 shrink-0 text-accent-primary" /> {args.question}
+      </p>
+      {args.context && <p className="mt-1 text-11 text-tertiary">{args.context}</p>}
+      {(args.options?.length ?? 0) > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {args.options?.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => addResult({ answer: option })}
+              className="rounded-full border border-subtle px-2.5 py-1 text-12 hover:border-accent-strong hover:text-accent-primary"
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 flex items-center gap-1.5">
+        <input
+          value={freeText}
+          onChange={(event) => setFreeText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && freeText.trim()) addResult({ answer: freeText.trim() });
+          }}
+          placeholder="U otra respuesta…"
+          className="w-full rounded-sm border border-subtle bg-transparent px-2 py-1 text-12"
+        />
+        <button
+          type="button"
+          disabled={!freeText.trim()}
+          onClick={() => addResult({ answer: freeText.trim() })}
+          className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-accent-primary text-on-color hover:opacity-90 disabled:opacity-50"
+        >
+          <Send className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export const AskUserToolUI = makeAssistantToolUI<TAskUserArgs, { answer: string }>({
+  toolName: "ask_user",
+  render: ({ args, result, addResult }) => <AskUserCard args={args} result={result} addResult={addResult} />,
 });

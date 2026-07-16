@@ -18,6 +18,7 @@ import { API_BASE_URL } from "@plane/constants";
 import { FileLibraryAttachmentAdapter } from "./attachments";
 import { AssistantThread, AssistantThreadList } from "./thread";
 import {
+  AskUserToolUI,
   buildProposeMusicImportToolUI,
   ExportMusicExcelToolUI,
   ListMusicFilesToolUI,
@@ -71,7 +72,24 @@ export function AssistantRoot({ workspaceSlug }: Props) {
     () => ({ attachments: new CompositeAttachmentAdapter([new FileLibraryAttachmentAdapter(workspaceSlug)]) }),
     [workspaceSlug]
   );
-  const runtime = useChatRuntime({ transport, adapters });
+  const runtime = useChatRuntime({
+    transport,
+    adapters,
+    // Resume the run automatically once every human tool call (ask_user) in
+    // the last assistant message has its answer — the agent keeps going
+    // until the task is actually done.
+    sendAutomaticallyWhen: ({ messages }) => {
+      const last = messages[messages.length - 1];
+      if (!last || last.role !== "assistant") return false;
+      const toolParts = last.parts.filter(
+        (part) => part.type.startsWith("tool-") || part.type === "dynamic-tool"
+      );
+      if (toolParts.length === 0) return false;
+      return toolParts.every(
+        (part) => "state" in part && (part.state === "output-available" || part.state === "output-error")
+      );
+    },
+  });
   const ProposeMusicImportToolUI = useMemo(() => buildProposeMusicImportToolUI(workspaceSlug), [workspaceSlug]);
 
   const modelSelector = (chatModels?.models?.length ?? 0) > 0 && (
@@ -97,6 +115,7 @@ export function AssistantRoot({ workspaceSlug }: Props) {
       <ListMusicFilesToolUI />
       <ProposeMusicImportToolUI />
       <UpdateMusicTrackToolUI />
+      <AskUserToolUI />
       <div className="flex h-full min-h-0">
         <div className="hidden md:flex">
           <AssistantThreadList />
