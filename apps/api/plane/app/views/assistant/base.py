@@ -107,6 +107,7 @@ class AssistantChatEndpoint(BaseAPIView):
             "workspace_slug": slug,
             "messages": messages,
             "model": (request.data.get("model") or "").strip() or None,
+            "locale": (request.data.get("locale") or "").strip() or None,
             # Which tool families the agent may use, derived from the flags —
             # a workspace with only contracts must not expose music tools.
             "capabilities": {

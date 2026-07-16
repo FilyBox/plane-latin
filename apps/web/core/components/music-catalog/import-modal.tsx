@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, FileSpreadsheet, Plus, X, WandSparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, FileSpreadsheet, Plus, Search, ShieldCheck, X, WandSparkles } from "lucide-react";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type {
@@ -14,6 +14,7 @@ import type {
 import { musicService } from "@/services/music.service";
 import { BudgetPeekPanel } from "../payments/budget-peek-panel";
 import { MusicResourcePickerModal, type MusicResourceType } from "./resource-picker-modal";
+import { SearchableSelect } from "./searchable-select";
 import { getApiError, MUSIC_FIELD } from "./shared";
 
 type Props = {
@@ -30,6 +31,7 @@ type Props = {
 };
 
 type DefaultCredit = { party_id: string; role: string };
+const REQUIRED_IMPORT_FIELDS = ["track.title"] as const;
 
 export function MusicImportModal({
   workspaceSlug,
@@ -54,6 +56,24 @@ export function MusicImportModal({
   const [defaultGenreIds, setDefaultGenreIds] = useState<string[]>([]);
   const [defaultReleaseIds, setDefaultReleaseIds] = useState<string[]>([]);
   const [picker, setPicker] = useState<{ type: MusicResourceType; defaultKind?: string }>();
+  const [fieldQuery, setFieldQuery] = useState("");
+  const [validatedKey, setValidatedKey] = useState<string>();
+
+  const missingRequired = REQUIRED_IMPORT_FIELDS.filter((field) => !mapping[field]);
+  const validationKey = JSON.stringify({
+    mapping,
+    strategy,
+    sheet: preview?.selected_sheet,
+    defaultCredits,
+    defaultCompanyIds,
+    defaultGenreIds,
+    defaultReleaseIds,
+  });
+  const visibleFields = useMemo(() => {
+    const query = fieldQuery.trim().toLowerCase();
+    const importFields = options?.import_fields ?? [];
+    return query ? importFields.filter((field) => field.toLowerCase().includes(query)) : importFields;
+  }, [fieldQuery, options?.import_fields]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -67,6 +87,8 @@ export function MusicImportModal({
     setDefaultGenreIds([]);
     setDefaultReleaseIds([]);
     setPicker(undefined);
+    setFieldQuery("");
+    setValidatedKey(undefined);
   }, [isOpen]);
 
   const inspect = async (selected: File, sheet?: string) => {
@@ -75,6 +97,8 @@ export function MusicImportModal({
       const next = await musicService.previewImport(workspaceSlug, selected, sheet);
       setPreview(next);
       setMapping(next.mapping);
+      setResult(undefined);
+      setValidatedKey(undefined);
     } catch (error) {
       setToast({ type: TOAST_TYPE.ERROR, title: "Could not read spreadsheet", message: getApiError(error) });
     } finally {
@@ -91,7 +115,15 @@ export function MusicImportModal({
   };
 
   const run = async (dryRun: boolean) => {
-    if (!file || !mapping["track.title"]) return;
+    if (!file) return;
+    if (missingRequired.length) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Required mapping missing",
+        message: "Map a spreadsheet column to Song title before validating the import.",
+      });
+      return;
+    }
     setIsRunning(true);
     try {
       const next = await musicService.importSpreadsheet(
@@ -109,6 +141,7 @@ export function MusicImportModal({
         }
       );
       setResult(next);
+      if (dryRun) setValidatedKey(next.errors.length === 0 ? validationKey : undefined);
       if (!dryRun) {
         setToast({
           type: next.errors.length ? TOAST_TYPE.ERROR : TOAST_TYPE.SUCCESS,
@@ -133,6 +166,14 @@ export function MusicImportModal({
     if (picker?.type === "company") setDefaultCompanyIds(ids);
     if (picker?.type === "genre") setDefaultGenreIds(ids);
     if (picker?.type === "release") setDefaultReleaseIds(ids);
+    setResult(undefined);
+    setValidatedKey(undefined);
+  };
+
+  const updateMapping = (field: string, column: string) => {
+    setMapping((current) => ({ ...current, [field]: column }));
+    setResult(undefined);
+    setValidatedKey(undefined);
   };
 
   if (!isOpen) return null;
@@ -144,6 +185,27 @@ export function MusicImportModal({
     >
       <div className="vertical-scrollbar h-full overflow-y-auto bg-surface-1">
         <div className="space-y-5 p-5">
+          <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-subtle bg-layer-1 text-11">
+            {[
+              ["1", "Choose file", Boolean(file)],
+              ["2", "Map columns", Boolean(preview) && missingRequired.length === 0],
+              ["3", "Validate and import", validatedKey === validationKey],
+            ].map(([step, label, complete]) => (
+              <div
+                key={String(step)}
+                className="flex items-center gap-2 border-r border-subtle px-3 py-2 last:border-r-0"
+              >
+                <span
+                  className={`flex size-5 shrink-0 items-center justify-center rounded-full text-10 font-semibold ${
+                    complete ? "bg-success-primary text-white" : "bg-layer-2 text-tertiary"
+                  }`}
+                >
+                  {complete ? <CheckCircle2 className="size-3" /> : step}
+                </span>
+                <span className="truncate text-secondary">{label}</span>
+              </div>
+            ))}
+          </div>
           <label className="hover:border-accent-primary flex cursor-pointer flex-col items-center rounded-xl border border-dashed border-subtle bg-layer-2 px-5 py-7 text-center">
             <FileSpreadsheet className="mb-2 size-7 text-tertiary" />
             <span className="text-13 font-medium">{file?.name ?? "Choose CSV or XLSX"}</span>
@@ -172,51 +234,73 @@ export function MusicImportModal({
                   <strong>{preview.total_rows}</strong> rows found · header detected on row {preview.header_row}
                 </div>
                 {preview.sheets.length > 1 && (
-                  <select
-                    className={`${MUSIC_FIELD} w-auto min-w-44`}
-                    value={preview.selected_sheet ?? ""}
-                    onChange={(event) => file && void inspect(file, event.target.value)}
-                  >
-                    {preview.sheets.map((sheet) => (
-                      <option key={sheet}>{sheet}</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    className="w-56"
+                    options={preview.sheets.map((sheet) => ({ value: sheet, label: sheet }))}
+                    value={preview.selected_sheet}
+                    onSelect={(sheet) => file && void inspect(file, sheet)}
+                    placeholder="Search worksheets..."
+                  />
                 )}
               </div>
 
               <section>
-                <div className="mb-3 flex items-center justify-between">
+                <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
                   <div>
                     <h3 className="text-14 font-semibold">Column mapping</h3>
                     <p className="text-11 text-secondary">
                       Only song title is required; everything else remains optional.
                     </p>
                   </div>
-                  <span className="flex items-center gap-1 text-11 text-tertiary">
-                    <WandSparkles className="size-3.5" /> Auto-mapped
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1 text-11 text-tertiary">
+                      <WandSparkles className="size-3.5" /> {Object.values(mapping).filter(Boolean).length} mapped
+                    </span>
+                    <label className="relative w-52">
+                      <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-tertiary" />
+                      <input
+                        className={`${MUSIC_FIELD} py-1.5 pr-2 pl-7 text-11`}
+                        value={fieldQuery}
+                        onChange={(event) => setFieldQuery(event.target.value)}
+                        placeholder="Search destination fields..."
+                      />
+                    </label>
+                  </div>
                 </div>
+                {missingRequired.length > 0 && (
+                  <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning-subtle bg-warning-subtle/30 p-3 text-12 text-warning-primary">
+                    <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                    <div>
+                      <p className="font-semibold">Song title still needs a source column</p>
+                      <p className="mt-0.5 text-11">
+                        Select the spreadsheet column containing each song name. Import remains unavailable until it is
+                        mapped.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {options?.import_fields.map((field) => (
-                    <label
+                  {visibleFields.map((field) => (
+                    <div
                       key={field}
-                      className="grid grid-cols-2 items-center gap-3 rounded-md border border-subtle px-3 py-2"
+                      className={`grid grid-cols-1 items-center gap-2 rounded-md border px-3 py-2 md:grid-cols-2 ${
+                        field === "track.title" && !mapping[field] ? "border-warning-strong" : "border-subtle"
+                      }`}
                     >
                       <span className="truncate text-11 text-secondary">
                         {field}
                         {field === "track.title" && <span className="text-red-500"> *</span>}
                       </span>
-                      <select
-                        className={`${MUSIC_FIELD} py-1.5 text-11`}
+                      <SearchableSelect
+                        options={[
+                          { value: "", label: "Do not import" },
+                          ...preview.headers.map((header) => ({ value: header, label: header })),
+                        ]}
                         value={mapping[field] ?? ""}
-                        onChange={(event) => setMapping((current) => ({ ...current, [field]: event.target.value }))}
-                      >
-                        <option value="">Do not import</option>
-                        {preview.headers.map((header) => (
-                          <option key={header}>{header}</option>
-                        ))}
-                      </select>
-                    </label>
+                        onSelect={(column) => updateMapping(field, column)}
+                        placeholder="Search source columns..."
+                      />
+                    </div>
                   ))}
                 </div>
               </section>
@@ -250,23 +334,19 @@ export function MusicImportModal({
                           <span className="min-w-0 flex-1 truncate text-11">
                             {parties.find((party) => party.id === credit.party_id)?.display_name ?? "Unknown person"}
                           </span>
-                          <select
-                            className={`${MUSIC_FIELD} w-40 py-1 text-11`}
+                          <SearchableSelect
+                            className="w-44"
+                            options={(options?.credit_roles ?? []).map(([value, label]) => ({ value, label }))}
                             value={credit.role}
-                            onChange={(event) =>
+                            onSelect={(role) => {
                               setDefaultCredits((current) =>
-                                current.map((item) =>
-                                  item.party_id === credit.party_id ? { ...item, role: event.target.value } : item
-                                )
-                              )
-                            }
-                          >
-                            {options?.credit_roles.map(([value, label]) => (
-                              <option key={value} value={value}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
+                                current.map((item) => (item.party_id === credit.party_id ? { ...item, role } : item))
+                              );
+                              setResult(undefined);
+                              setValidatedKey(undefined);
+                            }}
+                            placeholder="Search roles..."
+                          />
                           <button
                             type="button"
                             onClick={() =>
@@ -406,7 +486,11 @@ export function MusicImportModal({
                       className="mr-2"
                       type="radio"
                       checked={strategy === value}
-                      onChange={() => setStrategy(value)}
+                      onChange={() => {
+                        setStrategy(value);
+                        setResult(undefined);
+                        setValidatedKey(undefined);
+                      }}
                     />
                     {label}
                   </label>
@@ -436,28 +520,44 @@ export function MusicImportModal({
           )}
         </div>
 
-        <footer className="sticky bottom-0 flex justify-end gap-2 border-t border-subtle bg-surface-1 px-5 py-4">
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Close
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={isRunning}
-            disabled={!file || !mapping["track.title"] || preview?.database_ready === false}
-            onClick={() => void run(true)}
-          >
-            Validate
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            loading={isRunning}
-            disabled={!file || !mapping["track.title"] || preview?.database_ready === false}
-            onClick={() => void run(false)}
-          >
-            Import records
-          </Button>
+        <footer className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-subtle bg-surface-1 px-5 py-4">
+          <div className="min-w-0 text-11 text-secondary">
+            {!file && "Choose a CSV or XLSX file to begin."}
+            {file && missingRequired.length > 0 && "Map Song title to continue."}
+            {file && missingRequired.length === 0 && validatedKey !== validationKey && (
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="size-3.5" /> Validate the mapping before importing.
+              </span>
+            )}
+            {validatedKey === validationKey && (
+              <span className="flex items-center gap-1.5 text-success-primary">
+                <CheckCircle2 className="size-3.5" /> Validation passed. Ready to import.
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={onClose}>
+              Close
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={isRunning}
+              disabled={!file || missingRequired.length > 0 || preview?.database_ready === false}
+              onClick={() => void run(true)}
+            >
+              Validate
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              loading={isRunning}
+              disabled={!file || validatedKey !== validationKey || preview?.database_ready === false}
+              onClick={() => void run(false)}
+            >
+              Import records
+            </Button>
+          </div>
         </footer>
       </div>
       <MusicResourcePickerModal

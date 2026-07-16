@@ -16,6 +16,7 @@ import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/react-ai-s
 import { API_BASE_URL } from "@plane/constants";
 // local imports
 import { FileLibraryAttachmentAdapter } from "./attachments";
+import { AssistantContextDisplay } from "./context-display";
 import { AssistantThread, AssistantThreadList } from "./thread";
 import {
   AskUserToolUI,
@@ -62,7 +63,7 @@ export function AssistantRoot({ workspaceSlug }: Props) {
       new AssistantChatTransport({
         api: `${API_BASE_URL}/api/workspaces/${workspaceSlug}/assistant/chat/`,
         credentials: "include",
-        body: () => ({ model: modelRef.current ?? undefined }),
+        body: () => ({ model: modelRef.current ?? undefined, locale: navigator.language }),
       }),
     [workspaceSlug]
   );
@@ -75,36 +76,40 @@ export function AssistantRoot({ workspaceSlug }: Props) {
   const runtime = useChatRuntime({
     transport,
     adapters,
-    // Resume the run automatically once every human tool call (ask_user) in
-    // the last assistant message has its answer — the agent keeps going
-    // until the task is actually done.
+    // Only a human answer may resume a paused run. Automatically resuming
+    // server-executed tools creates an empty request loop after a finished run.
     sendAutomaticallyWhen: ({ messages }) => {
       const last = messages[messages.length - 1];
       if (!last || last.role !== "assistant") return false;
-      const toolParts = last.parts.filter(
-        (part) => part.type.startsWith("tool-") || part.type === "dynamic-tool"
+      const askUserParts = last.parts.filter(
+        (part) => part.type === "tool-ask_user" || (part.type === "dynamic-tool" && part.toolName === "ask_user")
       );
-      if (toolParts.length === 0) return false;
-      return toolParts.every(
+      if (askUserParts.length === 0) return false;
+      return askUserParts.every(
         (part) => "state" in part && (part.state === "output-available" || part.state === "output-error")
       );
     },
   });
   const ProposeMusicImportToolUI = useMemo(() => buildProposeMusicImportToolUI(workspaceSlug), [workspaceSlug]);
 
-  const modelSelector = (chatModels?.models?.length ?? 0) > 0 && (
-    <select
-      value={model ?? ""}
-      onChange={(event) => setModel(event.target.value)}
-      className="rounded-sm border border-subtle bg-transparent px-1.5 py-1 text-11 text-tertiary"
-      title="Modelo de IA"
-    >
-      {chatModels?.models.map((option) => (
-        <option key={option.id} value={option.id}>
-          {option.id} ({option.provider})
-        </option>
-      ))}
-    </select>
+  const composerAccessory = (
+    <div className="flex items-center gap-2">
+      <AssistantContextDisplay model={model} />
+      {(chatModels?.models?.length ?? 0) > 0 && (
+        <select
+          value={model ?? ""}
+          onChange={(event) => setModel(event.target.value)}
+          className="rounded-sm border border-subtle bg-transparent px-1.5 py-1 text-11 text-tertiary"
+          title="Modelo de IA"
+        >
+          {chatModels?.models.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.id} ({option.provider})
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
 
   return (
@@ -120,7 +125,7 @@ export function AssistantRoot({ workspaceSlug }: Props) {
         <div className="hidden md:flex">
           <AssistantThreadList />
         </div>
-        <AssistantThread composerAccessory={modelSelector || undefined} />
+        <AssistantThread composerAccessory={composerAccessory} />
       </div>
     </AssistantRuntimeProvider>
   );

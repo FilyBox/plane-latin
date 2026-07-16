@@ -26,6 +26,7 @@ import { MusicReleaseModal } from "./release-modal";
 import { getApiError, musicDate, MUSIC_FIELD } from "./shared";
 import { MusicTableActionBar } from "./table-action-bar";
 import { MusicTrackModal } from "./track-modal";
+import { MusicTrackPeekPanel } from "./track-peek-panel";
 
 type Props = { workspaceSlug: string };
 const PAGE_SIZE = 25;
@@ -52,6 +53,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const [showFilters, setShowFilters] = useState(false);
   const [editingTrack, setEditingTrack] = useState<TMusicTrack>();
   const [editingRelease, setEditingRelease] = useState<TMusicRelease>();
+  const [peekTrack, setPeekTrack] = useState<TMusicTrack>();
   const [trackOpen, setTrackOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
@@ -97,6 +99,13 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   useEffect(() => {
     if (trackPage && trackPage.requested_page === page && trackPage.page !== page) setPage(trackPage.page);
   }, [page, trackPage]);
+
+  useEffect(() => {
+    if (!peekTrack) return;
+    const fresh = tracks.find((item) => item.id === peekTrack.id);
+    if (fresh && fresh !== peekTrack) setPeekTrack(fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks]);
 
   const refreshResources = () =>
     void Promise.all([mutateParties(), mutateCompanies(), mutateGenres(), mutateReleases()]);
@@ -188,7 +197,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-surface-1">
+    <div className="relative flex h-full flex-col overflow-hidden bg-surface-1">
       <div className="shrink-0 border-b border-subtle bg-gradient-to-br from-[#edf7f2] via-surface-1 to-[#eaf1f8] px-4 py-4 sm:px-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex items-center gap-3">
@@ -471,7 +480,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                     <tr
                       key={track.id}
                       className="cursor-pointer border-t border-subtle hover:bg-layer-2/60"
-                      onClick={() => openSong(track)}
+                      onClick={() => setPeekTrack(track)}
                     >
                       <td className="px-4 py-3">
                         <input
@@ -569,9 +578,9 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                   className="rounded-xl border border-subtle bg-layer-1 p-4"
                   role="button"
                   tabIndex={0}
-                  onClick={() => openSong(track)}
+                  onClick={() => setPeekTrack(track)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") openSong(track);
+                    if (event.key === "Enter" || event.key === " ") setPeekTrack(track);
                   }}
                 >
                   <div className="flex gap-3">
@@ -636,6 +645,23 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
           </>
         )}
       </div>
+
+      {peekTrack && (
+        <MusicTrackPeekPanel
+          workspaceSlug={workspaceSlug}
+          track={peekTrack}
+          options={options}
+          parties={parties}
+          genres={genres}
+          companies={companies}
+          releases={releases}
+          suspendClose={trackOpen || releaseOpen || resourcesOpen || importOpen}
+          onClose={() => setPeekTrack(undefined)}
+          onEditFull={(track) => openSong(track)}
+          onSaved={() => void mutateTracks()}
+          onResourcesChanged={refreshResources}
+        />
+      )}
 
       <MusicTrackModal
         workspaceSlug={workspaceSlug}

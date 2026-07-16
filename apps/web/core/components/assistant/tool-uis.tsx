@@ -8,12 +8,24 @@
  * session (Django REST), never by the model.
  */
 
-import { useState } from "react";
-import { Check, CircleHelp, Download, FileSpreadsheet, FileText, Loader2, Music2, Search, Send } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  Check,
+  CircleHelp,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+  Music2,
+  Search,
+  Send,
+} from "lucide-react";
 import { makeAssistantToolUI } from "@assistant-ui/react";
 // plane imports
 import { API_BASE_URL } from "@plane/constants";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
+import { SearchableSelect } from "../music-catalog/searchable-select";
 
 const card = "my-2 rounded-md border border-subtle bg-layer-1 p-3 text-13";
 
@@ -33,7 +45,10 @@ type TTrackRow = {
   videos: { title: string; release_date: string | null; urls: string[] }[];
 };
 
-export const QueryMusicTracksToolUI = makeAssistantToolUI<Record<string, unknown>, { total: number; returned: number; results: TTrackRow[] }>({
+export const QueryMusicTracksToolUI = makeAssistantToolUI<
+  Record<string, unknown>,
+  { total: number; returned: number; results: TTrackRow[] }
+>({
   toolName: "query_music_tracks",
   render: ({ result }) => {
     if (!result) return <Running label="Consultando el catálogo…" />;
@@ -58,9 +73,12 @@ export const QueryMusicTracksToolUI = makeAssistantToolUI<Record<string, unknown
               <tbody>
                 {result.results.map((track) => (
                   <tr key={track.id} className="border-t border-subtle">
-                    <td className="px-2 py-1">{track.title}{track.version ? ` (${track.version})` : ""}</td>
+                    <td className="px-2 py-1">
+                      {track.title}
+                      {track.version ? ` (${track.version})` : ""}
+                    </td>
                     <td className="px-2 py-1">{track.artists.join(", ")}</td>
-                    <td className="px-2 py-1 font-mono text-11">{track.isrc ?? "—"}</td>
+                    <td className="font-mono px-2 py-1 text-11">{track.isrc ?? "—"}</td>
                     <td className="px-2 py-1">{track.release_date ?? "—"}</td>
                     <td className="px-2 py-1">{track.videos.length || "—"}</td>
                   </tr>
@@ -112,7 +130,10 @@ export const SearchContractsToolUI = makeAssistantToolUI<
       <div className={`${card} flex flex-wrap items-center gap-1.5`}>
         <Search className="size-3.5 text-tertiary" />
         {result.sources.map((source) => (
-          <span key={source.contract_id} className="flex items-center gap-1 rounded-full border border-subtle px-2 py-0.5 text-11">
+          <span
+            key={source.contract_id}
+            className="flex items-center gap-1 rounded-full border border-subtle px-2 py-0.5 text-11"
+          >
             <FileText className="size-3 text-tertiary" />
             {source.title || source.file_name || source.contract_id.slice(0, 8)}
           </span>
@@ -131,7 +152,13 @@ export const ListMusicFilesToolUI = makeAssistantToolUI<
     if (!result) return <Running label="Buscando archivos…" />;
     return (
       <p className={`${card} text-tertiary`}>
-        {result.results.length} archivo(s) encontrados{result.results.length > 0 ? `: ${result.results.slice(0, 5).map((file) => file.name).join(", ")}` : ""}
+        {result.results.length} archivo(s) encontrados
+        {result.results.length > 0
+          ? `: ${result.results
+              .slice(0, 5)
+              .map((file) => file.name)
+              .join(", ")}`
+          : ""}
       </p>
     );
   },
@@ -144,7 +171,13 @@ type TImportProposal = {
   skipped?: number;
   errors?: { row: number; message: string }[];
   dry_run?: boolean;
+  asset_id?: string;
+  file_name?: string;
   headers?: string[];
+  total_rows?: number;
+  selected_sheet?: string | null;
+  canonical_fields?: string[];
+  heuristic_mapping?: Record<string, string>;
   proposal?: { asset_id: string; sheet: string | null; mapping: Record<string, string>; duplicate_strategy: string };
 };
 
@@ -155,7 +188,11 @@ function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal
   // mode=read result (no proposal yet): the model is still reasoning the mapping
   if (!result.proposal) {
     if (result.headers) {
-      return <p className={`${card} text-tertiary`}>Archivo leído: {result.headers.length} columnas, {result.total ?? "?"} filas. Analizando mapeo…</p>;
+      return (
+        <p className={`${card} text-tertiary`}>
+          Archivo leído: {result.headers.length} columnas, {result.total ?? "?"} filas. Analizando mapeo…
+        </p>
+      );
     }
     return null;
   }
@@ -163,23 +200,28 @@ function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal
   const apply = async () => {
     setState("applying");
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/workspaces/${workspaceSlug}/assistant/music-import/`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...result.proposal, dry_run: false }),
-        }
-      );
+      const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceSlug}/assistant/music-import/`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...result.proposal, dry_run: false }),
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? "Import failed");
       setApplied(data);
       setState("done");
-      setToast({ type: TOAST_TYPE.SUCCESS, title: "Importación aplicada", message: `${data.created} creadas · ${data.updated} actualizadas` });
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: "Importación aplicada",
+        message: `${data.created} creadas · ${data.updated} actualizadas`,
+      });
     } catch (error: unknown) {
       setState("idle");
-      setToast({ type: TOAST_TYPE.ERROR, title: "Error", message: error instanceof Error ? error.message : "Import failed" });
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Error",
+        message: error instanceof Error ? error.message : "Import failed",
+      });
     }
   };
 
@@ -194,7 +236,9 @@ function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal
       {summary.errors && summary.errors.length > 0 && (
         <ul className="mt-1 max-h-24 overflow-y-auto text-11 text-danger-primary">
           {summary.errors.slice(0, 5).map((error) => (
-            <li key={error.row}>Fila {error.row}: {error.message}</li>
+            <li key={error.row}>
+              Fila {error.row}: {error.message}
+            </li>
           ))}
         </ul>
       )}
@@ -202,7 +246,9 @@ function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal
         <summary className="cursor-pointer">Mapeo de columnas</summary>
         <ul>
           {Object.entries(result.proposal.mapping).map(([field, column]) => (
-            <li key={field}><span className="font-mono">{field}</span> ← {column}</li>
+            <li key={field}>
+              <span className="font-mono">{field}</span> ← {column}
+            </li>
           ))}
         </ul>
       </details>
@@ -221,12 +267,200 @@ function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal
   );
 }
 
+function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImportProposal; workspaceSlug: string }) {
+  const initialMapping = useMemo(() => result.proposal?.mapping ?? result.heuristic_mapping ?? {}, [result]);
+  const [mapping, setMapping] = useState<Record<string, string>>(initialMapping);
+  const [strategy, setStrategy] = useState(result.proposal?.duplicate_strategy ?? "skip");
+  const [query, setQuery] = useState("");
+  const [state, setState] = useState<"idle" | "validating" | "applying" | "done">("idle");
+  const [validation, setValidation] = useState<TImportProposal | null>(result.proposal ? result : null);
+  const [applied, setApplied] = useState<TImportProposal | null>(null);
+  const assetId = result.proposal?.asset_id ?? result.asset_id;
+  const sheet = result.proposal?.sheet ?? result.selected_sheet ?? null;
+  const headers = result.headers ?? [];
+  const fields = result.canonical_fields ?? Object.keys(initialMapping);
+  const filteredFields = query.trim()
+    ? fields.filter((field) => field.toLowerCase().includes(query.trim().toLowerCase()))
+    : fields;
+  const missingTitle = !mapping["track.title"];
+
+  useEffect(() => {
+    setMapping(initialMapping);
+    setStrategy(result.proposal?.duplicate_strategy ?? "skip");
+    setValidation(result.proposal ? result : null);
+    setApplied(null);
+    setState("idle");
+  }, [initialMapping, result]);
+
+  if (!assetId || headers.length === 0) return <ImportProposalCard result={result} workspaceSlug={workspaceSlug} />;
+
+  const submit = async (dryRun: boolean) => {
+    if (missingTitle) return;
+    setState(dryRun ? "validating" : "applying");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceSlug}/assistant/music-import/`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          asset_id: assetId,
+          sheet,
+          mapping,
+          duplicate_strategy: strategy,
+          dry_run: dryRun,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error ?? "Import failed");
+      if (dryRun) {
+        setValidation(data);
+        setState("idle");
+        setToast({
+          type: data.errors?.length ? TOAST_TYPE.ERROR : TOAST_TYPE.SUCCESS,
+          title: data.errors?.length ? "La validacion encontro problemas" : "Mapeo validado",
+          message: data.errors?.length
+            ? `${data.errors.length} filas requieren atencion.`
+            : "La importacion esta lista para aplicarse.",
+        });
+      } else {
+        setApplied(data);
+        setState("done");
+        setToast({
+          type: TOAST_TYPE.SUCCESS,
+          title: "Importacion aplicada",
+          message: `${data.created} creadas, ${data.updated} actualizadas`,
+        });
+      }
+    } catch (error: unknown) {
+      setState("idle");
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "No se pudo importar",
+        message: error instanceof Error ? error.message : "Import failed",
+      });
+    }
+  };
+
+  return (
+    <div className={`${card} overflow-visible`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-medium">Importar {result.file_name || "catalogo musical"}</p>
+          <p className="mt-0.5 text-11 text-tertiary">
+            {result.total_rows ?? result.total ?? "?"} filas, {headers.length} columnas
+          </p>
+        </div>
+        {applied && (
+          <span className="rounded-full bg-success-subtle px-2 py-0.5 text-11 text-success-primary">Aplicado</span>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <label className="relative min-w-0 flex-1">
+          <Search className="absolute top-1/2 left-2 size-3 -translate-y-1/2 text-tertiary" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar campo de destino..."
+            className="w-full rounded-sm border border-subtle bg-transparent py-1.5 pr-2 pl-7 text-11"
+          />
+        </label>
+        <SearchableSelect
+          className="w-40 shrink-0"
+          options={[
+            { value: "skip", label: "Conservar duplicados" },
+            { value: "update", label: "Actualizar duplicados" },
+            { value: "error", label: "Marcar duplicados" },
+          ]}
+          value={strategy}
+          onSelect={(value) => {
+            setStrategy(value);
+            setValidation(null);
+          }}
+          placeholder="Duplicados"
+        />
+      </div>
+
+      {missingTitle && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-sm border border-warning-subtle bg-warning-subtle/30 p-2 text-11 text-warning-primary">
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+          Asigna una columna a track.title para poder validar e importar.
+        </p>
+      )}
+
+      <div className="mt-2 max-h-56 space-y-1 overflow-y-auto pr-1">
+        {filteredFields.map((field) => (
+          <div key={field} className="grid grid-cols-2 items-center gap-2 rounded-sm border border-subtle px-2 py-1.5">
+            <span className="font-mono truncate text-10">
+              {field}
+              {field === "track.title" ? " *" : ""}
+            </span>
+            <SearchableSelect
+              options={[
+                { value: "", label: "No importar" },
+                ...headers.map((header) => ({ value: header, label: header })),
+              ]}
+              value={mapping[field] ?? ""}
+              onSelect={(column) => {
+                setMapping((current) => ({ ...current, [field]: column }));
+                setValidation(null);
+                setApplied(null);
+              }}
+              placeholder="Buscar columna..."
+            />
+          </div>
+        ))}
+      </div>
+
+      {validation && (
+        <p className={`mt-2 text-12 ${validation.errors?.length ? "text-warning-primary" : "text-success-primary"}`}>
+          {validation.total} filas: {validation.created} nuevas, {validation.updated} actualizadas, {validation.skipped}{" "}
+          omitidas
+          {validation.errors?.length ? `, ${validation.errors.length} errores` : ""}
+        </p>
+      )}
+      {validation?.errors && validation.errors.length > 0 && (
+        <ul className="mt-1 max-h-24 overflow-y-auto text-11 text-danger-primary">
+          {validation.errors.slice(0, 5).map((error) => (
+            <li key={`${error.row}-${error.message}`}>
+              Fila {error.row}: {error.message}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {!applied && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={missingTitle || state !== "idle"}
+            onClick={() => void submit(true)}
+            className="flex items-center gap-1.5 rounded-sm border border-subtle px-2.5 py-1.5 text-12 font-medium hover:bg-layer-1-hover disabled:opacity-50"
+          >
+            {state === "validating" ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+            Validar mapeo
+          </button>
+          <button
+            type="button"
+            disabled={!validation || Boolean(validation.errors?.length) || state !== "idle"}
+            onClick={() => void submit(false)}
+            className="flex items-center gap-1.5 rounded-sm bg-accent-primary px-2.5 py-1.5 text-12 font-medium text-on-color hover:opacity-90 disabled:opacity-50"
+          >
+            {state === "applying" ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+            Aplicar importacion
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const buildProposeMusicImportToolUI = (workspaceSlug: string) =>
   makeAssistantToolUI<Record<string, unknown>, TImportProposal>({
     toolName: "propose_music_import",
     render: ({ result }) => {
       if (!result) return <Running label="Procesando el archivo…" />;
-      return <ImportProposalCard result={result} workspaceSlug={workspaceSlug} />;
+      return <InteractiveImportProposalCard result={result} workspaceSlug={workspaceSlug} />;
     },
   });
 
@@ -267,7 +501,11 @@ function UpdateTrackCard({ result }: { result: TUpdateProposal }) {
       setToast({ type: TOAST_TYPE.SUCCESS, title: "Canción actualizada" });
     } catch (error: unknown) {
       setState("idle");
-      setToast({ type: TOAST_TYPE.ERROR, title: "Error", message: error instanceof Error ? error.message : "Update failed" });
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Error",
+        message: error instanceof Error ? error.message : "Update failed",
+      });
     }
   };
 
@@ -275,9 +513,13 @@ function UpdateTrackCard({ result }: { result: TUpdateProposal }) {
     <div className={card}>
       <p className="mb-1 font-medium">Cambios propuestos: {result.before?.title}</p>
       <ul className="text-12 text-secondary">
-        {Object.entries(result.changes).filter(([, value]) => value).map(([field, value]) => (
-          <li key={field}><span className="font-mono text-11">{field}</span> → {value}</li>
-        ))}
+        {Object.entries(result.changes)
+          .filter(([, value]) => value)
+          .map(([field, value]) => (
+            <li key={field}>
+              <span className="font-mono text-11">{field}</span> → {value}
+            </li>
+          ))}
       </ul>
       {state !== "done" ? (
         <button
@@ -290,7 +532,9 @@ function UpdateTrackCard({ result }: { result: TUpdateProposal }) {
           Aplicar cambios
         </button>
       ) : (
-        <p className="mt-2 flex items-center gap-1 text-12 text-success-primary"><Check className="size-3.5" /> Aplicado</p>
+        <p className="mt-2 flex items-center gap-1 text-12 text-success-primary">
+          <Check className="size-3.5" /> Aplicado
+        </p>
       )}
     </div>
   );
@@ -307,7 +551,15 @@ export const UpdateMusicTrackToolUI = makeAssistantToolUI<Record<string, unknown
 type TAskUserArgs = { question: string; options?: string[]; context?: string };
 
 /** Human-in-the-loop: the agent pauses on ask_user; answering here resumes it */
-function AskUserCard({ args, result, addResult }: { args: TAskUserArgs; result?: { answer: string }; addResult: (r: { answer: string }) => void }) {
+function AskUserCard({
+  args,
+  result,
+  addResult,
+}: {
+  args: TAskUserArgs;
+  result?: { answer: string };
+  addResult: (r: { answer: string }) => void;
+}) {
   const [freeText, setFreeText] = useState("");
 
   if (result) {

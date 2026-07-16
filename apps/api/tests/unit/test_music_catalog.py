@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from io import BytesIO
 
 import pytest
@@ -11,6 +11,7 @@ from plane.app.views.music.base import (
     MusicTrackBulkDeleteEndpoint,
     MusicTrackEndpoint,
     _date,
+    _duration_ms,
     _import_error_message,
     _infer_mapping,
     _music_schema_ready,
@@ -29,6 +30,25 @@ from plane.db.models import (
     MusicTrack,
 )
 from plane.tests.factories import WorkspaceFactory
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("3:02", 182_000),
+        ("3:02 min", 182_000),
+        ("01:03:02", 3_782_000),
+        ("3 min 2 sec", 182_000),
+        ("Duration: 3 min 2 sec", 182_000),
+        (time(0, 3, 2), 182_000),
+        (timedelta(minutes=3, seconds=2), 182_000),
+        (182, 182_000),
+        (182_000, 182_000),
+    ],
+)
+def test_duration_normalizes_spreadsheet_and_human_values(source, expected):
+    assert _duration_ms(source) == expected
 
 
 @pytest.mark.unit
