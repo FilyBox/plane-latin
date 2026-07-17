@@ -143,9 +143,40 @@ Endpoints internos nuevos (permiso `WorkerServicePermission`):
 - Verificado: tsc web/worker OK, wrangler dry-run OK, manage.py check OK,
   makemigrations --check sin cambios, smoke del endpoint interno de música
   (200 con secret + filtro artist_name; 403 sin secret).
-- F2/F3 quedan cubiertos en v1 (import + update por chat); F4 pendiente:
-  persistencia de hilos, attachments directos, selector de modelo, markdown
-  renderer, import de PDF/imagen vía Textract.
+- F2/F3 quedan cubiertos en v1 (import + update por chat).
+- ✅ F4 parcial: markdown renderer (@assistant-ui/react-markdown + remark-gfm),
+  selector de modelo (GET /assistant/models con default por
+  ASSISTANT_AI_PROVIDER, body dinámico del transport), **attachments**
+  (FileLibraryAttachmentAdapter en `attachments.tsx`: sube a Files vía
+  uploadFile y emite un text part con el asset_id para que el agente encadene
+  propose_music_import; AddAttachment + dropzone + pills en composer y mensaje),
+  **errores por mensaje** (MessagePrimitive.Error + ErrorPrimitive),
+  **tool group** colapsable estilo chain-of-thought (Parts components.ToolGroup
+  + Fallback para tools sin UI), **DotMatrix** (indicador de actividad propio,
+  reemplaza spinners), **ThreadList** en memoria (rail izquierdo: nueva
+  conversación / cambiar / eliminar; useChat keyed por threadListItem.id).
+- ✅ Import AI-driven por contenido + human-in-the-loop:
+  - Importador Django: campos canónicos nuevos `track.video_url`,
+    `track.video_release_date`, `track.streaming_url` (+aliases) con
+    `_import_links` idempotente — una columna de URLs sin header útil se mapea
+    por CONTENIDO (YouTube→video hijo MUSIC_VIDEO + MusicLink; Spotify/otros→
+    MusicLink STREAMING con plataforma por dominio via `_link_platform`).
+  - Fix real de dedupe: `_import_row` ahora busca duplicados solo entre
+    canciones (`parent_track__isnull=True`) — los videos hijos comparten
+    título y podían matchear como "la canción".
+  - Worker: tool `ask_user` SIN execute (el run pausa; la UI responde y el
+    agente continúa) + prompt con flujo obligatorio read→analizar contenido→
+    ask_user si hay ambigüedad→propose→resolver errores del dry-run→aplicar;
+    `stepCountIs(12)`.
+  - Web: `AskUserToolUI` (opciones clickeables + texto libre; addResult) +
+    `sendAutomaticallyWhen` inline (reanuda cuando todos los tool calls del
+    último mensaje tienen resultado). Adjuntos suben a la carpeta raíz
+    "Archivos del chat" (`ensureChatFolder` con manejo de carrera) y el pill
+    del mensaje enviado es descargable (mapa attachment_id→download URL).
+- F4 pendiente: persistencia de hilos en BD (el rail es en-memoria, se pierde
+  al recargar), import de PDF/imagen vía Textract, e "interactables/artifacts"
+  de assistant-ui (requieren el build plugin `@assistant-ui/vite` +
+  "use generative" — descartado por invasivo; revaluar si se vuelve necesario).
 
 ## Riesgos y mitigaciones
 

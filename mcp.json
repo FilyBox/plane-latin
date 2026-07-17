@@ -5,6 +5,13 @@
         },
         "deepwiki": {
             "url": "https://mcp.deepwiki.com/mcp"
+        },
+        "assistant-ui": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@assistant-ui/mcp-docs-server"
+            ]
         }
     }
 }

@@ -35,20 +35,22 @@ ${
     ? `- query_music_tracks: preguntas sobre el catálogo musical (canciones, artistas, ISRC, fechas de lanzamiento, videos). Úsala antes de responder cualquier dato del catálogo.
 - export_music_excel: cuando el usuario pida un listado/reporte descargable, llámala con los MISMOS filtros que usaste en query_music_tracks; la UI muestra el botón de descarga.
 - list_music_files: para resolver de qué archivo habla el usuario cuando quiere importar datos.
-- propose_music_import: importación AI-driven de un CSV/XLSX al catálogo. Flujo OBLIGATORIO:
+- propose_music_import: importación AI-driven de un CSV/XLSX al catálogo. TÚ haces el mapeo — el usuario NUNCA debe mapear columnas a mano. Flujo OBLIGATORIO:
   1. mode=read → recibes columnas, filas de muestra Y column_samples: por CADA columna, hasta 5 valores no-vacíos tomados de TODO el archivo más su conteo de llenado (non_empty/total). Una columna puede venir vacía en las primeras mil filas y tener datos después — column_samples es tu fuente de verdad para clasificarla, no las filas de muestra.
-  2. Analiza el CONTENIDO de cada columna (sus examples), no solo su nombre: una columna sin nombre útil cuyo contenido son URLs de YouTube se mapea a track.video_url; URLs de Spotify/Apple Music a track.streaming_url; códigos tipo "USRC17607839" son ISRC aunque la columna se llame "código"; fechas se reconocen por su formato. Los campos canónicos disponibles vienen en canonical_fields. Reporta al usuario columnas con muy pocos datos (non_empty bajo) por si son basura.
-  3. Si una columna es ambigua (no sabes a qué campo va), si hay columnas importantes sin mapeo posible, o si hay que elegir entre interpretaciones, usa ask_user ANTES de proponer — no adivines en silencio.
-  4. mode=propose con el mapping → recibes el dry-run (created/updated/skipped/errors + unparseable).
-  5. VARIABLES: el campo "unparseable" del dry-run lista, por campo, los valores que NO se pudieron interpretar (p. ej. una columna de duración con "ringtone" en vez de 3:16 — suelen ser palabras usadas como valor predefinido). Por CADA token distinto usa ask_user con opciones: asignarle un valor concreto (p. ej. ringtone = 0:30), dejar la celda vacía, u omitir esas filas completas. Aplica la decisión con value_overrides (ej. track.duration_ms → ringtone → "0:30"; cadena vacía = celda vacía; "__SKIP_ROW__" = omitir fila) y vuelve a proponer.
-  6. DUPLICADOS: si el dry-run marca updated/skipped que el usuario no esperaba, puede ser que títulos repetidos tengan identificadores distintos (ISRC, catálogo, UPC). Pregunta con ask_user qué identificador define un duplicado (título / ISRC / catálogo / UPC) y qué hacer (conservar todos = dedupe_by "none", actualizar = strategy "update", omitir = "skip"), y re-propone con dedupe_by.
-  7. Si el dry-run trae errores por fila, explícalos y usa ask_user para decidir cómo resolverlos (corregir mapping, row_overrides, cambiar duplicate_strategy, ignorar esas filas).
+  2. Decide el mapping COMPLETO tú mismo analizando el CONTENIDO de cada columna (sus examples), no solo su nombre: una columna sin nombre útil cuyo contenido son URLs de YouTube se mapea a track.video_url; URLs de Spotify/Apple Music a track.streaming_url; códigos tipo "USRC17607839" son ISRC aunque la columna se llame "código"; fechas se reconocen por su formato. Los campos canónicos disponibles vienen en canonical_fields.
+  3. Pasa DIRECTO a mode=propose con tu mapping. NO pidas confirmación del mapeo, NO expliques columna por columna: la tarjeta interactiva ya muestra tu mapeo y permite ajustarlo. Solo usa ask_user ANTES si una columna importante es genuinamente ambigua entre dos campos y el contenido no lo resuelve.
+  4. mode=propose → recibes el dry-run (created/updated/skipped/errors + unparseable). Resume el resultado en UNA frase.
+  5. VARIABLES: si el dry-run trae "unparseable" (por campo, valores que NO se pudieron interpretar, p. ej. "ringtone" en una columna de duración — suelen ser palabras usadas como valor predefinido), llama resolve_import_variables con TODOS los campos y tokens de "unparseable" en una sola llamada. El usuario decide en esa tarjeta (valor concreto / celda vacía / omitir filas) y te devuelve value_overrides ya construido — re-propón con ese value_overrides tal cual.
+  6. DUPLICADOS: si el dry-run marca updated/skipped (o el usuario menciona duplicados con títulos repetidos pero ISRC/catálogo/UPC distintos), llama resolve_duplicates con los conteos y 2-3 ejemplos de filas afectadas. El usuario decide en esa tarjeta el identificador (dedupe_by) y la acción (duplicate_strategy) — re-propón con ambos tal cual.
+  7. Si el dry-run trae errores por fila, explícalos breve y usa ask_user para decidir cómo resolverlos (corregir mapping, row_overrides, ignorar esas filas).
   8. Cuando el resultado sea correcto, dile al usuario que presione "Aplicar importación" en la tarjeta.
   9. ACTUALIZAR DESPUÉS: si el usuario descubre más tarde el valor de una variable que omitió, puede re-importar el MISMO archivo (list_music_files lo encuentra, o que lo re-adjunte) con duplicate_strategy "update", dedupe_by por su identificador y el value_overrides nuevo — solo se actualizarán los campos mapeados.
+- resolve_import_variables: tarjeta interactiva para que el usuario resuelva valores no interpretables ("variables") de un dry-run. Pásale los campos y tokens de "unparseable" tal cual; devuelve value_overrides listo para re-proponer. Úsala SIEMPRE que haya unparseable — nunca preguntes esto con ask_user ni con texto.
+- resolve_duplicates: tarjeta interactiva para que el usuario elija qué identificador define un duplicado (título/ISRC/catálogo/UPC/ninguno) y qué hacer (conservar todos/actualizar/omitir). Devuelve dedupe_by y duplicate_strategy listos para re-proponer. Úsala SIEMPRE para decisiones de duplicados — nunca preguntes esto con ask_user ni con texto.
 - update_music_track: cuando pidan modificar una canción (agregar link de video, ISRC, fechas). Devuelve una propuesta de cambio que el usuario confirma en la UI.`
     : ""
 }
-- ask_user: pregunta al usuario cuando necesites una decisión o dato para continuar (columna ambigua, estrategia de duplicados, fila problemática). Ofrece opciones concretas cuando existan. Úsala las veces necesarias hasta completar la tarea — no dejes trabajo a medias por falta de información.
+- ask_user: pregunta al usuario cuando necesites una decisión o dato para continuar y NO exista una tarjeta dedicada (las variables usan resolve_import_variables y los duplicados resolve_duplicates). Ofrece opciones concretas cuando existan. Úsala las veces necesarias hasta completar la tarea — no dejes trabajo a medias por falta de información.
 
 Reglas:
 - No inventes datos: si una tool no devuelve resultados, dilo.
@@ -204,6 +206,57 @@ function buildTools(env: Env, body: AssistantChatRequest) {
           "GET",
           `/internal/workspaces/${body.workspace_id}/assets/${search ? `?search=${encodeURIComponent(search)}` : ""}`
         ),
+    });
+
+    // Structured human-in-the-loop cards (no `execute`, like ask_user): the
+    // run pauses and the web UI resolves them with a typed result the model
+    // replays verbatim into the next propose call.
+    tools.resolve_import_variables = tool({
+      description:
+        'Muestra al usuario una tarjeta para resolver los valores no interpretables ("variables") de un dry-run, p. ej. "ringtone" en una columna de duración. Pásale TODOS los campos/tokens de "unparseable". El resultado trae value_overrides listo para re-proponer.',
+      inputSchema: z.object({
+        asset_id: z.string(),
+        fields: z
+          .array(
+            z.object({
+              field: z.string().describe("Campo canónico afectado, ej. track.duration_ms"),
+              field_label: z.string().optional().describe("Nombre legible del campo, ej. Duración"),
+              tokens: z
+                .array(
+                  z.object({
+                    value: z.string().describe("El token tal cual aparece en el archivo"),
+                    count: z.number().describe("Cuántas filas lo contienen"),
+                    suggestion: z.string().optional().describe("Valor sugerido si es deducible, ej. 0:30 para ringtone"),
+                  })
+                )
+                .min(1),
+            })
+          )
+          .min(1),
+      }),
+    });
+
+    tools.resolve_duplicates = tool({
+      description:
+        "Muestra al usuario una tarjeta para decidir qué identificador define un duplicado (título/ISRC/catálogo/UPC/ninguno) y qué hacer con ellos (conservar todos/actualizar/omitir). El resultado trae dedupe_by y duplicate_strategy listos para re-proponer.",
+      inputSchema: z.object({
+        asset_id: z.string(),
+        updated: z.number().describe("Filas que el dry-run marcó como actualización de un track existente"),
+        skipped: z.number().describe("Filas que el dry-run omitió por duplicado"),
+        current_dedupe_by: z.enum(["auto", "isrc", "title", "catalog", "upc", "none"]).optional(),
+        examples: z
+          .array(
+            z.object({
+              title: z.string(),
+              isrc: z.string().optional(),
+              catalog: z.string().optional(),
+              upc: z.string().optional(),
+            })
+          )
+          .max(5)
+          .optional()
+          .describe("Filas de ejemplo afectadas, para que el usuario vea qué identificadores difieren"),
+      }),
     });
 
     tools.propose_music_import = tool({
