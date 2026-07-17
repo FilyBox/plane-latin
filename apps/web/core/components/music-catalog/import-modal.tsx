@@ -100,7 +100,7 @@ export function MusicImportModal({
       setResult(undefined);
       setValidatedKey(undefined);
     } catch (error) {
-      setToast({ type: TOAST_TYPE.ERROR, title: "Could not read spreadsheet", message: getApiError(error) });
+      setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo leer el archivo", message: getApiError(error) });
     } finally {
       setIsRunning(false);
     }
@@ -119,8 +119,8 @@ export function MusicImportModal({
     if (missingRequired.length) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: "Required mapping missing",
-        message: "Map a spreadsheet column to Song title before validating the import.",
+        title: "Falta el mapeo obligatorio",
+        message: "Mapea una columna al título de la canción antes de validar.",
       });
       return;
     }
@@ -145,13 +145,13 @@ export function MusicImportModal({
       if (!dryRun) {
         setToast({
           type: next.errors.length ? TOAST_TYPE.ERROR : TOAST_TYPE.SUCCESS,
-          title: next.errors.length ? "Import completed with issues" : "Catalog imported",
-          message: `${next.created} created, ${next.updated} updated, ${next.skipped} preserved${next.errors.length ? ` and ${next.errors.length} failed` : ""}.`,
+          title: next.errors.length ? "Importación completada con problemas" : "Catálogo importado",
+          message: `${next.created} creadas, ${next.updated} actualizadas, ${next.skipped} conservadas${next.errors.length ? ` y ${next.errors.length} con error` : ""}.`,
         });
         onImported();
       }
     } catch (error) {
-      setToast({ type: TOAST_TYPE.ERROR, title: "Could not import spreadsheet", message: getApiError(error) });
+      setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo importar el archivo", message: getApiError(error) });
     } finally {
       setIsRunning(false);
     }
@@ -179,17 +179,17 @@ export function MusicImportModal({
   if (!isOpen) return null;
   return (
     <BudgetPeekPanel
-      title="Import catalog data"
-      description="Map CSV or XLSX columns, validate related records and resolve duplicates before importing."
+      title="Importar catálogo"
+      description="Mapea columnas del CSV/XLSX, valida y resuelve duplicados antes de importar."
       onClose={onClose}
     >
       <div className="vertical-scrollbar h-full overflow-y-auto bg-surface-1">
         <div className="space-y-5 p-5">
           <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-subtle bg-layer-1 text-11">
             {[
-              ["1", "Choose file", Boolean(file)],
-              ["2", "Map columns", Boolean(preview) && missingRequired.length === 0],
-              ["3", "Validate and import", validatedKey === validationKey],
+              ["1", "Elegir archivo", Boolean(file)],
+              ["2", "Mapear columnas", Boolean(preview) && missingRequired.length === 0],
+              ["3", "Validar e importar", validatedKey === validationKey],
             ].map(([step, label, complete]) => (
               <div
                 key={String(step)}
@@ -208,8 +208,8 @@ export function MusicImportModal({
           </div>
           <label className="hover:border-accent-primary flex cursor-pointer flex-col items-center rounded-xl border border-dashed border-subtle bg-layer-2 px-5 py-7 text-center">
             <FileSpreadsheet className="mb-2 size-7 text-tertiary" />
-            <span className="text-13 font-medium">{file?.name ?? "Choose CSV or XLSX"}</span>
-            <span className="mt-1 text-11 text-tertiary">Messy headers and mixed date formats are supported</span>
+            <span className="text-13 font-medium">{file?.name ?? "Elegir CSV o XLSX"}</span>
+            <span className="mt-1 text-11 text-tertiary">Soporta headers desordenados y formatos de fecha mezclados</span>
             <input
               className="hidden"
               type="file"
@@ -224,14 +224,14 @@ export function MusicImportModal({
                 <div className="flex gap-3 rounded-lg border border-danger-subtle bg-danger-subtle/30 p-4 text-12 text-danger-primary">
                   <AlertCircle className="size-4 shrink-0" />
                   <div>
-                    <p className="font-semibold">Database migration required</p>
+                    <p className="font-semibold">Se requiere una migración de base de datos</p>
                     <p className="mt-1">{preview.database_error}</p>
                   </div>
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-subtle bg-layer-1 p-3">
                 <div className="text-12">
-                  <strong>{preview.total_rows}</strong> rows found · header detected on row {preview.header_row}
+                  <strong>{preview.total_rows}</strong> filas · header detectado en la fila {preview.header_row}
                 </div>
                 {preview.sheets.length > 1 && (
                   <SearchableSelect
@@ -239,7 +239,7 @@ export function MusicImportModal({
                     options={preview.sheets.map((sheet) => ({ value: sheet, label: sheet }))}
                     value={preview.selected_sheet}
                     onSelect={(sheet) => file && void inspect(file, sheet)}
-                    placeholder="Search worksheets..."
+                    placeholder="Buscar hojas…"
                   />
                 )}
               </div>
@@ -247,14 +247,14 @@ export function MusicImportModal({
               <section>
                 <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
                   <div>
-                    <h3 className="text-14 font-semibold">Column mapping</h3>
+                    <h3 className="text-14 font-semibold">Mapeo de columnas</h3>
                     <p className="text-11 text-secondary">
-                      Only song title is required; everything else remains optional.
+                      Solo el título de la canción es obligatorio; el resto es opcional.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="flex items-center gap-1 text-11 text-tertiary">
-                      <WandSparkles className="size-3.5" /> {Object.values(mapping).filter(Boolean).length} mapped
+                      <WandSparkles className="size-3.5" /> {Object.values(mapping).filter(Boolean).length} mapeadas
                     </span>
                     <label className="relative w-52">
                       <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-tertiary" />
@@ -262,7 +262,7 @@ export function MusicImportModal({
                         className={`${MUSIC_FIELD} py-1.5 pr-2 pl-7 text-11`}
                         value={fieldQuery}
                         onChange={(event) => setFieldQuery(event.target.value)}
-                        placeholder="Search destination fields..."
+                        placeholder="Buscar campo destino…"
                       />
                     </label>
                   </div>
@@ -271,10 +271,9 @@ export function MusicImportModal({
                   <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning-subtle bg-warning-subtle/30 p-3 text-12 text-warning-primary">
                     <AlertCircle className="mt-0.5 size-4 shrink-0" />
                     <div>
-                      <p className="font-semibold">Song title still needs a source column</p>
+                      <p className="font-semibold">Falta la columna del título de la canción</p>
                       <p className="mt-0.5 text-11">
-                        Select the spreadsheet column containing each song name. Import remains unavailable until it is
-                        mapped.
+                        Selecciona la columna que contiene el nombre de cada canción. La importación queda bloqueada hasta mapearla.
                       </p>
                     </div>
                   </div>
@@ -289,16 +288,16 @@ export function MusicImportModal({
                     >
                       <span className="truncate text-11 text-secondary">
                         {field}
-                        {field === "track.title" && <span className="text-red-500"> *</span>}
+                        {field === "track.title" && <span className="text-danger-primary"> *</span>}
                       </span>
                       <SearchableSelect
                         options={[
-                          { value: "", label: "Do not import" },
+                          { value: "", label: "No importar" },
                           ...preview.headers.map((header) => ({ value: header, label: header })),
                         ]}
                         value={mapping[field] ?? ""}
                         onSelect={(column) => updateMapping(field, column)}
-                        placeholder="Search source columns..."
+                        placeholder="Buscar columna origen…"
                       />
                     </div>
                   ))}
@@ -307,16 +306,15 @@ export function MusicImportModal({
 
               <section className="rounded-xl border border-subtle bg-layer-2 p-4">
                 <div>
-                  <h3 className="text-14 font-semibold">Apply to every imported song</h3>
+                  <h3 className="text-14 font-semibold">Aplicar a cada canción importada</h3>
                   <p className="mt-1 text-11 text-secondary">
-                    Optional shared relationships are added after each row is mapped. Existing identical relationships
-                    are preserved once.
+                    Relaciones compartidas opcionales que se agregan a cada fila. Las relaciones idénticas existentes se conservan.
                   </p>
                 </div>
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
                   <div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-11 font-semibold">Artists, writers and contributors</span>
+                      <span className="text-11 font-semibold">Artistas, escritores y colaboradores</span>
                       <Button
                         variant="secondary"
                         size="sm"
@@ -332,7 +330,7 @@ export function MusicImportModal({
                           className="flex items-center gap-2 rounded-md border border-subtle bg-layer-1 p-2"
                         >
                           <span className="min-w-0 flex-1 truncate text-11">
-                            {parties.find((party) => party.id === credit.party_id)?.display_name ?? "Unknown person"}
+                            {parties.find((party) => party.id === credit.party_id)?.display_name ?? "Desconocido"}
                           </span>
                           <SearchableSelect
                             className="w-44"
@@ -345,7 +343,7 @@ export function MusicImportModal({
                               setResult(undefined);
                               setValidatedKey(undefined);
                             }}
-                            placeholder="Search roles..."
+                            placeholder="Buscar rol…"
                           />
                           <button
                             type="button"
@@ -359,13 +357,13 @@ export function MusicImportModal({
                           </button>
                         </div>
                       ))}
-                      {!defaultCredits.length && <p className="text-11 text-tertiary">No shared contributors.</p>}
+                      {!defaultCredits.length && <p className="text-11 text-tertiary">Sin colaboradores compartidos.</p>}
                     </div>
                   </div>
 
                   <div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-11 font-semibold">Aggregator and distribution companies</span>
+                      <span className="text-11 font-semibold">Agregadoras y distribuidoras</span>
                       <Button
                         variant="secondary"
                         size="sm"
@@ -377,16 +375,16 @@ export function MusicImportModal({
                     <div className="mt-2 flex flex-wrap gap-2">
                       {defaultCompanyIds.map((id) => (
                         <span key={id} className="rounded-full border border-subtle bg-layer-1 px-2.5 py-1 text-11">
-                          {companies.find((item) => item.id === id)?.name ?? "Unknown company"}
+                          {companies.find((item) => item.id === id)?.name ?? "Compañía desconocida"}
                         </span>
                       ))}
-                      {!defaultCompanyIds.length && <p className="text-11 text-tertiary">No shared company.</p>}
+                      {!defaultCompanyIds.length && <p className="text-11 text-tertiary">Sin compañía compartida.</p>}
                     </div>
                   </div>
 
                   <div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-11 font-semibold">Genres</span>
+                      <span className="text-11 font-semibold">Géneros</span>
                       <Button variant="secondary" size="sm" onClick={() => setPicker({ type: "genre" })}>
                         <Plus className="mr-1 size-3.5" /> Add
                       </Button>
@@ -394,10 +392,10 @@ export function MusicImportModal({
                     <div className="mt-2 flex flex-wrap gap-2">
                       {defaultGenreIds.map((id) => (
                         <span key={id} className="rounded-full border border-subtle bg-layer-1 px-2.5 py-1 text-11">
-                          {genres.find((item) => item.id === id)?.name ?? "Unknown genre"}
+                          {genres.find((item) => item.id === id)?.name ?? "Género desconocido"}
                         </span>
                       ))}
-                      {!defaultGenreIds.length && <p className="text-11 text-tertiary">No shared genre.</p>}
+                      {!defaultGenreIds.length && <p className="text-11 text-tertiary">Sin género compartido.</p>}
                     </div>
                   </div>
 
@@ -415,10 +413,10 @@ export function MusicImportModal({
                     <div className="mt-2 flex flex-wrap gap-2">
                       {defaultReleaseIds.map((id) => (
                         <span key={id} className="rounded-full border border-subtle bg-layer-1 px-2.5 py-1 text-11">
-                          {releases.find((item) => item.id === id)?.title ?? "Unknown release"}
+                          {releases.find((item) => item.id === id)?.title ?? "Release desconocido"}
                         </span>
                       ))}
-                      {!defaultReleaseIds.length && <p className="text-11 text-tertiary">No shared release.</p>}
+                      {!defaultReleaseIds.length && <p className="text-11 text-tertiary">Sin release compartido.</p>}
                     </div>
                   </div>
                 </div>
@@ -426,9 +424,9 @@ export function MusicImportModal({
 
               {!!preview.artist_examples.length && (
                 <section className="rounded-lg border border-subtle bg-layer-2 p-4">
-                  <h3 className="text-12 font-semibold">Artist separation preview</h3>
+                  <h3 className="text-12 font-semibold">Separación de artistas detectada</h3>
                   <p className="mt-1 text-11 text-secondary">
-                    Recognizes commas, FT, F.T., feat., and, y, ampersands and pipes.
+                    Reconoce comas, FT, F.T., feat., and, y, ampersands y pipes.
                   </p>
                   <div className="mt-3 space-y-2">
                     {preview.artist_examples.map((example) => (
@@ -473,9 +471,9 @@ export function MusicImportModal({
               <div className="grid gap-2 sm:grid-cols-3">
                 {(
                   [
-                    ["skip", "Preserve existing"],
-                    ["update", "Update duplicates"],
-                    ["error", "Flag duplicates"],
+                    ["skip", "Conservar existentes"],
+                    ["update", "Actualizar duplicados"],
+                    ["error", "Marcar duplicados como error"],
                   ] as const
                 ).map(([value, label]) => (
                   <label
@@ -501,43 +499,71 @@ export function MusicImportModal({
 
           {result && (
             <div
-              className={`rounded-lg border p-4 ${result.errors.length ? "border-amber-300 bg-amber-50" : "border-green-300 bg-green-50"}`}
+              className={`rounded-lg border p-4 ${result.errors.length ? "border-warning-strong bg-warning-subtle/40" : "border-success-strong bg-success-subtle/40"}`}
             >
               <div className="flex items-center gap-2 text-13 font-semibold">
                 {result.errors.length ? (
-                  <AlertCircle className="text-amber-700 size-4" />
+                  <AlertCircle className="size-4 text-warning-primary" />
                 ) : (
-                  <CheckCircle2 className="text-green-700 size-4" />
+                  <CheckCircle2 className="size-4 text-success-primary" />
                 )}
-                {result.created} created, {result.updated} updated, {result.skipped} preserved
+                {validatedKey === validationKey && result.errors.length === 0
+                  ? "Validación exitosa — así quedaría la importación"
+                  : result.errors.length
+                    ? "Resultado con problemas"
+                    : "Resultado de la importación"}
               </div>
-              {result.errors.slice(0, 8).map((error) => (
-                <p key={`${error.row}-${error.message}`} className="text-amber-900 mt-2 text-11">
-                  Row {error.row}: {error.message}
-                </p>
-              ))}
+              {/* counts as scannable chips instead of a sentence */}
+              <div className="mt-2.5 flex flex-wrap gap-1.5 text-11">
+                <span className="rounded-full border border-subtle bg-layer-1 px-2 py-0.5">
+                  {result.total} filas
+                </span>
+                <span className="rounded-full bg-success-subtle px-2 py-0.5 font-medium text-success-primary">
+                  +{result.created} nuevas
+                </span>
+                <span className="rounded-full bg-accent-primary/10 px-2 py-0.5 font-medium text-accent-primary">
+                  ~{result.updated} actualizadas
+                </span>
+                <span className="rounded-full border border-subtle bg-layer-1 px-2 py-0.5 text-secondary">
+                  ={result.skipped} conservadas
+                </span>
+                {result.errors.length > 0 && (
+                  <span className="rounded-full bg-danger-subtle px-2 py-0.5 font-medium text-danger-primary">
+                    ✕{result.errors.length} con error
+                  </span>
+                )}
+              </div>
+              {result.errors.length > 0 && (
+                <div className="mt-2.5 max-h-40 space-y-1 overflow-y-auto rounded-md border border-subtle bg-layer-1 p-2">
+                  {result.errors.map((error) => (
+                    <p key={`${error.row}-${error.message}`} className="text-11 text-danger-primary">
+                      <span className="font-mono font-medium">Fila {error.row}:</span> {error.message}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <footer className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-subtle bg-surface-1 px-5 py-4">
           <div className="min-w-0 text-11 text-secondary">
-            {!file && "Choose a CSV or XLSX file to begin."}
-            {file && missingRequired.length > 0 && "Map Song title to continue."}
+            {!file && "Elige un archivo CSV o XLSX para empezar."}
+            {file && missingRequired.length > 0 && "Mapea el título de la canción para continuar."}
             {file && missingRequired.length === 0 && validatedKey !== validationKey && (
               <span className="flex items-center gap-1.5">
-                <ShieldCheck className="size-3.5" /> Validate the mapping before importing.
+                <ShieldCheck className="size-3.5" /> Valida el mapeo antes de importar.
               </span>
             )}
             {validatedKey === validationKey && (
               <span className="flex items-center gap-1.5 text-success-primary">
-                <CheckCircle2 className="size-3.5" /> Validation passed. Ready to import.
+                <CheckCircle2 className="size-3.5" /> Validación exitosa. Listo para importar.
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="secondary" size="sm" onClick={onClose}>
-              Close
+              Cerrar
             </Button>
             <Button
               variant="secondary"
@@ -546,7 +572,7 @@ export function MusicImportModal({
               disabled={!file || missingRequired.length > 0 || preview?.database_ready === false}
               onClick={() => void run(true)}
             >
-              Validate
+              Validar
             </Button>
             <Button
               variant="primary"
@@ -555,7 +581,7 @@ export function MusicImportModal({
               disabled={!file || validatedKey !== validationKey || preview?.database_ready === false}
               onClick={() => void run(false)}
             >
-              Import records
+              Importar registros
             </Button>
           </div>
         </footer>
@@ -566,12 +592,12 @@ export function MusicImportModal({
         resourceType={picker?.type ?? "party"}
         title={
           picker?.type === "party"
-            ? "Shared contributors"
+            ? "Colaboradores compartidos"
             : picker?.type === "company"
-              ? "Shared companies"
+              ? "Compañías compartidas"
               : picker?.type === "release"
-                ? "Shared releases"
-                : "Shared genres"
+                ? "Releases compartidos"
+                : "Géneros compartidos"
         }
         items={
           picker?.type === "party"

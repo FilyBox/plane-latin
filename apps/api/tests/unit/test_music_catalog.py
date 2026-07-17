@@ -12,6 +12,7 @@ from plane.app.views.music.base import (
     MusicTrackEndpoint,
     _date,
     _duration_ms,
+    _filter_tracks,
     _import_error_message,
     _infer_mapping,
     _music_schema_ready,
@@ -24,12 +25,91 @@ from plane.db.models import (
     MusicCredit,
     MusicDistribution,
     MusicGenre,
+    MusicLink,
     MusicParty,
     MusicRelease,
     MusicReleaseTrack,
     MusicTrack,
 )
 from plane.tests.factories import WorkspaceFactory
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_has_video_only_matches_real_music_video_children():
+    workspace = WorkspaceFactory()
+    link_only = MusicTrack.objects.create(workspace=workspace, title="Link only")
+    MusicLink.objects.create(
+        workspace=workspace,
+        track=link_only,
+        kind=MusicLink.Kind.STREAMING,
+        name="Spotify",
+        url="https://open.spotify.com/track/example",
+    )
+    other_parent = MusicTrack.objects.create(workspace=workspace, title="Other child")
+    other_child = MusicTrack.objects.create(
+        workspace=workspace,
+        parent_track=other_parent,
+        title="Visualizer",
+        kind=MusicTrack.Kind.OTHER_VIDEO,
+    )
+    MusicLink.objects.create(
+        workspace=workspace,
+        track=other_child,
+        kind=MusicLink.Kind.MUSIC_VIDEO,
+        name="Visualizer",
+        url="https://youtube.com/watch?v=visualizer",
+    )
+    video_parent = MusicTrack.objects.create(workspace=workspace, title="Official video")
+    video = MusicTrack.objects.create(
+        workspace=workspace,
+        parent_track=video_parent,
+        title="Official video",
+        kind=MusicTrack.Kind.MUSIC_VIDEO,
+    )
+    MusicLink.objects.create(
+        workspace=workspace,
+        track=video,
+        kind=MusicLink.Kind.MUSIC_VIDEO,
+        name="YouTube",
+        url="https://youtube.com/watch?v=official",
+    )
+
+    tracks = _filter_tracks(MusicTrack.objects.filter(workspace=workspace), {"has_video": "true"})
+
+    assert list(tracks) == [video_parent]
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_has_links_only_matches_tracks_with_direct_links():
+    workspace = WorkspaceFactory()
+    song_with_link = MusicTrack.objects.create(workspace=workspace, title="Linked song")
+    MusicLink.objects.create(
+        workspace=workspace,
+        track=song_with_link,
+        kind=MusicLink.Kind.STREAMING,
+        name="Spotify",
+        url="https://open.spotify.com/track/example",
+    )
+    song_with_video_link = MusicTrack.objects.create(workspace=workspace, title="Video only")
+    video = MusicTrack.objects.create(
+        workspace=workspace,
+        parent_track=song_with_video_link,
+        title="Official video",
+        kind=MusicTrack.Kind.MUSIC_VIDEO,
+    )
+    MusicLink.objects.create(
+        workspace=workspace,
+        track=video,
+        kind=MusicLink.Kind.MUSIC_VIDEO,
+        name="YouTube",
+        url="https://youtube.com/watch?v=official",
+    )
+
+    tracks = _filter_tracks(MusicTrack.objects.filter(workspace=workspace), {"has_links": "true"})
+
+    assert list(tracks) == [song_with_link]
 
 
 @pytest.mark.unit

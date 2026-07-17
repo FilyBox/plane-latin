@@ -215,8 +215,10 @@ export class FileLibraryService extends APIService {
       });
   }
 
-  private async confirmUpload(workspaceSlug: string, assetId: string): Promise<void> {
-    return this.patch(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/`)
+  private async confirmUpload(workspaceSlug: string, assetId: string, scope?: "music"): Promise<void> {
+    return this.patch(
+      `/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/${scope ? `?scope=${scope}` : ""}`
+    )
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;
@@ -227,12 +229,14 @@ export class FileLibraryService extends APIService {
     workspaceSlug: string,
     file: File,
     uploadProgressHandler?: AxiosRequestConfig["onUploadProgress"],
-    folderId?: string | null
+    folderId?: string | null,
+    scope?: "music"
   ): Promise<TLibraryFileUploadResponse> {
     const fileMetaData = await getFileMetaDataForUpload(file);
     return this.post(`/api/workspaces/${workspaceSlug}/file-library/files/`, {
       ...fileMetaData,
       folder_id: folderId ?? undefined,
+      scope,
     })
       .then(async (response) => {
         const uploadResponse: TLibraryFileUploadResponse = response?.data;
@@ -242,7 +246,7 @@ export class FileLibraryService extends APIService {
           fileUploadPayload,
           uploadProgressHandler
         );
-        await this.confirmUpload(workspaceSlug, uploadResponse.asset_id);
+        await this.confirmUpload(workspaceSlug, uploadResponse.asset_id, scope);
         return uploadResponse;
       })
       .catch((error) => {
@@ -267,8 +271,8 @@ export class FileLibraryService extends APIService {
       });
   }
 
-  getFileViewUrl(workspaceSlug: string, assetId: string): string {
-    return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/`;
+  getFileViewUrl(workspaceSlug: string, assetId: string, scope?: "music"): string {
+    return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/${scope ? `?scope=${scope}` : ""}`;
   }
 
   /** Contract PDFs only — 404s (broken image, handled gracefully by the UI) when absent */
@@ -287,8 +291,8 @@ export class FileLibraryService extends APIService {
       });
   }
 
-  getFileDownloadUrl(workspaceSlug: string, assetId: string): string {
-    return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/?download=1`;
+  getFileDownloadUrl(workspaceSlug: string, assetId: string, scope?: "music"): string {
+    return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/?download=1${scope ? `&scope=${scope}` : ""}`;
   }
 
   // category links

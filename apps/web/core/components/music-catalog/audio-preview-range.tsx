@@ -153,6 +153,18 @@ export function AudioPreviewRange({ src, durationMs, startMs, endMs, onChange, o
           <span className="absolute top-1/2 -left-1 h-9 w-1 -translate-y-1/2 rounded-full bg-accent-primary" />
           <span className="absolute top-1/2 -right-1 h-9 w-1 -translate-y-1/2 rounded-full bg-accent-primary" />
         </div>
+        {/* playhead: where the audio is RIGHT NOW, with its timestamp */}
+        {(isPlaying || currentMs > 0) && (
+          <div
+            className="pointer-events-none absolute inset-y-0 z-1 w-0.5 -translate-x-1/2 bg-danger-primary"
+            style={{ left: `${Math.min(100, (currentMs / safeDuration) * 100)}%` }}
+          >
+            <span className="font-mono absolute top-0 left-1/2 -translate-x-1/2 rounded-sm bg-danger-primary px-1 py-px text-10 leading-tight text-on-color">
+              {formatTime(currentMs)}
+            </span>
+            <span className="absolute bottom-0 left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-danger-primary" />
+          </div>
+        )}
       </div>
       <div className="font-mono mt-4 flex items-center justify-between gap-3 text-12 text-secondary">
         <div className="flex items-center gap-3">

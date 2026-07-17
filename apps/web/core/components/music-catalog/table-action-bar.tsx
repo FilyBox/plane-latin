@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Download, Trash2, X } from "lucide-react";
 import { Button } from "@plane/propel/button";
@@ -13,14 +14,35 @@ type Props = {
   onDelete: () => void;
   onPrevious: () => void;
   onNext: () => void;
+  onGoTo: (page: number) => void;
 };
 
 const actionButton =
   "group flex h-8 shrink-0 items-center gap-1.5 overflow-hidden rounded-md px-2 text-12 font-medium transition-colors duration-200";
 
 export function MusicTableActionBar(props: Props) {
-  const { selectedCount, page, totalPages, isBusy = false, onClear, onDelete, onDownload, onNext, onPrevious } = props;
+  const {
+    selectedCount,
+    page,
+    totalPages,
+    isBusy = false,
+    onClear,
+    onDelete,
+    onDownload,
+    onNext,
+    onPrevious,
+    onGoTo,
+  } = props;
   const hasSelection = selectedCount > 0;
+  const [pageInput, setPageInput] = useState(String(page));
+
+  useEffect(() => setPageInput(String(page)), [page]);
+
+  const submitPage = () => {
+    const target = Number(pageInput);
+    if (Number.isInteger(target) && target >= 1 && target <= totalPages) onGoTo(target);
+    else setPageInput(String(page));
+  };
 
   return (
     <div className="sticky right-0 bottom-3 left-0 z-20 mt-4 flex justify-center px-1 sm:px-4">
@@ -85,9 +107,20 @@ export function MusicTableActionBar(props: Props) {
               <span className="bg-subtle mx-0.5 h-5 w-px shrink-0" />
             </>
           )}
-          <span className="shrink-0 px-1.5 text-11 text-secondary">
-            {page} / {totalPages}
-          </span>
+          <span className="shrink-0 px-1.5 text-11 text-secondary">Página</span>
+          <input
+            type="number"
+            min="1"
+            max={totalPages}
+            value={pageInput}
+            disabled={isBusy}
+            onChange={(event) => setPageInput(event.target.value)}
+            onBlur={submitPage}
+            onKeyDown={(event) => event.key === "Enter" && submitPage()}
+            aria-label="Ir a página"
+            className="focus:border-accent-primary h-8 w-12 rounded-md border border-subtle bg-transparent px-1 text-center text-12 outline-none"
+          />
+          <span className="shrink-0 text-11 text-secondary">de {totalPages}</span>
           <Button
             variant="secondary"
             size="sm"

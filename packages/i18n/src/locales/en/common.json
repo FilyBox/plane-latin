@@ -867,5 +867,37 @@
       "description": "Export work items to a JSON file.",
       "short_description": "Export as json"
     }
+  },
+  "music_resources": {
+    "title": "Catalog resources",
+    "description": "Create, edit or remove reusable catalog resources.",
+    "workspace_catalog": "Workspace catalog",
+    "people": "People",
+    "people_description": "Artists, writers and contributors",
+    "releases": "Releases",
+    "releases_description": "Singles, EPs, albums and release history",
+    "companies": "Companies",
+    "companies_description": "Labels, aggregators and distributors",
+    "genres": "Genres",
+    "genres_description": "Reusable musical classifications",
+    "add": "Add",
+    "apply_selection": "Apply selection",
+    "catalog_help": "Search, select or maintain this workspace catalog.",
+    "create_new": "Create new",
+    "create_select": "Create and select",
+    "edit_resource": "Edit resource",
+    "save": "Save",
+    "cancel": "Cancel",
+    "select_all": "Select all",
+    "clear_all": "Clear all",
+    "delete_selected": "Delete {count}",
+    "records": "{count, plural, one {# record} other {# records}}",
+    "search": "Search resources",
+    "selected": "{count, plural, one {# selected} other {# selected}}",
+    "name": "Name",
+    "country_optional": "Country (optional)",
+    "legal_name_optional": "Legal name (optional)",
+    "ipi_optional": "IPI / CAE (optional)",
+    "delete_confirm": "Selected resources will be deleted. Protected references will be preserved. This action cannot be undone."
   }
 }

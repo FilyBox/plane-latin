@@ -104,7 +104,7 @@ class InternalWorkspaceAssetsEndpoint(InternalMusicBaseView):
     def get(self, request, workspace_id):
         assets = FileAsset.objects.filter(
             workspace_id=workspace_id,
-            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+            entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
             is_uploaded=True,
             is_deleted=False,
         ).order_by("-created_at")
@@ -143,7 +143,7 @@ def _load_asset_table(workspace_id, asset_id, sheet=None):
     asset = FileAsset.objects.get(
         id=asset_id,
         workspace_id=workspace_id,
-        entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+        entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
         is_deleted=False,
     )
     storage = S3Storage()

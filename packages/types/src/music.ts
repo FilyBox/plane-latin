@@ -129,6 +129,8 @@ export type TMusicTrack = {
     version: string;
     status: string;
     isrc: string;
+    upc: string;
+    catalog: string;
     release_date: string | null;
     duration_ms: number | null;
     cover_url: string;
@@ -161,6 +163,7 @@ export type TMusicFilters = {
   from?: string;
   to?: string;
   has_video?: string;
+  has_links?: string;
   video_from?: string;
   video_to?: string;
   company?: string;
