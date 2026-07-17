@@ -9,6 +9,7 @@
  */
 
 import type { PropsWithChildren, ReactNode } from "react";
+import { motion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowUp,
@@ -36,6 +37,13 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 // local imports
 import { ComposerAttachmentsRow, MessageAttachmentsRow } from "./attachments";
+
+/** Shared entrance for chat items: subtle rise + fade, respects reduced motion */
+const enterProps = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.25, ease: "easeOut" as const },
+};
 
 const SUGGESTIONS = [
   "¿Qué canciones se lanzaron este año?",
@@ -85,7 +93,7 @@ function MarkdownText() {
 function ToolGroup({ startIndex, endIndex, children }: PropsWithChildren<{ startIndex: number; endIndex: number }>) {
   const count = endIndex - startIndex + 1;
   return (
-    <details className="my-1.5 rounded-md border border-subtle bg-layer-1" open>
+    <motion.details {...enterProps} className="my-1.5 rounded-md border border-subtle bg-layer-1" open>
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-12 font-medium text-secondary [&::-webkit-details-marker]:hidden">
         <ThreadPrimitive.If running>
           <DotMatrix className="size-3.5" />
@@ -96,7 +104,7 @@ function ToolGroup({ startIndex, endIndex, children }: PropsWithChildren<{ start
         {count === 1 ? "1 acción" : `${count} acciones`}
       </summary>
       <div className="border-t border-subtle px-3 pb-2">{children}</div>
-    </details>
+    </motion.details>
   );
 }
 
@@ -112,11 +120,12 @@ function ToolFallback({ toolName, status }: { toolName: string; status: { type: 
 
 function AssistantMessage() {
   return (
-    <MessagePrimitive.Root className="group flex gap-2.5 py-2">
-      <span className="mt-1 flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-primary/10 text-accent-primary">
-        <Bot className="size-3.5" />
-      </span>
-      <div className="min-w-0 flex-1 text-13 leading-relaxed">
+    <MessagePrimitive.Root asChild>
+      <motion.div {...enterProps} className="group flex gap-2.5 py-2">
+        <span className="mt-1 flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-primary/10 text-accent-primary">
+          <Bot className="size-3.5" />
+        </span>
+        <div className="min-w-0 flex-1 text-13 leading-relaxed">
         <MessagePrimitive.Parts components={{ Text: MarkdownText, ToolGroup, tools: { Fallback: ToolFallback } }} />
         <MessagePrimitive.Error>
           <ErrorPrimitive.Root className="mt-1.5 flex items-center gap-2 rounded-md border border-danger-strong bg-danger-subtle px-3 py-2 text-12 text-danger-primary">
@@ -145,28 +154,31 @@ function AssistantMessage() {
             <RefreshCw className="size-3.5" />
           </ActionBarPrimitive.Reload>
         </ActionBarPrimitive.Root>
-      </div>
+        </div>
+      </motion.div>
     </MessagePrimitive.Root>
   );
 }
 
 function UserMessage() {
   return (
-    <MessagePrimitive.Root className="group flex flex-col items-end gap-1 py-2">
-      <div className="flex flex-wrap justify-end gap-1.5 empty:hidden">
-        <MessageAttachmentsRow />
-      </div>
-      <div className="max-w-[80%] rounded-lg bg-layer-2 px-3 py-2 text-13 whitespace-pre-wrap">
-        <MessagePrimitive.Parts />
-      </div>
-      <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="h-7 text-tertiary">
-        <ActionBarPrimitive.Edit
-          className="flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover hover:text-primary"
-          title="Editar mensaje"
-        >
-          <Pencil className="size-3.5" />
-        </ActionBarPrimitive.Edit>
-      </ActionBarPrimitive.Root>
+    <MessagePrimitive.Root asChild>
+      <motion.div {...enterProps} className="group flex flex-col items-end gap-1 py-2">
+        <div className="flex flex-wrap justify-end gap-1.5 empty:hidden">
+          <MessageAttachmentsRow />
+        </div>
+        <div className="max-w-[80%] rounded-lg bg-layer-2 px-3 py-2 text-13 whitespace-pre-wrap">
+          <MessagePrimitive.Parts />
+        </div>
+        <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="h-7 text-tertiary">
+          <ActionBarPrimitive.Edit
+            className="flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover hover:text-primary"
+            title="Editar mensaje"
+          >
+            <Pencil className="size-3.5" />
+          </ActionBarPrimitive.Edit>
+        </ActionBarPrimitive.Root>
+      </motion.div>
     </MessagePrimitive.Root>
   );
 }

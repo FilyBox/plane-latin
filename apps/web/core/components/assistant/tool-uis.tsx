@@ -20,6 +20,7 @@ import {
   Music2,
   Search,
   Send,
+  Settings2,
   Trash2,
   WandSparkles,
 } from "lucide-react";
@@ -31,6 +32,24 @@ import { AlertModalCore } from "@plane/ui";
 import { SearchableSelect } from "../music-catalog/searchable-select";
 
 const card = "my-2 rounded-md border border-subtle bg-layer-1 p-3 text-13";
+
+/** Sentinel understood by the import backend: drop the whole row */
+const SKIP_ROW = "__SKIP_ROW__";
+
+const DEDUPE_OPTIONS = [
+  { value: "auto", label: "Auto (ISRC → título+fecha)" },
+  { value: "title", label: "Por título" },
+  { value: "isrc", label: "Por ISRC" },
+  { value: "catalog", label: "Por catálogo" },
+  { value: "upc", label: "Por UPC" },
+  { value: "none", label: "Sin duplicados (conservar todos)" },
+];
+
+const DUPLICATE_STRATEGY_OPTIONS = [
+  { value: "skip", label: "Conservar existentes (omitir)" },
+  { value: "update", label: "Actualizar existentes" },
+  { value: "error", label: "Marcar como error" },
+];
 
 const Running = ({ label }: { label: string }) => (
   <p className={`${card} flex items-center gap-2 text-tertiary`}>
@@ -223,6 +242,89 @@ function UnparseableNotice({ unparseable }: { unparseable?: TImportProposal["unp
   );
 }
 
+type TTokenDecision = { mode: "" | "assign" | "empty" | "skip"; value: string };
+
+/** Interactive resolution of dry-run "variables" straight from the card:
+ * per token the user assigns a concrete value, blanks the cell, or drops the
+ * affected rows. Decisions land in value_overrides for the next validation. */
+function UnparseableResolver({
+  unparseable,
+  overrides,
+  onResolve,
+}: {
+  unparseable?: TImportProposal["unparseable"];
+  overrides: Record<string, Record<string, string>>;
+  onResolve: (field: string, token: string, replacement: string | undefined) => void;
+}) {
+  const [decisions, setDecisions] = useState<Record<string, TTokenDecision>>({});
+  if (!unparseable || Object.keys(unparseable).length === 0) return null;
+
+  const decisionFor = (field: string, token: string): TTokenDecision => {
+    const key = `${field}:${token}`;
+    if (decisions[key]) return decisions[key];
+    const current = overrides[field]?.[token];
+    if (current === undefined) return { mode: "", value: "" };
+    if (current === "") return { mode: "empty", value: "" };
+    if (current === SKIP_ROW) return { mode: "skip", value: "" };
+    return { mode: "assign", value: current };
+  };
+
+  const update = (field: string, token: string, decision: TTokenDecision) => {
+    setDecisions((current) => ({ ...current, [`${field}:${token}`]: decision }));
+    if (decision.mode === "empty") onResolve(field, token, "");
+    else if (decision.mode === "skip") onResolve(field, token, SKIP_ROW);
+    else if (decision.mode === "assign" && decision.value.trim()) onResolve(field, token, decision.value.trim());
+    else onResolve(field, token, undefined);
+  };
+
+  return (
+    <div className="mt-2 rounded-md border border-warning-strong bg-warning-subtle/30 p-2 text-11">
+      <p className="font-medium text-warning-primary">Valores no interpretables — decide qué hacer con cada uno</p>
+      <div className="mt-1.5 space-y-2">
+        {Object.entries(unparseable).map(([field, tokens]) => (
+          <div key={field}>
+            <p className="font-mono text-10 text-tertiary">{field}</p>
+            <div className="mt-1 space-y-1">
+              {tokens.map((token) => {
+                const tokenKey = token.value.toLowerCase();
+                const decision = decisionFor(field, tokenKey);
+                return (
+                  <div key={token.value} className="flex flex-wrap items-center gap-1.5">
+                    <span className="min-w-24 truncate font-medium">
+                      “{token.value}” <span className="text-tertiary">×{token.count}</span>
+                    </span>
+                    <select
+                      value={decision.mode}
+                      onChange={(event) =>
+                        update(field, tokenKey, { ...decision, mode: event.target.value as TTokenDecision["mode"] })
+                      }
+                      className="rounded-sm border border-subtle bg-layer-1 px-1.5 py-1 text-11"
+                    >
+                      <option value="">Decidir…</option>
+                      <option value="assign">Asignar valor</option>
+                      <option value="empty">Dejar vacío</option>
+                      <option value="skip">Omitir esas filas</option>
+                    </select>
+                    {decision.mode === "assign" && (
+                      <input
+                        value={decision.value}
+                        onChange={(event) => update(field, tokenKey, { ...decision, value: event.target.value })}
+                        placeholder={field.includes("duration") ? "ej. 0:30" : "Valor"}
+                        className="w-24 rounded-sm border border-subtle bg-layer-1 px-1.5 py-1 text-11"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-1.5 text-tertiary">Al terminar, vuelve a validar para aplicar tus decisiones.</p>
+    </div>
+  );
+}
+
 function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal; workspaceSlug: string }) {
   const [state, setState] = useState<"idle" | "applying" | "done">("idle");
   const [applied, setApplied] = useState<TImportProposal | null>(null);
@@ -315,6 +417,10 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
   const initialMapping = useMemo(() => result.proposal?.mapping ?? result.heuristic_mapping ?? {}, [result]);
   const [mapping, setMapping] = useState<Record<string, string>>(initialMapping);
   const [strategy, setStrategy] = useState(result.proposal?.duplicate_strategy ?? "skip");
+  const [dedupeBy, setDedupeBy] = useState(result.proposal?.dedupe_by ?? "auto");
+  const [valueOverrides, setValueOverrides] = useState<Record<string, Record<string, string>>>(
+    result.proposal?.value_overrides ?? {}
+  );
   const [query, setQuery] = useState("");
   const [state, setState] = useState<"idle" | "validating" | "applying" | "done">("idle");
   const [validation, setValidation] = useState<TImportProposal | null>(null);
@@ -324,6 +430,10 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
   const [isDeleteSourceOpen, setIsDeleteSourceOpen] = useState(false);
   const [isDeletingSource, setIsDeletingSource] = useState(false);
   const [sourceDeleted, setSourceDeleted] = useState(false);
+  const [isAdjustOpen, setIsAdjustOpen] = useState(false);
+  // Variable decisions taken after a validation don't wipe the result panel;
+  // they mark it stale so the user re-validates before applying.
+  const [overridesDirty, setOverridesDirty] = useState(false);
   const assetId = result.proposal?.asset_id ?? result.asset_id;
   const sheet = result.proposal?.sheet ?? result.selected_sheet ?? null;
   const headers = result.headers ?? [];
@@ -350,16 +460,35 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
   useEffect(() => {
     setMapping(initialMapping);
     setStrategy(result.proposal?.duplicate_strategy ?? "skip");
+    setDedupeBy(result.proposal?.dedupe_by ?? "auto");
+    setValueOverrides(result.proposal?.value_overrides ?? {});
     setValidation(null);
     setApplied(null);
     setInvalidRowStrategy("abort");
     setRowOverrides({});
     setIsDeleteSourceOpen(false);
     setSourceDeleted(false);
+    setIsAdjustOpen(false);
+    setOverridesDirty(false);
     setState("idle");
   }, [initialMapping, result]);
 
   if (!assetId || headers.length === 0) return <ImportProposalCard result={result} workspaceSlug={workspaceSlug} />;
+
+  const setOverride = (field: string, token: string, replacement: string | undefined) => {
+    setValueOverrides((current) => {
+      const next = { ...current, [field]: { ...current[field] } };
+      if (replacement === undefined) {
+        delete next[field][token];
+        if (Object.keys(next[field]).length === 0) delete next[field];
+      } else {
+        next[field][token] = replacement;
+      }
+      return next;
+    });
+    setOverridesDirty(true);
+    setApplied(null);
+  };
 
   const submit = async (dryRun: boolean) => {
     if (missingTitle) return;
@@ -374,6 +503,8 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
           sheet,
           mapping,
           duplicate_strategy: strategy,
+          dedupe_by: dedupeBy,
+          value_overrides: valueOverrides,
           dry_run: dryRun,
           invalid_row_strategy: invalidRowStrategy,
           row_overrides: rowOverrides,
@@ -383,6 +514,7 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
       if (!response.ok) throw new Error(data?.error ?? "Import failed");
       if (dryRun) {
         setValidation(data);
+        setOverridesDirty(false);
         setState("idle");
         setToast({
           type: data.errors?.length ? TOAST_TYPE.ERROR : TOAST_TYPE.SUCCESS,
@@ -449,30 +581,26 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
         )}
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        <label className="relative min-w-0 flex-1">
-          <Search className="absolute top-1/2 left-2 size-3 -translate-y-1/2 text-tertiary" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar campo de destino..."
-            className="w-full rounded-sm border border-subtle bg-transparent py-1.5 pr-2 pl-7 text-11"
-          />
-        </label>
-        <SearchableSelect
-          className="w-40 shrink-0"
-          options={[
-            { value: "skip", label: "Conservar duplicados" },
-            { value: "update", label: "Actualizar duplicados" },
-            { value: "error", label: "Marcar duplicados" },
-          ]}
-          value={strategy}
-          onSelect={(value) => {
-            setStrategy(value);
-            setValidation(null);
-          }}
-          placeholder="Duplicados"
-        />
+      {/* The agent already decided the mapping — show it as compact chips;
+          the full editor lives behind "Ajustar" for manual corrections only */}
+      <div className="mt-2 flex flex-wrap items-center gap-1">
+        {Object.entries(mapping)
+          .filter(([, column]) => column)
+          .slice(0, 8)
+          .map(([field, column]) => (
+            <span
+              key={field}
+              className="flex items-center gap-1 rounded-full border border-subtle bg-layer-2 px-2 py-0.5 text-10"
+              title={`${field} ← ${column}`}
+            >
+              <span className="font-mono text-tertiary">{field.replace(/^(track|release)\./, "")}</span>
+              <span className="text-tertiary">←</span>
+              <span className="max-w-24 truncate">{column}</span>
+            </span>
+          ))}
+        {Object.values(mapping).filter(Boolean).length > 8 && (
+          <span className="text-10 text-tertiary">+{Object.values(mapping).filter(Boolean).length - 8} más</span>
+        )}
       </div>
 
       {missingTitle && (
@@ -482,29 +610,76 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
         </p>
       )}
 
-      <div className="mt-2 max-h-56 space-y-1 overflow-y-auto pr-1">
-        {filteredFields.map((field) => (
-          <div key={field} className="grid grid-cols-2 items-center gap-2 rounded-sm border border-subtle px-2 py-1.5">
-            <span className="font-mono truncate text-10">
-              {field}
-              {field === "track.title" ? " *" : ""}
-            </span>
+      <button
+        type="button"
+        onClick={() => setIsAdjustOpen((open) => !open)}
+        className="mt-1.5 flex items-center gap-1 text-11 text-accent-primary hover:underline"
+      >
+        <Settings2 className="size-3" /> {isAdjustOpen ? "Ocultar ajustes" : "Ajustar mapeo y duplicados"}
+      </button>
+
+      {isAdjustOpen && (
+        <div className="mt-2 rounded-md border border-subtle bg-layer-2/50 p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="relative min-w-0 flex-1">
+              <Search className="absolute top-1/2 left-2 size-3 -translate-y-1/2 text-tertiary" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Buscar campo de destino..."
+                className="w-full rounded-sm border border-subtle bg-transparent py-1.5 pr-2 pl-7 text-11"
+              />
+            </label>
             <SearchableSelect
-              options={[
-                { value: "", label: "No importar" },
-                ...headers.map((header) => ({ value: header, label: header })),
-              ]}
-              value={mapping[field] ?? ""}
-              onSelect={(column) => {
-                setMapping((current) => ({ ...current, [field]: column }));
+              className="w-44 shrink-0"
+              options={DEDUPE_OPTIONS}
+              value={dedupeBy}
+              onSelect={(value) => {
+                setDedupeBy(value);
                 setValidation(null);
-                setApplied(null);
               }}
-              placeholder="Buscar columna..."
+              placeholder="Identificador de duplicado"
+            />
+            <SearchableSelect
+              className="w-44 shrink-0"
+              options={DUPLICATE_STRATEGY_OPTIONS}
+              value={strategy}
+              onSelect={(value) => {
+                setStrategy(value);
+                setValidation(null);
+              }}
+              placeholder="Acción con duplicados"
             />
           </div>
-        ))}
-      </div>
+
+          <div className="mt-2 max-h-56 space-y-1 overflow-y-auto pr-1">
+            {filteredFields.map((field) => (
+              <div
+                key={field}
+                className="grid grid-cols-2 items-center gap-2 rounded-sm border border-subtle bg-layer-1 px-2 py-1.5"
+              >
+                <span className="font-mono truncate text-10">
+                  {field}
+                  {field === "track.title" ? " *" : ""}
+                </span>
+                <SearchableSelect
+                  options={[
+                    { value: "", label: "No importar" },
+                    ...headers.map((header) => ({ value: header, label: header })),
+                  ]}
+                  value={mapping[field] ?? ""}
+                  onSelect={(column) => {
+                    setMapping((current) => ({ ...current, [field]: column }));
+                    setValidation(null);
+                    setApplied(null);
+                  }}
+                  placeholder="Buscar columna..."
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {state === "validating" && <Running label="Validando cada fila del archivo…" />}
       {validation && (
@@ -519,7 +694,11 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
             {validation.skipped} omitidas
             {validation.errors?.length ? `, ${validation.errors.length} inválidas` : ". Ya puedes importar."}
           </p>
-          <UnparseableNotice unparseable={validation.unparseable} />
+          <UnparseableResolver
+            unparseable={validation.unparseable}
+            overrides={valueOverrides}
+            onResolve={setOverride}
+          />
         </div>
       )}
       {validation?.errors && validation.errors.length > 0 && (
@@ -604,7 +783,18 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
               Validar archivo
             </button>
           )}
-          {validation && (!validation.errors?.length || invalidRowStrategy === "skip") && (
+          {validation && overridesDirty && (
+            <button
+              type="button"
+              disabled={state !== "idle"}
+              onClick={() => void submit(true)}
+              className="flex items-center gap-1.5 rounded-sm bg-accent-primary px-2.5 py-1.5 text-12 font-medium text-on-color hover:opacity-90 disabled:opacity-50"
+            >
+              {state === "validating" ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+              Validar de nuevo
+            </button>
+          )}
+          {validation && !overridesDirty && (!validation.errors?.length || invalidRowStrategy === "skip") && (
             <button
               type="button"
               disabled={state !== "idle"}
@@ -819,4 +1009,294 @@ function AskUserCard({
 export const AskUserToolUI = makeAssistantToolUI<TAskUserArgs, { answer: string }>({
   toolName: "ask_user",
   render: ({ args, result, addResult }) => <AskUserCard args={args} result={result} addResult={addResult} />,
+});
+
+// ---------------------------------------------------------------------------
+// Structured human-in-the-loop cards. Like ask_user these tools have no
+// server-side execute: the run pauses and the typed answer we addResult()
+// here is replayed by the model into the next propose_music_import call.
+// ---------------------------------------------------------------------------
+
+type TResolveVariablesArgs = {
+  asset_id: string;
+  fields: {
+    field: string;
+    field_label?: string;
+    tokens: { value: string; count: number; suggestion?: string }[];
+  }[];
+};
+
+type TResolveVariablesResult = {
+  value_overrides: Record<string, Record<string, string>>;
+  note: string;
+};
+
+function ResolveImportVariablesCard({
+  args,
+  result,
+  addResult,
+}: {
+  args: TResolveVariablesArgs;
+  result?: TResolveVariablesResult;
+  addResult: (r: TResolveVariablesResult) => void;
+}) {
+  const [decisions, setDecisions] = useState<Record<string, TTokenDecision>>({});
+  const fields = args.fields ?? [];
+
+  const decisionFor = (field: string, token: { value: string; suggestion?: string }): TTokenDecision => {
+    const key = `${field}:${token.value.toLowerCase()}`;
+    if (decisions[key]) return decisions[key];
+    if (token.suggestion) return { mode: "assign", value: token.suggestion };
+    return { mode: "", value: "" };
+  };
+
+  const allDecided = fields.every((entry) =>
+    entry.tokens.every((token) => {
+      const decision = decisionFor(entry.field, token);
+      return decision.mode === "empty" || decision.mode === "skip" || (decision.mode === "assign" && decision.value.trim());
+    })
+  );
+
+  const confirm = () => {
+    const overrides: Record<string, Record<string, string>> = {};
+    for (const entry of fields) {
+      for (const token of entry.tokens) {
+        const decision = decisionFor(entry.field, token);
+        const key = token.value.toLowerCase();
+        const replacement =
+          decision.mode === "empty" ? "" : decision.mode === "skip" ? SKIP_ROW : decision.value.trim();
+        overrides[entry.field] = { ...overrides[entry.field], [key]: replacement };
+      }
+    }
+    addResult({
+      value_overrides: overrides,
+      note: "Decisiones del usuario. Re-propón la importación pasando este value_overrides EXACTAMENTE igual.",
+    });
+  };
+
+  if (result) {
+    return (
+      <div className={card}>
+        <p className="flex items-center gap-1.5 font-medium text-secondary">
+          <WandSparkles className="size-3.5 text-tertiary" /> Variables resueltas
+        </p>
+        <ul className="mt-1 space-y-0.5 text-11 text-secondary">
+          {Object.entries(result.value_overrides).flatMap(([field, tokens]) =>
+            Object.entries(tokens).map(([token, replacement]) => (
+              <li key={`${field}:${token}`}>
+                <span className="font-mono">{field.replace(/^(track|release)\./, "")}</span> · “{token}” →{" "}
+                {replacement === "" ? "vacío" : replacement === SKIP_ROW ? "omitir filas" : replacement}
+              </li>
+            ))
+          )}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${card} border-accent-strong/40`}>
+      <p className="flex items-start gap-1.5 font-medium">
+        <WandSparkles className="mt-0.5 size-3.5 shrink-0 text-accent-primary" />
+        Algunos valores no se pueden interpretar — decide qué hacer con cada uno
+      </p>
+      <div className="mt-2 space-y-2.5">
+        {fields.map((entry) => (
+          <div key={entry.field}>
+            <p className="text-11 font-medium text-secondary">
+              {entry.field_label || entry.field}{" "}
+              <span className="font-mono text-10 text-tertiary">({entry.field})</span>
+            </p>
+            <div className="mt-1 space-y-1">
+              {entry.tokens.map((token) => {
+                const key = `${entry.field}:${token.value.toLowerCase()}`;
+                const decision = decisionFor(entry.field, token);
+                return (
+                  <div key={token.value} className="flex flex-wrap items-center gap-1.5 text-12">
+                    <span className="min-w-28 truncate font-medium">
+                      “{token.value}” <span className="text-tertiary">×{token.count}</span>
+                    </span>
+                    <select
+                      value={decision.mode}
+                      onChange={(event) =>
+                        setDecisions((current) => ({
+                          ...current,
+                          [key]: { ...decision, mode: event.target.value as TTokenDecision["mode"] },
+                        }))
+                      }
+                      className="rounded-sm border border-subtle bg-layer-1 px-1.5 py-1 text-11"
+                    >
+                      <option value="">Decidir…</option>
+                      <option value="assign">Asignar valor</option>
+                      <option value="empty">Dejar vacío</option>
+                      <option value="skip">Omitir esas filas</option>
+                    </select>
+                    {decision.mode === "assign" && (
+                      <input
+                        value={decision.value}
+                        onChange={(event) =>
+                          setDecisions((current) => ({
+                            ...current,
+                            [key]: { ...decision, value: event.target.value },
+                          }))
+                        }
+                        placeholder={entry.field.includes("duration") ? "ej. 0:30" : "Valor"}
+                        className="w-24 rounded-sm border border-subtle bg-layer-1 px-1.5 py-1 text-11"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        disabled={!allDecided}
+        onClick={confirm}
+        className="mt-3 flex items-center gap-1.5 rounded-sm bg-accent-primary px-2.5 py-1.5 text-12 font-medium text-on-color hover:opacity-90 disabled:opacity-50"
+      >
+        <Check className="size-3.5" /> Confirmar decisiones
+      </button>
+    </div>
+  );
+}
+
+export const ResolveImportVariablesToolUI = makeAssistantToolUI<TResolveVariablesArgs, TResolveVariablesResult>({
+  toolName: "resolve_import_variables",
+  render: ({ args, result, addResult }) => (
+    <ResolveImportVariablesCard args={args} result={result} addResult={addResult} />
+  ),
+});
+
+type TResolveDuplicatesArgs = {
+  asset_id: string;
+  updated: number;
+  skipped: number;
+  current_dedupe_by?: string;
+  examples?: { title: string; isrc?: string; catalog?: string; upc?: string }[];
+};
+
+type TResolveDuplicatesResult = {
+  dedupe_by: string;
+  duplicate_strategy: string;
+  note: string;
+};
+
+function ResolveDuplicatesCard({
+  args,
+  result,
+  addResult,
+}: {
+  args: TResolveDuplicatesArgs;
+  result?: TResolveDuplicatesResult;
+  addResult: (r: TResolveDuplicatesResult) => void;
+}) {
+  const [dedupeBy, setDedupeBy] = useState(args.current_dedupe_by ?? "auto");
+  const [strategy, setStrategy] = useState("skip");
+
+  if (result) {
+    const dedupeLabel = DEDUPE_OPTIONS.find((option) => option.value === result.dedupe_by)?.label ?? result.dedupe_by;
+    const strategyLabel =
+      DUPLICATE_STRATEGY_OPTIONS.find((option) => option.value === result.duplicate_strategy)?.label ??
+      result.duplicate_strategy;
+    return (
+      <div className={card}>
+        <p className="flex items-center gap-1.5 text-secondary">
+          <Check className="size-3.5 text-success-primary" /> Duplicados: {dedupeLabel}
+          {result.dedupe_by !== "none" ? ` · ${strategyLabel}` : ""}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${card} border-accent-strong/40`}>
+      <p className="flex items-start gap-1.5 font-medium">
+        <CircleHelp className="mt-0.5 size-3.5 shrink-0 text-accent-primary" />
+        Se detectaron posibles duplicados ({args.updated} a actualizar, {args.skipped} omitidos)
+      </p>
+      {(args.examples?.length ?? 0) > 0 && (
+        <div className="mt-2 max-h-28 overflow-auto rounded-sm border border-subtle">
+          <table className="w-full text-11">
+            <thead className="sticky top-0 bg-layer-1 text-left text-tertiary">
+              <tr>
+                <th className="px-2 py-1 font-medium">Título</th>
+                <th className="px-2 py-1 font-medium">ISRC</th>
+                <th className="px-2 py-1 font-medium">Catálogo</th>
+                <th className="px-2 py-1 font-medium">UPC</th>
+              </tr>
+            </thead>
+            <tbody>
+              {args.examples?.map((example, index) => (
+                <tr key={index} className="border-t border-subtle">
+                  <td className="px-2 py-1">{example.title}</td>
+                  <td className="font-mono px-2 py-1">{example.isrc ?? "—"}</td>
+                  <td className="font-mono px-2 py-1">{example.catalog ?? "—"}</td>
+                  <td className="font-mono px-2 py-1">{example.upc ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-2 text-11 font-medium text-secondary">¿Qué identificador define un duplicado?</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {DEDUPE_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setDedupeBy(option.value)}
+            className={`rounded-full border px-2.5 py-1 text-11 ${
+              dedupeBy === option.value
+                ? "border-accent-strong bg-accent-primary/10 text-accent-primary"
+                : "border-subtle hover:border-accent-strong"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {dedupeBy !== "none" && (
+        <>
+          <p className="mt-2 text-11 font-medium text-secondary">¿Qué hacer con los duplicados?</p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {DUPLICATE_STRATEGY_OPTIONS.filter((option) => option.value !== "error").map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setStrategy(option.value)}
+                className={`rounded-full border px-2.5 py-1 text-11 ${
+                  strategy === option.value
+                    ? "border-accent-strong bg-accent-primary/10 text-accent-primary"
+                    : "border-subtle hover:border-accent-strong"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <button
+        type="button"
+        onClick={() =>
+          addResult({
+            dedupe_by: dedupeBy,
+            duplicate_strategy: dedupeBy === "none" ? "skip" : strategy,
+            note: "Decisión del usuario. Re-propón la importación pasando dedupe_by y duplicate_strategy EXACTAMENTE así.",
+          })
+        }
+        className="mt-3 flex items-center gap-1.5 rounded-sm bg-accent-primary px-2.5 py-1.5 text-12 font-medium text-on-color hover:opacity-90"
+      >
+        <Check className="size-3.5" /> Confirmar
+      </button>
+    </div>
+  );
+}
+
+export const ResolveDuplicatesToolUI = makeAssistantToolUI<TResolveDuplicatesArgs, TResolveDuplicatesResult>({
+  toolName: "resolve_duplicates",
+  render: ({ args, result, addResult }) => <ResolveDuplicatesCard args={args} result={result} addResult={addResult} />,
 });

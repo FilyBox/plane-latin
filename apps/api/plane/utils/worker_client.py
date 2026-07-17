@@ -22,12 +22,15 @@ def _post(path, payload, timeout=30):
     if not base_url or not secret:
         raise WorkerTriggerError("CF_WORKER_TRIGGER_URL / CF_WORKER_TRIGGER_SECRET are not configured")
 
-    response = requests.post(
-        f"{base_url.rstrip('/')}{path}",
-        json=payload,
-        headers={"X-Trigger-Secret": secret},
-        timeout=timeout,
-    )
+    try:
+        response = requests.post(
+            f"{base_url.rstrip('/')}{path}",
+            json=payload,
+            headers={"X-Trigger-Secret": secret},
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        raise WorkerTriggerError(f"Worker unreachable at {base_url}: {exc}") from exc
     if response.status_code >= 400:
         raise WorkerTriggerError(f"Worker trigger failed ({response.status_code}): {response.text[:500]}")
     return response.json()
@@ -55,11 +58,14 @@ def _get(path):
     if not base_url or not secret:
         raise WorkerTriggerError("CF_WORKER_TRIGGER_URL / CF_WORKER_TRIGGER_SECRET are not configured")
 
-    response = requests.get(
-        f"{base_url.rstrip('/')}{path}",
-        headers={"X-Trigger-Secret": secret},
-        timeout=15,
-    )
+    try:
+        response = requests.get(
+            f"{base_url.rstrip('/')}{path}",
+            headers={"X-Trigger-Secret": secret},
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        raise WorkerTriggerError(f"Worker unreachable at {base_url}: {exc}") from exc
     if response.status_code >= 400:
         raise WorkerTriggerError(f"Worker request failed ({response.status_code}): {response.text[:500]}")
     return response.json()
@@ -104,13 +110,16 @@ def stream_assistant_chat(payload, timeout=120):
     if not base_url or not secret:
         raise WorkerTriggerError("CF_WORKER_TRIGGER_URL / CF_WORKER_TRIGGER_SECRET are not configured")
 
-    response = requests.post(
-        f"{base_url.rstrip('/')}/assistant/chat",
-        json=payload,
-        headers={"X-Trigger-Secret": secret},
-        stream=True,
-        timeout=timeout,
-    )
+    try:
+        response = requests.post(
+            f"{base_url.rstrip('/')}/assistant/chat",
+            json=payload,
+            headers={"X-Trigger-Secret": secret},
+            stream=True,
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        raise WorkerTriggerError(f"Worker unreachable at {base_url}: {exc}") from exc
     if response.status_code >= 400:
         detail = response.text[:500]
         response.close()
