@@ -123,6 +123,15 @@ export type TMusicTrack = {
     valid_to: string | null;
     company: TMusicCompany;
   }[];
+  import_sources?: {
+    id: string;
+    asset_id: string | null;
+    name: string;
+    source: string;
+    action: string;
+    row_number: number | null;
+    imported_at: string;
+  }[];
   video_details: {
     id: string;
     title: string;
@@ -171,6 +180,8 @@ export type TMusicFilters = {
   page?: string;
   page_size?: string;
   ids?: string;
+  import_run?: string;
+  ids_only?: string;
 };
 
 export type TMusicCatalogOptions = {
@@ -182,6 +193,8 @@ export type TMusicCatalogOptions = {
   party_kinds: TMusicChoice[];
   company_kinds: TMusicChoice[];
   import_fields: string[];
+  /** Applied import runs, newest first — powers the provenance filter */
+  import_runs?: TMusicImportRun[];
 };
 
 export type TMusicImportError = {
@@ -202,6 +215,19 @@ export type TMusicImportResult = {
   errors: TMusicImportError[];
   invalid_row_strategy: "abort" | "skip";
   aborted: boolean;
+  /** Dry-run only: per canonical field, raw tokens that no parser understood
+   * ("ringtone" in a duration column) with their occurrence count */
+  unparseable?: Record<string, { value: string; count: number }[]>;
+  /** Set when the import was applied (provenance run id) */
+  import_run_id?: string;
+};
+
+export type TMusicImportRun = {
+  id: string;
+  name: string;
+  source: "MANUAL" | "ASSISTANT" | string;
+  asset_id: string | null;
+  created_at: string;
 };
 
 export type TMusicImportAsset = {

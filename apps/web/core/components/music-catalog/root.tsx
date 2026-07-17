@@ -131,6 +131,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isSelectingAllMatching, setIsSelectingAllMatching] = useState(false);
 
   const exportQuery = { ...filters, search: deferredSearch || undefined };
   const query = { ...exportQuery, page: String(page), page_size: String(PAGE_SIZE) };
@@ -216,6 +217,18 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         ? current.filter((id) => !currentPageIds.includes(id))
         : [...new Set([...current, ...currentPageIds])];
     });
+
+  const selectAllMatching = async () => {
+    setIsSelectingAllMatching(true);
+    try {
+      const { ids } = await musicService.getTrackIds(workspaceSlug, exportQuery);
+      setSelectedTrackIds(ids);
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo seleccionar todo", message: getApiError(error) });
+    } finally {
+      setIsSelectingAllMatching(false);
+    }
+  };
 
   const downloadSelectedTracks = async () => {
     if (!selectedTrackIds.length) return;
@@ -499,6 +512,19 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                 onChange={(event) => setFilter("video_to", event.target.value)}
               />
             </label>
+            <select
+              className={MUSIC_FIELD}
+              value={filters.import_run ?? ""}
+              onChange={(event) => setFilter("import_run", event.target.value)}
+              title="Archivo de importación"
+            >
+              <option value="">Todos los orígenes</option>
+              {(options?.import_runs ?? []).map((run) => (
+                <option key={run.id} value={run.id}>
+                  {run.name} · {new Date(run.created_at).toLocaleDateString()}
+                </option>
+              ))}
+            </select>
             <label className="flex items-center gap-2 self-end rounded-md border border-subtle px-3 py-2 text-11">
               <input
                 type="checkbox"
@@ -739,6 +765,9 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
             {totalTracks > 0 && (
               <MusicTableActionBar
                 selectedCount={selectedTrackCount}
+                totalMatching={totalTracks}
+                isSelectingAll={isSelectingAllMatching}
+                onSelectAllMatching={() => void selectAllMatching()}
                 page={page}
                 totalPages={totalPages}
                 isBusy={isBulkDeleting}

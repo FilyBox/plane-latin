@@ -196,6 +196,53 @@ class MusicTrack(BaseModel):
         ]
 
 
+class MusicImportRun(BaseModel):
+    """One validated spreadsheet import and the decisions used to apply it."""
+
+    class Source(models.TextChoices):
+        MANUAL = "MANUAL", "Manual importer"
+        ASSISTANT = "ASSISTANT", "Assistant"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="music_import_runs")
+    file_asset = models.ForeignKey(
+        "db.FileAsset",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="music_import_runs",
+    )
+    source_name = models.CharField(max_length=500)
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.MANUAL)
+    sheet = models.CharField(max_length=255, blank=True)
+    rules = models.JSONField(default=dict, blank=True)
+    summary = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "music_import_runs"
+        ordering = ("-created_at",)
+        indexes = [models.Index(fields=["workspace", "created_at"], name="music_import_run_date_idx")]
+
+
+class MusicTrackImport(BaseModel):
+    class Action(models.TextChoices):
+        CREATED = "CREATED", "Created"
+        UPDATED = "UPDATED", "Updated"
+        PRESERVED = "PRESERVED", "Preserved"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="music_track_imports")
+    track = models.ForeignKey("db.MusicTrack", on_delete=models.CASCADE, related_name="import_links")
+    import_run = models.ForeignKey("db.MusicImportRun", on_delete=models.CASCADE, related_name="track_links")
+    action = models.CharField(max_length=20, choices=Action.choices)
+    row_number = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "music_track_imports"
+        ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(fields=["track", "import_run"], name="unique_music_track_import")
+        ]
+
+
 class MusicReleaseArtist(BaseModel):
     class Role(models.TextChoices):
         PRIMARY = "PRIMARY", "Primary"

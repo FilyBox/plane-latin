@@ -30,6 +30,7 @@ from plane.db.models import (
     MusicCredit,
     MusicDistribution,
     MusicGenre,
+    MusicImportRun,
     MusicLink,
     MusicParty,
     MusicRelease,
@@ -324,6 +325,8 @@ IMPORT_ALIASES = {
     "track.title": ("track", "song", "song name", "titulo", "cancion"),
     "track.isrc": ("isrc", "isrc audio", "isrc song"),
     "track.isrc_video": ("isrc video", "video isrc"),
+    "track.catalog": ("catalog", "catalogo", "catalog number", "no cat", "cat"),
+    "track.upc": ("upc", "ean", "barcode"),
     "track.release_date": ("track release date", "fecha lanzamiento cancion"),
     "track.duration_ms": ("duration", "duracion", "duracion tipo", "time"),
     "release.title": ("album", "album name", "titulo album single lp ep"),
@@ -338,7 +341,7 @@ IMPORT_ALIASES = {
 }
 
 IMPORT_FIELDS = [
-    "track.title", "track.version", "track.isrc", "track.isrc_video", "track.kind",
+    "track.title", "track.version", "track.isrc", "track.isrc_video", "track.catalog", "track.upc", "track.kind",
     "track.status", "track.release_date", "track.original_release_date", "track.duration_ms",
     "track.country_of_recording", "track.language", "track.explicit", "track.ownership",
     "track.us_publishing_obligations", "track.recoupment", "track.digital_format", "track.lyrics",
@@ -368,6 +371,101 @@ def _link_platform(url):
         if host == domain or host.endswith("." + domain):
             return name
     return host.split(".")[0].capitalize()
+
+
+# Typed canonical fields: raw values that fail these parsers are "variables"
+# ("ringtone" in a duration column) the user must resolve via value_overrides
+UNPARSED_CHECKS = {
+    "track.duration_ms": _duration_ms,
+    "track.release_date": _date,
+    "track.original_release_date": _date,
+    "track.video_release_date": _date,
+    "release.release_date": _date,
+    "track.aggregator_percentage": _decimal,
+    "track.distributor_percentage": _decimal,
+    "track.record_label_percentage": _decimal,
+    "track.artist_percentage": _decimal,
+    "track.writer_percentage": _decimal,
+}
+
+# value_overrides sentinel: rows whose raw value maps to this are not imported
+SKIP_ROW = "__SKIP_ROW__"
+
+
+def _collect_unparsed(row, mapping):
+    """{canonical_field: raw_token} for typed columns whose value parses to
+    nothing — the import would silently drop them without user input."""
+    found = {}
+    for field, parser in UNPARSED_CHECKS.items():
+        column = mapping.get(field)
+        if not column:
+            continue
+        raw = row.get(column)
+        if raw in (None, ""):
+            continue
+        if parser(raw) is None:
+            found[field] = str(raw).strip()
+    return found
+
+
+def _apply_overrides(row, mapping, value_overrides):
+    """Returns (row_with_replacements, skip_row). Overrides are keyed by
+    canonical field → {raw_token(lower): replacement}; empty replacement
+    imports the row with that cell blank, SKIP_ROW drops the whole row."""
+    if not value_overrides:
+        return row, False
+    patched = dict(row)
+    for field, tokens in value_overrides.items():
+        column = mapping.get(field)
+        if not column or not isinstance(tokens, dict):
+            continue
+        raw = patched.get(column)
+        if raw in (None, ""):
+            continue
+        replacement = tokens.get(str(raw).strip().lower())
+        if replacement is None:
+            continue
+        if replacement == SKIP_ROW:
+            return patched, True
+        patched[column] = replacement
+    return patched, False
+
+
+OUTCOME_ACTION = {"created": "CREATED", "updated": "UPDATED", "skipped": "PRESERVED"}
+
+
+def _record_import_run(workspace, *, file_asset, source_name, source, sheet, rules, summary, touched):
+    """Persists the provenance of one applied import: the run itself plus a
+    link per affected track (created/updated/preserved, with its row)."""
+    from plane.db.models import MusicImportRun, MusicTrackImport
+
+    run = MusicImportRun.objects.create(
+        workspace=workspace,
+        file_asset=file_asset,
+        source_name=(source_name or "")[:500],
+        source=source,
+        sheet=sheet or "",
+        rules=rules,
+        summary=summary,
+    )
+    # unique (track, run): if several rows touched the same track keep the last
+    by_track = {}
+    for track_id, outcome, row_number in touched:
+        by_track[track_id] = (OUTCOME_ACTION.get(outcome, "PRESERVED"), row_number)
+    MusicTrackImport.objects.bulk_create(
+        [
+            MusicTrackImport(
+                workspace=workspace,
+                track_id=track_id,
+                import_run=run,
+                action=action,
+                row_number=row_number,
+            )
+            for track_id, (action, row_number) in by_track.items()
+        ],
+        ignore_conflicts=True,
+    )
+    return run
 
 
 def _infer_mapping(headers, fields):
@@ -472,6 +570,8 @@ def _filter_tracks(queryset, params):
         queryset = queryset.filter(distributions__company_id=params["company"])
     if params.get("ids"):
         queryset = queryset.filter(id__in=[value for value in params.get("ids", "").split(",") if value])
+    if params.get("import_run"):
+        queryset = queryset.filter(import_links__import_run_id=params["import_run"])
     return queryset.distinct()
 
 
@@ -536,6 +636,11 @@ class MusicTrackEndpoint(MusicBaseView):
         if request.query_params.get("songs_only") == "true":
             queryset = queryset.filter(parent_track__isnull=True)
         queryset = _filter_tracks(queryset, request.query_params)
+
+        # Lightweight id list so the UI can select EVERYTHING matching the
+        # active filters without serializing thousands of full tracks.
+        if request.query_params.get("ids_only") == "true":
+            return Response({"ids": [str(pk) for pk in queryset.values_list("id", flat=True)]})
 
         # Keep the original array response for existing consumers that do not request a page.
         if "page" not in request.query_params:
@@ -798,6 +903,16 @@ class MusicCatalogOptionsEndpoint(MusicBaseView):
                 "party_kinds": MusicParty.Kind.choices,
                 "company_kinds": MusicCompany.Kind.choices,
                 "import_fields": IMPORT_FIELDS,
+                "import_runs": [
+                    {
+                        "id": str(run.id),
+                        "name": run.source_name,
+                        "source": run.source,
+                        "asset_id": str(run.file_asset_id) if run.file_asset_id else None,
+                        "created_at": run.created_at.isoformat(),
+                    }
+                    for run in MusicImportRun.objects.filter(workspace__slug=slug)[:100]
+                ],
             }
         )
 
@@ -904,10 +1019,12 @@ class MusicImportEndpoint(MusicBaseView):
 
         workspace = Workspace.objects.get(slug=slug)
         strategy = request.data.get("duplicate_strategy", "skip")
+        dedupe_by = request.data.get("dedupe_by", "auto")
         dry_run = str(request.data.get("dry_run", "false")).lower() == "true"
         invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
         try:
             row_overrides = json.loads(request.data.get("row_overrides", "{}"))
+            value_overrides = json.loads(request.data.get("value_overrides", "{}"))
         except json.JSONDecodeError:
             return Response({"row_overrides": ["Must be valid JSON"]}, status=status.HTTP_400_BAD_REQUEST)
         if invalid_row_strategy not in ("abort", "skip"):
@@ -924,46 +1041,122 @@ class MusicImportEndpoint(MusicBaseView):
             "invalid_row_strategy": invalid_row_strategy,
             "aborted": False,
         }
+        unparseable = {}
+        touched = []
 
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
                 effective_row, effective_mapping = _apply_row_overrides(
                     row, mapping, row_overrides.get(str(index), {})
                 )
+                effective_row, skip_row = _apply_overrides(effective_row, effective_mapping, value_overrides)
+                if skip_row:
+                    result["skipped"] += 1
+                    continue
+                if dry_run:
+                    for field, token in _collect_unparsed(effective_row, effective_mapping).items():
+                        tokens = unparseable.setdefault(field, {})
+                        tokens[token] = tokens.get(token, 0) + 1
                 try:
                     # Keep every row in its own savepoint. A database or validation
                     # error must not leave the remaining spreadsheet transaction aborted.
                     with transaction.atomic():
-                        outcome = self._import_row(
-                            workspace, effective_row, effective_mapping, strategy, defaults
+                        outcome, track = self._import_row(
+                            workspace, effective_row, effective_mapping, strategy, defaults, dedupe_by
                         )
                     result[outcome] += 1
+                    if track is not None:
+                        touched.append((track.id, outcome, index))
                 except Exception as exc:
                     detail = _import_error_detail(index, exc, effective_row, effective_mapping)
                     result["errors"].append(detail)
                     if detail["code"] == "DATABASE_NOT_READY":
                         break
-            if dry_run or (result["errors"] and invalid_row_strategy == "abort"):
+            aborted = result["errors"] and invalid_row_strategy == "abort"
+            if not dry_run and not aborted:
+                # Provenance: persist the source file itself + run + per-track links
+                upload.seek(0)
+                content = upload.read()
+                from plane.settings.storage import S3Storage
+
+                asset_key = f"{workspace.id}/music-imports/{timezone.now().strftime('%Y%m%d%H%M%S')}-{upload.name}"
+                storage = S3Storage()
+                storage.s3_client.put_object(
+                    Bucket=storage.aws_storage_bucket_name, Key=asset_key, Body=content
+                )
+                file_asset = FileAsset.objects.create(
+                    workspace=workspace,
+                    entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
+                    attributes={
+                        "name": upload.name,
+                        "type": getattr(upload, "content_type", "") or "text/csv",
+                        "size": len(content),
+                        "music_asset_kind": "IMPORT_SOURCE",
+                        "upload_source": "manual",
+                    },
+                    asset=asset_key,
+                    size=len(content),
+                    is_uploaded=True,
+                    created_by=request.user,
+                )
+                run = _record_import_run(
+                    workspace,
+                    file_asset=file_asset,
+                    source_name=upload.name,
+                    source="MANUAL",
+                    sheet=request.data.get("sheet"),
+                    rules={
+                        "mapping": mapping,
+                        "duplicate_strategy": strategy,
+                        "dedupe_by": dedupe_by,
+                        "value_overrides": value_overrides,
+                    },
+                    summary={k: result[k] for k in ("total", "created", "updated", "skipped")},
+                    touched=touched,
+                )
+                result["import_run_id"] = str(run.id)
+            if dry_run or aborted:
                 transaction.set_rollback(True)
-                result["aborted"] = not dry_run
+                result["aborted"] = bool(aborted)
+        if dry_run:
+            result["unparseable"] = {
+                field: [{"value": token, "count": count} for token, count in tokens.items()]
+                for field, tokens in unparseable.items()
+            }
         return Response(result, status=status.HTTP_200_OK if not result["errors"] else status.HTTP_207_MULTI_STATUS)
 
-    def _import_row(self, workspace, row, mapping, strategy, defaults=None):
+    def _import_row(self, workspace, row, mapping, strategy, defaults=None, dedupe_by="auto"):
         title = _mapped(row, mapping, "track.title")
         if not title:
             raise ValueError("Track title is empty")
         isrc = _mapped(row, mapping, "track.isrc").upper().replace("-", "")
         # Dedupe against SONGS only: music-video children share the parent's
         # title, so an unfiltered title match could wrongly hit the video.
+        # `dedupe_by` lets the user pick WHICH identifier defines a duplicate
+        # ("none" = always create, even with identical titles).
         songs = MusicTrack.objects.filter(workspace=workspace, parent_track__isnull=True)
-        track = songs.filter(isrc__iexact=isrc).first() if isrc else None
-        if not track:
-            track = songs.filter(
-                title__iexact=title,
-                original_release_date=_mapped_date(row, mapping, "track.original_release_date"),
-            ).first()
+        track = None
+        if dedupe_by == "none":
+            track = None
+        elif dedupe_by == "isrc":
+            track = songs.filter(isrc__iexact=isrc).first() if isrc else None
+        elif dedupe_by == "title":
+            track = songs.filter(title__iexact=title).first()
+        elif dedupe_by == "catalog":
+            catalog = _mapped(row, mapping, "track.catalog")
+            track = songs.filter(catalog__iexact=catalog).first() if catalog else None
+        elif dedupe_by == "upc":
+            upc = _mapped(row, mapping, "track.upc")
+            track = songs.filter(upc__iexact=upc).first() if upc else None
+        else:  # auto: ISRC first, then title + original release date
+            track = songs.filter(isrc__iexact=isrc).first() if isrc else None
+            if not track:
+                track = songs.filter(
+                    title__iexact=title,
+                    original_release_date=_mapped_date(row, mapping, "track.original_release_date"),
+                ).first()
         if track and strategy == "skip":
-            return "skipped"
+            return "skipped", track
         if track and strategy == "error":
             raise ValueError(f"Duplicate track: {isrc or title}")
 
@@ -972,6 +1165,8 @@ class MusicImportEndpoint(MusicBaseView):
             "version": _mapped(row, mapping, "track.version"),
             "isrc": isrc,
             "isrc_video": _mapped(row, mapping, "track.isrc_video").upper().replace("-", ""),
+            "catalog": _mapped(row, mapping, "track.catalog"),
+            "upc": _mapped(row, mapping, "track.upc"),
             "kind": _mapped(row, mapping, "track.kind") or MusicTrack.Kind.AUDIO,
             "status": _mapped(row, mapping, "track.status") or MusicTrack.Status.DRAFT,
             "release_date": _mapped_date(row, mapping, "track.release_date"),
@@ -1064,7 +1259,7 @@ class MusicImportEndpoint(MusicBaseView):
                 MusicDistribution.objects.get_or_create(workspace=workspace, track=track, company=company)
         self._import_links(workspace, track, row, mapping, values)
         self._apply_defaults(workspace, track, release, defaults or {})
-        return outcome
+        return outcome, track
 
     @staticmethod
     def _import_links(workspace, track, row, mapping, values):
