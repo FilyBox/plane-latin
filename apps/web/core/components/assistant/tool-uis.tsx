@@ -21,14 +21,12 @@ import {
   Search,
   Send,
   Settings2,
-  Trash2,
   WandSparkles,
 } from "lucide-react";
 import { makeAssistantToolUI, useAssistantRuntime } from "@assistant-ui/react";
 // plane imports
 import { API_BASE_URL } from "@plane/constants";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import { AlertModalCore } from "@plane/ui";
 import { SearchableSelect } from "../music-catalog/searchable-select";
 
 const card = "my-2 rounded-md border border-subtle bg-layer-1 p-3 text-13";
@@ -427,9 +425,6 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
   const [applied, setApplied] = useState<TImportProposal | null>(null);
   const [invalidRowStrategy, setInvalidRowStrategy] = useState<"abort" | "skip">("abort");
   const [rowOverrides, setRowOverrides] = useState<Record<string, Record<string, string>>>({});
-  const [isDeleteSourceOpen, setIsDeleteSourceOpen] = useState(false);
-  const [isDeletingSource, setIsDeletingSource] = useState(false);
-  const [sourceDeleted, setSourceDeleted] = useState(false);
   const [isAdjustOpen, setIsAdjustOpen] = useState(false);
   // Variable decisions taken after a validation don't wipe the result panel;
   // they mark it stale so the user re-validates before applying.
@@ -466,8 +461,6 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
     setApplied(null);
     setInvalidRowStrategy("abort");
     setRowOverrides({});
-    setIsDeleteSourceOpen(false);
-    setSourceDeleted(false);
     setIsAdjustOpen(false);
     setOverridesDirty(false);
     setState("idle");
@@ -539,31 +532,6 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
         title: "No se pudo importar",
         message: error instanceof Error ? error.message : "Import failed",
       });
-    }
-  };
-
-  const deleteSource = async () => {
-    setIsDeletingSource(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceSlug}/music/import-assets/`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", asset_ids: [assetId] }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? "Delete failed");
-      setSourceDeleted(true);
-      setIsDeleteSourceOpen(false);
-      setToast({ type: TOAST_TYPE.SUCCESS, title: "Archivo de origen eliminado" });
-    } catch (error: unknown) {
-      setToast({
-        type: TOAST_TYPE.ERROR,
-        title: "No se pudo eliminar el archivo",
-        message: error instanceof Error ? error.message : "Delete failed",
-      });
-    } finally {
-      setIsDeletingSource(false);
     }
   };
 
@@ -808,37 +776,10 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
         </div>
       )}
       {applied && (
-        <div className="mt-3 rounded-md border border-subtle bg-layer-2 p-3">
-          <p className="text-11 font-medium">¿Qué deseas hacer con el archivo de origen?</p>
-          <p className="mt-0.5 text-10 text-tertiary">
-            {sourceDeleted
-              ? "El archivo se eliminó. Los registros importados permanecen en Music."
-              : "Puedes conservarlo en Archivos de importación para consultarlo después o eliminarlo sin afectar los registros creados."}
-          </p>
-          {!sourceDeleted && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              <span className="rounded-sm border border-subtle bg-layer-1 px-2.5 py-1.5 text-11">
-                Conservar archivo
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsDeleteSourceOpen(true)}
-                className="flex items-center gap-1.5 rounded-sm border border-danger-subtle px-2.5 py-1.5 text-11 text-danger-primary hover:bg-danger-subtle"
-              >
-                <Trash2 className="size-3.5" /> Eliminar archivo
-              </button>
-            </div>
-          )}
-        </div>
+        <p className="mt-2 text-11 text-tertiary">
+          El archivo quedó guardado en Archivos de importación; los registros creados mantienen su referencia.
+        </p>
       )}
-      <AlertModalCore
-        isOpen={isDeleteSourceOpen}
-        isSubmitting={isDeletingSource}
-        handleClose={() => setIsDeleteSourceOpen(false)}
-        handleSubmit={() => void deleteSource()}
-        title="¿Eliminar el archivo de origen?"
-        content="El CSV o Excel dejará de estar disponible para Music y el asistente. Los registros ya importados no se eliminarán. Esta acción no se puede deshacer."
-      />
     </div>
   );
 }

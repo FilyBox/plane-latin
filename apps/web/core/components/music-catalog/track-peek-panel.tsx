@@ -379,6 +379,30 @@ export function MusicTrackPeekPanel(props: Props) {
   const saveField = (field: string) => async (value: string) => patch({ [field]: value || null });
   const saveBool = (field: string) => async (value: string) => patch({ [field]: value === "true" });
 
+  /** Accepts "3:16", "1:02:45" or plain seconds; empty clears the duration */
+  const saveDuration = async (value: string) => {
+    const raw = value.trim();
+    if (!raw) return patch({ duration_ms: null });
+    let ms: number | null = null;
+    const parts = raw.split(":");
+    if (parts.length === 2 || parts.length === 3) {
+      const nums = parts.map((part) => Number(part.trim()));
+      if (nums.every((num) => Number.isFinite(num) && num >= 0)) {
+        ms =
+          parts.length === 2
+            ? (nums[0] * 60 + nums[1]) * 1000
+            : (nums[0] * 3600 + nums[1] * 60 + nums[2]) * 1000;
+      }
+    } else if (/^\d+$/.test(raw)) {
+      ms = Number(raw) * 1000;
+    }
+    if (ms === null) {
+      setToast({ type: TOAST_TYPE.ERROR, title: "Duración inválida", message: "Usa m:ss (ej. 3:16) o segundos" });
+      return;
+    }
+    return patch({ duration_ms: Math.round(ms) });
+  };
+
   const uploadMedia = async (file: File | undefined, kind: "audio" | "cover") => {
     if (!file) return;
     setUploading(kind);
@@ -997,6 +1021,7 @@ export function MusicTrackPeekPanel(props: Props) {
                   ? `${Math.floor(track.duration_ms / 60000)}:${String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, "0")}`
                   : null
               }
+              onSave={saveDuration}
             />
           </section>
 
@@ -1775,6 +1800,12 @@ export function MusicTrackPeekPanel(props: Props) {
           if (creditPicker && partyId) void updateCredit(creditPicker.creditId, { party_id: partyId });
         }}
         onChanged={onResourcesChanged}
+      />
+      <FilePreviewModal
+        workspaceSlug={workspaceSlug}
+        file={previewImportFile}
+        onClose={() => setPreviewImportFile(null)}
+        scope="music"
       />
     </>
   );

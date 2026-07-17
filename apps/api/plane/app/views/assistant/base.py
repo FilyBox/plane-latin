@@ -83,7 +83,7 @@ class AssistantMusicImportEndpoint(BaseAPIView):
         if not isinstance(row_overrides, dict):
             return Response({"row_overrides": ["Must be an object"]}, status=status.HTTP_400_BAD_REQUEST)
         dry_run = bool(request.data.get("dry_run", False))
-        from plane.app.views.music.base import _apply_overrides, _record_import_run
+        from plane.app.views.music.base import _apply_overrides, _collect_unparsed, _record_import_run
 
         importer = MusicImportEndpoint()
         result = {
@@ -96,6 +96,7 @@ class AssistantMusicImportEndpoint(BaseAPIView):
             "aborted": False,
         }
         touched = []
+        unparseable = {}
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
                 effective_row, effective_mapping = _apply_row_overrides(
@@ -105,6 +106,10 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                 if skip_row:
                     result["skipped"] += 1
                     continue
+                if dry_run:
+                    for field, token in _collect_unparsed(effective_row, effective_mapping).items():
+                        tokens = unparseable.setdefault(field, {})
+                        tokens[token] = tokens.get(token, 0) + 1
                 try:
                     with transaction.atomic():
                         outcome, track = importer._import_row(
@@ -145,6 +150,11 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                 transaction.set_rollback(True)
                 result["aborted"] = bool(aborted)
         result["dry_run"] = dry_run
+        if dry_run:
+            result["unparseable"] = {
+                field: [{"value": token, "count": count} for token, count in tokens.items()]
+                for field, tokens in unparseable.items()
+            }
         return Response(result, status=status.HTTP_200_OK)
 
 

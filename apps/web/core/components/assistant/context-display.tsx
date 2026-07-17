@@ -67,7 +67,9 @@ export function AssistantContextDisplay({ model }: { model: string | null }) {
     return totals;
   }, [messages]);
   const total = usage?.totalTokens ?? 0;
-  if (!total && !spent.totalTokens) return null;
+  // Visible as soon as the conversation exists — with "—" until the stream
+  // delivers usage metadata, so a missing worker update is noticeable.
+  if (messages.length === 0) return null;
 
   const pricing = pricingFor(model);
   const cost = pricing ? costOf(spent, pricing) : null;
@@ -119,8 +121,8 @@ export function AssistantContextDisplay({ model }: { model: string | null }) {
             className={color}
           />
         </svg>
-        <span>{compact(total)}</span>
-        {cost !== null && <span className="text-tertiary">· {formatUsd(cost)}</span>}
+        <span>{total ? compact(total) : "—"}</span>
+        <span className="text-tertiary">· {cost !== null && spent.totalTokens ? formatUsd(cost) : "$—"}</span>
       </button>
     </Tooltip>
   );
