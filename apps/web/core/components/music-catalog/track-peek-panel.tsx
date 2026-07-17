@@ -16,6 +16,7 @@ import {
   Check,
   Copy,
   Download,
+  FileSpreadsheet,
   ExternalLink,
   ImagePlus,
   Link as LinkIcon,
@@ -41,6 +42,8 @@ import { cn, copyTextToClipboard } from "@plane/utils";
 // services
 import { fileLibraryService } from "@/services/file-library.service";
 import { musicService } from "@/services/music.service";
+import type { TPreviewFile } from "../file-library/file-preview-modal";
+import { FilePreviewModal } from "../file-library/file-preview-modal";
 // local imports
 import { AudioPreviewRange } from "./audio-preview-range";
 import { EditableField } from "./editable-field";
@@ -296,6 +299,7 @@ export function MusicTrackPeekPanel(props: Props) {
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [previewImportFile, setPreviewImportFile] = useState<TPreviewFile | null>(null);
   const [uploading, setUploading] = useState<"audio" | "cover" | null>(null);
   const [preview, setPreview] = useState({ start: 0, end: 0, duration: 0, dirty: false });
   const [isSavingPreview, setIsSavingPreview] = useState(false);
@@ -811,6 +815,27 @@ export function MusicTrackPeekPanel(props: Props) {
 
         {/* body */}
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+          {(track.import_sources?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-11 text-tertiary">Importado de</span>
+              {track.import_sources?.map((source) => (
+                <button
+                  key={source.id}
+                  type="button"
+                  disabled={!source.asset_id}
+                  title={`${source.action === "CREATED" ? "Creado" : source.action === "UPDATED" ? "Actualizado" : "Conservado"}${source.row_number ? ` · fila ${source.row_number}` : ""} · ${new Date(source.imported_at).toLocaleDateString()}`}
+                  onClick={() =>
+                    source.asset_id &&
+                    setPreviewImportFile({ assetId: source.asset_id, name: source.name, contentType: "" })
+                  }
+                  className="flex items-center gap-1 rounded-full border border-subtle px-2 py-0.5 text-11 text-secondary hover:border-accent-strong hover:text-accent-primary disabled:cursor-default disabled:hover:border-subtle disabled:hover:text-secondary"
+                >
+                  <FileSpreadsheet className="size-3" />
+                  <span className="max-w-40 truncate">{source.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {/* media: audio + TikTok preview (the cover lives in the header icon) */}
           <section className="space-y-2">
             <SectionTitle

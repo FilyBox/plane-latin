@@ -189,6 +189,7 @@ type TImportProposal = {
   selected_sheet?: string | null;
   canonical_fields?: string[];
   heuristic_mapping?: Record<string, string>;
+  unparseable?: Record<string, { value: string; count: number }[]>;
   proposal?: {
     asset_id: string;
     sheet: string | null;
@@ -196,8 +197,31 @@ type TImportProposal = {
     duplicate_strategy: string;
     invalid_row_strategy?: "abort" | "skip";
     row_overrides?: Record<string, Record<string, string>>;
+    dedupe_by?: string;
+    value_overrides?: Record<string, Record<string, string>>;
   };
 };
+
+/** Dry-run "variables": raw tokens no parser understood ("ringtone" as a
+ * duration). The agent resolves them via ask_user + value_overrides; this
+ * block keeps them visible on the card meanwhile. */
+function UnparseableNotice({ unparseable }: { unparseable?: TImportProposal["unparseable"] }) {
+  if (!unparseable || Object.keys(unparseable).length === 0) return null;
+  return (
+    <div className="mt-2 rounded-md border border-warning-strong bg-warning-subtle/30 p-2 text-11">
+      <p className="font-medium text-warning-primary">Valores no interpretables detectados</p>
+      <ul className="mt-1 space-y-0.5 text-secondary">
+        {Object.entries(unparseable).map(([field, tokens]) => (
+          <li key={field}>
+            <span className="font-mono">{field}</span>:{" "}
+            {tokens.map((token) => `"${token.value}" (${token.count})`).join(", ")}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-tertiary">El asistente te preguntará qué hacer con cada uno.</p>
+    </div>
+  );
+}
 
 function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal; workspaceSlug: string }) {
   const [state, setState] = useState<"idle" | "applying" | "done">("idle");
@@ -251,6 +275,7 @@ function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal
         {summary.total} filas → {summary.created} nuevas · {summary.updated} actualizadas · {summary.skipped} omitidas
         {summary.errors && summary.errors.length > 0 ? ` · ${summary.errors.length} errores` : ""}
       </p>
+      <UnparseableNotice unparseable={summary.unparseable} />
       {summary.errors && summary.errors.length > 0 && (
         <ul className="mt-1 max-h-24 overflow-y-auto text-11 text-danger-primary">
           {summary.errors.slice(0, 5).map((error) => (
@@ -494,6 +519,7 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
             {validation.skipped} omitidas
             {validation.errors?.length ? `, ${validation.errors.length} inválidas` : ". Ya puedes importar."}
           </p>
+          <UnparseableNotice unparseable={validation.unparseable} />
         </div>
       )}
       {validation?.errors && validation.errors.length > 0 && (

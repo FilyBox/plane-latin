@@ -51,6 +51,13 @@ export class MusicService extends APIService {
     );
   }
 
+  /** Just the ids matching the filters — powers "select all matching" */
+  getTrackIds(workspaceSlug: string, filters: TMusicFilters = {}) {
+    return this.data<{ ids: string[] }>(
+      this.get(`/api/workspaces/${workspaceSlug}/music/tracks/`, { params: { ...filters, ids_only: "true" } })
+    );
+  }
+
   saveTrack(workspaceSlug: string, track: Partial<TMusicTrack> & Record<string, unknown>) {
     const request = track.id
       ? this.patch(`/api/workspaces/${workspaceSlug}/music/tracks/${track.id}/`, track)

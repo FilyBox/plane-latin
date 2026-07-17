@@ -39,9 +39,12 @@ ${
   1. mode=read → recibes columnas, filas de muestra Y column_samples: por CADA columna, hasta 5 valores no-vacíos tomados de TODO el archivo más su conteo de llenado (non_empty/total). Una columna puede venir vacía en las primeras mil filas y tener datos después — column_samples es tu fuente de verdad para clasificarla, no las filas de muestra.
   2. Analiza el CONTENIDO de cada columna (sus examples), no solo su nombre: una columna sin nombre útil cuyo contenido son URLs de YouTube se mapea a track.video_url; URLs de Spotify/Apple Music a track.streaming_url; códigos tipo "USRC17607839" son ISRC aunque la columna se llame "código"; fechas se reconocen por su formato. Los campos canónicos disponibles vienen en canonical_fields. Reporta al usuario columnas con muy pocos datos (non_empty bajo) por si son basura.
   3. Si una columna es ambigua (no sabes a qué campo va), si hay columnas importantes sin mapeo posible, o si hay que elegir entre interpretaciones, usa ask_user ANTES de proponer — no adivines en silencio.
-  4. mode=propose con el mapping → recibes el dry-run (created/updated/skipped/errors).
-  5. Si el dry-run trae errores por fila, explícalos y usa ask_user para decidir cómo resolverlos (corregir mapping, cambiar duplicate_strategy, ignorar esas filas).
-  6. Cuando el resultado sea correcto, dile al usuario que presione "Aplicar importación" en la tarjeta.
+  4. mode=propose con el mapping → recibes el dry-run (created/updated/skipped/errors + unparseable).
+  5. VARIABLES: el campo "unparseable" del dry-run lista, por campo, los valores que NO se pudieron interpretar (p. ej. una columna de duración con "ringtone" en vez de 3:16 — suelen ser palabras usadas como valor predefinido). Por CADA token distinto usa ask_user con opciones: asignarle un valor concreto (p. ej. ringtone = 0:30), dejar la celda vacía, u omitir esas filas completas. Aplica la decisión con value_overrides (ej. track.duration_ms → ringtone → "0:30"; cadena vacía = celda vacía; "__SKIP_ROW__" = omitir fila) y vuelve a proponer.
+  6. DUPLICADOS: si el dry-run marca updated/skipped que el usuario no esperaba, puede ser que títulos repetidos tengan identificadores distintos (ISRC, catálogo, UPC). Pregunta con ask_user qué identificador define un duplicado (título / ISRC / catálogo / UPC) y qué hacer (conservar todos = dedupe_by "none", actualizar = strategy "update", omitir = "skip"), y re-propone con dedupe_by.
+  7. Si el dry-run trae errores por fila, explícalos y usa ask_user para decidir cómo resolverlos (corregir mapping, row_overrides, cambiar duplicate_strategy, ignorar esas filas).
+  8. Cuando el resultado sea correcto, dile al usuario que presione "Aplicar importación" en la tarjeta.
+  9. ACTUALIZAR DESPUÉS: si el usuario descubre más tarde el valor de una variable que omitió, puede re-importar el MISMO archivo (list_music_files lo encuentra, o que lo re-adjunte) con duplicate_strategy "update", dedupe_by por su identificador y el value_overrides nuevo — solo se actualizarán los campos mapeados.
 - update_music_track: cuando pidan modificar una canción (agregar link de video, ISRC, fechas). Devuelve una propuesta de cambio que el usuario confirma en la UI.`
     : ""
 }
@@ -220,6 +223,18 @@ function buildTools(env: Env, body: AssistantChatRequest) {
           .record(z.string(), z.record(z.string(), z.string()))
           .optional()
           .describe("Correcciones por numero de fila: fila -> campo canonico -> valor de reemplazo"),
+        dedupe_by: z
+          .enum(["auto", "isrc", "title", "catalog", "upc", "none"])
+          .optional()
+          .describe(
+            "Qué identificador define un duplicado. 'none' = conservar todos (crea aunque el título se repita); 'auto' = ISRC y luego título+fecha"
+          ),
+        value_overrides: z
+          .record(z.string(), z.record(z.string(), z.string()))
+          .optional()
+          .describe(
+            'Resolución de "variables" (valores no parseables repetidos): campo canónico -> {token en minúsculas -> reemplazo}. "" deja la celda vacía; "__SKIP_ROW__" omite la fila completa. Ej: {"track.duration_ms": {"ringtone": "0:30"}}'
+          ),
       }),
       execute: async ({
         asset_id,
@@ -229,6 +244,8 @@ function buildTools(env: Env, body: AssistantChatRequest) {
         duplicate_strategy,
         invalid_row_strategy,
         row_overrides,
+        dedupe_by,
+        value_overrides,
       }) => {
         if (mode === "read") {
           const inspected = await api.request<Record<string, unknown>>(
@@ -249,6 +266,8 @@ function buildTools(env: Env, body: AssistantChatRequest) {
             duplicate_strategy: duplicate_strategy ?? "skip",
             invalid_row_strategy: invalid_row_strategy ?? "abort",
             row_overrides: row_overrides ?? {},
+            dedupe_by: dedupe_by ?? "auto",
+            value_overrides: value_overrides ?? {},
             dry_run: true,
           }
         );
@@ -262,6 +281,8 @@ function buildTools(env: Env, body: AssistantChatRequest) {
             duplicate_strategy: duplicate_strategy ?? "skip",
             invalid_row_strategy: invalid_row_strategy ?? "abort",
             row_overrides: row_overrides ?? {},
+            dedupe_by: dedupe_by ?? "auto",
+            value_overrides: value_overrides ?? {},
           },
         };
       },

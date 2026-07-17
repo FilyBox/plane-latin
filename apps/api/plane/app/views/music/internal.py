@@ -229,22 +229,67 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
             return Response({"error": "mapping['track.title'] is required"}, status=status.HTTP_400_BAD_REQUEST)
         defaults = request.data.get("defaults") or {}
         strategy = request.data.get("duplicate_strategy", "skip")
+        dedupe_by = request.data.get("dedupe_by", "auto")
+        value_overrides = request.data.get("value_overrides") or {}
+        row_overrides = request.data.get("row_overrides") or {}
+        invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
         dry_run = bool(request.data.get("dry_run", True))
 
         from django.db import transaction
 
+        from .base import _apply_overrides, _apply_row_overrides, _collect_unparsed, _record_import_run
+
         importer = MusicImportEndpoint()
         workspace = asset.workspace
         result = {"total": len(rows), "created": 0, "updated": 0, "skipped": 0, "errors": []}
+        unparseable = {}
+        touched = []
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
+                row, mapping_for_row = _apply_row_overrides(row, mapping, row_overrides.get(str(index), {}))
+                effective_row, skip_row = _apply_overrides(row, mapping_for_row, value_overrides)
+                if skip_row:
+                    result["skipped"] += 1
+                    continue
+                if dry_run:
+                    for field, token in _collect_unparsed(effective_row, mapping_for_row).items():
+                        tokens = unparseable.setdefault(field, {})
+                        tokens[token] = tokens.get(token, 0) + 1
                 try:
                     with transaction.atomic():
-                        outcome = importer._import_row(workspace, row, mapping, strategy, defaults)
+                        outcome, track = importer._import_row(
+                            workspace, effective_row, mapping_for_row, strategy, defaults, dedupe_by
+                        )
                     result[outcome] += 1
+                    if track is not None:
+                        touched.append((track.id, outcome, index))
                 except Exception as exc:
                     result["errors"].append({"row": index, "message": str(exc)[:300]})
-            if dry_run:
+            aborted = result["errors"] and invalid_row_strategy == "abort"
+            result["aborted"] = bool(aborted and not dry_run)
+            if not dry_run and not aborted:
+                run = _record_import_run(
+                    workspace,
+                    file_asset=asset,
+                    source_name=(asset.attributes or {}).get("name") or asset.asset.name,
+                    source="ASSISTANT",
+                    sheet=sheet,
+                    rules={
+                        "mapping": mapping,
+                        "duplicate_strategy": strategy,
+                        "dedupe_by": dedupe_by,
+                        "value_overrides": value_overrides,
+                    },
+                    summary={k: result[k] for k in ("total", "created", "updated", "skipped")},
+                    touched=touched,
+                )
+                result["import_run_id"] = str(run.id)
+            if dry_run or aborted:
                 transaction.set_rollback(True)
         result["dry_run"] = dry_run
+        if dry_run:
+            result["unparseable"] = {
+                field: [{"value": token, "count": count} for token, count in tokens.items()]
+                for field, tokens in unparseable.items()
+            }
         return Response(result, status=status.HTTP_200_OK)

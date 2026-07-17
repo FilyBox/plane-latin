@@ -6,6 +6,10 @@ import { cn } from "@plane/utils";
 
 type Props = {
   selectedCount: number;
+  /** Total rows matching the active filters (for select-all-matching) */
+  totalMatching?: number;
+  isSelectingAll?: boolean;
+  onSelectAllMatching?: () => void;
   page: number;
   totalPages: number;
   isBusy?: boolean;
@@ -23,6 +27,9 @@ const actionButton =
 export function MusicTableActionBar(props: Props) {
   const {
     selectedCount,
+    totalMatching = 0,
+    isSelectingAll = false,
+    onSelectAllMatching,
     page,
     totalPages,
     isBusy = false,
@@ -62,8 +69,21 @@ export function MusicTableActionBar(props: Props) {
                 animate={{ opacity: 1, x: 0 }}
                 className="shrink-0 px-1.5 text-12 font-medium text-primary"
               >
-                {selectedCount} selected
+                {selectedCount} seleccionadas
               </motion.span>
+              {onSelectAllMatching && totalMatching > selectedCount && (
+                <button
+                  type="button"
+                  disabled={isBusy || isSelectingAll}
+                  onClick={onSelectAllMatching}
+                  className={cn(
+                    "shrink-0 rounded-full border border-accent-strong px-2.5 py-1 text-11 font-medium text-accent-primary hover:bg-accent-primary/10",
+                    (isBusy || isSelectingAll) && "pointer-events-none opacity-50"
+                  )}
+                >
+                  {isSelectingAll ? "Seleccionando…" : `Seleccionar las ${totalMatching} con filtros`}
+                </button>
+              )}
               <span className="bg-subtle mx-0.5 h-5 w-px shrink-0" />
               <button
                 type="button"
@@ -129,7 +149,6 @@ export function MusicTableActionBar(props: Props) {
             onClick={onPrevious}
           >
             <ChevronLeft className="size-4" />
-            <span className="hidden sm:inline">Previous</span>
           </Button>
           <Button
             variant="secondary"
@@ -138,7 +157,6 @@ export function MusicTableActionBar(props: Props) {
             disabled={page >= totalPages || isBusy}
             onClick={onNext}
           >
-            <span className="hidden sm:inline">Next</span>
             <ChevronRight className="size-4" />
           </Button>
         </motion.div>

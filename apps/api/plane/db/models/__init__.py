@@ -43,6 +43,7 @@ from .music import (
     MusicCredit,
     MusicDistribution,
     MusicGenre,
+    MusicImportRun,
     MusicLink,
     MusicParty,
     MusicRelease,
@@ -50,6 +51,7 @@ from .music import (
     MusicReleaseTrack,
     MusicTrack,
     MusicTrackGenre,
+    MusicTrackImport,
 )
 from .payroll import Adjustment, Employee, Office, PayrollAccess, PayrollPayment, Salary
 from .contract import (

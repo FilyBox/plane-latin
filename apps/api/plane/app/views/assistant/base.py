@@ -71,6 +71,8 @@ class AssistantMusicImportEndpoint(BaseAPIView):
             return Response({"error": f"Could not read spreadsheet: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
 
         strategy = request.data.get("duplicate_strategy", "skip")
+        dedupe_by = request.data.get("dedupe_by", "auto")
+        value_overrides = request.data.get("value_overrides") or {}
         invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
         if invalid_row_strategy not in ("abort", "skip"):
             return Response(
@@ -81,6 +83,8 @@ class AssistantMusicImportEndpoint(BaseAPIView):
         if not isinstance(row_overrides, dict):
             return Response({"row_overrides": ["Must be an object"]}, status=status.HTTP_400_BAD_REQUEST)
         dry_run = bool(request.data.get("dry_run", False))
+        from plane.app.views.music.base import _apply_overrides, _record_import_run
+
         importer = MusicImportEndpoint()
         result = {
             "total": len(rows),
@@ -91,28 +95,55 @@ class AssistantMusicImportEndpoint(BaseAPIView):
             "invalid_row_strategy": invalid_row_strategy,
             "aborted": False,
         }
+        touched = []
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
                 effective_row, effective_mapping = _apply_row_overrides(
                     row, mapping, row_overrides.get(str(index), {})
                 )
+                effective_row, skip_row = _apply_overrides(effective_row, effective_mapping, value_overrides)
+                if skip_row:
+                    result["skipped"] += 1
+                    continue
                 try:
                     with transaction.atomic():
-                        outcome = importer._import_row(
+                        outcome, track = importer._import_row(
                             workspace,
                             effective_row,
                             effective_mapping,
                             strategy,
                             request.data.get("defaults") or {},
+                            dedupe_by,
                         )
                     result[outcome] += 1
+                    if track is not None:
+                        touched.append((track.id, outcome, index))
                 except Exception as exc:
                     result["errors"].append(
                         _import_error_detail(index, exc, effective_row, effective_mapping)
                     )
-            if dry_run or (result["errors"] and invalid_row_strategy == "abort"):
+            aborted = result["errors"] and invalid_row_strategy == "abort"
+            if not dry_run and not aborted:
+                asset = FileAsset.objects.get(id=asset_id, workspace=workspace)
+                run = _record_import_run(
+                    workspace,
+                    file_asset=asset,
+                    source_name=(asset.attributes or {}).get("name") or asset.asset.name,
+                    source="ASSISTANT",
+                    sheet=request.data.get("sheet"),
+                    rules={
+                        "mapping": mapping,
+                        "duplicate_strategy": strategy,
+                        "dedupe_by": dedupe_by,
+                        "value_overrides": value_overrides,
+                    },
+                    summary={k: result[k] for k in ("total", "created", "updated", "skipped")},
+                    touched=touched,
+                )
+                result["import_run_id"] = str(run.id)
+            if dry_run or aborted:
                 transaction.set_rollback(True)
-                result["aborted"] = not dry_run
+                result["aborted"] = bool(aborted)
         result["dry_run"] = dry_run
         return Response(result, status=status.HTTP_200_OK)
 

@@ -108,6 +108,7 @@ class MusicTrackSerializer(BaseSerializer):
     links = MusicLinkSerializer(many=True, read_only=True)
     distributions = MusicDistributionSerializer(many=True, read_only=True)
     video_details = serializers.SerializerMethodField()
+    import_sources = serializers.SerializerMethodField()
 
     def to_internal_value(self, data):
         # HTML forms commonly represent optional numeric inputs as an empty
@@ -152,6 +153,20 @@ class MusicTrackSerializer(BaseSerializer):
                 "track_number": link.track_number,
             }
             for link in obj.release_links.all()
+        ]
+
+    def get_import_sources(self, obj):
+        return [
+            {
+                "id": str(link.import_run_id),
+                "asset_id": str(link.import_run.file_asset_id) if link.import_run.file_asset_id else None,
+                "name": link.import_run.source_name,
+                "source": link.import_run.source,
+                "action": link.action,
+                "row_number": link.row_number,
+                "imported_at": link.import_run.created_at,
+            }
+            for link in obj.import_links.all()
         ]
 
     @staticmethod
