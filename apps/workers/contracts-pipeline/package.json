@@ -9,16 +9,16 @@
     "types": "wrangler types",
     "check:types": "tsc --noEmit"
   },
+  "dependencies": {
+    "@ai-sdk/deepseek": "^3.0.11",
+    "@ai-sdk/google": "^4.0.17",
+    "ai": "^7.0.30",
+    "aws4fetch": "^1.0.20",
+    "zod": "catalog:"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260708.1",
     "typescript": "^5.8.0",
     "wrangler": "^4.20.0"
-  },
-  "dependencies": {
-    "@ai-sdk/deepseek": "^2.0.49",
-    "@ai-sdk/google": "^3.0.93",
-    "ai": "^6.0.226",
-    "aws4fetch": "^1.0.20",
-    "zod": "catalog:"
   }
 }

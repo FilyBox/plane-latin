@@ -17,9 +17,10 @@
     "fix:format": "oxfmt ."
   },
   "dependencies": {
-    "@assistant-ui/react": "^0.14.26",
-    "@assistant-ui/react-ai-sdk": "^1.3.40",
-    "@assistant-ui/react-markdown": "^0.14.5",
+    "@ai-sdk/react": "^4.0.33",
+    "@assistant-ui/react": "^0.14.27",
+    "@assistant-ui/react-ai-sdk": "^1.3.41",
+    "@assistant-ui/react-markdown": "^0.14.6",
     "@atlaskit/pragmatic-drag-and-drop": "catalog:",
     "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "catalog:",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "catalog:",
@@ -43,6 +44,7 @@
     "@react-pdf/renderer": "catalog:",
     "@react-router/node": "catalog:",
     "@tanstack/react-table": "catalog:",
+    "ai": "^7.0.30",
     "axios": "catalog:",
     "clsx": "catalog:",
     "cmdk": "catalog:",

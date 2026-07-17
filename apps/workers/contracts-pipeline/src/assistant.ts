@@ -8,7 +8,7 @@
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel, ToolSet, UIMessage } from "ai";
-import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
+import { convertToModelMessages, createUIMessageStreamResponse, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 
 import { generateEmbeddings, listChatModels } from "./lib/ai";
@@ -307,7 +307,13 @@ export async function handleAssistantChat(env: Env, body: AssistantChatRequest):
     },
   });
 
-  return result.toUIMessageStreamResponse({
-    messageMetadata: ({ part }) => (part.type === "finish" ? { model: id, usage: part.totalUsage } : { model: id }),
+  return createUIMessageStreamResponse({
+    stream: result.toUIMessageStream({
+      messageMetadata: ({ part }) => {
+        if (part.type === "finish") return { usage: part.totalUsage };
+        if (part.type === "finish-step") return { modelId: part.response.modelId || id };
+        return undefined;
+      },
+    }),
   });
 }
