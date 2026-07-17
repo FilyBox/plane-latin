@@ -1,5 +1,6 @@
 from datetime import date, datetime, time, timedelta
 from io import BytesIO
+import json
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -14,6 +15,7 @@ from plane.app.views.music.base import (
     _duration_ms,
     _filter_tracks,
     _import_error_message,
+    _import_error_detail,
     _infer_mapping,
     _music_schema_ready,
     _read_table,
@@ -374,3 +376,70 @@ def test_xlsx_reader_preserves_excel_dates_and_detects_headers():
     assert rows[0]["Album Release Date"] == datetime(2024, 12, 13)
     assert sheets
     assert header_row == 1
+
+
+@pytest.mark.unit
+def test_import_error_detail_explains_required_field_and_serializes_row_values():
+    detail = _import_error_detail(
+        7,
+        ValueError("Track title is empty"),
+        {"Song": "", "Release date": date(2025, 4, 2)},
+        {"track.title": "Song", "track.release_date": "Release date"},
+    )
+
+    assert detail == {
+        "row": 7,
+        "code": "REQUIRED_FIELD",
+        "field": "track.title",
+        "column": "Song",
+        "value": "",
+        "message": "Track title is empty",
+        "row_data": {"Song": "", "Release date": "2025-04-02"},
+    }
+
+
+def _import_request(workspace, invalid_row_strategy):
+    upload = SimpleUploadedFile(
+        "validation.csv",
+        b"Song,ISRC\nValid song,\n,USAAA2600001\n",
+        content_type="text/csv",
+    )
+    view = MusicImportEndpoint()
+    request = view.initialize_request(
+        APIRequestFactory().post(
+            "/",
+            {
+                "file": upload,
+                "mapping": json.dumps({"track.title": "Song", "track.isrc": "ISRC"}),
+                "invalid_row_strategy": invalid_row_strategy,
+                "dry_run": "false",
+            },
+            format="multipart",
+        )
+    )
+    return MusicImportEndpoint.post.__wrapped__(view, request, workspace.slug)
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_import_abort_rolls_back_valid_rows_when_any_row_is_invalid():
+    workspace = WorkspaceFactory()
+
+    response = _import_request(workspace, "abort")
+
+    assert response.data["aborted"] is True
+    assert response.data["errors"][0]["row"] == 3
+    assert not MusicTrack.objects.filter(workspace=workspace).exists()
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_import_skip_commits_valid_rows_and_reports_invalid_rows():
+    workspace = WorkspaceFactory()
+
+    response = _import_request(workspace, "skip")
+
+    assert response.data["aborted"] is False
+    assert response.data["created"] == 1
+    assert response.data["errors"][0]["code"] == "REQUIRED_FIELD"
+    assert MusicTrack.objects.filter(workspace=workspace, title="Valid song").exists()

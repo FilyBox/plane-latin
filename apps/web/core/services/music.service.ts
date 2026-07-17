@@ -7,6 +7,7 @@ import type {
   TMusicGenre,
   TMusicImportResult,
   TMusicImportPreview,
+  TMusicImportAsset,
   TMusicParty,
   TMusicRelease,
   TMusicTrack,
@@ -130,7 +131,9 @@ export class MusicService extends APIService {
     duplicateStrategy: "skip" | "update" | "error",
     dryRun: boolean,
     sheet?: string,
-    defaults: Record<string, unknown> = {}
+    defaults: Record<string, unknown> = {},
+    invalidRowStrategy: "abort" | "skip" = "abort",
+    rowOverrides: Record<string, Record<string, string>> = {}
   ) {
     const data = new FormData();
     data.append("file", file);
@@ -138,10 +141,27 @@ export class MusicService extends APIService {
     data.append("duplicate_strategy", duplicateStrategy);
     data.append("dry_run", String(dryRun));
     data.append("defaults", JSON.stringify(defaults));
+    data.append("invalid_row_strategy", invalidRowStrategy);
+    data.append("row_overrides", JSON.stringify(rowOverrides));
     if (sheet) data.append("sheet", sheet);
     return this.data<TMusicImportResult>(
       this.post(`/api/workspaces/${workspaceSlug}/music/import/`, data, {
         headers: { "Content-Type": "multipart/form-data" },
+      })
+    );
+  }
+
+  getImportAssets(workspaceSlug: string, search = "") {
+    return this.data<{ results: TMusicImportAsset[] }>(
+      this.get(`/api/workspaces/${workspaceSlug}/music/import-assets/`, { params: { search } })
+    );
+  }
+
+  deleteImportAssets(workspaceSlug: string, assetIds: string[]) {
+    return this.data<{ deleted: number; not_found: number }>(
+      this.post(`/api/workspaces/${workspaceSlug}/music/import-assets/`, {
+        action: "delete",
+        asset_ids: assetIds,
       })
     );
   }

@@ -230,13 +230,15 @@ export class FileLibraryService extends APIService {
     file: File,
     uploadProgressHandler?: AxiosRequestConfig["onUploadProgress"],
     folderId?: string | null,
-    scope?: "music"
+    scope?: "music",
+    attributes?: Record<string, string>
   ): Promise<TLibraryFileUploadResponse> {
     const fileMetaData = await getFileMetaDataForUpload(file);
     return this.post(`/api/workspaces/${workspaceSlug}/file-library/files/`, {
       ...fileMetaData,
       folder_id: folderId ?? undefined,
       scope,
+      attributes,
     })
       .then(async (response) => {
         const uploadResponse: TLibraryFileUploadResponse = response?.data;
@@ -281,9 +283,9 @@ export class FileLibraryService extends APIService {
   }
 
   /** Resolves the storage presigned URL so in-app viewers can fetch the file directly */
-  async getPresignedViewUrl(workspaceSlug: string, assetId: string): Promise<string> {
+  async getPresignedViewUrl(workspaceSlug: string, assetId: string, scope?: "music"): Promise<string> {
     return this.get(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/`, {
-      params: { response: "json" },
+      params: { response: "json", scope },
     })
       .then((response) => response?.data?.url)
       .catch((error) => {

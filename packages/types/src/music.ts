@@ -184,12 +184,33 @@ export type TMusicCatalogOptions = {
   import_fields: string[];
 };
 
+export type TMusicImportError = {
+  row: number;
+  code: "REQUIRED_FIELD" | "DUPLICATE" | "DATABASE_NOT_READY" | "ROW_VALIDATION_ERROR" | string;
+  field: string | null;
+  column: string | null;
+  value: unknown;
+  message: string;
+  row_data: Record<string, unknown>;
+};
+
 export type TMusicImportResult = {
   total: number;
   created: number;
   updated: number;
   skipped: number;
-  errors: { row: number; message: string }[];
+  errors: TMusicImportError[];
+  invalid_row_strategy: "abort" | "skip";
+  aborted: boolean;
+};
+
+export type TMusicImportAsset = {
+  id: string;
+  name: string;
+  content_type: string;
+  size: number;
+  upload_source: "manual" | "assistant" | string;
+  created_at: string;
 };
 
 export type TMusicImportPreview = {

@@ -8,6 +8,7 @@
 import { handleAssistantChat, listAssistantModels, type AssistantChatRequest } from "./assistant";
 import { handleChat, type ChatRequest } from "./chat";
 import { listChatModels } from "./lib/ai";
+import { WorkerConfigurationError } from "./lib/internal-api";
 import { ContractPipelineWorkflow, type PipelineParams } from "./workflows/contract-pipeline";
 import { ContractQueryWorkflow, type QueryParams } from "./workflows/contract-query";
 
@@ -100,6 +101,23 @@ export default {
 
       return Response.json({ error: "Not found" }, { status: 404 });
     } catch (error) {
+      if (error instanceof WorkerConfigurationError) {
+        console.error(
+          JSON.stringify({
+            message: "worker configuration is incomplete",
+            path: url.pathname,
+            missing: error.missing,
+          })
+        );
+        return Response.json(
+          {
+            error: "The assistant service is not configured correctly",
+            code: error.code,
+            missing: error.missing,
+          },
+          { status: 503 }
+        );
+      }
       const message = error instanceof Error ? error.message : String(error);
       console.error(JSON.stringify({ message: "trigger failed", path: url.pathname, error: message }));
       return Response.json({ error: "Internal error" }, { status: 500 });

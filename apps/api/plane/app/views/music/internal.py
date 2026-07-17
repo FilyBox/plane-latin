@@ -105,6 +105,7 @@ class InternalWorkspaceAssetsEndpoint(InternalMusicBaseView):
         assets = FileAsset.objects.filter(
             workspace_id=workspace_id,
             entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
+            attributes__music_asset_kind="IMPORT_SOURCE",
             is_uploaded=True,
             is_deleted=False,
         ).order_by("-created_at")

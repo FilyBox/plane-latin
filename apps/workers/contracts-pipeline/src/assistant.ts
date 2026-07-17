@@ -51,7 +51,9 @@ Reglas:
 - No inventes datos: si una tool no devuelve resultados, dilo.
 - Para listados largos, muestra un resumen y ofrece el Excel.
 - Fechas siempre en formato ISO (YYYY-MM-DD) al llamar tools.
-- Los archivos adjuntados en el chat llegan con su asset_id — úsalo directo, no llames list_music_files para buscarlos.`;
+- Los archivos adjuntados en el chat llegan con su asset_id — úsalo directo, no llames list_music_files para buscarlos.
+- Toda importación debe ejecutar propose_music_import en mode=propose antes de aplicar. Si la validación devuelve errores, explica fila, campo y causa; no apliques hasta que el usuario elija omitirlos o corregirlos.
+- Cuando el usuario pida ayuda para corregir filas inválidas, propone únicamente valores seguros mediante row_overrides y vuelve a validar en mode=propose. Nunca inventes identificadores legales, ISRC, UPC o porcentajes.`;
 
 const LANGUAGE_PROMPT = (locale?: string | null) => `
 IDIOMA OBLIGATORIO:
@@ -213,8 +215,21 @@ function buildTools(env: Env, body: AssistantChatRequest) {
           .optional()
           .describe("Solo en propose: campo canónico → columna del archivo"),
         duplicate_strategy: z.enum(["skip", "update", "error"]).optional(),
+        invalid_row_strategy: z.enum(["abort", "skip"]).optional(),
+        row_overrides: z
+          .record(z.string(), z.record(z.string(), z.string()))
+          .optional()
+          .describe("Correcciones por numero de fila: fila -> campo canonico -> valor de reemplazo"),
       }),
-      execute: async ({ asset_id, mode, sheet, mapping, duplicate_strategy }) => {
+      execute: async ({
+        asset_id,
+        mode,
+        sheet,
+        mapping,
+        duplicate_strategy,
+        invalid_row_strategy,
+        row_overrides,
+      }) => {
         if (mode === "read") {
           const inspected = await api.request<Record<string, unknown>>(
             "POST",
@@ -232,13 +247,22 @@ function buildTools(env: Env, body: AssistantChatRequest) {
             mode: "import",
             mapping,
             duplicate_strategy: duplicate_strategy ?? "skip",
+            invalid_row_strategy: invalid_row_strategy ?? "abort",
+            row_overrides: row_overrides ?? {},
             dry_run: true,
           }
         );
         // Everything the Apply button needs travels in the tool result
         return {
           ...result,
-          proposal: { asset_id, sheet: sheet ?? null, mapping, duplicate_strategy: duplicate_strategy ?? "skip" },
+          proposal: {
+            asset_id,
+            sheet: sheet ?? null,
+            mapping,
+            duplicate_strategy: duplicate_strategy ?? "skip",
+            invalid_row_strategy: invalid_row_strategy ?? "abort",
+            row_overrides: row_overrides ?? {},
+          },
         };
       },
     });

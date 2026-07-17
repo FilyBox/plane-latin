@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Cloudflare Worker + Workflows running the Plane contracts AI pipeline",
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
     "types": "wrangler types",
     "check:types": "tsc --noEmit"
   },

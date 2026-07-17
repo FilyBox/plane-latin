@@ -49,7 +49,7 @@ class AssistantMusicImportEndpoint(BaseAPIView):
     def post(self, request, slug):
         from django.db import transaction
 
-        from plane.app.views.music.base import MusicImportEndpoint
+        from plane.app.views.music.base import MusicImportEndpoint, _apply_row_overrides, _import_error_detail
         from plane.app.views.music.internal import _load_asset_table
         from plane.db.models import FileAsset
 
@@ -71,19 +71,48 @@ class AssistantMusicImportEndpoint(BaseAPIView):
             return Response({"error": f"Could not read spreadsheet: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
 
         strategy = request.data.get("duplicate_strategy", "skip")
+        invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
+        if invalid_row_strategy not in ("abort", "skip"):
+            return Response(
+                {"invalid_row_strategy": ["Use abort or skip"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        row_overrides = request.data.get("row_overrides") or {}
+        if not isinstance(row_overrides, dict):
+            return Response({"row_overrides": ["Must be an object"]}, status=status.HTTP_400_BAD_REQUEST)
         dry_run = bool(request.data.get("dry_run", False))
         importer = MusicImportEndpoint()
-        result = {"total": len(rows), "created": 0, "updated": 0, "skipped": 0, "errors": []}
+        result = {
+            "total": len(rows),
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": [],
+            "invalid_row_strategy": invalid_row_strategy,
+            "aborted": False,
+        }
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
+                effective_row, effective_mapping = _apply_row_overrides(
+                    row, mapping, row_overrides.get(str(index), {})
+                )
                 try:
                     with transaction.atomic():
-                        outcome = importer._import_row(workspace, row, mapping, strategy, request.data.get("defaults") or {})
+                        outcome = importer._import_row(
+                            workspace,
+                            effective_row,
+                            effective_mapping,
+                            strategy,
+                            request.data.get("defaults") or {},
+                        )
                     result[outcome] += 1
                 except Exception as exc:
-                    result["errors"].append({"row": index, "message": str(exc)[:300]})
-            if dry_run:
+                    result["errors"].append(
+                        _import_error_detail(index, exc, effective_row, effective_mapping)
+                    )
+            if dry_run or (result["errors"] and invalid_row_strategy == "abort"):
                 transaction.set_rollback(True)
+                result["aborted"] = not dry_run
         result["dry_run"] = dry_run
         return Response(result, status=status.HTTP_200_OK)
 

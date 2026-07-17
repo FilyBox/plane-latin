@@ -11,6 +11,8 @@ import type {
   TMusicParty,
   TMusicRelease,
 } from "@plane/types";
+import { AlertModalCore } from "@plane/ui";
+import { fileLibraryService } from "@/services/file-library.service";
 import { musicService } from "@/services/music.service";
 import { BudgetPeekPanel } from "../payments/budget-peek-panel";
 import { MusicResourcePickerModal, type MusicResourceType } from "./resource-picker-modal";
@@ -46,6 +48,7 @@ export function MusicImportModal({
   onResourcesChanged,
 }: Props) {
   const [file, setFile] = useState<File>();
+  const [assetId, setAssetId] = useState<string>();
   const [preview, setPreview] = useState<TMusicImportPreview>();
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [strategy, setStrategy] = useState<"skip" | "update" | "error">("skip");
@@ -58,6 +61,10 @@ export function MusicImportModal({
   const [picker, setPicker] = useState<{ type: MusicResourceType; defaultKind?: string }>();
   const [fieldQuery, setFieldQuery] = useState("");
   const [validatedKey, setValidatedKey] = useState<string>();
+  const [invalidRowStrategy, setInvalidRowStrategy] = useState<"abort" | "skip">("abort");
+  const [rowOverrides, setRowOverrides] = useState<Record<string, Record<string, string>>>({});
+  const [hasApplied, setHasApplied] = useState(false);
+  const [isDeleteSourceOpen, setIsDeleteSourceOpen] = useState(false);
 
   const missingRequired = REQUIRED_IMPORT_FIELDS.filter((field) => !mapping[field]);
   const validationKey = JSON.stringify({
@@ -68,6 +75,7 @@ export function MusicImportModal({
     defaultCompanyIds,
     defaultGenreIds,
     defaultReleaseIds,
+    rowOverrides,
   });
   const visibleFields = useMemo(() => {
     const query = fieldQuery.trim().toLowerCase();
@@ -78,6 +86,7 @@ export function MusicImportModal({
   useEffect(() => {
     if (!isOpen) return;
     setFile(undefined);
+    setAssetId(undefined);
     setPreview(undefined);
     setMapping({});
     setResult(undefined);
@@ -89,6 +98,10 @@ export function MusicImportModal({
     setPicker(undefined);
     setFieldQuery("");
     setValidatedKey(undefined);
+    setInvalidRowStrategy("abort");
+    setRowOverrides({});
+    setHasApplied(false);
+    setIsDeleteSourceOpen(false);
   }, [isOpen]);
 
   const inspect = async (selected: File, sheet?: string) => {
@@ -106,12 +119,28 @@ export function MusicImportModal({
     }
   };
 
-  const choose = (selected?: File) => {
+  const choose = async (selected?: File) => {
     setFile(selected);
+    setAssetId(undefined);
     setPreview(undefined);
     setResult(undefined);
     setMapping({});
-    if (selected) void inspect(selected);
+    setRowOverrides({});
+    setHasApplied(false);
+    if (!selected) return;
+    setIsRunning(true);
+    try {
+      const uploaded = await fileLibraryService.uploadFile(workspaceSlug, selected, undefined, undefined, "music", {
+        music_asset_kind: "IMPORT_SOURCE",
+        upload_source: "manual",
+      });
+      setAssetId(uploaded.asset_id);
+      await inspect(selected);
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo subir el archivo", message: getApiError(error) });
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   const run = async (dryRun: boolean) => {
@@ -138,20 +167,38 @@ export function MusicImportModal({
           distribution_entries: defaultCompanyIds.map((company_id) => ({ company_id })),
           genre_ids: defaultGenreIds,
           releases: defaultReleaseIds.map((id) => ({ id })),
-        }
+        },
+        invalidRowStrategy,
+        rowOverrides
       );
       setResult(next);
-      if (dryRun) setValidatedKey(next.errors.length === 0 ? validationKey : undefined);
+      if (dryRun) setValidatedKey(validationKey);
       if (!dryRun) {
+        setHasApplied(true);
         setToast({
-          type: next.errors.length ? TOAST_TYPE.ERROR : TOAST_TYPE.SUCCESS,
-          title: next.errors.length ? "Importación completada con problemas" : "Catálogo importado",
+          type: TOAST_TYPE.SUCCESS,
+          title: next.errors.length ? "Importación completada omitiendo filas" : "Catálogo importado",
           message: `${next.created} creadas, ${next.updated} actualizadas, ${next.skipped} conservadas${next.errors.length ? ` y ${next.errors.length} con error` : ""}.`,
         });
         onImported();
       }
     } catch (error) {
       setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo importar el archivo", message: getApiError(error) });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const deleteSourceFile = async () => {
+    if (!assetId) return;
+    setIsRunning(true);
+    try {
+      await musicService.deleteImportAssets(workspaceSlug, [assetId]);
+      setAssetId(undefined);
+      setIsDeleteSourceOpen(false);
+      setToast({ type: TOAST_TYPE.SUCCESS, title: "Archivo de origen eliminado" });
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo eliminar el archivo", message: getApiError(error) });
     } finally {
       setIsRunning(false);
     }
@@ -185,11 +232,12 @@ export function MusicImportModal({
     >
       <div className="vertical-scrollbar h-full overflow-y-auto bg-surface-1">
         <div className="space-y-5 p-5">
-          <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-subtle bg-layer-1 text-11">
+          <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-subtle bg-layer-1 text-11 sm:grid-cols-4">
             {[
               ["1", "Elegir archivo", Boolean(file)],
               ["2", "Mapear columnas", Boolean(preview) && missingRequired.length === 0],
-              ["3", "Validar e importar", validatedKey === validationKey],
+              ["3", "Validar", validatedKey === validationKey],
+              ["4", "Importar", hasApplied],
             ].map(([step, label, complete]) => (
               <div
                 key={String(step)}
@@ -209,14 +257,28 @@ export function MusicImportModal({
           <label className="hover:border-accent-primary flex cursor-pointer flex-col items-center rounded-xl border border-dashed border-subtle bg-layer-2 px-5 py-7 text-center">
             <FileSpreadsheet className="mb-2 size-7 text-tertiary" />
             <span className="text-13 font-medium">{file?.name ?? "Elegir CSV o XLSX"}</span>
-            <span className="mt-1 text-11 text-tertiary">Soporta headers desordenados y formatos de fecha mezclados</span>
+            <span className="mt-1 text-11 text-tertiary">
+              Soporta headers desordenados y formatos de fecha mezclados
+            </span>
             <input
               className="hidden"
               type="file"
               accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              onChange={(event) => choose(event.target.files?.[0])}
+              onChange={(event) => void choose(event.target.files?.[0])}
             />
           </label>
+
+          {isRunning && (
+            <div className="flex items-center gap-3 rounded-xl border border-accent-subtle bg-accent-primary/5 p-4">
+              <span className="border-accent-primary size-5 animate-spin rounded-full border-2 border-t-transparent" />
+              <div>
+                <p className="text-13 font-semibold">
+                  {validatedKey ? "Aplicando importación…" : "Validando archivo…"}
+                </p>
+                <p className="text-11 text-secondary">Revisamos cada fila sin guardar cambios todavía.</p>
+              </div>
+            </div>
+          )}
 
           {preview && (
             <>
@@ -273,7 +335,8 @@ export function MusicImportModal({
                     <div>
                       <p className="font-semibold">Falta la columna del título de la canción</p>
                       <p className="mt-0.5 text-11">
-                        Selecciona la columna que contiene el nombre de cada canción. La importación queda bloqueada hasta mapearla.
+                        Selecciona la columna que contiene el nombre de cada canción. La importación queda bloqueada
+                        hasta mapearla.
                       </p>
                     </div>
                   </div>
@@ -308,7 +371,8 @@ export function MusicImportModal({
                 <div>
                   <h3 className="text-14 font-semibold">Aplicar a cada canción importada</h3>
                   <p className="mt-1 text-11 text-secondary">
-                    Relaciones compartidas opcionales que se agregan a cada fila. Las relaciones idénticas existentes se conservan.
+                    Relaciones compartidas opcionales que se agregan a cada fila. Las relaciones idénticas existentes se
+                    conservan.
                   </p>
                 </div>
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -357,7 +421,9 @@ export function MusicImportModal({
                           </button>
                         </div>
                       ))}
-                      {!defaultCredits.length && <p className="text-11 text-tertiary">Sin colaboradores compartidos.</p>}
+                      {!defaultCredits.length && (
+                        <p className="text-11 text-tertiary">Sin colaboradores compartidos.</p>
+                      )}
                     </div>
                   </div>
 
@@ -515,9 +581,7 @@ export function MusicImportModal({
               </div>
               {/* counts as scannable chips instead of a sentence */}
               <div className="mt-2.5 flex flex-wrap gap-1.5 text-11">
-                <span className="rounded-full border border-subtle bg-layer-1 px-2 py-0.5">
-                  {result.total} filas
-                </span>
+                <span className="rounded-full border border-subtle bg-layer-1 px-2 py-0.5">{result.total} filas</span>
                 <span className="rounded-full bg-success-subtle px-2 py-0.5 font-medium text-success-primary">
                   +{result.created} nuevas
                 </span>
@@ -534,12 +598,86 @@ export function MusicImportModal({
                 )}
               </div>
               {result.errors.length > 0 && (
-                <div className="mt-2.5 max-h-40 space-y-1 overflow-y-auto rounded-md border border-subtle bg-layer-1 p-2">
-                  {result.errors.map((error) => (
-                    <p key={`${error.row}-${error.message}`} className="text-11 text-danger-primary">
-                      <span className="font-mono font-medium">Fila {error.row}:</span> {error.message}
-                    </p>
-                  ))}
+                <div className="mt-3 space-y-3">
+                  <div className="rounded-lg border border-warning-subtle bg-layer-1 p-3">
+                    <p className="text-12 font-semibold">¿Qué deseas hacer con las filas inválidas?</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => setInvalidRowStrategy("skip")}
+                        className={`rounded-md border p-3 text-left text-11 ${invalidRowStrategy === "skip" ? "border-accent-primary bg-accent-primary/5" : "border-subtle"}`}
+                      >
+                        <strong className="block text-12">Omitir únicamente estas filas</strong>
+                        Importa todas las filas válidas y conserva este reporte de errores.
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInvalidRowStrategy("abort")}
+                        className={`rounded-md border p-3 text-left text-11 ${invalidRowStrategy === "abort" ? "border-accent-primary bg-accent-primary/5" : "border-subtle"}`}
+                      >
+                        <strong className="block text-12">Corregir antes de importar</strong>
+                        Ningún registro se guardará hasta que la validación esté completa.
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-80 space-y-2 overflow-y-auto">
+                    {result.errors.map((error) => (
+                      <div
+                        key={`${error.row}-${error.message}`}
+                        className="rounded-md border border-subtle bg-layer-1 p-3"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="text-12 font-semibold text-danger-primary">
+                              Fila {error.row}: {error.message}
+                            </p>
+                            <p className="mt-0.5 text-10 text-tertiary">
+                              {error.field ? `Campo: ${error.field}` : "Error general de la fila"}
+                              {error.column ? ` · Columna: ${error.column}` : ""}
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-danger-subtle px-2 py-0.5 text-10 text-danger-primary">
+                            {error.code}
+                          </span>
+                        </div>
+                        <details className="mt-2 text-10 text-secondary">
+                          <summary className="cursor-pointer">Ver valores de la fila</summary>
+                          <div className="mt-1 grid gap-1 sm:grid-cols-2">
+                            {Object.entries(error.row_data ?? {}).map(([column, value]) => (
+                              <p key={column} className="truncate">
+                                <strong>{column}:</strong> {String(value ?? "—")}
+                              </p>
+                            ))}
+                          </div>
+                        </details>
+                        {error.field && (
+                          <label className="mt-2 block text-10 font-medium text-secondary">
+                            Valor de reemplazo para {error.field}
+                            <input
+                              className={`${MUSIC_FIELD} mt-1`}
+                              value={rowOverrides[String(error.row)]?.[error.field] ?? String(error.value ?? "")}
+                              onChange={(event) => {
+                                setRowOverrides((current) => ({
+                                  ...current,
+                                  [String(error.row)]: {
+                                    ...current[String(error.row)],
+                                    [error.field!]: event.target.value,
+                                  },
+                                }));
+                                setValidatedKey(undefined);
+                              }}
+                              placeholder="Escribe el valor correcto"
+                            />
+                          </label>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {Object.keys(rowOverrides).length > 0 && (
+                    <Button variant="secondary" size="sm" loading={isRunning} onClick={() => void run(true)}>
+                      Volver a validar las correcciones
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -555,34 +693,59 @@ export function MusicImportModal({
                 <ShieldCheck className="size-3.5" /> Valida el mapeo antes de importar.
               </span>
             )}
-            {validatedKey === validationKey && (
+            {validatedKey === validationKey && !result?.errors.length && !hasApplied && (
               <span className="flex items-center gap-1.5 text-success-primary">
                 <CheckCircle2 className="size-3.5" /> Validación exitosa. Listo para importar.
               </span>
             )}
+            {validatedKey === validationKey && Boolean(result?.errors.length) && invalidRowStrategy === "abort" && (
+              <span className="flex items-center gap-1.5 text-warning-primary">
+                <AlertCircle className="size-3.5" /> Corrige los valores o elige omitir las filas inválidas.
+              </span>
+            )}
+            {hasApplied && assetId && "La importación terminó. Decide si deseas conservar el archivo de origen."}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={onClose}>
-              Cerrar
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={isRunning}
-              disabled={!file || missingRequired.length > 0 || preview?.database_ready === false}
-              onClick={() => void run(true)}
-            >
-              Validar
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              loading={isRunning}
-              disabled={!file || validatedKey !== validationKey || preview?.database_ready === false}
-              onClick={() => void run(false)}
-            >
-              Importar registros
-            </Button>
+            {hasApplied && assetId ? (
+              <>
+                <Button variant="secondary" size="sm" onClick={onClose}>
+                  Conservar archivo
+                </Button>
+                <Button variant="error-fill" size="sm" loading={isRunning} onClick={() => setIsDeleteSourceOpen(true)}>
+                  Eliminar archivo
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="secondary" size="sm" onClick={onClose}>
+                  Cancelar
+                </Button>
+                {validatedKey !== validationKey && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={isRunning}
+                    disabled={!file || missingRequired.length > 0 || preview?.database_ready === false}
+                    onClick={() => void run(true)}
+                  >
+                    Validar archivo
+                  </Button>
+                )}
+                {validatedKey === validationKey &&
+                  (!result?.errors.length || invalidRowStrategy === "skip") &&
+                  !hasApplied && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      loading={isRunning}
+                      disabled={!file || preview?.database_ready === false}
+                      onClick={() => void run(false)}
+                    >
+                      {result?.errors.length ? "Importar filas válidas" : "Importar registros"}
+                    </Button>
+                  )}
+              </>
+            )}
           </div>
         </footer>
       </div>
@@ -622,6 +785,14 @@ export function MusicImportModal({
         onClose={() => setPicker(undefined)}
         onSelect={applyPicker}
         onChanged={onResourcesChanged}
+      />
+      <AlertModalCore
+        isOpen={isDeleteSourceOpen}
+        isSubmitting={isRunning}
+        handleClose={() => setIsDeleteSourceOpen(false)}
+        handleSubmit={() => void deleteSourceFile()}
+        title="¿Eliminar el archivo de origen?"
+        content="El CSV o Excel dejará de estar disponible en los archivos de importación de Music. Las canciones y relaciones que ya se importaron no se eliminarán. Esta acción no se puede deshacer."
       />
     </BudgetPeekPanel>
   );

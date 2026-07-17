@@ -18,6 +18,7 @@ import { cn } from "@plane/utils";
 import { useFileLibrary } from "@/hooks/store/use-file-library";
 // services
 import { contractService } from "@/services/contract.service";
+import { fileLibraryService } from "@/services/file-library.service";
 // local imports
 import { ProcessingBadge } from "./contracts/processing-badge";
 
@@ -47,10 +48,11 @@ type Props = {
   workspaceSlug: string;
   file: TPreviewFile | null;
   onClose: () => void;
+  scope?: "music";
 };
 
 export const FilePreviewModal = observer(function FilePreviewModal(props: Props) {
-  const { workspaceSlug, file, onClose } = props;
+  const { workspaceSlug, file, onClose, scope } = props;
   const { t } = useTranslation();
   const { getPresignedViewUrl, getFileDownloadUrl } = useFileLibrary();
   // states
@@ -69,7 +71,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
 
   // Contract PDFs also expose their AI-extracted data right in the viewer
   const { data: contractMatches } = useSWR(
-    file && kind === "pdf" ? `CONTRACT_BY_ASSET_${file.assetId}` : null,
+    file && kind === "pdf" && !scope ? `CONTRACT_BY_ASSET_${file.assetId}` : null,
     () => contractService.getContracts(workspaceSlug, { asset_id: file!.assetId }),
     { revalidateOnFocus: false }
   );
@@ -85,7 +87,9 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
     setCsvData(null);
     (async () => {
       try {
-        const presigned = await getPresignedViewUrl(workspaceSlug, file.assetId);
+        const presigned = scope
+          ? await fileLibraryService.getPresignedViewUrl(workspaceSlug, file.assetId, scope)
+          : await getPresignedViewUrl(workspaceSlug, file.assetId);
         if (cancelled) return;
         setUrl(presigned);
         if (viewerKind(file) === "csv") {
@@ -102,7 +106,13 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
     return () => {
       cancelled = true;
     };
-  }, [file, workspaceSlug, getPresignedViewUrl]);
+  }, [file, workspaceSlug, getPresignedViewUrl, scope]);
+
+  const downloadUrl = file
+    ? scope
+      ? fileLibraryService.getFileDownloadUrl(workspaceSlug, file.assetId, scope)
+      : getFileDownloadUrl(workspaceSlug, file.assetId)
+    : "";
 
   const renderBody = () => {
     if (!file) return null;
@@ -158,7 +168,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
           <div className="flex h-full flex-col items-center justify-center gap-3 text-tertiary">
             <p className="text-14">{t("file_library.preview.no_preview")}</p>
             <a
-              href={getFileDownloadUrl(workspaceSlug, file.assetId)}
+              href={downloadUrl}
               className="flex items-center gap-1.5 rounded-md bg-accent-primary px-3 py-1.5 text-13 text-on-color"
             >
               <Download className="size-3.5" />
@@ -202,7 +212,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                 </button>
               )}
               <a
-                href={getFileDownloadUrl(workspaceSlug, file.assetId)}
+                href={downloadUrl}
                 className="rounded-sm p-1.5 hover:bg-layer-1-hover"
                 title={t("file_library.download")}
               >
@@ -228,9 +238,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                   onClick={() => setMobileView(key)}
                   className={cn(
                     "rounded-t-sm border-b-2 px-3 py-1.5 text-12 font-medium",
-                    mobileView === key
-                      ? "border-accent-strong text-accent-primary"
-                      : "border-transparent text-tertiary"
+                    mobileView === key ? "border-accent-strong text-accent-primary" : "border-transparent text-tertiary"
                   )}
                 >
                   {t(key === "document" ? "file_library.contracts.tabs.document" : "file_library.contracts.tabs.info")}
@@ -254,15 +262,15 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                 <div className="space-y-4 p-4">
                   {contract.titulo && (
                     <div>
-                      <p className="text-10 font-semibold uppercase tracking-wide text-tertiary">
+                      <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
                         {t("file_library.contracts.fields.titulo")}
                       </p>
-                      <p className="mt-1 text-13 font-medium leading-snug">{contract.titulo}</p>
+                      <p className="mt-1 text-13 leading-snug font-medium">{contract.titulo}</p>
                     </div>
                   )}
                   {contract.resumen_general && (
                     <div>
-                      <p className="text-10 font-semibold uppercase tracking-wide text-tertiary">
+                      <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
                         {t("file_library.contracts.fields.resumen_general")}
                       </p>
                       <p className="mt-1 rounded-md bg-layer-1 p-2.5 text-12 leading-relaxed text-secondary">
@@ -272,7 +280,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                   )}
                   {contract.artistas && (
                     <div>
-                      <p className="text-10 font-semibold uppercase tracking-wide text-tertiary">
+                      <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
                         {t("file_library.contracts.fields.artistas")}
                       </p>
                       <div className="mt-1 flex flex-wrap gap-1">
@@ -286,7 +294,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                   )}
                   {contract.involucrados && (
                     <div>
-                      <p className="text-10 font-semibold uppercase tracking-wide text-tertiary">
+                      <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
                         {t("file_library.contracts.fields.involucrados")}
                       </p>
                       <p className="mt-1 text-12 leading-relaxed text-secondary">{contract.involucrados}</p>
@@ -296,7 +304,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                     <div className="grid grid-cols-2 gap-x-3 gap-y-2 rounded-md border border-subtle p-2.5">
                       {contract.fecha_inicio && (
                         <div>
-                          <p className="text-10 font-semibold uppercase tracking-wide text-tertiary">
+                          <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
                             {t("file_library.contracts.fields.fecha_inicio")}
                           </p>
                           <p className="mt-0.5 text-12 tabular-nums">{contract.fecha_inicio}</p>
@@ -304,7 +312,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                       )}
                       {contract.fecha_fin && (
                         <div>
-                          <p className="text-10 font-semibold uppercase tracking-wide text-tertiary">
+                          <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
                             {t("file_library.contracts.fields.fecha_fin")}
                           </p>
                           <p className="mt-0.5 text-12 tabular-nums">{contract.fecha_fin}</p>
@@ -312,10 +320,10 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                       )}
                       {contract.fecha_fin_efectiva && (
                         <div>
-                          <p className="text-10 font-semibold uppercase tracking-wide text-tertiary">
+                          <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
                             {t("file_library.contracts.fields.fecha_fin_efectiva")}
                           </p>
-                          <p className="mt-0.5 text-12 font-medium tabular-nums text-accent-primary">
+                          <p className="mt-0.5 text-12 font-medium text-accent-primary tabular-nums">
                             {contract.fecha_fin_efectiva}
                           </p>
                         </div>
