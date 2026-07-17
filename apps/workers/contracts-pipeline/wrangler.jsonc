@@ -1,52 +1,52 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "plane-contracts-pipeline",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-06-01",
-  "observability": {
-    "enabled": true,
-    "logs": {
-      "head_sampling_rate": 1
-    }
-  },
-  "workflows": [
-    {
-      "name": "contract-pipeline",
-      "binding": "CONTRACT_PIPELINE",
-      "class_name": "ContractPipelineWorkflow"
-    },
-    {
-      "name": "contract-query",
-      "binding": "CONTRACT_QUERY",
-      "class_name": "ContractQueryWorkflow"
-    }
-  ],
-  // Non-secret config. Secrets are set with `wrangler secret put`:
-  //   CF_WORKER_TRIGGER_SECRET, PLANE_INTERNAL_API_SECRET,
-  //   OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, DEEPSEEK_API_KEY
-  // For local dev put them in .dev.vars (gitignored).
-  // "vars": {
-  //   // Base provider/model selection — never hardcoded in source
-  //   "AI_PROVIDER": "deepseek",
-  //   // Workspace assistant chat's provider — independent from AI_PROVIDER so
-  //   // the contracts pipeline can stay on DeepSeek while the assistant defaults
-  //   // to Gemini (or vice versa).
-  //   "ASSISTANT_AI_PROVIDER": "gemini",
-  //   "GEMINI_MODEL_FALLBACK_LIST": "gemini-2.5-flash-lite,gemini-3.1-flash-lite",
-  //   "DEEPSEEK_MODEL": "deepseek-v4-flash",
-  //   // Chat model picker: selectable DeepSeek models + the default selection
-  //   "DEEPSEEK_MODEL_LIST": "deepseek-v4-flash,deepseek-v4-pro",
-  //   "CHAT_DEFAULT_MODEL": "deepseek-v4-flash",
-  //   "OPENAI_EMBEDDING_MODEL": "text-embedding-3-small",
-  //   "EMBEDDING_DIMENSIONS": "1536",
-  //   // Django internal API base URL (public URL in prod, localhost in dev)
-  //   "PLANE_INTERNAL_API_URL": "http://localhost:8000",
-  //   // Text extraction: "textract" calls AWS Textract directly against the S3
-  //   // bucket (async job + step.sleep polling — no download, no presigned URL);
-  //   // "api" falls back to the external POST {url} -> {extracted_text} service.
-  //   "TEXT_EXTRACTION_MODE": "textract",
-  //   "AWS_REGION": "us-east-1",
-  //   // External text-extraction service (TEXT_EXTRACTION_MODE=api fallback)
-  //   "TEXT_EXTRACTOR_API_URL": ""
-  // }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "plane-contracts-pipeline",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-06-01",
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"head_sampling_rate": 1
+		}
+	},
+	"workflows": [
+		{
+			"name": "contract-pipeline",
+			"binding": "CONTRACT_PIPELINE",
+			"class_name": "ContractPipelineWorkflow"
+		},
+		{
+			"name": "contract-query",
+			"binding": "CONTRACT_QUERY",
+			"class_name": "ContractQueryWorkflow"
+		}
+	],
+	// Non-secret config. Secrets are set with `wrangler secret put`:
+	//   CF_WORKER_TRIGGER_SECRET, PLANE_INTERNAL_API_SECRET,
+	//   OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, DEEPSEEK_API_KEY
+	// For local dev put them in .dev.vars (gitignored).
+	// "vars": {
+	//   // Base provider/model selection — never hardcoded in source
+	//   "AI_PROVIDER": "deepseek",
+	//   // Workspace assistant chat's provider — independent from AI_PROVIDER so
+	//   // the contracts pipeline can stay on DeepSeek while the assistant defaults
+	//   // to Gemini (or vice versa).
+	//   "ASSISTANT_AI_PROVIDER": "gemini",
+	//   "GEMINI_MODEL_FALLBACK_LIST": "gemini-2.5-flash-lite,gemini-3.1-flash-lite",
+	//   "DEEPSEEK_MODEL": "deepseek-v4-flash",
+	//   // Chat model picker: selectable DeepSeek models + the default selection
+	//   "DEEPSEEK_MODEL_LIST": "deepseek-v4-flash,deepseek-v4-pro",
+	//   "CHAT_DEFAULT_MODEL": "deepseek-v4-flash",
+	//   "OPENAI_EMBEDDING_MODEL": "text-embedding-3-small",
+	//   "EMBEDDING_DIMENSIONS": "1536",
+	//   // Django internal API base URL (public URL in prod, localhost in dev)
+	//   "PLANE_INTERNAL_API_URL": "http://localhost:8000",
+	//   // Text extraction: "textract" calls AWS Textract directly against the S3
+	//   // bucket (async job + step.sleep polling — no download, no presigned URL);
+	//   // "api" falls back to the external POST {url} -> {extracted_text} service.
+	//   "TEXT_EXTRACTION_MODE": "textract",
+	//   "AWS_REGION": "us-east-1",
+	//   // External text-extraction service (TEXT_EXTRACTION_MODE=api fallback)
+	//   "TEXT_EXTRACTOR_API_URL": ""
+	// }
 }

@@ -52,7 +52,9 @@ export function MusicTableActionBar(props: Props) {
   };
 
   return (
-    <div className="sticky right-0 bottom-3 left-0 z-20 mt-4 flex justify-center px-1 sm:px-4">
+    // mt-auto pins the bar to the bottom of the flex-column scroll container
+    // even with few rows; sticky keeps it in view while scrolling long lists
+    <div className="sticky right-0 bottom-3 left-0 z-20 mt-auto flex justify-center px-1 pt-4 sm:px-4">
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={hasSelection ? "selection" : "pagination"}

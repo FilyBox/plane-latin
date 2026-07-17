@@ -180,6 +180,16 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
     void Promise.all([mutateParties(), mutateCompanies(), mutateGenres(), mutateReleases()]);
   const refreshAll = () =>
     void Promise.all([mutateTracks(), mutateParties(), mutateCompanies(), mutateGenres(), mutateReleases()]);
+  // songs_only is the base scope, not a user filter
+  const hasActiveFilters =
+    Boolean(deferredSearch.trim()) ||
+    Object.entries(filters).some(([key, value]) => key !== "songs_only" && Boolean(value));
+  const clearFilters = () => {
+    setSearch("");
+    setPage(1);
+    setSelectedTrackIds([]);
+    setFilters({ songs_only: "true" });
+  };
   const setFilter = (key: keyof TMusicFilters, value: string) => {
     setPage(1);
     setSelectedTrackIds([]);
@@ -545,7 +555,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-3 sm:p-4">
         <div className="mb-2 flex items-center justify-between text-11 text-tertiary">
           <span>
             {isLoading && !tracks.length
@@ -575,24 +585,42 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
             </div>
           </>
         ) : !tracks.length ? (
-          <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-dashed border-subtle bg-layer-1 p-8 text-center">
-            <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-accent-primary/10 text-accent-primary">
-              <Disc3 className="size-7" />
+          hasActiveFilters ? (
+            // Filtered search with no matches — never the onboarding screen
+            <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-dashed border-subtle bg-layer-1 p-8 text-center">
+              <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-layer-2 text-tertiary">
+                <Disc3 className="size-7" />
+              </div>
+              <h2 className="text-16 font-semibold">No hay registros que coincidan</h2>
+              <p className="mt-2 max-w-md text-12 text-secondary">
+                Ninguna canción coincide con la búsqueda o los filtros activos.
+              </p>
+              <div className="mt-5">
+                <Button variant="secondary" size="sm" onClick={clearFilters}>
+                  Limpiar búsqueda y filtros
+                </Button>
+              </div>
             </div>
-            <h2 className="text-16 font-semibold">Construye tu catálogo musical</h2>
-            <p className="mt-2 max-w-md text-12 text-secondary">
-              Crea la primera canción o importa un CSV/XLSX. Los artistas, releases, géneros y compañías se pueden crear
-              durante cualquiera de los dos flujos.
-            </p>
-            <div className="mt-5 flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
-                <FileUp className="size-3.5" /> Importar archivo
-              </Button>
-              <Button variant="primary" size="sm" onClick={() => setPeekCreateOpen(true)}>
-                <Plus className="size-3.5" /> Nueva canción
-              </Button>
+          ) : (
+            <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-dashed border-subtle bg-layer-1 p-8 text-center">
+              <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-accent-primary/10 text-accent-primary">
+                <Disc3 className="size-7" />
+              </div>
+              <h2 className="text-16 font-semibold">Construye tu catálogo musical</h2>
+              <p className="mt-2 max-w-md text-12 text-secondary">
+                Crea la primera canción o importa un CSV/XLSX. Los artistas, releases, géneros y compañías se pueden
+                crear durante cualquiera de los dos flujos.
+              </p>
+              <div className="mt-5 flex gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+                  <FileUp className="size-3.5" /> Importar archivo
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => setPeekCreateOpen(true)}>
+                  <Plus className="size-3.5" /> Nueva canción
+                </Button>
+              </div>
             </div>
-          </div>
+          )
         ) : (
           <>
             <div className="hidden overflow-hidden rounded-md border border-subtle bg-layer-1 md:block">
