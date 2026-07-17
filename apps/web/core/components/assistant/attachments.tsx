@@ -42,7 +42,8 @@ export class FileLibraryAttachmentAdapter implements AttachmentAdapter {
       attachment.file,
       undefined,
       undefined,
-      "music"
+      "music",
+      { music_asset_kind: "IMPORT_SOURCE", upload_source: "assistant" }
     );
     attachmentDownloadUrls.set(
       attachment.id,

@@ -205,11 +205,14 @@ export function MusicEntityManager(props: Props) {
           status: releaseStatus,
         });
       }
-      setToast({ type: TOAST_TYPE.SUCCESS, title: editingId ? "Resource updated" : "Resource created" });
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: editingId ? t("music_resources.resource_updated") : t("music_resources.resource_created"),
+      });
       reset();
       onChanged();
     } catch (error) {
-      setToast({ type: TOAST_TYPE.ERROR, title: "Could not save resource", message: getApiError(error) });
+      setToast({ type: TOAST_TYPE.ERROR, title: t("music_resources.save_failed"), message: getApiError(error) });
     } finally {
       setIsSaving(false);
     }
@@ -226,7 +229,7 @@ export function MusicEntityManager(props: Props) {
       setDeleting(undefined);
       onChanged();
     } catch (error) {
-      setToast({ type: TOAST_TYPE.ERROR, title: "This resource cannot be deleted", message: getApiError(error) });
+      setToast({ type: TOAST_TYPE.ERROR, title: t("music_resources.cannot_delete"), message: getApiError(error) });
     } finally {
       setIsDeleting(false);
     }
@@ -247,7 +250,11 @@ export function MusicEntityManager(props: Props) {
       setBulkDeleteOpen(false);
       onChanged();
     } catch (error) {
-      setToast({ type: TOAST_TYPE.ERROR, title: "Some resources could not be deleted", message: getApiError(error) });
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: t("music_resources.bulk_delete_failed"),
+        message: getApiError(error),
+      });
     } finally {
       setIsDeleting(false);
     }
@@ -255,12 +262,12 @@ export function MusicEntityManager(props: Props) {
 
   const deleteImpact =
     tab === "people"
-      ? "If this person has credits or release history, deletion will be blocked to preserve the legal record."
+      ? t("music_resources.delete_person_impact")
       : tab === "companies"
-        ? "Distribution assignments will be removed. Songs and releases will remain in the catalog."
+        ? t("music_resources.delete_company_impact")
         : tab === "genres"
-          ? "This genre will be removed from every classified song. Songs will remain in the catalog."
-          : "Songs will remain, but their association with this release will be removed.";
+          ? t("music_resources.delete_genre_impact")
+          : t("music_resources.delete_release_impact");
 
   const source: Resource[] =
     tab === "people" ? parties : tab === "companies" ? companies : tab === "genres" ? genres : releases;
@@ -415,7 +422,7 @@ export function MusicEntityManager(props: Props) {
                               )
                             }
                             className={`grid size-5 shrink-0 place-items-center rounded border ${selectedIds.includes(item.id) ? "border-accent-primary bg-accent-primary text-on-color" : "border-strong"}`}
-                            aria-label={`Select ${itemName}`}
+                            aria-label={t("music_resources.select_item", { name: itemName })}
                           >
                             {selectedIds.includes(item.id) && <Check className="size-3" />}
                           </button>
@@ -431,7 +438,7 @@ export function MusicEntityManager(props: Props) {
                             type="button"
                             className="rounded p-2 text-secondary hover:bg-layer-2"
                             onClick={() => edit(item)}
-                            aria-label={`Edit ${itemName}`}
+                            aria-label={t("music_resources.edit_item", { name: itemName })}
                           >
                             <Pencil className="size-4" />
                           </button>
@@ -439,7 +446,7 @@ export function MusicEntityManager(props: Props) {
                             type="button"
                             className="hover:bg-red-100 hover:text-red-600 rounded p-2 text-secondary"
                             onClick={() => setDeleting(item)}
-                            aria-label={`Delete ${itemName}`}
+                            aria-label={t("music_resources.delete_item", { name: itemName })}
                           >
                             <Trash2 className="size-4" />
                           </button>
@@ -451,7 +458,7 @@ export function MusicEntityManager(props: Props) {
               })}
               {!visible.length && (
                 <div className="rounded-lg border border-dashed border-subtle py-12 text-center text-13 text-tertiary">
-                  No matching resources.
+                  {t("music_resources.no_matching")}
                 </div>
               )}
             </div>
@@ -463,15 +470,15 @@ export function MusicEntityManager(props: Props) {
         isSubmitting={isDeleting}
         handleClose={() => setDeleting(undefined)}
         handleSubmit={() => void remove()}
-        title={`Delete ${deleting ? resourceName(deleting) : "resource"}?`}
-        content={`${deleteImpact} This action cannot be undone.`}
+        title={t("music_resources.delete_title", { name: deleting ? resourceName(deleting) : "" })}
+        content={`${deleteImpact} ${t("music_resources.cannot_undo")}`}
       />
       <AlertModalCore
         isOpen={bulkDeleteOpen}
         isSubmitting={isDeleting}
         handleClose={() => setBulkDeleteOpen(false)}
         handleSubmit={() => void removeSelected()}
-        title={`Delete ${selectedIds.length} resources?`}
+        title={t("music_resources.delete_resources_title", { count: selectedIds.length })}
         content={t("music_resources.delete_confirm")}
       />
     </BudgetPeekPanel>

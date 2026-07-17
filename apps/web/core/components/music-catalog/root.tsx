@@ -3,6 +3,7 @@ import {
   CalendarClock,
   Disc3,
   Download,
+  FolderArchive,
   FileSpreadsheet,
   FileUp,
   Link as LinkIcon,
@@ -21,6 +22,7 @@ import type { TMusicFilters, TMusicRelease, TMusicTrack } from "@plane/types";
 import { AlertModalCore } from "@plane/ui";
 import { musicService } from "@/services/music.service";
 import { MusicEntityManager } from "./entity-manager";
+import { MusicImportAssetsPanel } from "./import-assets-panel";
 import { MusicImportModal } from "./import-modal";
 import { MusicReleaseModal } from "./release-modal";
 import { getApiError, musicDate, MUSIC_FIELD } from "./shared";
@@ -123,6 +125,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [importAssetsOpen, setImportAssetsOpen] = useState(false);
   const [deletingTrack, setDeletingTrack] = useState<TMusicTrack>();
   const [isDeletingTrack, setIsDeletingTrack] = useState(false);
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
@@ -356,6 +359,10 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
           <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
             <FileUp className="size-3.5" />
             <span className="hidden lg:inline">Importar</span>
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setImportAssetsOpen(true)}>
+            <FolderArchive className="size-3.5" />
+            <span className="hidden lg:inline">Archivos</span>
           </Button>
           <Button
             variant="secondary"
@@ -756,7 +763,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
           genres={genres}
           companies={companies}
           releases={releases}
-          suspendClose={releaseOpen || resourcesOpen || importOpen}
+          suspendClose={releaseOpen || resourcesOpen || importOpen || importAssetsOpen}
           onClose={() => {
             setPeekTrack(undefined);
             setPeekCreateOpen(false);
@@ -802,6 +809,11 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         onClose={() => setImportOpen(false)}
         onImported={refreshAll}
         onResourcesChanged={refreshResources}
+      />
+      <MusicImportAssetsPanel
+        workspaceSlug={workspaceSlug}
+        isOpen={importAssetsOpen}
+        onClose={() => setImportAssetsOpen(false)}
       />
       <AlertModalCore
         isOpen={Boolean(deletingTrack)}

@@ -20,11 +20,14 @@ import {
   Music2,
   Search,
   Send,
+  Trash2,
+  WandSparkles,
 } from "lucide-react";
-import { makeAssistantToolUI } from "@assistant-ui/react";
+import { makeAssistantToolUI, useAssistantRuntime } from "@assistant-ui/react";
 // plane imports
 import { API_BASE_URL } from "@plane/constants";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
+import { AlertModalCore } from "@plane/ui";
 import { SearchableSelect } from "../music-catalog/searchable-select";
 
 const card = "my-2 rounded-md border border-subtle bg-layer-1 p-3 text-13";
@@ -169,7 +172,15 @@ type TImportProposal = {
   created?: number;
   updated?: number;
   skipped?: number;
-  errors?: { row: number; message: string }[];
+  errors?: {
+    row: number;
+    message: string;
+    code?: string;
+    field?: string | null;
+    column?: string | null;
+    value?: unknown;
+    row_data?: Record<string, unknown>;
+  }[];
   dry_run?: boolean;
   asset_id?: string;
   file_name?: string;
@@ -178,7 +189,14 @@ type TImportProposal = {
   selected_sheet?: string | null;
   canonical_fields?: string[];
   heuristic_mapping?: Record<string, string>;
-  proposal?: { asset_id: string; sheet: string | null; mapping: Record<string, string>; duplicate_strategy: string };
+  proposal?: {
+    asset_id: string;
+    sheet: string | null;
+    mapping: Record<string, string>;
+    duplicate_strategy: string;
+    invalid_row_strategy?: "abort" | "skip";
+    row_overrides?: Record<string, Record<string, string>>;
+  };
 };
 
 function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal; workspaceSlug: string }) {
@@ -268,13 +286,19 @@ function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal
 }
 
 function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImportProposal; workspaceSlug: string }) {
+  const runtime = useAssistantRuntime();
   const initialMapping = useMemo(() => result.proposal?.mapping ?? result.heuristic_mapping ?? {}, [result]);
   const [mapping, setMapping] = useState<Record<string, string>>(initialMapping);
   const [strategy, setStrategy] = useState(result.proposal?.duplicate_strategy ?? "skip");
   const [query, setQuery] = useState("");
   const [state, setState] = useState<"idle" | "validating" | "applying" | "done">("idle");
-  const [validation, setValidation] = useState<TImportProposal | null>(result.proposal ? result : null);
+  const [validation, setValidation] = useState<TImportProposal | null>(null);
   const [applied, setApplied] = useState<TImportProposal | null>(null);
+  const [invalidRowStrategy, setInvalidRowStrategy] = useState<"abort" | "skip">("abort");
+  const [rowOverrides, setRowOverrides] = useState<Record<string, Record<string, string>>>({});
+  const [isDeleteSourceOpen, setIsDeleteSourceOpen] = useState(false);
+  const [isDeletingSource, setIsDeletingSource] = useState(false);
+  const [sourceDeleted, setSourceDeleted] = useState(false);
   const assetId = result.proposal?.asset_id ?? result.asset_id;
   const sheet = result.proposal?.sheet ?? result.selected_sheet ?? null;
   const headers = result.headers ?? [];
@@ -284,11 +308,29 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
     : fields;
   const missingTitle = !mapping["track.title"];
 
+  const requestAiCorrections = () => {
+    const errors = validation?.errors ?? [];
+    if (!assetId || errors.length === 0) return;
+    runtime.thread.append({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `Revisa las filas invalidas de la ultima validacion del asset ${assetId}. Propone valores de reemplazo seguros usando row_overrides y vuelve a ejecutar propose_music_import en mode=propose. No apliques la importacion. Errores: ${JSON.stringify(errors)}`,
+        },
+      ],
+    });
+  };
+
   useEffect(() => {
     setMapping(initialMapping);
     setStrategy(result.proposal?.duplicate_strategy ?? "skip");
-    setValidation(result.proposal ? result : null);
+    setValidation(null);
     setApplied(null);
+    setInvalidRowStrategy("abort");
+    setRowOverrides({});
+    setIsDeleteSourceOpen(false);
+    setSourceDeleted(false);
     setState("idle");
   }, [initialMapping, result]);
 
@@ -308,6 +350,8 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
           mapping,
           duplicate_strategy: strategy,
           dry_run: dryRun,
+          invalid_row_strategy: invalidRowStrategy,
+          row_overrides: rowOverrides,
         }),
       });
       const data = await response.json();
@@ -338,6 +382,31 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
         title: "No se pudo importar",
         message: error instanceof Error ? error.message : "Import failed",
       });
+    }
+  };
+
+  const deleteSource = async () => {
+    setIsDeletingSource(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceSlug}/music/import-assets/`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", asset_ids: [assetId] }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error ?? "Delete failed");
+      setSourceDeleted(true);
+      setIsDeleteSourceOpen(false);
+      setToast({ type: TOAST_TYPE.SUCCESS, title: "Archivo de origen eliminado" });
+    } catch (error: unknown) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "No se pudo eliminar el archivo",
+        message: error instanceof Error ? error.message : "Delete failed",
+      });
+    } finally {
+      setIsDeletingSource(false);
     }
   };
 
@@ -412,45 +481,148 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
         ))}
       </div>
 
+      {state === "validating" && <Running label="Validando cada fila del archivo…" />}
       {validation && (
-        <p className={`mt-2 text-12 ${validation.errors?.length ? "text-warning-primary" : "text-success-primary"}`}>
-          {validation.total} filas: {validation.created} nuevas, {validation.updated} actualizadas, {validation.skipped}{" "}
-          omitidas
-          {validation.errors?.length ? `, ${validation.errors.length} errores` : ""}
-        </p>
+        <div
+          className={`mt-2 rounded-md border p-3 ${validation.errors?.length ? "border-warning-subtle bg-warning-subtle/20" : "border-success-subtle bg-success-subtle/20"}`}
+        >
+          <p className="text-12 font-semibold">
+            {validation.errors?.length ? "La validación requiere una decisión" : "Todo está correcto"}
+          </p>
+          <p className="mt-1 text-11 text-secondary">
+            {validation.total} filas: {validation.created} nuevas, {validation.updated} actualizadas,{" "}
+            {validation.skipped} omitidas
+            {validation.errors?.length ? `, ${validation.errors.length} inválidas` : ". Ya puedes importar."}
+          </p>
+        </div>
       )}
       {validation?.errors && validation.errors.length > 0 && (
-        <ul className="mt-1 max-h-24 overflow-y-auto text-11 text-danger-primary">
-          {validation.errors.slice(0, 5).map((error) => (
-            <li key={`${error.row}-${error.message}`}>
-              Fila {error.row}: {error.message}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-2 space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setInvalidRowStrategy("skip")}
+              className={`rounded-md border p-2 text-left text-11 ${invalidRowStrategy === "skip" ? "border-accent-primary bg-accent-primary/5" : "border-subtle"}`}
+            >
+              <strong className="block">Omitir filas inválidas</strong>
+              Importar el resto del archivo.
+            </button>
+            <button
+              type="button"
+              onClick={() => setInvalidRowStrategy("abort")}
+              className={`rounded-md border p-2 text-left text-11 ${invalidRowStrategy === "abort" ? "border-accent-primary bg-accent-primary/5" : "border-subtle"}`}
+            >
+              <strong className="block">Corregir valores</strong>
+              Reemplazar datos y volver a validar.
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={requestAiCorrections}
+            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-accent-subtle bg-accent-primary/5 px-2 py-2 text-11 font-medium text-accent-primary"
+          >
+            <WandSparkles className="size-3.5" /> Pedir a la IA que proponga correcciones
+          </button>
+          <div className="max-h-64 space-y-2 overflow-y-auto">
+            {validation.errors.map((error) => (
+              <div key={`${error.row}-${error.message}`} className="rounded-md border border-subtle bg-layer-1 p-2">
+                <p className="text-11 font-medium text-danger-primary">
+                  Fila {error.row}: {error.message}
+                </p>
+                <p className="mt-0.5 text-10 text-tertiary">
+                  {error.field ? `${error.field}${error.column ? ` ← ${error.column}` : ""}` : "Error general"}
+                </p>
+                {error.field && (
+                  <input
+                    className="mt-1.5 w-full rounded-sm border border-subtle bg-transparent px-2 py-1 text-11"
+                    value={rowOverrides[String(error.row)]?.[error.field] ?? String(error.value ?? "")}
+                    onChange={(event) => {
+                      setRowOverrides((current) => ({
+                        ...current,
+                        [String(error.row)]: {
+                          ...current[String(error.row)],
+                          [error.field!]: event.target.value,
+                        },
+                      }));
+                      setValidation(null);
+                    }}
+                    placeholder="Valor de reemplazo"
+                  />
+                )}
+                {error.row_data && (
+                  <details className="mt-1 text-10 text-tertiary">
+                    <summary className="cursor-pointer">Ver datos de la fila</summary>
+                    {Object.entries(error.row_data).map(([column, value]) => (
+                      <p key={column} className="truncate">
+                        <strong>{column}:</strong> {String(value ?? "—")}
+                      </p>
+                    ))}
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {!applied && (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={missingTitle || state !== "idle"}
-            onClick={() => void submit(true)}
-            className="flex items-center gap-1.5 rounded-sm border border-subtle px-2.5 py-1.5 text-12 font-medium hover:bg-layer-1-hover disabled:opacity-50"
-          >
-            {state === "validating" ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-            Validar mapeo
-          </button>
-          <button
-            type="button"
-            disabled={!validation || Boolean(validation.errors?.length) || state !== "idle"}
-            onClick={() => void submit(false)}
-            className="flex items-center gap-1.5 rounded-sm bg-accent-primary px-2.5 py-1.5 text-12 font-medium text-on-color hover:opacity-90 disabled:opacity-50"
-          >
-            {state === "applying" ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-            Aplicar importacion
-          </button>
+          {!validation && (
+            <button
+              type="button"
+              disabled={missingTitle || state !== "idle"}
+              onClick={() => void submit(true)}
+              className="flex items-center gap-1.5 rounded-sm bg-accent-primary px-2.5 py-1.5 text-12 font-medium text-on-color hover:opacity-90 disabled:opacity-50"
+            >
+              {state === "validating" ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+              Validar archivo
+            </button>
+          )}
+          {validation && (!validation.errors?.length || invalidRowStrategy === "skip") && (
+            <button
+              type="button"
+              disabled={state !== "idle"}
+              onClick={() => void submit(false)}
+              className="flex items-center gap-1.5 rounded-sm bg-accent-primary px-2.5 py-1.5 text-12 font-medium text-on-color hover:opacity-90 disabled:opacity-50"
+            >
+              {state === "applying" ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+              {validation.errors?.length ? "Importar filas válidas" : "Aplicar importación"}
+            </button>
+          )}
         </div>
       )}
+      {applied && (
+        <div className="mt-3 rounded-md border border-subtle bg-layer-2 p-3">
+          <p className="text-11 font-medium">¿Qué deseas hacer con el archivo de origen?</p>
+          <p className="mt-0.5 text-10 text-tertiary">
+            {sourceDeleted
+              ? "El archivo se eliminó. Los registros importados permanecen en Music."
+              : "Puedes conservarlo en Archivos de importación para consultarlo después o eliminarlo sin afectar los registros creados."}
+          </p>
+          {!sourceDeleted && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="rounded-sm border border-subtle bg-layer-1 px-2.5 py-1.5 text-11">
+                Conservar archivo
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsDeleteSourceOpen(true)}
+                className="flex items-center gap-1.5 rounded-sm border border-danger-subtle px-2.5 py-1.5 text-11 text-danger-primary hover:bg-danger-subtle"
+              >
+                <Trash2 className="size-3.5" /> Eliminar archivo
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      <AlertModalCore
+        isOpen={isDeleteSourceOpen}
+        isSubmitting={isDeletingSource}
+        handleClose={() => setIsDeleteSourceOpen(false)}
+        handleSubmit={() => void deleteSource()}
+        title="¿Eliminar el archivo de origen?"
+        content="El CSV o Excel dejará de estar disponible para Music y el asistente. Los registros ya importados no se eliminarán. Esta acción no se puede deshacer."
+      />
     </div>
   );
 }

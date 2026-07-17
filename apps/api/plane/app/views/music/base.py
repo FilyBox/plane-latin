@@ -9,6 +9,7 @@ from io import BytesIO, StringIO
 from django.db import connection, transaction
 from django.db.models import Count, Exists, OuterRef, Q
 from django.http import HttpResponse
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from openpyxl import Workbook, load_workbook
 from rest_framework import status
@@ -24,6 +25,7 @@ from plane.app.serializers import (
     MusicTrackSerializer,
 )
 from plane.db.models import (
+    FileAsset,
     MusicCompany,
     MusicCredit,
     MusicDistribution,
@@ -203,6 +205,52 @@ def _import_error_message(exc):
             "db.0136_musictrack_parent_track and restart the API before importing."
         )
     return message
+
+
+def _jsonable_import_value(value):
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def _import_error_detail(index, exc, row, mapping):
+    message = _import_error_message(exc)
+    field = None
+    code = "ROW_VALIDATION_ERROR"
+    if message == "Track title is empty":
+        field = "track.title"
+        code = "REQUIRED_FIELD"
+    elif message.startswith("Duplicate track:"):
+        field = "track.isrc" if mapping.get("track.isrc") else "track.title"
+        code = "DUPLICATE"
+    elif message.startswith("The music catalog database is not ready"):
+        code = "DATABASE_NOT_READY"
+    column = mapping.get(field) if field else None
+    return {
+        "row": index,
+        "code": code,
+        "field": field,
+        "column": column,
+        "value": _jsonable_import_value(row.get(column)) if column else None,
+        "message": message,
+        "row_data": {
+            str(key): _jsonable_import_value(value) for key, value in list(row.items())[:12]
+        },
+    }
+
+
+def _apply_row_overrides(row, mapping, overrides):
+    if not overrides:
+        return row, mapping
+    next_row = dict(row)
+    next_mapping = dict(mapping)
+    for field, value in overrides.items():
+        override_column = f"__override__{field}"
+        next_row[override_column] = value
+        next_mapping[field] = override_column
+    return next_row, next_mapping
 
 
 def _music_schema_ready():
@@ -754,6 +802,54 @@ class MusicCatalogOptionsEndpoint(MusicBaseView):
         )
 
 
+class MusicImportAssetEndpoint(MusicBaseView):
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def get(self, request, slug):
+        assets = FileAsset.objects.filter(
+            workspace__slug=slug,
+            entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
+            attributes__music_asset_kind="IMPORT_SOURCE",
+            is_uploaded=True,
+            is_deleted=False,
+        ).order_by("-created_at")
+        search = request.query_params.get("search", "").strip()
+        if search:
+            assets = assets.filter(attributes__name__icontains=search)
+        return Response(
+            {
+                "results": [
+                    {
+                        "id": str(asset.id),
+                        "name": (asset.attributes or {}).get("name") or "Import file",
+                        "content_type": (asset.attributes or {}).get("type") or "application/octet-stream",
+                        "size": asset.size,
+                        "upload_source": (asset.attributes or {}).get("upload_source") or "manual",
+                        "created_at": asset.created_at.isoformat(),
+                    }
+                    for asset in assets[:500]
+                ]
+            }
+        )
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug):
+        if request.data.get("action") != "delete":
+            return Response({"action": ["Unsupported action"]}, status=status.HTTP_400_BAD_REQUEST)
+        asset_ids = request.data.get("asset_ids") or []
+        if not isinstance(asset_ids, list) or not asset_ids:
+            return Response({"asset_ids": ["Select at least one file"]}, status=status.HTTP_400_BAD_REQUEST)
+        assets = FileAsset.objects.filter(
+            id__in=asset_ids,
+            workspace__slug=slug,
+            entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
+            attributes__music_asset_kind="IMPORT_SOURCE",
+            is_deleted=False,
+        )
+        deleted = assets.count()
+        assets.update(is_deleted=True, deleted_at=timezone.now())
+        return Response({"deleted": deleted, "not_found": len(set(asset_ids)) - deleted})
+
+
 class MusicImportPreviewEndpoint(MusicBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
@@ -809,23 +905,47 @@ class MusicImportEndpoint(MusicBaseView):
         workspace = Workspace.objects.get(slug=slug)
         strategy = request.data.get("duplicate_strategy", "skip")
         dry_run = str(request.data.get("dry_run", "false")).lower() == "true"
-        result = {"total": len(rows), "created": 0, "updated": 0, "skipped": 0, "errors": []}
+        invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
+        try:
+            row_overrides = json.loads(request.data.get("row_overrides", "{}"))
+        except json.JSONDecodeError:
+            return Response({"row_overrides": ["Must be valid JSON"]}, status=status.HTTP_400_BAD_REQUEST)
+        if invalid_row_strategy not in ("abort", "skip"):
+            return Response(
+                {"invalid_row_strategy": ["Use abort or skip"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = {
+            "total": len(rows),
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "errors": [],
+            "invalid_row_strategy": invalid_row_strategy,
+            "aborted": False,
+        }
 
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
+                effective_row, effective_mapping = _apply_row_overrides(
+                    row, mapping, row_overrides.get(str(index), {})
+                )
                 try:
                     # Keep every row in its own savepoint. A database or validation
                     # error must not leave the remaining spreadsheet transaction aborted.
                     with transaction.atomic():
-                        outcome = self._import_row(workspace, row, mapping, strategy, defaults)
+                        outcome = self._import_row(
+                            workspace, effective_row, effective_mapping, strategy, defaults
+                        )
                     result[outcome] += 1
                 except Exception as exc:
-                    message = _import_error_message(exc)
-                    result["errors"].append({"row": index, "message": message})
-                    if message.startswith("The music catalog database is not ready"):
+                    detail = _import_error_detail(index, exc, effective_row, effective_mapping)
+                    result["errors"].append(detail)
+                    if detail["code"] == "DATABASE_NOT_READY":
                         break
-            if dry_run:
+            if dry_run or (result["errors"] and invalid_row_strategy == "abort"):
                 transaction.set_rollback(True)
+                result["aborted"] = not dry_run
         return Response(result, status=status.HTTP_200_OK if not result["errors"] else status.HTTP_207_MULTI_STATUS)
 
     def _import_row(self, workspace, row, mapping, strategy, defaults=None):

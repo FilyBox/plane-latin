@@ -35,6 +35,7 @@ from plane.db.models import (
     FileTagLink,
     Workspace,
     WorkspaceFeature,
+    WorkspaceMember,
 )
 from plane.settings.storage import S3Storage
 from plane.utils.path_validator import sanitize_filename
@@ -43,25 +44,35 @@ from plane.utils.workspace_feature import is_workspace_feature_enabled
 from ..base import BaseAPIView
 
 
+def _is_music_scope(request):
+    return request.query_params.get("scope") == "music" or request.data.get("scope") == "music"
+
+
 class FileLibraryBaseView(BaseAPIView):
     """Base view enforcing the per-workspace file-library feature flag."""
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         slug = kwargs.get("slug")
-        feature = (
-            WorkspaceFeature.FeatureKey.MUSIC_CATALOG
-            if request.query_params.get("scope") == "music" or request.data.get("scope") == "music"
-            else WorkspaceFeature.FeatureKey.FILE_LIBRARY
-        )
+        is_music_scope = _is_music_scope(request)
+        feature = WorkspaceFeature.FeatureKey.MUSIC_CATALOG if is_music_scope else WorkspaceFeature.FeatureKey.FILE_LIBRARY
         if slug and not is_workspace_feature_enabled(feature, slug=slug):
-            self.permission_denied(request, message="The file library is not enabled for this workspace")
+            self.permission_denied(request, message="The requested workspace module is not enabled")
+        if slug and is_music_scope:
+            is_admin = WorkspaceMember.objects.filter(
+                workspace__slug=slug,
+                member=request.user,
+                role=ROLE.ADMIN.value,
+                is_active=True,
+            ).exists()
+            if not is_admin:
+                self.permission_denied(request, message="Only workspace admins can manage Music assets")
 
 
 def _asset_context(request):
     return (
         FileAsset.EntityTypeContext.MUSIC_CATALOG
-        if request.query_params.get("scope") == "music" or request.data.get("scope") == "music"
+        if _is_music_scope(request)
         else FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY
     )
 
@@ -226,8 +237,20 @@ class FileLibraryAssetEndpoint(FileLibraryBaseView):
             if folder is None:
                 return Response({"error": "Folder not found"}, status=status.HTTP_400_BAD_REQUEST)
 
+        extra_attributes = request.data.get("attributes")
+        if not isinstance(extra_attributes, dict):
+            extra_attributes = {}
         asset = FileAsset.objects.create(
-            attributes={"name": name, "type": file_type, "size": size},
+            attributes={
+                "name": name,
+                "type": file_type,
+                "size": size,
+                **{
+                    key: extra_attributes[key]
+                    for key in ("music_asset_kind", "upload_source")
+                    if key in extra_attributes
+                },
+            },
             asset=asset_key,
             size=size,
             workspace=workspace,

@@ -116,11 +116,14 @@ export function MusicResourcePickerModal({
       else saved = await musicService.saveGenre(workspaceSlug, { id: editing?.id, name: name.trim() });
 
       if (!editing) setSelection((current) => (multiple ? [...new Set([...current, saved.id])] : [saved.id]));
-      setToast({ type: TOAST_TYPE.SUCCESS, title: editing ? "Resource updated" : "Resource created and selected" });
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: editing ? t("music_resources.resource_updated") : t("music_resources.resource_created_selected"),
+      });
       resetEditor();
       onChanged();
     } catch (error) {
-      setToast({ type: TOAST_TYPE.ERROR, title: "Could not save resource", message: getApiError(error) });
+      setToast({ type: TOAST_TYPE.ERROR, title: t("music_resources.save_failed"), message: getApiError(error) });
     } finally {
       setIsSaving(false);
     }
@@ -140,8 +143,8 @@ export function MusicResourcePickerModal({
     } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: "This resource cannot be deleted",
-        message: getApiError(error, "It is still referenced by catalog records."),
+        title: t("music_resources.cannot_delete"),
+        message: getApiError(error, t("music_resources.still_referenced")),
       });
     } finally {
       setIsDeleting(false);
@@ -176,7 +179,7 @@ export function MusicResourcePickerModal({
                   className={`${MUSIC_FIELD} pl-9`}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder={`Search ${title.toLowerCase()}`}
+                  placeholder={t("music_resources.search")}
                 />
               </div>
               <div className="vertical-scrollbar min-h-48 flex-1 space-y-1 overflow-y-auto">
@@ -211,7 +214,7 @@ export function MusicResourcePickerModal({
                         type="button"
                         className="rounded p-1.5 text-secondary hover:bg-layer-1"
                         onClick={() => beginEdit(item)}
-                        aria-label={`Edit ${itemName}`}
+                        aria-label={t("music_resources.edit_item", { name: itemName })}
                       >
                         <Pencil className="size-3.5" />
                       </button>
@@ -219,14 +222,16 @@ export function MusicResourcePickerModal({
                         type="button"
                         className="rounded p-1.5 text-secondary hover:bg-danger-subtle hover:text-danger-primary"
                         onClick={() => setDeleting({ item, resourceType })}
-                        aria-label={`Delete ${itemName}`}
+                        aria-label={t("music_resources.delete_item", { name: itemName })}
                       >
                         <Trash2 className="size-3.5" />
                       </button>
                     </div>
                   );
                 })}
-                {!visible.length && <p className="py-10 text-center text-12 text-tertiary">No matching resources.</p>}
+                {!visible.length && (
+                  <p className="py-10 text-center text-12 text-tertiary">{t("music_resources.no_matching")}</p>
+                )}
               </div>
             </section>
 
@@ -236,7 +241,7 @@ export function MusicResourcePickerModal({
                 {editing ? t("music_resources.edit_resource") : t("music_resources.create_new")}
               </h4>
               <label htmlFor="music-resource-name" className={`${MUSIC_LABEL} mt-4`}>
-                Name
+                {t("music_resources.name")}
               </label>
               <input
                 id="music-resource-name"
@@ -247,7 +252,7 @@ export function MusicResourcePickerModal({
               {choices && (
                 <>
                   <label htmlFor="music-resource-kind" className={`${MUSIC_LABEL} mt-4`}>
-                    Type
+                    {t("music_resources.type")}
                   </label>
                   <select
                     id="music-resource-kind"
@@ -307,8 +312,10 @@ export function MusicResourcePickerModal({
         isSubmitting={isDeleting}
         handleClose={() => setDeleting(undefined)}
         handleSubmit={() => void deleteResource()}
-        title={`Delete ${deleting ? musicResourceName(deleting.item) : "resource"}?`}
-        content="This removes the reusable record and its catalog associations. Songs and releases remain; protected legal references will block the deletion and explain why. This action cannot be undone."
+        title={t("music_resources.delete_title", {
+          name: deleting ? musicResourceName(deleting.item) : "",
+        })}
+        content={t("music_resources.delete_picker_content")}
       />
     </>
   );
