@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO
 
 from django.db import connection, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 from django.http import HttpResponse
 from django.utils.dateparse import parse_date
 from openpyxl import Workbook, load_workbook
@@ -402,7 +402,20 @@ def _filter_tracks(queryset, params):
     if params.get("to"):
         queryset = queryset.filter(release_date__lte=params["to"])
     if params.get("has_video") == "true":
-        queryset = queryset.filter(videos__isnull=False)
+        # A real music video carries at least one identifier or a video URL —
+        # a bare child track (e.g. a stray import row) is not "having video".
+        videos = MusicTrack.objects.filter(
+            parent_track_id=OuterRef("pk"),
+            kind=MusicTrack.Kind.MUSIC_VIDEO,
+        ).filter(
+            Q(links__kind=MusicLink.Kind.MUSIC_VIDEO)
+            | ~Q(isrc_video="")
+            | ~Q(upc="")
+            | ~Q(catalog="")
+        )
+        queryset = queryset.filter(Exists(videos))
+    if params.get("has_links") == "true":
+        queryset = queryset.filter(Exists(MusicLink.objects.filter(track_id=OuterRef("pk"))))
     if params.get("video_from"):
         queryset = queryset.filter(videos__release_date__gte=params["video_from"])
     if params.get("video_to"):
@@ -581,6 +594,8 @@ class MusicTrackEndpoint(MusicBaseView):
                     "status": entry.get("status", MusicTrack.Status.DRAFT),
                     "kind": MusicTrack.Kind.MUSIC_VIDEO,
                     "isrc_video": str(entry.get("isrc", "")).upper().replace("-", ""),
+                    "upc": entry.get("upc", ""),
+                    "catalog": entry.get("catalog", ""),
                     "release_date": entry.get("release_date") or None,
                     "duration_ms": entry.get("duration_ms") or None,
                     "cover_url": entry.get("cover_url", ""),

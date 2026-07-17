@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  * See the LICENSE file for details.
  *
- * Chat attachments: dropped/picked files upload into the "Archivos del chat"
- * folder of the workspace file library and surface their `asset_id` to the
+ * Spreadsheet attachments are Music-owned assets and surface their `asset_id` to the
  * agent, so "importa este archivo" chains straight into the
  * `propose_music_import` tool without a separate upload step.
  */
@@ -19,45 +18,12 @@ import { fileLibraryService } from "@/services/file-library.service";
 const ACCEPTED =
   ".csv,.xlsx,.xlsm,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-/** Folder in Files where every chat upload lands, so they're identifiable */
-const CHAT_FOLDER_NAME = "Archivos del chat";
-
 /** attachment id → download URL, so the sent pill can offer the file back */
 const attachmentDownloadUrls = new Map<string, string>();
 
 export class FileLibraryAttachmentAdapter implements AttachmentAdapter {
   accept = ACCEPTED;
-  private chatFolderId: string | null | undefined;
-
   constructor(private workspaceSlug: string) {}
-
-  /** Root-level "Archivos del chat" folder, created on first upload */
-  private async ensureChatFolder(): Promise<string | null> {
-    if (this.chatFolderId !== undefined) return this.chatFolderId;
-    try {
-      const folders = await fileLibraryService.getFolders(this.workspaceSlug);
-      const existing = folders.find((folder) => folder.parent === null && folder.name === CHAT_FOLDER_NAME);
-      if (existing) {
-        this.chatFolderId = existing.id;
-      } else {
-        const created = await fileLibraryService.createFolder(this.workspaceSlug, {
-          name: CHAT_FOLDER_NAME,
-          parent: null,
-        });
-        this.chatFolderId = created.id;
-      }
-    } catch {
-      // A race with another tab may have created it — refetch once; failing
-      // that, upload to the library root rather than blocking the message.
-      try {
-        const folders = await fileLibraryService.getFolders(this.workspaceSlug);
-        this.chatFolderId = folders.find((f) => f.parent === null && f.name === CHAT_FOLDER_NAME)?.id ?? null;
-      } catch {
-        this.chatFolderId = null;
-      }
-    }
-    return this.chatFolderId;
-  }
 
   async add({ file }: { file: File }): Promise<PendingAttachment> {
     return {
@@ -71,9 +37,17 @@ export class FileLibraryAttachmentAdapter implements AttachmentAdapter {
   }
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
-    const folderId = await this.ensureChatFolder();
-    const uploaded = await fileLibraryService.uploadFile(this.workspaceSlug, attachment.file, undefined, folderId);
-    attachmentDownloadUrls.set(attachment.id, fileLibraryService.getFileDownloadUrl(this.workspaceSlug, uploaded.asset_id));
+    const uploaded = await fileLibraryService.uploadFile(
+      this.workspaceSlug,
+      attachment.file,
+      undefined,
+      undefined,
+      "music"
+    );
+    attachmentDownloadUrls.set(
+      attachment.id,
+      fileLibraryService.getFileDownloadUrl(this.workspaceSlug, uploaded.asset_id, "music")
+    );
     return {
       ...attachment,
       status: { type: "complete" },
@@ -82,7 +56,7 @@ export class FileLibraryAttachmentAdapter implements AttachmentAdapter {
       content: [
         {
           type: "text",
-          text: `[Archivo adjunto subido a la biblioteca, carpeta "${CHAT_FOLDER_NAME}"] nombre="${attachment.name}" asset_id=${uploaded.asset_id}. Si el usuario quiere importarlo al catálogo musical, usa propose_music_import con ese asset_id (primero mode=read).`,
+          text: `[Archivo adjunto interno de Music] nombre="${attachment.name}" asset_id=${uploaded.asset_id}. Para importarlo al catálogo musical, usa propose_music_import con ese asset_id (primero mode=read).`,
         },
       ],
     };

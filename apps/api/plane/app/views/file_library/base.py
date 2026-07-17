@@ -49,8 +49,21 @@ class FileLibraryBaseView(BaseAPIView):
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         slug = kwargs.get("slug")
-        if slug and not is_workspace_feature_enabled(WorkspaceFeature.FeatureKey.FILE_LIBRARY, slug=slug):
+        feature = (
+            WorkspaceFeature.FeatureKey.MUSIC_CATALOG
+            if request.query_params.get("scope") == "music" or request.data.get("scope") == "music"
+            else WorkspaceFeature.FeatureKey.FILE_LIBRARY
+        )
+        if slug and not is_workspace_feature_enabled(feature, slug=slug):
             self.permission_denied(request, message="The file library is not enabled for this workspace")
+
+
+def _asset_context(request):
+    return (
+        FileAsset.EntityTypeContext.MUSIC_CATALOG
+        if request.query_params.get("scope") == "music" or request.data.get("scope") == "music"
+        else FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY
+    )
 
 
 class FileCategoryEndpoint(FileLibraryBaseView):
@@ -206,7 +219,8 @@ class FileLibraryAssetEndpoint(FileLibraryBaseView):
 
         # Optional destination folder
         folder = None
-        folder_id = request.data.get("folder_id")
+        context = _asset_context(request)
+        folder_id = request.data.get("folder_id") if context == FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY else None
         if folder_id:
             folder = FileFolder.objects.filter(id=folder_id, workspace=workspace).first()
             if folder is None:
@@ -218,7 +232,7 @@ class FileLibraryAssetEndpoint(FileLibraryBaseView):
             size=size,
             workspace=workspace,
             created_by=request.user,
-            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+            entity_type=context,
             folder=folder,
         )
 
@@ -244,7 +258,7 @@ class FileLibraryAssetDetailEndpoint(FileLibraryBaseView):
         asset = FileAsset.objects.get(
             id=asset_id,
             workspace__slug=slug,
-            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+            entity_type=_asset_context(request),
         )
         asset.is_uploaded = True
         if not asset.storage_metadata:
@@ -262,7 +276,7 @@ class FileLibraryAssetDetailEndpoint(FileLibraryBaseView):
         asset = FileAsset.objects.get(
             id=asset_id,
             workspace__slug=slug,
-            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+            entity_type=_asset_context(request),
         )
         asset.is_deleted = True
         asset.deleted_at = timezone.now()
@@ -278,7 +292,7 @@ class FileLibraryAssetDownloadEndpoint(FileLibraryBaseView):
         asset = FileAsset.objects.get(
             id=asset_id,
             workspace__slug=slug,
-            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+            entity_type=_asset_context(request),
         )
         if not asset.is_uploaded:
             return Response(

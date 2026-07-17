@@ -128,6 +128,8 @@ class MusicTrackSerializer(BaseSerializer):
                 "version": video.version,
                 "status": video.status,
                 "isrc": video.isrc_video or video.isrc,
+                "upc": video.upc,
+                "catalog": video.catalog,
                 "release_date": video.release_date,
                 "duration_ms": video.duration_ms,
                 "cover_url": video.cover_url,

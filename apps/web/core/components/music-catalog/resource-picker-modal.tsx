@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Check, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@plane/propel/button";
+import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TMusicCatalogOptions, TMusicCompany, TMusicGenre, TMusicParty, TMusicRelease } from "@plane/types";
-import { AlertModalCore, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
+import { AlertModalCore } from "@plane/ui";
 import { musicService } from "@/services/music.service";
+import { BudgetPeekPanel } from "../payments/budget-peek-panel";
 import { getApiError, MUSIC_FIELD, MUSIC_LABEL } from "./shared";
 
 export type MusicResource = TMusicParty | TMusicCompany | TMusicGenre | TMusicRelease;
@@ -42,6 +44,7 @@ export function MusicResourcePickerModal({
   onSelect,
   onChanged,
 }: Props) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<string[]>([]);
   const [editing, setEditing] = useState<MusicResource>();
@@ -150,29 +153,23 @@ export function MusicResourcePickerModal({
       multiple ? (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]) : [id]
     );
 
+  if (!isOpen) return null;
+
   return (
     <>
-      <ModalCore
-        isOpen={isOpen}
-        handleClose={() => {
-          if (!deleting) onClose();
-        }}
-        position={EModalPosition.CENTER}
-        width={EModalWidth.XXL}
+      <BudgetPeekPanel
+        title={title}
+        description={t("music_resources.catalog_help")}
+        onClose={() => !deleting && onClose()}
       >
-        <div className="flex max-h-[min(720px,90vh)] flex-col overflow-hidden">
-          <div className="flex items-start justify-between border-b border-subtle p-4">
-            <div>
-              <h3 className="text-14 font-semibold">{title}</h3>
-              <p className="mt-1 text-11 text-secondary">Search, select or maintain this workspace catalog.</p>
-            </div>
-            <button type="button" className="rounded p-1.5 text-secondary hover:bg-layer-2" onClick={onClose}>
-              <X className="size-4" />
-            </button>
+        <div className="flex h-full min-h-0 flex-col bg-surface-1">
+          <div className="shrink-0 bg-gradient-to-br from-[#173a31] via-[#102c26] to-[#111827] px-5 py-4 text-white">
+            <p className="text-13 font-semibold">{t("music_resources.workspace_catalog")}</p>
+            <p className="mt-1 text-11 text-white/65">{t("music_resources.catalog_help")}</p>
           </div>
 
-          <div className="grid min-h-0 flex-1 md:grid-cols-[1fr_260px]">
-            <div className="flex min-h-0 flex-col border-b border-subtle p-4 md:border-r md:border-b-0">
+          <div className="vertical-scrollbar min-h-0 flex-1 overflow-y-auto">
+            <section className="flex min-h-0 flex-col border-b border-subtle px-5 py-5">
               <div className="relative mb-3">
                 <Search className="absolute top-2.5 left-3 size-4 text-tertiary" />
                 <input
@@ -231,11 +228,12 @@ export function MusicResourcePickerModal({
                 })}
                 {!visible.length && <p className="py-10 text-center text-12 text-tertiary">No matching resources.</p>}
               </div>
-            </div>
+            </section>
 
-            <div className="p-4">
+            <section className="border-b border-subtle bg-layer-1 px-5 py-5">
               <h4 className="flex items-center gap-2 text-12 font-semibold">
-                <Plus className="size-4" /> {editing ? "Edit resource" : "Create new"}
+                <Plus className="size-4" />{" "}
+                {editing ? t("music_resources.edit_resource") : t("music_resources.create_new")}
               </h4>
               <label htmlFor="music-resource-name" className={`${MUSIC_LABEL} mt-4`}>
                 Name
@@ -273,22 +271,22 @@ export function MusicResourcePickerModal({
                   disabled={!name.trim()}
                   onClick={() => void saveResource()}
                 >
-                  {editing ? "Save" : "Create and select"}
+                  {editing ? t("music_resources.save") : t("music_resources.create_select")}
                 </Button>
                 {editing && (
                   <Button variant="secondary" size="sm" onClick={resetEditor}>
-                    Cancel
+                    {t("music_resources.cancel")}
                   </Button>
                 )}
               </div>
-            </div>
+            </section>
           </div>
 
-          <div className="flex items-center justify-between border-t border-subtle px-4 py-3">
-            <span className="text-11 text-secondary">{selection.length} selected</span>
+          <div className="flex items-center justify-between border-t border-subtle bg-layer-1 px-4 py-3">
+            <span className="text-11 text-secondary">{t("music_resources.selected", { count: selection.length })}</span>
             <div className="flex gap-2">
               <Button variant="secondary" size="sm" onClick={onClose}>
-                Cancel
+                {t("music_resources.cancel")}
               </Button>
               <Button
                 variant="primary"
@@ -298,12 +296,12 @@ export function MusicResourcePickerModal({
                   onClose();
                 }}
               >
-                Apply selection
+                {t("music_resources.apply_selection")}
               </Button>
             </div>
           </div>
         </div>
-      </ModalCore>
+      </BudgetPeekPanel>
       <AlertModalCore
         isOpen={Boolean(deleting)}
         isSubmitting={isDeleting}

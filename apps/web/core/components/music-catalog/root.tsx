@@ -5,8 +5,8 @@ import {
   Download,
   FileSpreadsheet,
   FileUp,
+  Link as LinkIcon,
   Music2,
-  Pencil,
   Plus,
   Search,
   SlidersHorizontal,
@@ -25,15 +25,31 @@ import { MusicImportModal } from "./import-modal";
 import { MusicReleaseModal } from "./release-modal";
 import { getApiError, musicDate, MUSIC_FIELD } from "./shared";
 import { MusicTableActionBar } from "./table-action-bar";
-import { MusicTrackModal } from "./track-modal";
 import { MusicTrackPeekPanel } from "./track-peek-panel";
 
 type Props = { workspaceSlug: string };
 const PAGE_SIZE = 25;
 
+/** Status → design-system tone (no hardcoded palette colors) */
+const STATUS_TONE: Record<string, string> = {
+  RELEASED: "bg-success-subtle text-success-primary",
+  SCHEDULED: "bg-accent-primary/10 text-accent-primary",
+  READY: "bg-warning-subtle text-warning-primary",
+  TAKEN_DOWN: "bg-danger-subtle text-danger-primary",
+  DRAFT: "border border-subtle bg-layer-2 text-secondary",
+};
+
+const statusPill = (value: string) => (
+  <span
+    className={`inline-flex rounded-full px-2 py-0.5 text-10 font-medium ${STATUS_TONE[value] ?? STATUS_TONE.DRAFT}`}
+  >
+    {value.replaceAll("_", " ")}
+  </span>
+);
+
 const badge = (value: string, green = false) => (
   <span
-    className={`inline-flex rounded-full px-2 py-0.5 text-10 font-medium ${green ? "bg-emerald-100 text-emerald-800" : "border border-subtle bg-layer-2 text-secondary"}`}
+    className={`inline-flex rounded-full px-2 py-0.5 text-10 font-medium ${green ? "bg-success-subtle text-success-primary" : "border border-subtle bg-layer-2 text-secondary"}`}
   >
     {value.replaceAll("_", " ")}
   </span>
@@ -45,16 +61,65 @@ const artistNames = (track: TMusicTrack) =>
     .map((credit) => credit.party.display_name)
     .join(", ");
 
+/** Loading placeholders mirroring the real row/card geometry */
+const SkeletonBar = ({ className }: { className: string }) => (
+  <span className={`block animate-pulse rounded-sm bg-layer-2 ${className}`} />
+);
+
+const TrackRowSkeleton = () => (
+  <tr className="border-t border-subtle">
+    <td className="px-4 py-3">
+      <SkeletonBar className="size-4" />
+    </td>
+    <td className="px-4 py-3">
+      <div className="flex items-center gap-3">
+        <SkeletonBar className="size-10 rounded-md" />
+        <div className="space-y-1.5">
+          <SkeletonBar className="h-3 w-40" />
+          <SkeletonBar className="h-2.5 w-24" />
+        </div>
+      </div>
+    </td>
+    <td className="px-4 py-3">
+      <SkeletonBar className="h-3 w-28" />
+    </td>
+    <td className="px-4 py-3">
+      <SkeletonBar className="h-3 w-24" />
+    </td>
+    <td className="px-4 py-3">
+      <SkeletonBar className="h-3 w-16" />
+    </td>
+    <td className="px-4 py-3">
+      <SkeletonBar className="h-3 w-20" />
+    </td>
+    <td className="px-4 py-3">
+      <SkeletonBar className="h-3 w-12" />
+    </td>
+  </tr>
+);
+
+const TrackCardSkeleton = () => (
+  <article className="rounded-lg border border-subtle bg-layer-1 p-4">
+    <div className="flex gap-3">
+      <SkeletonBar className="size-14 rounded-lg" />
+      <div className="flex-1 space-y-2">
+        <SkeletonBar className="h-3.5 w-3/4" />
+        <SkeletonBar className="h-2.5 w-1/2" />
+        <SkeletonBar className="h-2.5 w-2/3" />
+      </div>
+    </div>
+  </article>
+);
+
 export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [filters, setFilters] = useState<TMusicFilters>({ songs_only: "true" });
   const [page, setPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
-  const [editingTrack, setEditingTrack] = useState<TMusicTrack>();
   const [editingRelease, setEditingRelease] = useState<TMusicRelease>();
   const [peekTrack, setPeekTrack] = useState<TMusicTrack>();
-  const [trackOpen, setTrackOpen] = useState(false);
+  const [peekCreateOpen, setPeekCreateOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -191,79 +256,61 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
     }
   };
 
-  const openSong = (track?: TMusicTrack) => {
-    setEditingTrack(track);
-    setTrackOpen(true);
-  };
-
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-surface-1">
-      <div className="shrink-0 border-b border-subtle bg-gradient-to-br from-[#edf7f2] via-surface-1 to-[#eaf1f8] px-4 py-4 sm:px-6">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="shadow-sm flex size-10 items-center justify-center rounded-xl bg-[#173a31] text-white">
-              <Music2 className="size-5" />
-            </div>
-            <div>
-              <h1 className="text-18 font-semibold">Music catalog</h1>
-              <p className="mt-0.5 text-12 text-secondary">
-                Songs, releases, videos, credits and rights in one workspace view.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setResourcesOpen(true)}>
-              <Users className="mr-1.5 size-4" /> Resources
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
-              <FileUp className="mr-1.5 size-4" /> Import
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => void download("filtered", "csv")}>
-              <FileSpreadsheet className="mr-1.5 size-4" /> CSV
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => void download("filtered", "xlsx")}>
-              <Download className="mr-1.5 size-4" /> XLSX
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => openSong()}>
-              <Plus className="mr-1.5 size-4" /> New song
-            </Button>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+      {/* toolbar — compact, Plane-style (search + filters left, actions right) */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle px-3 py-2.5 sm:px-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="relative">
-            <Search className="absolute top-2.5 left-3 size-4 text-tertiary" />
+            <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-tertiary" />
             <input
-              className={`${MUSIC_FIELD} bg-layer-1 pl-9`}
+              className="w-40 rounded-md border border-subtle bg-transparent py-1.5 pr-2 pl-8 text-12 sm:w-64"
               value={search}
               onChange={(event) => {
                 setPage(1);
                 setSelectedTrackIds([]);
                 setSearch(event.target.value);
               }}
-              placeholder="Search songs, artists, releases, audio or video ISRC..."
+              placeholder="Buscar canciones, artistas, ISRC…"
             />
           </div>
-          <Button variant="secondary" size="sm" onClick={() => setShowFilters((current) => !current)}>
-            <SlidersHorizontal className="mr-1.5 size-4" /> Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}
-          </Button>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="hover:border-accent-primary rounded-full border border-subtle bg-layer-1 px-3 py-1.5 text-11"
+            onClick={() => setShowFilters((current) => !current)}
+            className={`flex items-center gap-1 rounded-sm border px-2 py-1.5 text-12 hover:bg-layer-1-hover ${activeFilterCount ? "border-accent-strong text-accent-primary" : "border-subtle"}`}
+          >
+            <SlidersHorizontal className="size-3.5" />
+            <span className="hidden sm:inline">Filtros</span>
+            {activeFilterCount > 0 && (
+              <span className="rounded-full bg-accent-primary px-1 text-10 text-on-color">{activeFilterCount}</span>
+            )}
+          </button>
+          {/* quick filters */}
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-full border border-subtle px-2.5 py-1 text-11 text-secondary hover:bg-layer-1-hover"
             onClick={() => {
               setPage(1);
               setSelectedTrackIds([]);
               setFilters({ songs_only: "true", has_video: "true" });
             }}
           >
-            <Video className="mr-1 inline size-3.5" /> With video
+            <Video className="size-3" /> Con video
           </button>
           <button
             type="button"
-            className="hover:border-accent-primary rounded-full border border-subtle bg-layer-1 px-3 py-1.5 text-11"
+            className="flex items-center gap-1 rounded-full border border-subtle px-2.5 py-1 text-11 text-secondary hover:bg-layer-1-hover"
+            onClick={() => {
+              setPage(1);
+              setSelectedTrackIds([]);
+              setFilters({ songs_only: "true", has_links: "true" });
+            }}
+          >
+            <LinkIcon className="size-3" /> Con enlaces
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-subtle px-2.5 py-1 text-11 text-secondary hover:bg-layer-1-hover"
             onClick={() => {
               setPage(1);
               setSelectedTrackIds([]);
@@ -274,36 +321,70 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
               });
             }}
           >
-            Last 30 days
+            Últimos 30 días
           </button>
           <button
             type="button"
-            className="hover:border-accent-primary rounded-full border border-subtle bg-layer-1 px-3 py-1.5 text-11"
+            className="flex items-center gap-1 rounded-full border border-subtle px-2.5 py-1 text-11 text-secondary hover:bg-layer-1-hover"
             onClick={() => {
               setPage(1);
               setSelectedTrackIds([]);
               setFilters({ songs_only: "true", from: new Date().toISOString().slice(0, 10) });
             }}
           >
-            <CalendarClock className="mr-1 inline size-3.5" /> Upcoming
+            <CalendarClock className="size-3" /> Próximos
           </button>
           {activeFilterCount > 0 && (
             <button
               type="button"
-              className="px-2 py-1 text-11 text-accent-primary"
+              className="px-1.5 py-1 text-11 text-accent-primary hover:underline"
               onClick={() => {
                 setPage(1);
                 setSelectedTrackIds([]);
                 setFilters({ songs_only: "true" });
               }}
             >
-              Clear filters
+              Limpiar
             </button>
           )}
         </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button variant="secondary" size="sm" onClick={() => setResourcesOpen(true)}>
+            <Users className="size-3.5" />
+            <span className="hidden lg:inline">Recursos</span>
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+            <FileUp className="size-3.5" />
+            <span className="hidden lg:inline">Importar</span>
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void download("filtered", "csv")}
+            title="Exportar CSV (filtros actuales)"
+          >
+            <FileSpreadsheet className="size-3.5" />
+            <span className="hidden xl:inline">CSV</span>
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void download("filtered", "xlsx")}
+            title="Exportar Excel (filtros actuales)"
+          >
+            <Download className="size-3.5" />
+            <span className="hidden xl:inline">Excel</span>
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => setPeekCreateOpen(true)}>
+            <Plus className="size-3.5" />
+            <span className="hidden sm:inline">Nueva canción</span>
+          </Button>
+        </div>
+      </div>
 
+      <div className="shrink-0 px-3 sm:px-4">
         {showFilters && (
-          <div className="mt-3 grid gap-3 rounded-xl border border-subtle bg-layer-1 p-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+          <div className="mt-2 grid gap-3 rounded-md border border-subtle bg-layer-1 p-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <select
               className={MUSIC_FIELD}
               value={filters.artist ?? ""}
@@ -419,150 +500,168 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
               />{" "}
               Has music video
             </label>
+            <label className="flex items-center gap-2 self-end rounded-md border border-subtle px-3 py-2 text-11">
+              <input
+                type="checkbox"
+                checked={filters.has_links === "true"}
+                onChange={(event) => setFilter("has_links", event.target.checked ? "true" : "")}
+              />{" "}
+              Has links
+            </label>
           </div>
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
-        <div className="mb-3 flex items-center justify-between text-11 text-secondary">
+      <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-4">
+        <div className="mb-2 flex items-center justify-between text-11 text-tertiary">
           <span>
-            {isLoading
-              ? "Loading catalog..."
+            {isLoading && !tracks.length
+              ? "Cargando catálogo…"
               : totalTracks === 0
-                ? "No songs"
-                : `Showing ${firstTrack}-${lastTrack} of ${totalTracks} songs`}
+                ? "Sin canciones"
+                : `${firstTrack}-${lastTrack} de ${totalTracks} canciones`}
           </span>
-          <span>Click a row to open the complete record</span>
+          <span className="hidden sm:inline">Click en una fila para abrir el registro</span>
         </div>
-        {!tracks.length && !isLoading ? (
-          <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl border border-dashed border-subtle bg-layer-1 p-8 text-center">
-            <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-[#173a31]/10 text-[#173a31]">
+        {isLoading && !tracks.length ? (
+          <>
+            {/* skeletons mirroring the table / card geometry */}
+            <div className="hidden overflow-hidden rounded-md border border-subtle bg-layer-1 md:block">
+              <table className="w-full text-left">
+                <tbody>
+                  {Array.from({ length: 8 }, (_, index) => (
+                    <TrackRowSkeleton key={index} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="grid gap-3 md:hidden">
+              {Array.from({ length: 4 }, (_, index) => (
+                <TrackCardSkeleton key={index} />
+              ))}
+            </div>
+          </>
+        ) : !tracks.length ? (
+          <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-dashed border-subtle bg-layer-1 p-8 text-center">
+            <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-accent-primary/10 text-accent-primary">
               <Disc3 className="size-7" />
             </div>
-            <h2 className="text-16 font-semibold">Build your music history</h2>
+            <h2 className="text-16 font-semibold">Construye tu catálogo musical</h2>
             <p className="mt-2 max-w-md text-12 text-secondary">
-              Create the first song or import a CSV/XLSX. Artists, releases, genres and companies can be created during
-              either flow.
+              Crea la primera canción o importa un CSV/XLSX. Los artistas, releases, géneros y compañías se pueden crear
+              durante cualquiera de los dos flujos.
             </p>
             <div className="mt-5 flex gap-2">
               <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
-                Import spreadsheet
+                <FileUp className="size-3.5" /> Importar archivo
               </Button>
-              <Button variant="primary" size="sm" onClick={() => openSong()}>
-                <Plus className="mr-1 size-4" /> New song
+              <Button variant="primary" size="sm" onClick={() => setPeekCreateOpen(true)}>
+                <Plus className="size-3.5" /> Nueva canción
               </Button>
             </div>
           </div>
         ) : (
           <>
-            <div className="hidden overflow-hidden rounded-xl border border-subtle bg-layer-1 md:block">
+            <div className="hidden overflow-hidden rounded-md border border-subtle bg-layer-1 md:block">
               <table className="w-full text-left">
-                <thead className="sticky top-0 z-10 bg-layer-2 text-10 font-semibold text-tertiary uppercase">
+                <thead className="sticky top-0 z-10 bg-layer-2 text-11 font-medium text-tertiary">
                   <tr>
-                    <th className="w-12 px-4 py-3">
+                    <th className="w-12 px-4 py-2.5">
                       <input
                         type="checkbox"
                         checked={isCurrentPageSelected}
                         onChange={toggleCurrentPageSelection}
-                        aria-label="Select all songs on this page"
+                        aria-label="Seleccionar todas las canciones de la página"
                       />
                     </th>
-                    <th className="px-4 py-3">Song</th>
-                    <th className="px-4 py-3">Release</th>
-                    <th className="px-4 py-3">Identifiers</th>
-                    <th className="px-4 py-3">Video</th>
-                    <th className="px-4 py-3">Rights</th>
-                    <th className="w-24 px-4 py-3" />
+                    <th className="px-4 py-2.5">Canción</th>
+                    <th className="px-4 py-2.5">Release</th>
+                    <th className="px-4 py-2.5">ISRC</th>
+                    <th className="px-4 py-2.5">Estado</th>
+                    <th className="px-4 py-2.5">Videos</th>
+                    <th className="px-4 py-2.5">Derechos</th>
+                    <th className="w-20 px-4 py-2.5" />
                   </tr>
                 </thead>
                 <tbody>
                   {tracks.map((track) => (
                     <tr
                       key={track.id}
-                      className="cursor-pointer border-t border-subtle hover:bg-layer-2/60"
+                      className="group cursor-pointer border-t border-subtle hover:bg-layer-1-hover"
                       onClick={() => setPeekTrack(track)}
                     >
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-2.5">
                         <input
                           type="checkbox"
                           checked={selectedTrackIds.includes(track.id)}
                           onClick={(event) => event.stopPropagation()}
                           onChange={() => toggleTrackSelection(track.id)}
-                          aria-label={`Select ${track.title}`}
+                          aria-label={`Seleccionar ${track.title}`}
                         />
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#173a31]/10">
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-accent-primary/10 text-accent-primary">
                             {track.cover_url ? (
                               <img src={track.cover_url} alt="" className="size-full object-cover" />
                             ) : (
-                              <Music2 className="size-4 text-[#173a31]" />
+                              <Music2 className="size-4" />
                             )}
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate text-13 font-semibold">{track.title}</p>
-                            <p className="mt-0.5 truncate text-11 text-secondary">
-                              {artistNames(track) || "No artist"}
+                            <p className="truncate text-13 font-medium">
+                              {track.title}
+                              {track.version && (
+                                <span className="font-normal ml-1 text-11 text-tertiary">({track.version})</span>
+                              )}
+                            </p>
+                            <p className="mt-0.5 truncate text-11 text-tertiary">
+                              {artistNames(track) || "Sin artista"}
                             </p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-11">
+                      <td className="px-4 py-2.5 text-12">
                         <p className="max-w-44 truncate">
-                          {track.release_details.map((release) => release.title).join(", ") || "Independent"}
+                          {track.release_details.map((release) => release.title).join(", ") || (
+                            <span className="text-tertiary">Independiente</span>
+                          )}
                         </p>
-                        <p className="mt-1 text-tertiary">{musicDate(track.release_date)}</p>
+                        <p className="mt-0.5 text-11 text-tertiary">{musicDate(track.release_date)}</p>
                       </td>
-                      <td className="px-4 py-3">
-                        <code className="text-11">{track.isrc || "No ISRC"}</code>
-                        <div className="mt-1">{badge(track.status, track.status === "RELEASED")}</div>
-                      </td>
-                      <td className="px-4 py-3 text-11">
-                        {track.video_details.length ? (
-                          <>
-                            <span className="text-emerald-700 flex items-center gap-1">
-                              <Video className="size-3.5" /> {track.video_details.length} video
-                              {track.video_details.length === 1 ? "" : "s"}
-                            </span>
-                            <p className="mt-1 max-w-36 truncate text-tertiary">
-                              {track.video_details
-                                .map((video) => video.isrc)
-                                .filter(Boolean)
-                                .join(", ")}
-                            </p>
-                          </>
+                      <td className="px-4 py-2.5">
+                        {track.isrc ? (
+                          <code className="font-mono text-11">{track.isrc}</code>
                         ) : (
-                          <span className="text-tertiary">No video</span>
+                          <span className="text-11 text-placeholder">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-11">
-                        <p>{track.credits.filter((credit) => credit.percentage !== null).length} rights splits</p>
-                        <p className="mt-1 text-tertiary">
-                          {track.distributions.filter((entry) => entry.percentage !== null).length} commercial splits
-                        </p>
+                      <td className="px-4 py-2.5">{statusPill(track.status)}</td>
+                      <td className="px-4 py-2.5 text-12">
+                        {track.video_details.length ? (
+                          <span className="flex items-center gap-1 text-success-primary">
+                            <Video className="size-3.5" /> {track.video_details.length}
+                          </span>
+                        ) : (
+                          <span className="text-placeholder">—</span>
+                        )}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex">
+                      <td className="px-4 py-2.5 text-11 text-tertiary">
+                        {track.credits.filter((credit) => credit.percentage !== null).length} splits ·{" "}
+                        {track.distributions.filter((entry) => entry.percentage !== null).length} com.
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100">
                           <button
                             type="button"
-                            className="rounded p-2 hover:bg-layer-2"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openSong(track);
-                            }}
-                          >
-                            <Pencil className="size-4" />
-                          </button>
-                          <button
-                            type="button"
-                            className="hover:bg-red-50 hover:text-red-600 rounded p-2 text-secondary"
+                            className="rounded-sm p-1.5 text-secondary hover:bg-danger-subtle hover:text-danger-primary"
+                            title="Eliminar"
                             onClick={(event) => {
                               event.stopPropagation();
                               setDeletingTrack(track);
                             }}
                           >
-                            <Trash2 className="size-4" />
+                            <Trash2 className="size-3.5" />
                           </button>
                         </div>
                       </td>
@@ -575,7 +674,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
               {tracks.map((track) => (
                 <article
                   key={track.id}
-                  className="rounded-xl border border-subtle bg-layer-1 p-4"
+                  className="rounded-lg border border-subtle bg-layer-1 p-4"
                   role="button"
                   tabIndex={0}
                   onClick={() => setPeekTrack(track)}
@@ -589,28 +688,28 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                       checked={selectedTrackIds.includes(track.id)}
                       onClick={(event) => event.stopPropagation()}
                       onChange={() => toggleTrackSelection(track.id)}
-                      aria-label={`Select ${track.title}`}
+                      aria-label={`Seleccionar ${track.title}`}
                       className="mt-1 shrink-0"
                     />
-                    <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#173a31]/10">
+                    <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-accent-primary/10 text-accent-primary">
                       {track.cover_url ? (
                         <img src={track.cover_url} alt="" className="size-full object-cover" />
                       ) : (
-                        <Music2 className="size-5 text-[#173a31]" />
+                        <Music2 className="size-5" />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex justify-between gap-2">
-                        <h3 className="truncate text-14 font-semibold">{track.title}</h3>
-                        {badge(track.status, track.status === "RELEASED")}
+                        <h3 className="truncate text-13 font-medium">{track.title}</h3>
+                        {statusPill(track.status)}
                       </div>
-                      <p className="mt-1 truncate text-11 text-secondary">{artistNames(track) || "No artist"}</p>
-                      <p className="mt-2 text-10 text-tertiary">
-                        {track.isrc || "No ISRC"} · {musicDate(track.release_date)}
+                      <p className="mt-0.5 truncate text-11 text-tertiary">{artistNames(track) || "Sin artista"}</p>
+                      <p className="font-mono mt-1.5 text-10 text-tertiary">
+                        {track.isrc || "—"} · {musicDate(track.release_date)}
                       </p>
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
                     {track.release_details.slice(0, 2).map((release) => (
                       <button
                         type="button"
@@ -624,7 +723,8 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                         {badge(release.title)}
                       </button>
                     ))}
-                    {track.video_details.length > 0 && badge(`${track.video_details.length} VIDEO`, true)}
+                    {track.video_details.length > 0 &&
+                      badge(`${track.video_details.length} video${track.video_details.length === 1 ? "" : "s"}`, true)}
                   </div>
                 </article>
               ))}
@@ -640,13 +740,14 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                 onDelete={() => setIsBulkDeleteOpen(true)}
                 onPrevious={() => setPage((current) => current - 1)}
                 onNext={() => setPage((current) => current + 1)}
+                onGoTo={(nextPage) => setPage(nextPage)}
               />
             )}
           </>
         )}
       </div>
 
-      {peekTrack && (
+      {(peekTrack || peekCreateOpen) && (
         <MusicTrackPeekPanel
           workspaceSlug={workspaceSlug}
           track={peekTrack}
@@ -655,27 +756,20 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
           genres={genres}
           companies={companies}
           releases={releases}
-          suspendClose={trackOpen || releaseOpen || resourcesOpen || importOpen}
-          onClose={() => setPeekTrack(undefined)}
-          onEditFull={(track) => openSong(track)}
+          suspendClose={releaseOpen || resourcesOpen || importOpen}
+          onClose={() => {
+            setPeekTrack(undefined);
+            setPeekCreateOpen(false);
+          }}
           onSaved={() => void mutateTracks()}
+          onCreated={(created) => {
+            setPeekCreateOpen(false);
+            setPeekTrack(created);
+          }}
           onResourcesChanged={refreshResources}
         />
       )}
 
-      <MusicTrackModal
-        workspaceSlug={workspaceSlug}
-        isOpen={trackOpen}
-        track={editingTrack}
-        releases={releases}
-        parties={parties}
-        genres={genres}
-        companies={companies}
-        options={options}
-        onClose={() => setTrackOpen(false)}
-        onSaved={refreshAll}
-        onResourcesChanged={refreshResources}
-      />
       <MusicReleaseModal
         workspaceSlug={workspaceSlug}
         isOpen={releaseOpen}

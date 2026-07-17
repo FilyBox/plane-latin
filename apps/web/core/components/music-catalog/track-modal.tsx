@@ -1,5 +1,16 @@
 import { useEffect, useState } from "react";
-import { Building2, Disc3, ImagePlus, Music2, Pencil, Plus, Trash2, Upload, Video } from "lucide-react";
+import {
+  Building2,
+  Disc3,
+  ImagePlus,
+  Link as LinkIcon,
+  Music2,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+  Video,
+} from "lucide-react";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type {
@@ -31,8 +42,16 @@ type Props = {
   onResourcesChanged: () => void;
 };
 
-type CreditEntry = { party_id: string; role: string; percentage: string; publishing_share: string; territory: string };
+type CreditEntry = {
+  row_id: string;
+  party_id: string;
+  role: string;
+  percentage: string;
+  publishing_share: string;
+  territory: string;
+};
 type DistributionEntry = {
+  row_id: string;
   company_id: string;
   percentage: string;
   territory: string;
@@ -40,13 +59,24 @@ type DistributionEntry = {
   valid_to: string;
 };
 type VideoEntry = {
+  row_id: string;
   id?: string;
   title: string;
   status: string;
   isrc: string;
+  upc: string;
+  catalog: string;
   release_date: string;
   duration_ms: string;
   video_url: string;
+};
+type LinkEntry = {
+  row_id: string;
+  kind: string;
+  platform: string;
+  name: string;
+  url: string;
+  isrc: string;
 };
 type PickerTarget = "credits" | "credit" | "releases" | "genres" | "distributions" | "distribution";
 type PickerState = { resourceType: MusicResourceType; target: PickerTarget; index?: number; defaultKind?: string };
@@ -83,7 +113,17 @@ const EMPTY = {
   credits: [] as CreditEntry[],
   distributions: [] as DistributionEntry[],
   videos: [] as VideoEntry[],
+  links: [] as LinkEntry[],
 };
+
+const LINK_KINDS = [
+  ["STREAMING", "Streaming"],
+  ["SOCIAL", "Social"],
+  ["STORE", "Store"],
+  ["OTHER", "Other"],
+] as const;
+
+const createRowId = () => globalThis.crypto?.randomUUID?.() ?? `row-${Date.now()}-${Math.random()}`;
 
 const Section = ({
   title,
@@ -157,6 +197,7 @@ export function MusicTrackModal({
             release_ids: track.release_details.map((item) => item.id),
             genre_ids: track.genre_details.map((item) => item.id),
             credits: track.credits.map((credit) => ({
+              row_id: credit.id,
               party_id: credit.party.id,
               role: credit.role,
               percentage: credit.percentage ?? "",
@@ -164,6 +205,7 @@ export function MusicTrackModal({
               territory: credit.territory,
             })),
             distributions: track.distributions.map((item) => ({
+              row_id: item.id,
               company_id: item.company.id,
               percentage: item.percentage ?? "",
               territory: item.territory,
@@ -171,13 +213,24 @@ export function MusicTrackModal({
               valid_to: item.valid_to ?? "",
             })),
             videos: track.video_details.map((video) => ({
+              row_id: video.id,
               id: video.id,
               title: video.title,
               status: video.status,
               isrc: video.isrc,
+              upc: video.upc,
+              catalog: video.catalog,
               release_date: video.release_date ?? "",
               duration_ms: video.duration_ms?.toString() ?? "",
               video_url: video.video_url,
+            })),
+            links: track.links.map((link) => ({
+              row_id: link.id,
+              kind: link.kind,
+              platform: link.platform,
+              name: link.name,
+              url: link.url,
+              isrc: link.isrc,
             })),
           }
         : EMPTY
@@ -191,8 +244,8 @@ export function MusicTrackModal({
     if (!file) return;
     setIsUploading(true);
     try {
-      const uploaded = await fileLibraryService.uploadFile(workspaceSlug, file);
-      const url = fileLibraryService.getFileViewUrl(workspaceSlug, uploaded.asset_id);
+      const uploaded = await fileLibraryService.uploadFile(workspaceSlug, file, undefined, undefined, "music");
+      const url = fileLibraryService.getFileViewUrl(workspaceSlug, uploaded.asset_id, "music");
       if (kind === "audio") {
         set("audio_url", url);
         setAudioPreview(URL.createObjectURL(file));
@@ -212,7 +265,14 @@ export function MusicTrackModal({
     if (picker.target === "credits" && ids[0])
       set("credits", [
         ...form.credits,
-        { party_id: ids[0], role: "PRIMARY_ARTIST", percentage: "", publishing_share: "", territory: "" },
+        {
+          row_id: createRowId(),
+          party_id: ids[0],
+          role: "PRIMARY_ARTIST",
+          percentage: "",
+          publishing_share: "",
+          territory: "",
+        },
       ]);
     if (picker.target === "credit" && ids[0] && picker.index !== undefined)
       set(
@@ -222,7 +282,14 @@ export function MusicTrackModal({
     if (picker.target === "distributions" && ids[0])
       set("distributions", [
         ...form.distributions,
-        { company_id: ids[0], percentage: "", territory: "", valid_from: "", valid_to: "" },
+        {
+          row_id: createRowId(),
+          company_id: ids[0],
+          percentage: "",
+          territory: "",
+          valid_from: "",
+          valid_to: "",
+        },
       ]);
     if (picker.target === "distribution" && ids[0] && picker.index !== undefined)
       set(
@@ -235,7 +302,7 @@ export function MusicTrackModal({
     if (!form.title.trim()) return;
     setIsSaving(true);
     try {
-      const { credits, distributions, videos, release_ids, genre_ids, ...values } = form;
+      const { credits, distributions, videos, links, release_ids, genre_ids, ...values } = form;
       await musicService.saveTrack(workspaceSlug, {
         ...values,
         id: track?.id,
@@ -253,14 +320,38 @@ export function MusicTrackModal({
         genre_ids,
         releases: release_ids.map((id, index) => ({ id, disc_number: 1, track_number: index + 1 })),
         credit_entries: credits.map((entry) => ({
-          ...entry,
+          party_id: entry.party_id,
+          role: entry.role,
           percentage: entry.percentage || null,
           publishing_share: entry.publishing_share || null,
+          territory: entry.territory,
         })),
-        distribution_entries: distributions.map((entry) => ({ ...entry, percentage: entry.percentage || null })),
+        distribution_entries: distributions.map((entry) => ({
+          company_id: entry.company_id,
+          percentage: entry.percentage || null,
+          territory: entry.territory,
+          valid_from: entry.valid_from,
+          valid_to: entry.valid_to,
+        })),
+        link_entries: links
+          .filter((link) => link.url.trim())
+          .map((link) => ({
+            kind: link.kind,
+            platform: link.platform,
+            name: link.name || link.platform || link.kind,
+            url: link.url,
+            isrc: link.isrc,
+          })),
         video_entries: videos.map((video) => ({
-          ...video,
+          id: video.id,
+          title: video.title,
+          status: video.status,
+          isrc: video.isrc,
+          upc: video.upc,
+          catalog: video.catalog,
+          release_date: video.release_date,
           duration_ms: video.duration_ms ? Number(video.duration_ms) : null,
+          video_url: video.video_url,
         })),
       });
       setToast({ type: TOAST_TYPE.SUCCESS, title: track ? "Song updated" : "Song created" });
@@ -407,7 +498,7 @@ export function MusicTrackModal({
           <div className="space-y-2">
             {form.credits.map((credit, index) => (
               <div
-                key={`${credit.party_id}-${index}`}
+                key={credit.row_id}
                 className="grid gap-2 rounded-lg border border-subtle p-3 sm:grid-cols-2 lg:grid-cols-[1.3fr_1fr_.7fr_.7fr_auto]"
               >
                 <button
@@ -536,7 +627,7 @@ export function MusicTrackModal({
         >
           <div className="space-y-3">
             {form.videos.map((video, index) => (
-              <div key={video.id ?? index} className="rounded-xl border border-subtle bg-layer-2 p-4">
+              <div key={video.row_id} className="rounded-xl border border-subtle bg-layer-2 p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <span className="flex items-center gap-2 text-12 font-semibold">
                     <Video className="size-4 text-accent-primary" /> Video {index + 1}
@@ -567,7 +658,7 @@ export function MusicTrackModal({
                   />
                   <input
                     className={MUSIC_FIELD}
-                    placeholder="Video ISRC"
+                    placeholder="ISRC del video"
                     value={video.isrc}
                     onChange={(event) =>
                       set(
@@ -575,6 +666,28 @@ export function MusicTrackModal({
                         form.videos.map((item, i) =>
                           i === index ? { ...item, isrc: event.target.value.toUpperCase() } : item
                         )
+                      )
+                    }
+                  />
+                  <input
+                    className={MUSIC_FIELD}
+                    placeholder="UPC del video"
+                    value={video.upc}
+                    onChange={(event) =>
+                      set(
+                        "videos",
+                        form.videos.map((item, i) => (i === index ? { ...item, upc: event.target.value } : item))
+                      )
+                    }
+                  />
+                  <input
+                    className={MUSIC_FIELD}
+                    placeholder="Catálogo del video"
+                    value={video.catalog}
+                    onChange={(event) =>
+                      set(
+                        "videos",
+                        form.videos.map((item, i) => (i === index ? { ...item, catalog: event.target.value } : item))
                       )
                     }
                   />
@@ -593,8 +706,8 @@ export function MusicTrackModal({
                   />
                   <input
                     type="url"
-                    className={MUSIC_FIELD}
-                    placeholder="YouTube / distribution URL"
+                    className={`${MUSIC_FIELD} sm:col-span-2`}
+                    placeholder="Enlace del video (YouTube / distribución)"
                     value={video.video_url}
                     onChange={(event) =>
                       set(
@@ -615,9 +728,12 @@ export function MusicTrackModal({
               set("videos", [
                 ...form.videos,
                 {
+                  row_id: createRowId(),
                   title: form.title,
                   status: "DRAFT",
                   isrc: "",
+                  upc: "",
+                  catalog: "",
                   release_date: form.release_date,
                   duration_ms: "",
                   video_url: "",
@@ -625,7 +741,96 @@ export function MusicTrackModal({
               ])
             }
           >
-            <Plus className="mr-1 size-4" /> Add music video
+            <Plus className="mr-1 size-4" /> Agregar video musical
+          </Button>
+        </Section>
+
+        <Section
+          title="Links"
+          description="Streaming, social and store links belong to the song. Music videos are managed separately above."
+        >
+          <div className="space-y-2">
+            {form.links.map((link, index) => (
+              <div
+                key={link.row_id}
+                className="grid gap-2 rounded-lg border border-subtle p-3 sm:grid-cols-2 lg:grid-cols-[.8fr_1fr_1.4fr_auto]"
+              >
+                <label>
+                  <span className={MUSIC_LABEL}>Type</span>
+                  <select
+                    className={MUSIC_FIELD}
+                    value={link.kind}
+                    onChange={(event) =>
+                      set(
+                        "links",
+                        form.links.map((item, i) => (i === index ? { ...item, kind: event.target.value } : item))
+                      )
+                    }
+                  >
+                    {LINK_KINDS.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className={MUSIC_LABEL}>Platform (optional)</span>
+                  <input
+                    className={MUSIC_FIELD}
+                    value={link.platform}
+                    placeholder="Spotify, Apple Music..."
+                    onChange={(event) =>
+                      set(
+                        "links",
+                        form.links.map((item, i) => (i === index ? { ...item, platform: event.target.value } : item))
+                      )
+                    }
+                  />
+                </label>
+                <label>
+                  <span className={MUSIC_LABEL}>URL</span>
+                  <input
+                    type="url"
+                    className={MUSIC_FIELD}
+                    value={link.url}
+                    placeholder="https://..."
+                    onChange={(event) =>
+                      set(
+                        "links",
+                        form.links.map((item, i) => (i === index ? { ...item, url: event.target.value } : item))
+                      )
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="self-end justify-self-end rounded p-2 text-tertiary hover:bg-danger-subtle hover:text-danger-primary"
+                  onClick={() =>
+                    set(
+                      "links",
+                      form.links.filter((_, i) => i !== index)
+                    )
+                  }
+                  title="Remove link"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-3"
+            onClick={() =>
+              set("links", [
+                ...form.links,
+                { row_id: createRowId(), kind: "STREAMING", platform: "", name: "", url: "", isrc: "" },
+              ])
+            }
+          >
+            <LinkIcon className="mr-1 size-4" /> Add link
           </Button>
         </Section>
 
@@ -636,7 +841,7 @@ export function MusicTrackModal({
           <div className="space-y-2">
             {form.distributions.map((entry, index) => (
               <div
-                key={`${entry.company_id}-${index}`}
+                key={entry.row_id}
                 className="grid gap-3 rounded-lg border border-subtle p-3 sm:grid-cols-2 2xl:grid-cols-3"
               >
                 <div className="sm:col-span-2 2xl:col-span-1">

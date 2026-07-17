@@ -867,5 +867,37 @@
       "description": "Exporta elementos de trabajo a un archivo JSON.",
       "short_description": "Exportar como json"
     }
+  },
+  "music_resources": {
+    "title": "Recursos del catálogo",
+    "description": "Crea, edita o elimina recursos reutilizables del catálogo.",
+    "workspace_catalog": "Catálogo del workspace",
+    "people": "Personas",
+    "people_description": "Artistas, compositores y colaboradores",
+    "releases": "Lanzamientos",
+    "releases_description": "Sencillos, EP, álbumes e historial de lanzamientos",
+    "companies": "Compañías",
+    "companies_description": "Sellos, agregadoras y distribuidoras",
+    "genres": "Géneros",
+    "genres_description": "Clasificaciones musicales reutilizables",
+    "add": "Agregar",
+    "apply_selection": "Aplicar selección",
+    "catalog_help": "Busca, selecciona o administra este catálogo del workspace.",
+    "create_new": "Crear nuevo",
+    "create_select": "Crear y seleccionar",
+    "edit_resource": "Editar recurso",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "select_all": "Seleccionar todo",
+    "clear_all": "Limpiar selección",
+    "delete_selected": "Eliminar {count}",
+    "records": "{count, plural, one {# registro} other {# registros}}",
+    "search": "Buscar recursos",
+    "selected": "{count, plural, one {# seleccionado} other {# seleccionados}}",
+    "name": "Nombre",
+    "country_optional": "País (opcional)",
+    "legal_name_optional": "Nombre legal (opcional)",
+    "ipi_optional": "IPI / CAE (opcional)",
+    "delete_confirm": "Se eliminarán los recursos seleccionados. Las referencias protegidas se conservarán. Esta acción no se puede deshacer."
   }
 }
