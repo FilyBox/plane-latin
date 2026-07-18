@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
   Disc3,
@@ -10,7 +10,6 @@ import {
   Music2,
   Plus,
   Search,
-  SlidersHorizontal,
   Trash2,
   Users,
   Video,
@@ -22,6 +21,7 @@ import type { TMusicFilters, TMusicRelease, TMusicTrack } from "@plane/types";
 import { AlertModalCore } from "@plane/ui";
 import { musicService } from "@/services/music.service";
 import { MusicEntityManager } from "./entity-manager";
+import { MusicAppliedFilters, MusicFiltersDropdown, type TMusicFiltersData } from "./filters";
 import { MusicImportAssetsPanel } from "./import-assets-panel";
 import { MusicImportModal } from "./import-modal";
 import { MusicReleaseModal } from "./release-modal";
@@ -118,7 +118,6 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const deferredSearch = useDeferredValue(search);
   const [filters, setFilters] = useState<TMusicFilters>({ songs_only: "true" });
   const [page, setPage] = useState(1);
-  const [showFilters, setShowFilters] = useState(false);
   const [editingRelease, setEditingRelease] = useState<TMusicRelease>();
   const [peekTrack, setPeekTrack] = useState<TMusicTrack>();
   const [peekCreateOpen, setPeekCreateOpen] = useState(false);
@@ -198,6 +197,24 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const activeFilterCount = Object.entries(filters).filter(
     ([key, value]) => key !== "songs_only" && Boolean(value)
   ).length;
+
+  const filtersData: TMusicFiltersData = useMemo(
+    () => ({
+      statuses: (options?.track_statuses ?? []).map(([value, label]) => ({ value, label })),
+      kinds: (options?.track_kinds ?? []).map(([value, label]) => ({ value, label })),
+      artists: parties
+        .filter((party) => party.kind === "ARTIST" || party.kind === "GROUP")
+        .map((party) => ({ value: party.id, label: party.display_name })),
+      genres: genres.map((genre) => ({ value: genre.id, label: genre.name })),
+      releases: releases.map((release) => ({ value: release.id, label: release.title })),
+      companies: companies.map((company) => ({ value: company.id, label: company.name })),
+      importFiles: (options?.import_files ?? []).map((file) => ({
+        value: file.asset_id,
+        label: `${file.name}${file.runs > 1 ? ` · ${file.runs} importaciones` : ""}`,
+      })),
+    }),
+    [options, parties, genres, releases, companies]
+  );
 
   const removeTrack = async () => {
     if (!deletingTrack) return;
@@ -300,17 +317,12 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
               placeholder="Buscar canciones, artistas, ISRC…"
             />
           </div>
-          <button
-            type="button"
-            onClick={() => setShowFilters((current) => !current)}
-            className={`flex items-center gap-1 rounded-sm border px-2 py-1.5 text-12 hover:bg-layer-1-hover ${activeFilterCount ? "border-accent-strong text-accent-primary" : "border-subtle"}`}
-          >
-            <SlidersHorizontal className="size-3.5" />
-            <span className="hidden sm:inline">Filtros</span>
-            {activeFilterCount > 0 && (
-              <span className="rounded-full bg-accent-primary px-1 text-10 text-on-color">{activeFilterCount}</span>
-            )}
-          </button>
+          <MusicFiltersDropdown
+            filters={filters}
+            data={filtersData}
+            hasActiveFilters={activeFilterCount > 0}
+            onSet={setFilter}
+          />
           {/* quick filters */}
           <button
             type="button"
@@ -360,19 +372,6 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
           >
             <CalendarClock className="size-3" /> Próximos
           </button>
-          {activeFilterCount > 0 && (
-            <button
-              type="button"
-              className="px-1.5 py-1 text-11 text-accent-primary hover:underline"
-              onClick={() => {
-                setPage(1);
-                setSelectedTrackIds([]);
-                setFilters({ songs_only: "true" });
-              }}
-            >
-              Limpiar
-            </button>
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <Button variant="secondary" size="sm" onClick={() => setResourcesOpen(true)}>
@@ -412,148 +411,11 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         </div>
       </div>
 
-      <div className="shrink-0 px-3 sm:px-4">
-        {showFilters && (
-          <div className="mt-2 grid gap-3 rounded-md border border-subtle bg-layer-1 p-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-            <select
-              className={MUSIC_FIELD}
-              value={filters.artist ?? ""}
-              onChange={(event) => setFilter("artist", event.target.value)}
-            >
-              <option value="">All artists</option>
-              {parties
-                .filter((party) => party.kind === "ARTIST" || party.kind === "GROUP")
-                .map((party) => (
-                  <option key={party.id} value={party.id}>
-                    {party.display_name}
-                  </option>
-                ))}
-            </select>
-            <select
-              className={MUSIC_FIELD}
-              value={filters.release ?? ""}
-              onChange={(event) => setFilter("release", event.target.value)}
-            >
-              <option value="">All releases</option>
-              {releases.map((release) => (
-                <option key={release.id} value={release.id}>
-                  {release.title}
-                </option>
-              ))}
-            </select>
-            <select
-              className={MUSIC_FIELD}
-              value={filters.genre ?? ""}
-              onChange={(event) => setFilter("genre", event.target.value)}
-            >
-              <option value="">All genres</option>
-              {genres.map((genre) => (
-                <option key={genre.id} value={genre.id}>
-                  {genre.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className={MUSIC_FIELD}
-              value={filters.company ?? ""}
-              onChange={(event) => setFilter("company", event.target.value)}
-            >
-              <option value="">All companies</option>
-              {companies.map((company) => (
-                <option key={company.id} value={company.id}>
-                  {company.name}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min="1900"
-              max="2100"
-              className={MUSIC_FIELD}
-              placeholder="Release year"
-              value={filters.year ?? ""}
-              onChange={(event) => setFilter("year", event.target.value)}
-            />
-            <select
-              className={MUSIC_FIELD}
-              value={filters.status ?? ""}
-              onChange={(event) => setFilter("status", event.target.value)}
-            >
-              <option value="">All statuses</option>
-              {options?.track_statuses.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <label className="text-10 text-tertiary">
-              Song from
-              <input
-                type="date"
-                className={`${MUSIC_FIELD} mt-1`}
-                value={filters.from ?? ""}
-                onChange={(event) => setFilter("from", event.target.value)}
-              />
-            </label>
-            <label className="text-10 text-tertiary">
-              Song to
-              <input
-                type="date"
-                className={`${MUSIC_FIELD} mt-1`}
-                value={filters.to ?? ""}
-                onChange={(event) => setFilter("to", event.target.value)}
-              />
-            </label>
-            <label className="text-10 text-tertiary">
-              Video from
-              <input
-                type="date"
-                className={`${MUSIC_FIELD} mt-1`}
-                value={filters.video_from ?? ""}
-                onChange={(event) => setFilter("video_from", event.target.value)}
-              />
-            </label>
-            <label className="text-10 text-tertiary">
-              Video to
-              <input
-                type="date"
-                className={`${MUSIC_FIELD} mt-1`}
-                value={filters.video_to ?? ""}
-                onChange={(event) => setFilter("video_to", event.target.value)}
-              />
-            </label>
-            <select
-              className={MUSIC_FIELD}
-              value={filters.import_run ?? ""}
-              onChange={(event) => setFilter("import_run", event.target.value)}
-              title="Archivo de importación"
-            >
-              <option value="">Todos los orígenes</option>
-              {(options?.import_runs ?? []).map((run) => (
-                <option key={run.id} value={run.id}>
-                  {run.name} · {new Date(run.created_at).toLocaleDateString()}
-                </option>
-              ))}
-            </select>
-            <label className="flex items-center gap-2 self-end rounded-md border border-subtle px-3 py-2 text-11">
-              <input
-                type="checkbox"
-                checked={filters.has_video === "true"}
-                onChange={(event) => setFilter("has_video", event.target.checked ? "true" : "")}
-              />{" "}
-              Has music video
-            </label>
-            <label className="flex items-center gap-2 self-end rounded-md border border-subtle px-3 py-2 text-11">
-              <input
-                type="checkbox"
-                checked={filters.has_links === "true"}
-                onChange={(event) => setFilter("has_links", event.target.checked ? "true" : "")}
-              />{" "}
-              Has links
-            </label>
-          </div>
-        )}
-      </div>
+      {activeFilterCount > 0 && (
+        <div className="shrink-0 border-b border-subtle px-3 py-2 sm:px-4">
+          <MusicAppliedFilters filters={filters} data={filtersData} onSet={setFilter} onClearAll={clearFilters} />
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-auto p-3 sm:p-4">
         <div className="mb-2 flex items-center justify-between text-11 text-tertiary">
@@ -625,7 +487,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
           <>
             <div className="hidden overflow-hidden rounded-md border border-subtle bg-layer-1 md:block">
               <table className="w-full text-left">
-                <thead className="sticky top-0 z-10 bg-layer-2 text-11 font-medium text-tertiary">
+                <thead className="sticky top-0 z-1 bg-layer-2 text-11 font-medium text-tertiary">
                   <tr>
                     <th className="w-12 px-4 py-2.5">
                       <input

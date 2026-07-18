@@ -71,6 +71,15 @@ def _get(path):
     return response.json()
 
 
+def ai_map_music_columns(columns, canonical_fields, multi_fields):
+    """AI column mapping for the manual music import panel."""
+    return _post(
+        "/music/ai-map",
+        {"columns": columns, "canonical_fields": canonical_fields, "multi_fields": multi_fields},
+        timeout=60,
+    )
+
+
 def get_chat_models():
     """Env-declared chat models for the UI picker: {models, default_model}."""
     return _get("/models")

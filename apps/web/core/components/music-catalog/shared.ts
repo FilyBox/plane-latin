@@ -9,16 +9,31 @@ export const musicDate = (value?: string | null) => {
   );
 };
 
-export const getApiError = (error: unknown, fallback = "Something went wrong") => {
+/** Technical/internal leakage the user must never see in a toast: stack
+ * traces, exception class names, file paths, hosts/ports, SQL, etc. */
+const LEAKY_MESSAGE = /(traceback|exception|stack|errno|econn|refused|unreachable|timed? ?out|\.py\b|\.ts\b|\.tsx\b|https?:\/\/|:\d{2,5}\b|select .* from|internal server|worker|500|502|_[a-z]+_[a-z]+_id|\{|\[)/i;
+
+const isUserSafe = (message: string) =>
+  message.length > 0 && message.length <= 160 && !message.includes("\n") && !LEAKY_MESSAGE.test(message);
+
+/**
+ * User-facing message for a failed request. Only intentional, human-readable
+ * API messages pass through; anything technical collapses to the fallback so
+ * internals never reach the UI. The raw error is logged in dev builds only.
+ */
+export const getApiError = (error: unknown, fallback = "Algo salió mal. Inténtalo de nuevo.") => {
+  if (import.meta.env.DEV) console.error("[music] request failed:", error);
   if (!error || typeof error !== "object") return fallback;
   const payload = error as Record<string, unknown>;
-  if (typeof payload.error === "string") return payload.error;
-  if (typeof payload.detail === "string") return payload.detail;
+  const candidates: unknown[] = [payload.error, payload.detail];
   const first = Object.values(payload)[0];
-  if (Array.isArray(first) && typeof first[0] === "string") return first[0];
-  if (first && typeof first === "object") {
+  if (Array.isArray(first)) candidates.push(first[0]);
+  else if (first && typeof first === "object") {
     const nested = Object.values(first as Record<string, unknown>)[0];
-    if (Array.isArray(nested) && typeof nested[0] === "string") return nested[0];
+    if (Array.isArray(nested)) candidates.push(nested[0]);
+  }
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && isUserSafe(candidate.trim())) return candidate.trim();
   }
   return fallback;
 };

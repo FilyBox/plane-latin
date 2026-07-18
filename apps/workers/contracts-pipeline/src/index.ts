@@ -5,6 +5,7 @@
  * Django never needs a broad Cloudflare account token.
  */
 
+import { handleMusicAiMap, type AiMapRequest } from "./ai-map";
 import { handleAssistantChat, listAssistantModels, type AssistantChatRequest } from "./assistant";
 import { handleChat, type ChatRequest } from "./chat";
 import { listChatModels } from "./lib/ai";
@@ -88,6 +89,14 @@ export default {
           return Response.json({ error: "workspace_id and messages are required" }, { status: 400 });
         }
         return handleAssistantChat(env, body);
+      }
+
+      if (url.pathname === "/music/ai-map") {
+        const body = await request.json<AiMapRequest>();
+        if (!body.columns || !Array.isArray(body.canonical_fields)) {
+          return Response.json({ error: "columns and canonical_fields are required" }, { status: 400 });
+        }
+        return Response.json(await handleMusicAiMap(env, body));
       }
 
       if (url.pathname === "/chat") {

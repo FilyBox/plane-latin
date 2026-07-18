@@ -761,8 +761,9 @@ export function MusicTrackPeekPanel(props: Props) {
 
   return (
     <>
-      {/* click-outside catcher (below the panel, above the page) */}
-      <div className="absolute inset-0 z-20 bg-black/5" onClick={onClose} aria-hidden />
+      {/* click-outside catcher (below the panel, above the page) — transparent
+          so the underlying catalog stays fully visible, not dimmed */}
+      <div className="absolute inset-0 z-20 bg-transparent" onClick={onClose} aria-hidden />
       <div className="absolute top-0 right-0 bottom-0 z-21 flex w-full flex-col overflow-hidden border-l border-subtle bg-surface-1 shadow-raised-200 md:w-xl">
         {/* header — the cover IS the icon spot: click to add/replace it */}
         <div className="flex shrink-0 items-start justify-between gap-2 border-b border-subtle px-4 py-3">

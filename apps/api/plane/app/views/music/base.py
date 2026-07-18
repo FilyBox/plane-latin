@@ -86,6 +86,20 @@ def _split(value):
     return [part.strip(" .") for part in ARTIST_SEPARATOR.split(str(value or "")) if part.strip(" .")]
 
 
+def _choice(raw, choices, default):
+    """Normalize a raw cell to a TextChoices VALUE. Matches the raw string
+    against choice values and labels case-insensitively so a CSV that says
+    "Released" is stored as the canonical "RELEASED" (filters compare values)."""
+    text = str(raw or "").strip()
+    if not text:
+        return default
+    lowered = text.lower()
+    for value, label in choices:
+        if lowered in (str(value).lower(), str(label).lower()):
+            return value
+    return text
+
+
 def _restore_or_create(model, workspace, lookup, values=None):
     """Revive a soft-deleted unique relation instead of inserting a duplicate."""
     values = values or {}
@@ -135,7 +149,8 @@ def _date(value, year_only=False):
 
 
 def _mapped_date(row, mapping, key):
-    column = mapping.get(key, "")
+    columns = _columns_for(mapping, key)
+    column = columns[0] if columns else ""
     return _date(row.get(column), year_only=any(token in _plain(column) for token in ("year", "ano")))
 
 
@@ -193,9 +208,32 @@ def _bool(value):
     return str(value).strip().lower() in {"1", "true", "yes", "si", "sí", "y"}
 
 
+def _columns_for(mapping, key):
+    """Columns mapped to a field. Multi-capable fields (links, credits…) may
+    map SEVERAL columns: the mapping value is then a list instead of a str."""
+    value = mapping.get(key)
+    if not value:
+        return []
+    return [column for column in (value if isinstance(value, list) else [value]) if column]
+
+
 def _mapped(row, mapping, key, default=""):
-    column = mapping.get(key)
+    columns = _columns_for(mapping, key)
+    column = columns[0] if columns else None
     return str(row.get(column, default)).strip() if column and row.get(column) is not None else default
+
+
+def _mapped_many(row, mapping, key):
+    """Non-empty values across EVERY column mapped to the field."""
+    values = []
+    for column in _columns_for(mapping, key):
+        raw = row.get(column)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text:
+            values.append(text)
+    return values
 
 
 def _import_error_message(exc):
@@ -228,7 +266,8 @@ def _import_error_detail(index, exc, row, mapping):
         code = "DUPLICATE"
     elif message.startswith("The music catalog database is not ready"):
         code = "DATABASE_NOT_READY"
-    column = mapping.get(field) if field else None
+    field_columns = _columns_for(mapping, field) if field else []
+    column = field_columns[0] if field_columns else None
     return {
         "row": index,
         "code": code,
@@ -334,6 +373,7 @@ IMPORT_ALIASES = {
     "release.catalog_number": ("catalog", "catalog number", "product catalog"),
     "release.release_date": ("album release date", "release date", "fecha ano", "fecha"),
     "artists": ("artist", "artists", "artista", "main artist"),
+    "writers": ("writer", "writers", "escritor", "escritores", "songwriter", "songwriters"),
     "record_label": ("label", "label name", "licencia", "statement"),
     "track.video_url": ("video url", "video link", "link video", "url video", "youtube", "music video url"),
     "track.video_release_date": ("video release date", "fecha video", "fecha lanzamiento video"),
@@ -348,7 +388,7 @@ IMPORT_FIELDS = [
     "track.aggregator_percentage", "track.distributor_percentage", "track.record_label_percentage",
     "track.artist_percentage", "track.writer_percentage", "release.title", "release.type", "release.upc",
     "release.catalog_number", "release.release_date", "release.p_line", "release.c_line", "artists",
-    "featured_artists", "authors", "composers", "producers", "recording_engineers", "mixers",
+    "featured_artists", "writers", "authors", "composers", "producers", "recording_engineers", "mixers",
     "mastering_engineers", "legal_representatives", "genres", "record_label", "aggregator", "distributor",
     # Content-detected columns: a column of URLs maps here even when its
     # header says nothing useful (the assistant decides by LOOKING at values)
@@ -391,20 +431,62 @@ UNPARSED_CHECKS = {
 # value_overrides sentinel: rows whose raw value maps to this are not imported
 SKIP_ROW = "__SKIP_ROW__"
 
+# Fields that accept SEVERAL source columns (mapping value = list of columns):
+# link columns and people/genre/company columns can appear more than once.
+MULTI_COLUMN_FIELDS = [
+    "artists", "featured_artists", "writers", "authors", "composers", "producers", "recording_engineers",
+    "mixers", "mastering_engineers", "legal_representatives", "genres", "record_label",
+    "aggregator", "distributor", "track.video_url", "track.streaming_url",
+]
+
+# Example of the expected format per typed field, shown when the user decides
+# to replace an unparseable "variable" token
+FIELD_FORMAT_EXAMPLES = {
+    "track.duration_ms": "3:16",
+    "track.release_date": "2023-05-01",
+    "track.original_release_date": "2023-05-01",
+    "track.video_release_date": "2023-05-01",
+    "release.release_date": "2023-05-01",
+    "track.aggregator_percentage": "50",
+    "track.distributor_percentage": "50",
+    "track.record_label_percentage": "50",
+    "track.artist_percentage": "50",
+    "track.writer_percentage": "50",
+}
+
+
+def _column_samples(headers, rows, limit=10):
+    """Per column: fill count and up to `limit` non-empty examples scanned over
+    the WHOLE file — a column empty for thousands of rows and populated later
+    must still be classifiable (by the AI mapper or the user)."""
+    samples = {}
+    for header in headers:
+        examples = []
+        non_empty = 0
+        for row in rows:
+            value = row.get(header)
+            if value in (None, ""):
+                continue
+            non_empty += 1
+            if len(examples) < limit:
+                text = value.isoformat() if isinstance(value, (date, datetime)) else str(value)
+                examples.append(text[:120])
+        samples[header] = {"non_empty": non_empty, "total": len(rows), "examples": examples}
+    return samples
+
 
 def _collect_unparsed(row, mapping):
     """{canonical_field: raw_token} for typed columns whose value parses to
     nothing — the import would silently drop them without user input."""
     found = {}
     for field, parser in UNPARSED_CHECKS.items():
-        column = mapping.get(field)
-        if not column:
-            continue
-        raw = row.get(column)
-        if raw in (None, ""):
-            continue
-        if parser(raw) is None:
-            found[field] = str(raw).strip()
+        for column in _columns_for(mapping, field):
+            raw = row.get(column)
+            if raw in (None, ""):
+                continue
+            if parser(raw) is None:
+                found[field] = str(raw).strip()
+                break
     return found
 
 
@@ -416,18 +498,18 @@ def _apply_overrides(row, mapping, value_overrides):
         return row, False
     patched = dict(row)
     for field, tokens in value_overrides.items():
-        column = mapping.get(field)
-        if not column or not isinstance(tokens, dict):
+        if not isinstance(tokens, dict):
             continue
-        raw = patched.get(column)
-        if raw in (None, ""):
-            continue
-        replacement = tokens.get(str(raw).strip().lower())
-        if replacement is None:
-            continue
-        if replacement == SKIP_ROW:
-            return patched, True
-        patched[column] = replacement
+        for column in _columns_for(mapping, field):
+            raw = patched.get(column)
+            if raw in (None, ""):
+                continue
+            replacement = tokens.get(str(raw).strip().lower())
+            if replacement is None:
+                continue
+            if replacement == SKIP_ROW:
+                return patched, True
+            patched[column] = replacement
     return patched, False
 
 
@@ -531,18 +613,34 @@ def _filter_tracks(queryset, params):
             | Q(videos__title__icontains=search)
             | Q(videos__isrc_video__icontains=search)
         )
-    for field in ("kind", "status", "isrc", "isrc_video", "language", "country_of_recording"):
+    def _values(key):
+        return [value for value in params.get(key, "").split(",") if value]
+
+    for field in ("kind", "isrc", "isrc_video", "language", "country_of_recording"):
         if params.get(field):
             queryset = queryset.filter(**{field: params[field]})
+    # Dynamic-entity filters accept comma-separated lists (multi-select UI)
+    if params.get("status"):
+        # iexact per value so legacy rows stored with the label ("Released")
+        # still match the canonical enum sent by the UI ("RELEASED").
+        status_q = Q()
+        for value in _values("status"):
+            status_q |= Q(status__iexact=value)
+        queryset = queryset.filter(status_q)
     if params.get("artist"):
-        artist_ids = [value for value in params.get("artist", "").split(",") if value]
-        queryset = queryset.filter(credits__party_id__in=artist_ids)
+        queryset = queryset.filter(credits__party_id__in=_values("artist"))
     if params.get("genre"):
-        queryset = queryset.filter(genre_links__genre_id=params["genre"])
+        queryset = queryset.filter(genre_links__genre_id__in=_values("genre"))
     if params.get("release"):
-        queryset = queryset.filter(release_links__release_id=params["release"])
+        queryset = queryset.filter(release_links__release_id__in=_values("release"))
     if params.get("year"):
-        queryset = queryset.filter(Q(release_date__year=params["year"]) | Q(release_links__release__release_date__year=params["year"]))
+        years = [value for value in _values("year") if value.isdigit()]
+        if years:
+            queryset = queryset.filter(
+                Q(release_date__year__in=years) | Q(release_links__release__release_date__year__in=years)
+            )
+    if params.get("has_lyrics") == "true":
+        queryset = queryset.exclude(lyrics="")
     if params.get("from"):
         queryset = queryset.filter(release_date__gte=params["from"])
     if params.get("to"):
@@ -567,11 +665,14 @@ def _filter_tracks(queryset, params):
     if params.get("video_to"):
         queryset = queryset.filter(videos__release_date__lte=params["video_to"])
     if params.get("company"):
-        queryset = queryset.filter(distributions__company_id=params["company"])
+        queryset = queryset.filter(distributions__company_id__in=_values("company"))
     if params.get("ids"):
-        queryset = queryset.filter(id__in=[value for value in params.get("ids", "").split(",") if value])
+        queryset = queryset.filter(id__in=_values("ids"))
     if params.get("import_run"):
         queryset = queryset.filter(import_links__import_run_id=params["import_run"])
+    if params.get("import_file"):
+        # Any run of those source files (re-imports of the same upload included)
+        queryset = queryset.filter(import_links__import_run__file_asset_id__in=_values("import_file"))
     return queryset.distinct()
 
 
@@ -903,18 +1004,33 @@ class MusicCatalogOptionsEndpoint(MusicBaseView):
                 "party_kinds": MusicParty.Kind.choices,
                 "company_kinds": MusicCompany.Kind.choices,
                 "import_fields": IMPORT_FIELDS,
-                "import_runs": [
-                    {
-                        "id": str(run.id),
-                        "name": run.source_name,
-                        "source": run.source,
-                        "asset_id": str(run.file_asset_id) if run.file_asset_id else None,
-                        "created_at": run.created_at.isoformat(),
-                    }
-                    for run in MusicImportRun.objects.filter(workspace__slug=slug)[:100]
-                ],
+                "multi_fields": MULTI_COLUMN_FIELDS,
+                # One entry per FILE (several runs of the same upload collapse
+                # into it); files deleted from the library disappear here too.
+                "import_files": self._import_files(slug),
             }
         )
+
+    @staticmethod
+    def _import_files(slug):
+        files = {}
+        runs = MusicImportRun.objects.filter(
+            workspace__slug=slug, file_asset__isnull=False, file_asset__is_deleted=False
+        ).order_by("-created_at")[:500]
+        for run in runs:
+            asset_id = str(run.file_asset_id)
+            entry = files.get(asset_id)
+            if entry is None:
+                files[asset_id] = {
+                    "asset_id": asset_id,
+                    "name": run.source_name,
+                    "source": run.source,
+                    "runs": 1,
+                    "last_imported_at": run.created_at.isoformat(),
+                }
+            else:
+                entry["runs"] += 1
+        return list(files.values())[:100]
 
 
 class MusicImportAssetEndpoint(MusicBaseView):
@@ -991,6 +1107,9 @@ class MusicImportPreviewEndpoint(MusicBaseView):
                 "header_row": header_row,
                 "total_rows": len(rows),
                 "mapping": inferred,
+                "column_samples": _column_samples(headers, rows),
+                "multi_fields": MULTI_COLUMN_FIELDS,
+                "format_examples": FIELD_FORMAT_EXAMPLES,
                 "artist_examples": [
                     {"source": str(row.get(artist_column, "")), "detected": _split(row.get(artist_column, ""))}
                     for row in rows[:5]
@@ -1000,6 +1119,40 @@ class MusicImportPreviewEndpoint(MusicBaseView):
                 "database_error": None if database_ready else "Apply migration db.0136_musictrack_parent_track before importing.",
             }
         )
+
+
+class MusicImportAIMapEndpoint(MusicBaseView):
+    """Optional AI mapping for the manual import panel: column samples from
+    the whole file go to the Worker's model, which returns canonical_field →
+    column(s). Deterministic validation happens here; the AI only suggests."""
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug):
+        from plane.utils.worker_client import WorkerTriggerError, ai_map_music_columns
+
+        upload = request.FILES.get("file")
+        if not upload:
+            return Response({"file": ["Choose a CSV or XLSX file"]}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            headers, rows, _sheets, _header_row = _read_table(upload, request.data.get("sheet"))
+        except Exception as exc:
+            return Response({"error": f"Could not read spreadsheet: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            data = ai_map_music_columns(_column_samples(headers, rows), IMPORT_FIELDS, MULTI_COLUMN_FIELDS)
+        except WorkerTriggerError as exc:
+            return Response({"error": str(exc)[:300]}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # Only real fields mapped to real columns survive
+        header_set = set(headers)
+        mapping = {}
+        for field, value in (data.get("mapping") or {}).items():
+            if field not in IMPORT_FIELDS:
+                continue
+            columns = [column for column in (value if isinstance(value, list) else [value]) if column in header_set]
+            if not columns:
+                continue
+            mapping[field] = columns if field in MULTI_COLUMN_FIELDS and len(columns) > 1 else columns[0]
+        return Response({"mapping": mapping, "model": data.get("model")}, status=status.HTTP_200_OK)
 
 
 class MusicImportEndpoint(MusicBaseView):
@@ -1074,31 +1227,42 @@ class MusicImportEndpoint(MusicBaseView):
                         break
             aborted = result["errors"] and invalid_row_strategy == "abort"
             if not dry_run and not aborted:
-                # Provenance: persist the source file itself + run + per-track links
+                # Provenance: persist the source file itself + run + per-track
+                # links. Re-importing the SAME file (same name and size) reuses
+                # the stored asset so the filter shows one entry per file.
                 upload.seek(0)
                 content = upload.read()
-                from plane.settings.storage import S3Storage
-
-                asset_key = f"{workspace.id}/music-imports/{timezone.now().strftime('%Y%m%d%H%M%S')}-{upload.name}"
-                storage = S3Storage()
-                storage.s3_client.put_object(
-                    Bucket=storage.aws_storage_bucket_name, Key=asset_key, Body=content
-                )
-                file_asset = FileAsset.objects.create(
+                file_asset = FileAsset.objects.filter(
                     workspace=workspace,
                     entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
-                    attributes={
-                        "name": upload.name,
-                        "type": getattr(upload, "content_type", "") or "text/csv",
-                        "size": len(content),
-                        "music_asset_kind": "IMPORT_SOURCE",
-                        "upload_source": "manual",
-                    },
-                    asset=asset_key,
+                    attributes__music_asset_kind="IMPORT_SOURCE",
+                    attributes__name=upload.name,
                     size=len(content),
-                    is_uploaded=True,
-                    created_by=request.user,
-                )
+                    is_deleted=False,
+                ).first()
+                if file_asset is None:
+                    from plane.settings.storage import S3Storage
+
+                    asset_key = f"{workspace.id}/music-imports/{timezone.now().strftime('%Y%m%d%H%M%S')}-{upload.name}"
+                    storage = S3Storage()
+                    storage.s3_client.put_object(
+                        Bucket=storage.aws_storage_bucket_name, Key=asset_key, Body=content
+                    )
+                    file_asset = FileAsset.objects.create(
+                        workspace=workspace,
+                        entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
+                        attributes={
+                            "name": upload.name,
+                            "type": getattr(upload, "content_type", "") or "text/csv",
+                            "size": len(content),
+                            "music_asset_kind": "IMPORT_SOURCE",
+                            "upload_source": "manual",
+                        },
+                        asset=asset_key,
+                        size=len(content),
+                        is_uploaded=True,
+                        created_by=request.user,
+                    )
                 run = _record_import_run(
                     workspace,
                     file_asset=file_asset,
@@ -1167,8 +1331,8 @@ class MusicImportEndpoint(MusicBaseView):
             "isrc_video": _mapped(row, mapping, "track.isrc_video").upper().replace("-", ""),
             "catalog": _mapped(row, mapping, "track.catalog"),
             "upc": _mapped(row, mapping, "track.upc"),
-            "kind": _mapped(row, mapping, "track.kind") or MusicTrack.Kind.AUDIO,
-            "status": _mapped(row, mapping, "track.status") or MusicTrack.Status.DRAFT,
+            "kind": _choice(_mapped(row, mapping, "track.kind"), MusicTrack.Kind.choices, MusicTrack.Kind.AUDIO),
+            "status": _choice(_mapped(row, mapping, "track.status"), MusicTrack.Status.choices, MusicTrack.Status.DRAFT),
             "release_date": _mapped_date(row, mapping, "track.release_date"),
             "original_release_date": _mapped_date(row, mapping, "track.original_release_date"),
             "duration_ms": _duration_ms(_mapped(row, mapping, "track.duration_ms")),
@@ -1223,6 +1387,7 @@ class MusicImportEndpoint(MusicBaseView):
         role_fields = {
             "artists": (MusicParty.Kind.ARTIST, MusicCredit.Role.PRIMARY_ARTIST),
             "featured_artists": (MusicParty.Kind.ARTIST, MusicCredit.Role.FEATURED_ARTIST),
+            "writers": (MusicParty.Kind.PERSON, MusicCredit.Role.WRITER),
             "authors": (MusicParty.Kind.PERSON, MusicCredit.Role.AUTHOR),
             "composers": (MusicParty.Kind.PERSON, MusicCredit.Role.COMPOSER),
             "producers": (MusicParty.Kind.PERSON, MusicCredit.Role.PRODUCER),
@@ -1231,32 +1396,37 @@ class MusicImportEndpoint(MusicBaseView):
             "mastering_engineers": (MusicParty.Kind.PERSON, MusicCredit.Role.MASTERING_ENGINEER),
             "legal_representatives": (MusicParty.Kind.PERSON, MusicCredit.Role.LEGAL_REPRESENTATIVE),
         }
+        # People/genre/company fields accept SEVERAL mapped columns (e.g. two
+        # writer columns); every column's value is split and imported.
         for field, (kind, role) in role_fields.items():
-            for name in _split(_mapped(row, mapping, field)):
-                party = _party(workspace, name, kind)
-                _restore_or_create(MusicCredit, workspace, {"track": track, "party": party, "role": role})
-                if release and role == MusicCredit.Role.PRIMARY_ARTIST:
-                    _restore_or_create(
-                        MusicReleaseArtist,
-                        workspace,
-                        {"release": release, "party": party, "role": MusicReleaseArtist.Role.PRIMARY},
-                    )
-        for name in _split(_mapped(row, mapping, "genres")):
-            _restore_or_create(
-                MusicTrackGenre,
-                workspace,
-                {"track": track, "genre": _genre(workspace, name)},
-            )
+            for value in _mapped_many(row, mapping, field):
+                for name in _split(value):
+                    party = _party(workspace, name, kind)
+                    _restore_or_create(MusicCredit, workspace, {"track": track, "party": party, "role": role})
+                    if release and role == MusicCredit.Role.PRIMARY_ARTIST:
+                        _restore_or_create(
+                            MusicReleaseArtist,
+                            workspace,
+                            {"release": release, "party": party, "role": MusicReleaseArtist.Role.PRIMARY},
+                        )
+        for value in _mapped_many(row, mapping, "genres"):
+            for name in _split(value):
+                _restore_or_create(
+                    MusicTrackGenre,
+                    workspace,
+                    {"track": track, "genre": _genre(workspace, name)},
+                )
         company_fields = {
             "record_label": MusicCompany.Kind.RECORD_LABEL,
             "aggregator": MusicCompany.Kind.AGGREGATOR,
             "distributor": MusicCompany.Kind.DISTRIBUTOR,
         }
         for field, kind in company_fields.items():
-            for name in _split(_mapped(row, mapping, field)):
-                company = MusicCompany.objects.filter(workspace=workspace, kind=kind, name__iexact=name).first()
-                company = company or MusicCompany.objects.create(workspace=workspace, kind=kind, name=name)
-                MusicDistribution.objects.get_or_create(workspace=workspace, track=track, company=company)
+            for value in _mapped_many(row, mapping, field):
+                for name in _split(value):
+                    company = MusicCompany.objects.filter(workspace=workspace, kind=kind, name__iexact=name).first()
+                    company = company or MusicCompany.objects.create(workspace=workspace, kind=kind, name=name)
+                    MusicDistribution.objects.get_or_create(workspace=workspace, track=track, company=company)
         self._import_links(workspace, track, row, mapping, values)
         self._apply_defaults(workspace, track, release, defaults or {})
         return outcome, track
@@ -1268,8 +1438,10 @@ class MusicImportEndpoint(MusicBaseView):
         attach as MusicLink rows — idempotent per URL so re-imports don't
         duplicate.
         """
-        video_url = _mapped(row, mapping, "track.video_url")
-        if video_url.startswith(("http://", "https://")):
+        # Several link columns may map to the same field: the first video URL
+        # materializes the video child, the rest attach as extra links on it.
+        video_urls = [url for url in _mapped_many(row, mapping, "track.video_url") if url.startswith(("http://", "https://"))]
+        if video_urls:
             video = track.videos.filter(kind=MusicTrack.Kind.MUSIC_VIDEO).first()
             video_release_date = _mapped_date(row, mapping, "track.video_release_date")
             if video is None:
@@ -1291,28 +1463,29 @@ class MusicImportEndpoint(MusicBaseView):
                     changed = True
                 if changed:
                     video.save()
-            if not video.links.filter(url=video_url).exists():
+            for video_url in video_urls:
+                if not video.links.filter(url=video_url).exists():
+                    MusicLink.objects.create(
+                        workspace=workspace,
+                        track=video,
+                        kind=MusicLink.Kind.MUSIC_VIDEO,
+                        platform=_link_platform(video_url),
+                        name=_link_platform(video_url) or "Music video",
+                        url=video_url,
+                        isrc=values.get("isrc_video", ""),
+                    )
+
+        for streaming_url in _mapped_many(row, mapping, "track.streaming_url"):
+            if streaming_url.startswith(("http://", "https://")) and not track.links.filter(url=streaming_url).exists():
                 MusicLink.objects.create(
                     workspace=workspace,
-                    track=video,
-                    kind=MusicLink.Kind.MUSIC_VIDEO,
-                    platform=_link_platform(video_url),
-                    name=_link_platform(video_url) or "Music video",
-                    url=video_url,
-                    isrc=values.get("isrc_video", ""),
+                    track=track,
+                    kind=MusicLink.Kind.STREAMING,
+                    platform=_link_platform(streaming_url),
+                    name=_link_platform(streaming_url) or "Streaming",
+                    url=streaming_url,
+                    isrc=values.get("isrc", ""),
                 )
-
-        streaming_url = _mapped(row, mapping, "track.streaming_url")
-        if streaming_url.startswith(("http://", "https://")) and not track.links.filter(url=streaming_url).exists():
-            MusicLink.objects.create(
-                workspace=workspace,
-                track=track,
-                kind=MusicLink.Kind.STREAMING,
-                platform=_link_platform(streaming_url),
-                name=_link_platform(streaming_url) or "Streaming",
-                url=streaming_url,
-                isrc=values.get("isrc", ""),
-            )
 
     @staticmethod
     def _apply_defaults(workspace, track, release, defaults):

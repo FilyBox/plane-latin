@@ -173,6 +173,7 @@ export type TMusicFilters = {
   to?: string;
   has_video?: string;
   has_links?: string;
+  has_lyrics?: string;
   video_from?: string;
   video_to?: string;
   company?: string;
@@ -181,6 +182,8 @@ export type TMusicFilters = {
   page_size?: string;
   ids?: string;
   import_run?: string;
+  /** All runs of one source file (asset id) */
+  import_file?: string;
   ids_only?: string;
 };
 
@@ -193,8 +196,18 @@ export type TMusicCatalogOptions = {
   party_kinds: TMusicChoice[];
   company_kinds: TMusicChoice[];
   import_fields: string[];
-  /** Applied import runs, newest first — powers the provenance filter */
-  import_runs?: TMusicImportRun[];
+  multi_fields?: string[];
+  /** One entry per source FILE (runs of the same upload collapse); deleted
+   * files are excluded — powers the provenance filter */
+  import_files?: TMusicImportFile[];
+};
+
+export type TMusicImportFile = {
+  asset_id: string;
+  name: string;
+  source: "MANUAL" | "ASSISTANT" | string;
+  runs: number;
+  last_imported_at: string;
 };
 
 export type TMusicImportError = {
@@ -246,7 +259,13 @@ export type TMusicImportPreview = {
   selected_sheet: string | null;
   header_row: number;
   total_rows: number;
-  mapping: Record<string, string>;
+  /** Multi-capable fields (multi_fields) may map several columns */
+  mapping: Record<string, string | string[]>;
+  /** Per column: fill count + up to 10 examples scanned over the whole file */
+  column_samples?: Record<string, { non_empty: number; total: number; examples: string[] }>;
+  multi_fields?: string[];
+  /** Expected-format example per typed field (shown when replacing variables) */
+  format_examples?: Record<string, string>;
   artist_examples: { source: string; detected: string[] }[];
   database_ready: boolean;
   database_error: string | null;
