@@ -134,25 +134,41 @@ export class MusicService extends APIService {
   importSpreadsheet(
     workspaceSlug: string,
     file: File,
-    mapping: Record<string, string>,
+    mapping: Record<string, string | string[]>,
     duplicateStrategy: "skip" | "update" | "error",
     dryRun: boolean,
     sheet?: string,
     defaults: Record<string, unknown> = {},
     invalidRowStrategy: "abort" | "skip" = "abort",
-    rowOverrides: Record<string, Record<string, string>> = {}
+    rowOverrides: Record<string, Record<string, string>> = {},
+    valueOverrides: Record<string, Record<string, string>> = {},
+    dedupeBy: string = "auto"
   ) {
     const data = new FormData();
     data.append("file", file);
     data.append("mapping", JSON.stringify(mapping));
     data.append("duplicate_strategy", duplicateStrategy);
+    data.append("dedupe_by", dedupeBy);
     data.append("dry_run", String(dryRun));
     data.append("defaults", JSON.stringify(defaults));
     data.append("invalid_row_strategy", invalidRowStrategy);
     data.append("row_overrides", JSON.stringify(rowOverrides));
+    data.append("value_overrides", JSON.stringify(valueOverrides));
     if (sheet) data.append("sheet", sheet);
     return this.data<TMusicImportResult>(
       this.post(`/api/workspaces/${workspaceSlug}/music/import/`, data, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+    );
+  }
+
+  /** Optional AI column mapping for the manual import panel */
+  aiMapImport(workspaceSlug: string, file: File, sheet?: string) {
+    const data = new FormData();
+    data.append("file", file);
+    if (sheet) data.append("sheet", sheet);
+    return this.data<{ mapping: Record<string, string | string[]>; model: string | null }>(
+      this.post(`/api/workspaces/${workspaceSlug}/music/import/ai-map/`, data, {
         headers: { "Content-Type": "multipart/form-data" },
       })
     );

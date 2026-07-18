@@ -115,6 +115,7 @@ from .music import (
     MusicGenreEndpoint,
     MusicImportAssetEndpoint,
     MusicImportEndpoint,
+    MusicImportAIMapEndpoint,
     MusicImportPreviewEndpoint,
     MusicPartyDetailEndpoint,
     MusicPartyEndpoint,

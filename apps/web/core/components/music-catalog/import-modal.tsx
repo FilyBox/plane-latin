@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, FileSpreadsheet, Plus, Search, ShieldCheck, X, WandSparkles } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileSpreadsheet, Search, ShieldCheck, X, WandSparkles } from "lucide-react";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type {
@@ -15,7 +15,6 @@ import { AlertModalCore } from "@plane/ui";
 import { fileLibraryService } from "@/services/file-library.service";
 import { musicService } from "@/services/music.service";
 import { BudgetPeekPanel } from "../payments/budget-peek-panel";
-import { MusicResourcePickerModal, type MusicResourceType } from "./resource-picker-modal";
 import { SearchableSelect } from "./searchable-select";
 import { getApiError, MUSIC_FIELD } from "./shared";
 
@@ -35,6 +34,116 @@ type Props = {
 type DefaultCredit = { party_id: string; role: string };
 const REQUIRED_IMPORT_FIELDS = ["track.title"] as const;
 
+/** Backend sentinel: rows whose raw value maps to this are dropped */
+const SKIP_ROW = "__SKIP_ROW__";
+
+type TTokenDecision = { mode: "" | "assign" | "empty" | "skip"; value: string };
+
+const columnsOf = (value: string | string[] | undefined): string[] =>
+  !value ? [] : Array.isArray(value) ? value.filter(Boolean) : [value];
+
+/** Dry-run "variables" ("ringtone" in a duration column): one decision per
+ * distinct token — assign a real value (with the expected format as example),
+ * blank the cell, or drop the affected rows. */
+function VariableResolver({
+  unparseable,
+  overrides,
+  formatExamples,
+  onResolve,
+}: {
+  unparseable: NonNullable<TMusicImportResult["unparseable"]>;
+  overrides: Record<string, Record<string, string>>;
+  formatExamples: Record<string, string>;
+  onResolve: (field: string, token: string, decision: TTokenDecision) => void;
+}) {
+  const [decisions, setDecisions] = useState<Record<string, TTokenDecision>>({});
+
+  const decisionFor = (field: string, token: string): TTokenDecision => {
+    const key = `${field}:${token}`;
+    if (decisions[key]) return decisions[key];
+    const current = overrides[field]?.[token];
+    if (current === undefined) return { mode: "", value: "" };
+    if (current === "") return { mode: "empty", value: "" };
+    if (current === SKIP_ROW) return { mode: "skip", value: "" };
+    return { mode: "assign", value: current };
+  };
+
+  const update = (field: string, token: string, decision: TTokenDecision) => {
+    setDecisions((current) => ({ ...current, [`${field}:${token}`]: decision }));
+    onResolve(field, token, decision);
+  };
+
+  const pendingCount = Object.entries(unparseable).reduce((count, [field, tokens]) => {
+    for (const token of tokens) {
+      const decision = decisionFor(field, token.value.toLowerCase());
+      const resolved =
+        decision.mode === "empty" || decision.mode === "skip" || (decision.mode === "assign" && decision.value.trim());
+      if (!resolved) count += 1;
+    }
+    return count;
+  }, 0);
+
+  return (
+    <div className="mt-3 rounded-lg border border-warning-strong bg-layer-1 p-3">
+      <p className="text-12 font-semibold">
+        Valores que no encajan con el formato del campo{" "}
+        <span className="font-normal text-tertiary">
+          — palabras usadas como variable (p. ej. “ringtone” en una columna de duración)
+        </span>
+      </p>
+      <p className="mt-0.5 text-11 text-secondary">
+        Decide qué hacer con cada valor: se aplicará a TODAS las filas que lo contengan.
+        {pendingCount > 0 ? ` Faltan ${pendingCount} por decidir.` : " Todo decidido — vuelve a validar."}
+      </p>
+      <div className="mt-2.5 space-y-3">
+        {Object.entries(unparseable).map(([field, tokens]) => (
+          <div key={field}>
+            <p className="text-11 font-medium text-secondary">
+              {field}
+              {formatExamples[field] ? (
+                <span className="ml-1.5 font-normal text-tertiary">Formato esperado: {formatExamples[field]}</span>
+              ) : null}
+            </p>
+            <div className="mt-1.5 space-y-1.5">
+              {tokens.map((token) => {
+                const tokenKey = token.value.toLowerCase();
+                const decision = decisionFor(field, tokenKey);
+                return (
+                  <div key={token.value} className="flex flex-wrap items-center gap-2 text-12">
+                    <span className="min-w-32 truncate font-medium">
+                      “{token.value}” <span className="text-tertiary">×{token.count}</span>
+                    </span>
+                    <select
+                      value={decision.mode}
+                      onChange={(event) =>
+                        update(field, tokenKey, { ...decision, mode: event.target.value as TTokenDecision["mode"] })
+                      }
+                      className="rounded-sm border border-subtle bg-layer-1 px-2 py-1 text-11"
+                    >
+                      <option value="">Decidir…</option>
+                      <option value="assign">Reemplazar por un valor</option>
+                      <option value="empty">Dejar la celda vacía</option>
+                      <option value="skip">Omitir esas filas</option>
+                    </select>
+                    {decision.mode === "assign" && (
+                      <input
+                        value={decision.value}
+                        onChange={(event) => update(field, tokenKey, { ...decision, value: event.target.value })}
+                        placeholder={formatExamples[field] ? `ej. ${formatExamples[field]}` : "Valor"}
+                        className="w-28 rounded-sm border border-subtle bg-layer-1 px-2 py-1 text-11"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function MusicImportModal({
   workspaceSlug,
   isOpen,
@@ -50,15 +159,17 @@ export function MusicImportModal({
   const [file, setFile] = useState<File>();
   const [assetId, setAssetId] = useState<string>();
   const [preview, setPreview] = useState<TMusicImportPreview>();
-  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [mapping, setMapping] = useState<Record<string, string | string[]>>({});
   const [strategy, setStrategy] = useState<"skip" | "update" | "error">("skip");
+  const [dedupeBy, setDedupeBy] = useState("auto");
+  const [valueOverrides, setValueOverrides] = useState<Record<string, Record<string, string>>>({});
+  const [isAiMapping, setIsAiMapping] = useState(false);
   const [result, setResult] = useState<TMusicImportResult>();
   const [isRunning, setIsRunning] = useState(false);
   const [defaultCredits, setDefaultCredits] = useState<DefaultCredit[]>([]);
   const [defaultCompanyIds, setDefaultCompanyIds] = useState<string[]>([]);
   const [defaultGenreIds, setDefaultGenreIds] = useState<string[]>([]);
   const [defaultReleaseIds, setDefaultReleaseIds] = useState<string[]>([]);
-  const [picker, setPicker] = useState<{ type: MusicResourceType; defaultKind?: string }>();
   const [fieldQuery, setFieldQuery] = useState("");
   const [validatedKey, setValidatedKey] = useState<string>();
   const [invalidRowStrategy, setInvalidRowStrategy] = useState<"abort" | "skip">("abort");
@@ -66,16 +177,19 @@ export function MusicImportModal({
   const [hasApplied, setHasApplied] = useState(false);
   const [isDeleteSourceOpen, setIsDeleteSourceOpen] = useState(false);
 
-  const missingRequired = REQUIRED_IMPORT_FIELDS.filter((field) => !mapping[field]);
+  const missingRequired = REQUIRED_IMPORT_FIELDS.filter((field) => columnsOf(mapping[field]).length === 0);
+  const multiFields = useMemo(() => new Set(preview?.multi_fields ?? []), [preview?.multi_fields]);
   const validationKey = JSON.stringify({
     mapping,
     strategy,
+    dedupeBy,
     sheet: preview?.selected_sheet,
     defaultCredits,
     defaultCompanyIds,
     defaultGenreIds,
     defaultReleaseIds,
     rowOverrides,
+    valueOverrides,
   });
   const visibleFields = useMemo(() => {
     const query = fieldQuery.trim().toLowerCase();
@@ -91,15 +205,16 @@ export function MusicImportModal({
     setMapping({});
     setResult(undefined);
     setStrategy("skip");
+    setDedupeBy("auto");
     setDefaultCredits([]);
     setDefaultCompanyIds([]);
     setDefaultGenreIds([]);
     setDefaultReleaseIds([]);
-    setPicker(undefined);
     setFieldQuery("");
     setValidatedKey(undefined);
     setInvalidRowStrategy("abort");
     setRowOverrides({});
+    setValueOverrides({});
     setHasApplied(false);
     setIsDeleteSourceOpen(false);
   }, [isOpen]);
@@ -169,7 +284,9 @@ export function MusicImportModal({
           releases: defaultReleaseIds.map((id) => ({ id })),
         },
         invalidRowStrategy,
-        rowOverrides
+        rowOverrides,
+        valueOverrides,
+        dedupeBy
       );
       setResult(next);
       if (dryRun) setValidatedKey(validationKey);
@@ -204,23 +321,106 @@ export function MusicImportModal({
     }
   };
 
-  const applyPicker = (ids: string[]) => {
-    if (picker?.type === "party")
-      setDefaultCredits((current) => [
-        ...current.filter((credit) => !ids.includes(credit.party_id)),
-        ...ids.map((party_id) => ({ party_id, role: "PRIMARY_ARTIST" })),
-      ]);
-    if (picker?.type === "company") setDefaultCompanyIds(ids);
-    if (picker?.type === "genre") setDefaultGenreIds(ids);
-    if (picker?.type === "release") setDefaultReleaseIds(ids);
+  const invalidateValidation = () => {
     setResult(undefined);
     setValidatedKey(undefined);
+  };
+
+  // Inline creation (no extra modal): new resources are created on the spot
+  // from the "Crear «nombre»" option of each searchable select.
+  const createResource = async (type: "party" | "company" | "genre" | "release", name: string): Promise<string> => {
+    if (type === "party") {
+      const saved = await musicService.saveParty(workspaceSlug, { display_name: name, kind: "ARTIST" });
+      onResourcesChanged();
+      return saved.id;
+    }
+    if (type === "company") {
+      const saved = await musicService.saveCompany(workspaceSlug, { name, kind: "AGGREGATOR" });
+      onResourcesChanged();
+      return saved.id;
+    }
+    if (type === "release") {
+      const saved = await musicService.saveRelease(workspaceSlug, { title: name, release_type: "SINGLE", status: "DRAFT" });
+      onResourcesChanged();
+      return saved.id;
+    }
+    const saved = await musicService.saveGenre(workspaceSlug, { name });
+    onResourcesChanged();
+    return saved.id;
+  };
+
+  const addInline = (type: "party" | "company" | "genre" | "release") => async (nameToCreate: string) => {
+    try {
+      const id = await createResource(type, nameToCreate.trim());
+      if (type === "party") setDefaultCredits((current) => [...current, { party_id: id, role: "PRIMARY_ARTIST" }]);
+      if (type === "company") setDefaultCompanyIds((current) => [...current, id]);
+      if (type === "genre") setDefaultGenreIds((current) => [...current, id]);
+      if (type === "release") setDefaultReleaseIds((current) => [...current, id]);
+      invalidateValidation();
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo crear", message: getApiError(error) });
+    }
   };
 
   const updateMapping = (field: string, column: string) => {
     setMapping((current) => ({ ...current, [field]: column }));
     setResult(undefined);
     setValidatedKey(undefined);
+  };
+
+  const updateMultiMapping = (field: string, columns: string[]) => {
+    setMapping((current) => {
+      const next = { ...current };
+      if (columns.length === 0) delete next[field];
+      else next[field] = columns;
+      return next;
+    });
+    setResult(undefined);
+    setValidatedKey(undefined);
+  };
+
+  /** One decision per variable token → the value_overrides the backend expects */
+  const resolveVariable = (field: string, token: string, decision: TTokenDecision) => {
+    setValueOverrides((current) => {
+      const next = { ...current, [field]: { ...current[field] } };
+      if (decision.mode === "empty") next[field][token] = "";
+      else if (decision.mode === "skip") next[field][token] = SKIP_ROW;
+      else if (decision.mode === "assign" && decision.value.trim()) next[field][token] = decision.value.trim();
+      else {
+        delete next[field][token];
+        if (Object.keys(next[field]).length === 0) delete next[field];
+      }
+      return next;
+    });
+    setValidatedKey(undefined);
+  };
+
+  const aiMap = async () => {
+    if (!file) return;
+    setIsAiMapping(true);
+    try {
+      const { mapping: suggested } = await musicService.aiMapImport(
+        workspaceSlug,
+        file,
+        preview?.selected_sheet ?? undefined
+      );
+      if (Object.keys(suggested).length === 0) {
+        setToast({ type: TOAST_TYPE.WARNING, title: "La IA no encontró columnas mapeables" });
+        return;
+      }
+      setMapping((current) => ({ ...current, ...suggested }));
+      setResult(undefined);
+      setValidatedKey(undefined);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: "Mapeo sugerido por IA aplicado",
+        message: `${Object.keys(suggested).length} campos mapeados analizando el contenido de las columnas. Revísalos antes de validar.`,
+      });
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo mapear con IA", message: getApiError(error) });
+    } finally {
+      setIsAiMapping(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -309,15 +509,19 @@ export function MusicImportModal({
               <section>
                 <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
                   <div>
-                    <h3 className="text-14 font-semibold">Mapeo de columnas</h3>
+                    <h3 className="text-14 font-semibold">2 · Mapeo de columnas</h3>
                     <p className="text-11 text-secondary">
-                      Solo el título de la canción es obligatorio; el resto es opcional.
+                      Indica qué columna del archivo alimenta cada campo del catálogo. Solo el título es obligatorio;
+                      usa «Mapear con IA» para que se sugiera automáticamente analizando el contenido.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="flex items-center gap-1 text-11 text-tertiary">
-                      <WandSparkles className="size-3.5" /> {Object.values(mapping).filter(Boolean).length} mapeadas
+                    <span className="text-11 text-tertiary">
+                      {Object.values(mapping).filter((value) => columnsOf(value).length > 0).length} mapeadas
                     </span>
+                    <Button variant="secondary" size="sm" loading={isAiMapping} onClick={() => void aiMap()}>
+                      <WandSparkles className="mr-1 size-3.5" /> Mapear con IA
+                    </Button>
                     <label className="relative w-52">
                       <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-tertiary" />
                       <input
@@ -342,51 +546,166 @@ export function MusicImportModal({
                   </div>
                 )}
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {visibleFields.map((field) => (
-                    <div
-                      key={field}
-                      className={`grid grid-cols-1 items-center gap-2 rounded-md border px-3 py-2 md:grid-cols-2 ${
-                        field === "track.title" && !mapping[field] ? "border-warning-strong" : "border-subtle"
-                      }`}
-                    >
-                      <span className="truncate text-11 text-secondary">
-                        {field}
-                        {field === "track.title" && <span className="text-danger-primary"> *</span>}
-                      </span>
-                      <SearchableSelect
-                        options={[
-                          { value: "", label: "No importar" },
-                          ...preview.headers.map((header) => ({ value: header, label: header })),
-                        ]}
-                        value={mapping[field] ?? ""}
-                        onSelect={(column) => updateMapping(field, column)}
-                        placeholder="Buscar columna origen…"
-                      />
-                    </div>
-                  ))}
+                  {visibleFields.map((field) => {
+                    const selected = columnsOf(mapping[field]);
+                    if (multiFields.has(field)) {
+                      // Multi-column field (links, writers…): chips + add select
+                      return (
+                        <div key={field} className="rounded-md border border-subtle px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-11 text-secondary">
+                              {field} <span className="text-10 text-tertiary">(varias columnas)</span>
+                            </span>
+                            <SearchableSelect
+                              className="w-44"
+                              options={preview.headers
+                                .filter((header) => !selected.includes(header))
+                                .map((header) => ({ value: header, label: header }))}
+                              value=""
+                              onSelect={(column) => column && updateMultiMapping(field, [...selected, column])}
+                              placeholder="Agregar columna…"
+                            />
+                          </div>
+                          {selected.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {selected.map((column) => (
+                                <span
+                                  key={column}
+                                  className="flex items-center gap-1 rounded-full border border-subtle bg-layer-1 px-2 py-0.5 text-10"
+                                >
+                                  <span className="max-w-32 truncate">{column}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      updateMultiMapping(
+                                        field,
+                                        selected.filter((item) => item !== column)
+                                      )
+                                    }
+                                    aria-label={`Quitar ${column}`}
+                                  >
+                                    <X className="size-3 text-tertiary hover:text-danger-primary" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        key={field}
+                        className={`grid grid-cols-1 items-center gap-2 rounded-md border px-3 py-2 md:grid-cols-2 ${
+                          field === "track.title" && selected.length === 0 ? "border-warning-strong" : "border-subtle"
+                        }`}
+                      >
+                        <span className="truncate text-11 text-secondary">
+                          {field}
+                          {field === "track.title" && <span className="text-danger-primary"> *</span>}
+                        </span>
+                        <SearchableSelect
+                          options={[
+                            { value: "", label: "No importar" },
+                            ...preview.headers.map((header) => ({ value: header, label: header })),
+                          ]}
+                          value={selected[0] ?? ""}
+                          onSelect={(column) => updateMapping(field, column)}
+                          placeholder="Buscar columna origen…"
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
 
               <section className="rounded-xl border border-subtle bg-layer-2 p-4">
                 <div>
-                  <h3 className="text-14 font-semibold">Aplicar a cada canción importada</h3>
+                  <h3 className="text-14 font-semibold">3 · Duplicados</h3>
                   <p className="mt-1 text-11 text-secondary">
-                    Relaciones compartidas opcionales que se agregan a cada fila. Las relaciones idénticas existentes se
-                    conservan.
+                    Elige qué identificador determina que dos filas son la misma canción y qué hacer cuando se
+                    encuentre una repetida.
+                  </p>
+                </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <div>
+                    <span className="text-11 font-semibold">¿Qué define un duplicado?</span>
+                    <SearchableSelect
+                      className="mt-1.5"
+                      options={[
+                        { value: "auto", label: "Automático (ISRC, luego título + fecha)" },
+                        { value: "title", label: "Título" },
+                        { value: "isrc", label: "ISRC" },
+                        { value: "upc", label: "UPC" },
+                        { value: "catalog", label: "Catálogo" },
+                        { value: "none", label: "Ninguno — conservar todos" },
+                      ]}
+                      value={dedupeBy}
+                      onSelect={(value) => {
+                        setDedupeBy(value);
+                        invalidateValidation();
+                      }}
+                      placeholder="Identificador…"
+                    />
+                  </div>
+                  {dedupeBy !== "none" && (
+                    <div>
+                      <span className="text-11 font-semibold">¿Qué hacer con los duplicados?</span>
+                      <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
+                        {(
+                          [
+                            ["skip", "Conservar existentes"],
+                            ["update", "Actualizar"],
+                            ["error", "Marcar como error"],
+                          ] as const
+                        ).map(([value, label]) => (
+                          <label
+                            key={value}
+                            className={`cursor-pointer rounded-lg border p-2.5 text-12 ${strategy === value ? "border-accent-primary bg-accent-primary/5" : "border-subtle"}`}
+                          >
+                            <input
+                              className="mr-2"
+                              type="radio"
+                              checked={strategy === value}
+                              onChange={() => {
+                                setStrategy(value);
+                                invalidateValidation();
+                              }}
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-subtle bg-layer-2 p-4">
+                <div>
+                  <h3 className="text-14 font-semibold">4 · Relaciones para cada canción (opcional)</h3>
+                  <p className="mt-1 text-11 text-secondary">
+                    Se agregan a TODAS las filas importadas. Busca en cada lista o escribe un nombre nuevo para crearlo
+                    aquí mismo — sin salir de este panel.
                   </p>
                 </div>
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
                   <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-11 font-semibold">Artistas, escritores y colaboradores</span>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setPicker({ type: "party", defaultKind: "ARTIST" })}
-                      >
-                        <Plus className="mr-1 size-3.5" /> Add
-                      </Button>
-                    </div>
+                    <span className="text-11 font-semibold">Artistas, escritores y colaboradores</span>
+                    <SearchableSelect
+                      className="mt-1.5"
+                      options={parties
+                        .filter((party) => !defaultCredits.some((credit) => credit.party_id === party.id))
+                        .map((party) => ({ value: party.id, label: party.display_name }))}
+                      value=""
+                      onSelect={(partyId) => {
+                        if (!partyId) return;
+                        setDefaultCredits((current) => [...current, { party_id: partyId, role: "PRIMARY_ARTIST" }]);
+                        invalidateValidation();
+                      }}
+                      onCreate={(name) => void addInline("party")(name)}
+                      placeholder="Buscar o crear colaborador…"
+                    />
                     <div className="mt-2 space-y-2">
                       {defaultCredits.map((credit) => (
                         <div
@@ -404,20 +723,21 @@ export function MusicImportModal({
                               setDefaultCredits((current) =>
                                 current.map((item) => (item.party_id === credit.party_id ? { ...item, role } : item))
                               );
-                              setResult(undefined);
-                              setValidatedKey(undefined);
+                              invalidateValidation();
                             }}
                             placeholder="Buscar rol…"
                           />
                           <button
                             type="button"
-                            onClick={() =>
+                            aria-label="Quitar colaborador"
+                            onClick={() => {
                               setDefaultCredits((current) =>
                                 current.filter((item) => item.party_id !== credit.party_id)
-                              )
-                            }
+                              );
+                              invalidateValidation();
+                            }}
                           >
-                            <X className="size-3.5 text-tertiary" />
+                            <X className="size-3.5 text-tertiary hover:text-danger-primary" />
                           </button>
                         </div>
                       ))}
@@ -427,64 +747,50 @@ export function MusicImportModal({
                     </div>
                   </div>
 
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-11 font-semibold">Agregadoras y distribuidoras</span>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setPicker({ type: "company", defaultKind: "AGGREGATOR" })}
-                      >
-                        <Plus className="mr-1 size-3.5" /> Add
-                      </Button>
+                  {(
+                    [
+                      ["company", "Agregadoras y distribuidoras", defaultCompanyIds, setDefaultCompanyIds, companies.map((item) => ({ value: item.id, label: item.name }))],
+                      ["genre", "Géneros", defaultGenreIds, setDefaultGenreIds, genres.map((item) => ({ value: item.id, label: item.name }))],
+                      ["release", "Releases", defaultReleaseIds, setDefaultReleaseIds, releases.map((item) => ({ value: item.id, label: item.title }))],
+                    ] as const
+                  ).map(([type, label, selectedIds, setSelectedIds, optionsList]) => (
+                    <div key={type}>
+                      <span className="text-11 font-semibold">{label}</span>
+                      <SearchableSelect
+                        className="mt-1.5"
+                        options={optionsList.filter((option) => !selectedIds.includes(option.value))}
+                        value=""
+                        onSelect={(id) => {
+                          if (!id) return;
+                          setSelectedIds((current) => [...current, id]);
+                          invalidateValidation();
+                        }}
+                        onCreate={(name) => void addInline(type)(name)}
+                        placeholder={`Buscar o crear…`}
+                      />
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {selectedIds.map((id) => (
+                          <span
+                            key={id}
+                            className="flex items-center gap-1 rounded-full border border-subtle bg-layer-1 px-2.5 py-1 text-11"
+                          >
+                            {optionsList.find((option) => option.value === id)?.label ?? "Desconocido"}
+                            <button
+                              type="button"
+                              aria-label="Quitar"
+                              onClick={() => {
+                                setSelectedIds((current) => current.filter((item) => item !== id));
+                                invalidateValidation();
+                              }}
+                            >
+                              <X className="size-3 text-tertiary hover:text-danger-primary" />
+                            </button>
+                          </span>
+                        ))}
+                        {!selectedIds.length && <p className="text-11 text-tertiary">Ninguno seleccionado.</p>}
+                      </div>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {defaultCompanyIds.map((id) => (
-                        <span key={id} className="rounded-full border border-subtle bg-layer-1 px-2.5 py-1 text-11">
-                          {companies.find((item) => item.id === id)?.name ?? "Compañía desconocida"}
-                        </span>
-                      ))}
-                      {!defaultCompanyIds.length && <p className="text-11 text-tertiary">Sin compañía compartida.</p>}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-11 font-semibold">Géneros</span>
-                      <Button variant="secondary" size="sm" onClick={() => setPicker({ type: "genre" })}>
-                        <Plus className="mr-1 size-3.5" /> Add
-                      </Button>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {defaultGenreIds.map((id) => (
-                        <span key={id} className="rounded-full border border-subtle bg-layer-1 px-2.5 py-1 text-11">
-                          {genres.find((item) => item.id === id)?.name ?? "Género desconocido"}
-                        </span>
-                      ))}
-                      {!defaultGenreIds.length && <p className="text-11 text-tertiary">Sin género compartido.</p>}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-11 font-semibold">Releases</span>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setPicker({ type: "release", defaultKind: "SINGLE" })}
-                      >
-                        <Plus className="mr-1 size-3.5" /> Add
-                      </Button>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {defaultReleaseIds.map((id) => (
-                        <span key={id} className="rounded-full border border-subtle bg-layer-1 px-2.5 py-1 text-11">
-                          {releases.find((item) => item.id === id)?.title ?? "Release desconocido"}
-                        </span>
-                      ))}
-                      {!defaultReleaseIds.length && <p className="text-11 text-tertiary">Sin release compartido.</p>}
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </section>
 
@@ -534,32 +840,6 @@ export function MusicImportModal({
                 </table>
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-3">
-                {(
-                  [
-                    ["skip", "Conservar existentes"],
-                    ["update", "Actualizar duplicados"],
-                    ["error", "Marcar duplicados como error"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <label
-                    key={value}
-                    className={`cursor-pointer rounded-lg border p-3 text-12 ${strategy === value ? "border-accent-primary bg-accent-primary/5" : "border-subtle"}`}
-                  >
-                    <input
-                      className="mr-2"
-                      type="radio"
-                      checked={strategy === value}
-                      onChange={() => {
-                        setStrategy(value);
-                        setResult(undefined);
-                        setValidatedKey(undefined);
-                      }}
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
             </>
           )}
 
@@ -597,6 +877,14 @@ export function MusicImportModal({
                   </span>
                 )}
               </div>
+              {result.unparseable && Object.keys(result.unparseable).length > 0 && (
+                <VariableResolver
+                  unparseable={result.unparseable}
+                  overrides={valueOverrides}
+                  formatExamples={preview?.format_examples ?? {}}
+                  onResolve={resolveVariable}
+                />
+              )}
               {result.errors.length > 0 && (
                 <div className="mt-3 space-y-3">
                   <div className="rounded-lg border border-warning-subtle bg-layer-1 p-3">
@@ -749,43 +1037,6 @@ export function MusicImportModal({
           </div>
         </footer>
       </div>
-      <MusicResourcePickerModal
-        workspaceSlug={workspaceSlug}
-        isOpen={Boolean(picker)}
-        resourceType={picker?.type ?? "party"}
-        title={
-          picker?.type === "party"
-            ? "Colaboradores compartidos"
-            : picker?.type === "company"
-              ? "Compañías compartidas"
-              : picker?.type === "release"
-                ? "Releases compartidos"
-                : "Géneros compartidos"
-        }
-        items={
-          picker?.type === "party"
-            ? parties
-            : picker?.type === "company"
-              ? companies
-              : picker?.type === "release"
-                ? releases
-                : genres
-        }
-        selectedIds={
-          picker?.type === "party"
-            ? defaultCredits.map((credit) => credit.party_id)
-            : picker?.type === "company"
-              ? defaultCompanyIds
-              : picker?.type === "release"
-                ? defaultReleaseIds
-                : defaultGenreIds
-        }
-        options={options}
-        defaultKind={picker?.defaultKind}
-        onClose={() => setPicker(undefined)}
-        onSelect={applyPicker}
-        onChanged={onResourcesChanged}
-      />
       <AlertModalCore
         isOpen={isDeleteSourceOpen}
         isSubmitting={isRunning}

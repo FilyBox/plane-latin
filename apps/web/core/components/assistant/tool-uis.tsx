@@ -28,6 +28,7 @@ import { makeAssistantToolUI, useAssistantRuntime } from "@assistant-ui/react";
 import { API_BASE_URL } from "@plane/constants";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { SearchableSelect } from "../music-catalog/searchable-select";
+import { getApiError } from "../music-catalog/shared";
 
 const card = "my-2 rounded-md border border-subtle bg-layer-1 p-3 text-13";
 
@@ -349,7 +350,7 @@ function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal
         body: JSON.stringify({ ...result.proposal, dry_run: false }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? "Import failed");
+      if (!response.ok) throw data;
       setApplied(data);
       setState("done");
       setToast({
@@ -362,7 +363,7 @@ function ImportProposalCard({ result, workspaceSlug }: { result: TImportProposal
       setToast({
         type: TOAST_TYPE.ERROR,
         title: "Error",
-        message: error instanceof Error ? error.message : "Import failed",
+        message: getApiError(error),
       });
     }
   };
@@ -504,7 +505,7 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
         }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error ?? "Import failed");
+      if (!response.ok) throw data;
       if (dryRun) {
         setValidation(data);
         setOverridesDirty(false);
@@ -530,7 +531,7 @@ function InteractiveImportProposalCard({ result, workspaceSlug }: { result: TImp
       setToast({
         type: TOAST_TYPE.ERROR,
         title: "No se pudo importar",
-        message: error instanceof Error ? error.message : "Import failed",
+        message: getApiError(error),
       });
     }
   };
@@ -833,7 +834,7 @@ function UpdateTrackCard({ result }: { result: TUpdateProposal }) {
       setToast({
         type: TOAST_TYPE.ERROR,
         title: "Error",
-        message: error instanceof Error ? error.message : "Update failed",
+        message: getApiError(error),
       });
     }
   };
