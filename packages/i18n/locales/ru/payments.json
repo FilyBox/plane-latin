@@ -178,7 +178,13 @@
         "variable": "Variable",
         "expense": "Recorded expense"
       },
-      "aggregate": { "sum": "Sum", "average": "Average", "min": "Minimum", "max": "Maximum", "count": "Count" }
+      "aggregate": {
+        "sum": "Sum",
+        "average": "Average",
+        "min": "Minimum",
+        "max": "Maximum",
+        "count": "Count"
+      }
     },
     "variables": {
       "title": "Financial variables",
@@ -234,11 +240,16 @@
       "deleted": "Expense deleted",
       "error": "Something went wrong",
       "duplicate_budget": "This category already has a budget for that period",
-      "duplicate_category": "A category with this name already exists"
+      "duplicate_category": "A category with this name already exists",
+      "budget_saved": "Бюджет сохранён",
+      "budget_deleted": "Бюджет удалён"
     },
     "delete_expense_title": "Delete expense",
     "delete_expense_description": "This expense will be removed from the ledger. This cannot be undone.",
     "delete_category_title": "Delete category",
-    "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone."
+    "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
+    "edit_budget": "Изменить бюджет",
+    "delete_budget_title": "Удалить бюджет",
+    "delete_budget_description": "Бюджет будет удалён. Связанные расходы сохранят историю. Это действие необратимо."
   }
 }

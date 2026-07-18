@@ -178,7 +178,13 @@
         "variable": "Variable",
         "expense": "Gasto registrado"
       },
-      "aggregate": { "sum": "Suma", "average": "Promedio", "min": "Minimo", "max": "Maximo", "count": "Conteo" }
+      "aggregate": {
+        "sum": "Suma",
+        "average": "Promedio",
+        "min": "Minimo",
+        "max": "Maximo",
+        "count": "Conteo"
+      }
     },
     "variables": {
       "title": "Variables financieras",
@@ -234,11 +240,16 @@
       "deleted": "Gasto eliminado",
       "error": "Algo salió mal",
       "duplicate_budget": "Esta categoría ya tiene un presupuesto para ese periodo",
-      "duplicate_category": "Ya existe una categoría con ese nombre"
+      "duplicate_category": "Ya existe una categoría con ese nombre",
+      "budget_saved": "Presupuesto guardado",
+      "budget_deleted": "Presupuesto eliminado"
     },
     "delete_expense_title": "Eliminar gasto",
     "delete_expense_description": "El gasto se quitará del registro. Esta acción no se puede deshacer.",
     "delete_category_title": "Eliminar categoría",
-    "delete_category_description": "Los gastos registrados en ella conservan su historial pero pierden la categoría. Esta acción no se puede deshacer."
+    "delete_category_description": "Los gastos registrados en ella conservan su historial pero pierden la categoría. Esta acción no se puede deshacer.",
+    "edit_budget": "Editar presupuesto",
+    "delete_budget_title": "Eliminar presupuesto",
+    "delete_budget_description": "El presupuesto se eliminará. Los gastos registrados en él conservan su historial. Esta acción no se puede deshacer."
   }
 }

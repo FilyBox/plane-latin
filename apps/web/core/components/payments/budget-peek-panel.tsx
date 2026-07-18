@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { Maximize2, Minimize2, X } from "lucide-react";
 import { releaseToastClearance, reserveToastClearance } from "@/lib/toast-clearance";
 
 type Props = {
@@ -16,6 +16,9 @@ type Props = {
 };
 
 export function BudgetPeekPanel({ children, title, description, onClose }: Props) {
+  // Half-width by default; the user can expand it to cover the whole screen
+  const [isExpanded, setIsExpanded] = useState(false);
+
   useEffect(() => {
     reserveToastClearance("budget-peek-panel", 4.5);
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -37,7 +40,11 @@ export function BudgetPeekPanel({ children, title, description, onClose }: Props
         aria-label="Close"
       />
       <aside
-        className="absolute top-0 right-0 bottom-0 z-[25] flex w-full flex-col overflow-hidden border-l border-subtle bg-surface-1 shadow-raised-200 md:w-1/2"
+        className={
+          isExpanded
+            ? "absolute inset-0 z-[25] flex w-full flex-col overflow-hidden border-l border-subtle bg-surface-1 shadow-raised-200"
+            : "absolute top-0 right-0 bottom-0 z-[25] flex w-full flex-col overflow-hidden border-l border-subtle bg-surface-1 shadow-raised-200 md:w-1/2"
+        }
         style={{
           boxShadow:
             "0px 4px 8px 0px rgba(0, 0, 0, 0.12), 0px 6px 12px 0px rgba(16, 24, 40, 0.12), 0px 1px 16px 0px rgba(16, 24, 40, 0.12)",
@@ -49,14 +56,25 @@ export function BudgetPeekPanel({ children, title, description, onClose }: Props
             <h2 className="truncate text-14 font-semibold text-primary">{title}</h2>
             {description && <p className="mt-1 text-11 text-tertiary">{description}</p>}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex size-8 shrink-0 items-center justify-center rounded-md text-tertiary hover:bg-layer-1-hover hover:text-primary"
-            aria-label="Close"
-          >
-            <X className="size-4" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsExpanded((value) => !value)}
+              className="flex size-8 items-center justify-center rounded-md text-tertiary hover:bg-layer-1-hover hover:text-primary"
+              aria-label={isExpanded ? "Collapse" : "Expand"}
+              title={isExpanded ? "Collapse" : "Expand"}
+            >
+              {isExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex size-8 items-center justify-center rounded-md text-tertiary hover:bg-layer-1-hover hover:text-primary"
+              aria-label="Close"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
         </header>
         <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
       </aside>

@@ -178,7 +178,13 @@
         "variable": "Variable",
         "expense": "Recorded expense"
       },
-      "aggregate": { "sum": "Sum", "average": "Average", "min": "Minimum", "max": "Maximum", "count": "Count" }
+      "aggregate": {
+        "sum": "Sum",
+        "average": "Average",
+        "min": "Minimum",
+        "max": "Maximum",
+        "count": "Count"
+      }
     },
     "variables": {
       "title": "Financial variables",
@@ -234,11 +240,16 @@
       "deleted": "Expense deleted",
       "error": "Something went wrong",
       "duplicate_budget": "This category already has a budget for that period",
-      "duplicate_category": "A category with this name already exists"
+      "duplicate_category": "A category with this name already exists",
+      "budget_saved": "預算已儲存",
+      "budget_deleted": "預算已刪除"
     },
     "delete_expense_title": "Delete expense",
     "delete_expense_description": "This expense will be removed from the ledger. This cannot be undone.",
     "delete_category_title": "Delete category",
-    "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone."
+    "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
+    "edit_budget": "編輯預算",
+    "delete_budget_title": "刪除預算",
+    "delete_budget_description": "該預算將被移除。相關支出會保留歷史紀錄。此操作無法復原。"
   }
 }
