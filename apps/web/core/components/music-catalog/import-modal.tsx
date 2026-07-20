@@ -174,6 +174,7 @@ export function MusicImportModal({
   const [strategy, setStrategy] = useState<"skip" | "update" | "error">("skip");
   const [dedupeBy, setDedupeBy] = useState("auto");
   const [relationsMode, setRelationsMode] = useState<"merge" | "replace">("merge");
+  const [dedupeWithinFile, setDedupeWithinFile] = useState(false);
   const [valueOverrides, setValueOverrides] = useState<Record<string, Record<string, string>>>({});
   const [isAiMapping, setIsAiMapping] = useState(false);
   const [result, setResult] = useState<TMusicImportResult>();
@@ -235,6 +236,7 @@ export function MusicImportModal({
     strategy,
     dedupeBy,
     relationsMode,
+    dedupeWithinFile,
     sheet: preview?.selected_sheet,
     defaultCredits,
     defaultCompanyIds,
@@ -259,6 +261,7 @@ export function MusicImportModal({
     setStrategy("skip");
     setDedupeBy("auto");
     setRelationsMode("merge");
+    setDedupeWithinFile(false);
     setDefaultCredits([]);
     setDefaultCompanyIds([]);
     setDefaultGenreIds([]);
@@ -339,6 +342,7 @@ export function MusicImportModal({
     setStrategy("update");
     setDedupeBy(rules.dedupe_by && rules.dedupe_by !== "none" ? rules.dedupe_by : "auto");
     setRelationsMode(rules.relations_mode ?? "merge");
+    setDedupeWithinFile(rules.dedupe_within_file ?? false);
     setValueOverrides(rules.value_overrides ?? {});
     setRowOverrides(rules.row_overrides ?? {});
     setInvalidRowStrategy(rules.invalid_row_strategy ?? "abort");
@@ -383,7 +387,8 @@ export function MusicImportModal({
         rowOverrides,
         valueOverrides,
         dedupeBy,
-        relationsMode
+        relationsMode,
+        dedupeWithinFile
       );
       setResult(next);
       if (dryRun) setValidatedKey(validationKey);
@@ -815,15 +820,49 @@ export function MusicImportModal({
                   )}
                 </div>
 
+                {dedupeBy !== "none" && (
+                  <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-md border border-subtle p-2.5 text-11">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 shrink-0"
+                      checked={dedupeWithinFile}
+                      onChange={(event) => {
+                        setDedupeWithinFile(event.target.checked);
+                        invalidateValidation();
+                      }}
+                    />
+                    <span>
+                      <strong className="text-12">Tratar filas repetidas dentro del archivo como una sola</strong>
+                      <span className="mt-0.5 block text-tertiary">
+                        Por defecto está DESACTIVADO: cada fila del archivo produce su propio registro y solo se
+                        compara contra el catálogo YA existente. Actívalo únicamente si tu archivo trae filas
+                        duplicadas que quieres colapsar entre sí.
+                      </span>
+                    </span>
+                  </label>
+                )}
+
                 {/* Plain-words summary of what THIS combination will do */}
                 <p className="mt-3 rounded-md border border-accent-subtle bg-accent-primary/5 px-3 py-2 text-11 text-secondary">
                   {dedupeBy === "none"
-                    ? "Todas las filas se agregarán como registros NUEVOS, aunque ya existan canciones iguales en el catálogo."
-                    : strategy === "update"
-                      ? `Las filas que coincidan por ${DEDUPE_EXPLAIN[dedupeBy]} con una canción ya existente ACTUALIZARÁN ese registro con los campos mapeados; las que no coincidan se crearán como nuevas.`
-                      : strategy === "skip"
-                        ? `Las filas que coincidan por ${DEDUPE_EXPLAIN[dedupeBy]} se OMITIRÁN (el registro existente queda intacto); solo se crearán las que no coincidan.`
-                        : `Las filas que coincidan por ${DEDUPE_EXPLAIN[dedupeBy]} se marcarán como ERROR para que las revises antes de importar.`}
+                    ? "Las 216 filas (o las que traiga el archivo) se agregarán TODAS como registros NUEVOS, aunque ya existan canciones iguales en el catálogo."
+                    : (() => {
+                        const idLabel = DEDUPE_EXPLAIN[dedupeBy];
+                        const action =
+                          strategy === "update"
+                            ? `ACTUALIZARÁN ese registro con los campos mapeados`
+                            : strategy === "skip"
+                              ? `se OMITIRÁN (el registro existente queda intacto)`
+                              : `se marcarán como ERROR para que las revises`;
+                        const rest =
+                          strategy === "error"
+                            ? " antes de importar."
+                            : "; las filas que NO coincidan con nada del catálogo se crean como registros nuevos.";
+                        const withinFile = dedupeWithinFile
+                          ? " Además, filas del propio archivo que compartan ese identificador se colapsan en una."
+                          : " Cada fila del archivo se procesa por separado: dos filas con el mismo identificador NO se colapsan entre sí, así que un archivo de N filas produce/actualiza N registros.";
+                        return `Cada fila se busca por ${idLabel} contra el catálogo actual. Las que coincidan ${action}${rest}${withinFile}`;
+                      })()}
                 </p>
 
                 {dedupeBy !== "none" && strategy === "update" && (

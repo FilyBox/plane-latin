@@ -145,7 +145,8 @@ export class MusicService extends APIService {
     rowOverrides: Record<string, Record<string, string>> = {},
     valueOverrides: Record<string, Record<string, string>> = {},
     dedupeBy: string = "auto",
-    relationsMode: "merge" | "replace" = "merge"
+    relationsMode: "merge" | "replace" = "merge",
+    dedupeWithinFile: boolean = false
   ) {
     const data = new FormData();
     if (source instanceof File) data.append("file", source);
@@ -154,6 +155,7 @@ export class MusicService extends APIService {
     data.append("duplicate_strategy", duplicateStrategy);
     data.append("dedupe_by", dedupeBy);
     data.append("relations_mode", relationsMode);
+    data.append("dedupe_within_file", String(dedupeWithinFile));
     data.append("dry_run", String(dryRun));
     data.append("defaults", JSON.stringify(defaults));
     data.append("invalid_row_strategy", invalidRowStrategy);

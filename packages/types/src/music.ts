@@ -250,6 +250,9 @@ export type TMusicImportRunRules = {
   /** What happens with relations existing tracks already have: "merge" only
    * adds what the file brings; "replace" makes mapped fields authoritative */
   relations_mode?: "merge" | "replace";
+  /** When false (default) a file row only matches PRE-EXISTING records, so
+   * rows sharing an identifier within the file don't collapse into one */
+  dedupe_within_file?: boolean;
   value_overrides?: Record<string, Record<string, string>>;
   row_overrides?: Record<string, Record<string, string>>;
   invalid_row_strategy?: "abort" | "skip";

@@ -1254,6 +1254,9 @@ class MusicImportEndpoint(MusicBaseView):
         relations_mode = request.data.get("relations_mode", "merge")
         if relations_mode not in ("merge", "replace"):
             return Response({"relations_mode": ["Use merge or replace"]}, status=status.HTTP_400_BAD_REQUEST)
+        # Off by default: a file row only matches PRE-EXISTING records, so rows
+        # that share an identifier within the file don't collapse into one.
+        dedupe_within_file = str(request.data.get("dedupe_within_file", "false")).lower() == "true"
         dry_run = str(request.data.get("dry_run", "false")).lower() == "true"
         invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
         try:
@@ -1277,6 +1280,7 @@ class MusicImportEndpoint(MusicBaseView):
         }
         unparseable = {}
         touched = []
+        run_created_ids = set()
 
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
@@ -1298,8 +1302,11 @@ class MusicImportEndpoint(MusicBaseView):
                         outcome, track = self._import_row(
                             workspace, effective_row, effective_mapping, strategy, defaults, dedupe_by,
                             relations_mode=relations_mode,
+                            exclude_ids=None if dedupe_within_file else run_created_ids,
                         )
                     result[outcome] += 1
+                    if outcome == "created" and track is not None:
+                        run_created_ids.add(track.id)
                     if track is not None:
                         touched.append((track.id, outcome, index))
                 except Exception as exc:
@@ -1358,6 +1365,7 @@ class MusicImportEndpoint(MusicBaseView):
                         "duplicate_strategy": strategy,
                         "dedupe_by": dedupe_by,
                         "relations_mode": relations_mode,
+                        "dedupe_within_file": dedupe_within_file,
                         "value_overrides": value_overrides,
                         "row_overrides": row_overrides,
                         "invalid_row_strategy": invalid_row_strategy,
@@ -1377,7 +1385,10 @@ class MusicImportEndpoint(MusicBaseView):
             }
         return Response(result, status=status.HTTP_200_OK if not result["errors"] else status.HTTP_207_MULTI_STATUS)
 
-    def _import_row(self, workspace, row, mapping, strategy, defaults=None, dedupe_by="auto", relations_mode="merge"):
+    def _import_row(
+        self, workspace, row, mapping, strategy, defaults=None, dedupe_by="auto", relations_mode="merge",
+        exclude_ids=None,
+    ):
         title = _mapped(row, mapping, "track.title")
         if not title:
             raise ValueError("Track title is empty")
@@ -1386,7 +1397,13 @@ class MusicImportEndpoint(MusicBaseView):
         # title, so an unfiltered title match could wrongly hit the video.
         # `dedupe_by` lets the user pick WHICH identifier defines a duplicate
         # ("none" = always create, even with identical titles).
+        # `exclude_ids` holds records CREATED earlier in this same import: when
+        # de-duplication within the file is off, two file rows sharing a title
+        # must not collapse — each becomes its own record instead of the second
+        # one "matching" the first row's freshly-created track.
         songs = MusicTrack.objects.filter(workspace=workspace, parent_track__isnull=True)
+        if exclude_ids:
+            songs = songs.exclude(id__in=exclude_ids)
         track = None
         if dedupe_by == "none":
             track = None
