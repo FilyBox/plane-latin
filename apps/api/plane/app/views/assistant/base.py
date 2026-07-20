@@ -72,6 +72,8 @@ class AssistantMusicImportEndpoint(BaseAPIView):
 
         strategy = request.data.get("duplicate_strategy", "skip")
         dedupe_by = request.data.get("dedupe_by", "auto")
+        relations_mode = request.data.get("relations_mode", "merge")
+        dedupe_within_file = bool(request.data.get("dedupe_within_file", False))
         value_overrides = request.data.get("value_overrides") or {}
         invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
         if invalid_row_strategy not in ("abort", "skip"):
@@ -97,6 +99,7 @@ class AssistantMusicImportEndpoint(BaseAPIView):
         }
         touched = []
         unparseable = {}
+        run_created_ids = set()
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
                 effective_row, effective_mapping = _apply_row_overrides(
@@ -119,8 +122,12 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                             strategy,
                             request.data.get("defaults") or {},
                             dedupe_by,
+                            relations_mode=relations_mode if relations_mode in ("merge", "replace") else "merge",
+                            exclude_ids=None if dedupe_within_file else run_created_ids,
                         )
                     result[outcome] += 1
+                    if outcome == "created" and track is not None:
+                        run_created_ids.add(track.id)
                     if track is not None:
                         touched.append((track.id, outcome, index))
                 except Exception as exc:
@@ -140,6 +147,8 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                         "mapping": mapping,
                         "duplicate_strategy": strategy,
                         "dedupe_by": dedupe_by,
+                        "relations_mode": relations_mode,
+                        "dedupe_within_file": dedupe_within_file,
                         "value_overrides": value_overrides,
                     },
                     summary={k: result[k] for k in ("total", "created", "updated", "skipped")},

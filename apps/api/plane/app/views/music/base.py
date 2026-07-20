@@ -86,6 +86,13 @@ def _split(value):
     return [part.strip(" .") for part in ARTIST_SEPARATOR.split(str(value or "")) if part.strip(" .")]
 
 
+def _prune(queryset):
+    """Soft-delete relations one by one (keeps Plane's soft-delete semantics;
+    `_restore_or_create` can revive them on a later import)."""
+    for instance in queryset:
+        instance.delete()
+
+
 def _choice(raw, choices, default):
     """Normalize a raw cell to a TextChoices VALUE. Matches the raw string
     against choice values and labels case-insensitively so a CSV that says
@@ -358,6 +365,38 @@ def _read_table(upload, sheet_name=None):
         if any(value not in (None, "") for value in row)
     ]
     return headers, rows, sheets, header_row + 1
+
+
+class _StoredUpload:
+    """File-like (.read() + .name) over a stored import asset so every import
+    endpoint can consume a saved file exactly like a fresh browser upload."""
+
+    def __init__(self, content, name):
+        self._content = content
+        self.name = name
+
+    def read(self):
+        return self._content
+
+    def seek(self, _position):
+        return None
+
+
+def _asset_upload(slug, asset_id):
+    """Loads a saved MUSIC_CATALOG import asset as an upload-like object (for
+    re-imports the file is never re-uploaded by the browser)."""
+    from plane.settings.storage import S3Storage
+
+    asset = FileAsset.objects.get(
+        id=asset_id,
+        workspace__slug=slug,
+        entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
+        is_deleted=False,
+    )
+    storage = S3Storage()
+    obj = storage.s3_client.get_object(Bucket=storage.aws_storage_bucket_name, Key=asset.asset.name)
+    name = (asset.attributes or {}).get("name") or asset.asset.name
+    return asset, _StoredUpload(obj["Body"].read(), name)
 
 
 IMPORT_ALIASES = {
@@ -1046,6 +1085,27 @@ class MusicImportAssetEndpoint(MusicBaseView):
         search = request.query_params.get("search", "").strip()
         if search:
             assets = assets.filter(attributes__name__icontains=search)
+        assets = list(assets[:500])
+
+        # Latest run per asset: its rules restore the full panel configuration
+        # when the user chooses to re-import a saved file.
+        last_runs = {}
+        for run in MusicImportRun.objects.filter(
+            file_asset_id__in=[asset.id for asset in assets]
+        ).order_by("-created_at"):
+            last_runs.setdefault(run.file_asset_id, run)
+
+        def last_run_payload(asset):
+            run = last_runs.get(asset.id)
+            if run is None:
+                return None
+            return {
+                "sheet": run.sheet or None,
+                "rules": run.rules or {},
+                "summary": run.summary or {},
+                "imported_at": run.created_at.isoformat(),
+            }
+
         return Response(
             {
                 "results": [
@@ -1056,8 +1116,9 @@ class MusicImportAssetEndpoint(MusicBaseView):
                         "size": asset.size,
                         "upload_source": (asset.attributes or {}).get("upload_source") or "manual",
                         "created_at": asset.created_at.isoformat(),
+                        "last_run": last_run_payload(asset),
                     }
-                    for asset in assets[:500]
+                    for asset in assets
                 ]
             }
         )
@@ -1085,6 +1146,11 @@ class MusicImportPreviewEndpoint(MusicBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         upload = request.FILES.get("file")
+        if not upload and request.data.get("asset_id"):
+            try:
+                _, upload = _asset_upload(slug, request.data["asset_id"])
+            except FileAsset.DoesNotExist:
+                return Response({"error": "Archivo guardado no encontrado"}, status=status.HTTP_404_NOT_FOUND)
         if not upload:
             return Response({"file": ["Choose a CSV or XLSX file"]}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -1131,6 +1197,11 @@ class MusicImportAIMapEndpoint(MusicBaseView):
         from plane.utils.worker_client import WorkerTriggerError, ai_map_music_columns
 
         upload = request.FILES.get("file")
+        if not upload and request.data.get("asset_id"):
+            try:
+                _, upload = _asset_upload(slug, request.data["asset_id"])
+            except FileAsset.DoesNotExist:
+                return Response({"error": "Archivo guardado no encontrado"}, status=status.HTTP_404_NOT_FOUND)
         if not upload:
             return Response({"file": ["Choose a CSV or XLSX file"]}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -1159,6 +1230,13 @@ class MusicImportEndpoint(MusicBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         upload = request.FILES.get("file")
+        source_asset = None
+        if not upload and request.data.get("asset_id"):
+            # Re-import of a stored file: the browser never re-uploads it
+            try:
+                source_asset, upload = _asset_upload(slug, request.data["asset_id"])
+            except FileAsset.DoesNotExist:
+                return Response({"error": "Archivo guardado no encontrado"}, status=status.HTTP_404_NOT_FOUND)
         if not upload:
             return Response({"file": ["A CSV or XLSX file is required"]}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -1173,6 +1251,12 @@ class MusicImportEndpoint(MusicBaseView):
         workspace = Workspace.objects.get(slug=slug)
         strategy = request.data.get("duplicate_strategy", "skip")
         dedupe_by = request.data.get("dedupe_by", "auto")
+        relations_mode = request.data.get("relations_mode", "merge")
+        if relations_mode not in ("merge", "replace"):
+            return Response({"relations_mode": ["Use merge or replace"]}, status=status.HTTP_400_BAD_REQUEST)
+        # Off by default: a file row only matches PRE-EXISTING records, so rows
+        # that share an identifier within the file don't collapse into one.
+        dedupe_within_file = str(request.data.get("dedupe_within_file", "false")).lower() == "true"
         dry_run = str(request.data.get("dry_run", "false")).lower() == "true"
         invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
         try:
@@ -1196,6 +1280,7 @@ class MusicImportEndpoint(MusicBaseView):
         }
         unparseable = {}
         touched = []
+        run_created_ids = set()
 
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
@@ -1215,9 +1300,13 @@ class MusicImportEndpoint(MusicBaseView):
                     # error must not leave the remaining spreadsheet transaction aborted.
                     with transaction.atomic():
                         outcome, track = self._import_row(
-                            workspace, effective_row, effective_mapping, strategy, defaults, dedupe_by
+                            workspace, effective_row, effective_mapping, strategy, defaults, dedupe_by,
+                            relations_mode=relations_mode,
+                            exclude_ids=None if dedupe_within_file else run_created_ids,
                         )
                     result[outcome] += 1
+                    if outcome == "created" and track is not None:
+                        run_created_ids.add(track.id)
                     if track is not None:
                         touched.append((track.id, outcome, index))
                 except Exception as exc:
@@ -1228,11 +1317,11 @@ class MusicImportEndpoint(MusicBaseView):
             aborted = result["errors"] and invalid_row_strategy == "abort"
             if not dry_run and not aborted:
                 # Provenance: persist the source file itself + run + per-track
-                # links. Re-importing the SAME file (same name and size) reuses
-                # the stored asset so the filter shows one entry per file.
+                # links. Re-importing the SAME file (stored asset, or same name
+                # and size) reuses the asset so the filter shows one entry per file.
                 upload.seek(0)
                 content = upload.read()
-                file_asset = FileAsset.objects.filter(
+                file_asset = source_asset or FileAsset.objects.filter(
                     workspace=workspace,
                     entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
                     attributes__music_asset_kind="IMPORT_SOURCE",
@@ -1269,11 +1358,18 @@ class MusicImportEndpoint(MusicBaseView):
                     source_name=upload.name,
                     source="MANUAL",
                     sheet=request.data.get("sheet"),
+                    # The FULL panel configuration, so a re-import can restore
+                    # it and the user only touches what changed.
                     rules={
                         "mapping": mapping,
                         "duplicate_strategy": strategy,
                         "dedupe_by": dedupe_by,
+                        "relations_mode": relations_mode,
+                        "dedupe_within_file": dedupe_within_file,
                         "value_overrides": value_overrides,
+                        "row_overrides": row_overrides,
+                        "invalid_row_strategy": invalid_row_strategy,
+                        "defaults": defaults,
                     },
                     summary={k: result[k] for k in ("total", "created", "updated", "skipped")},
                     touched=touched,
@@ -1289,7 +1385,10 @@ class MusicImportEndpoint(MusicBaseView):
             }
         return Response(result, status=status.HTTP_200_OK if not result["errors"] else status.HTTP_207_MULTI_STATUS)
 
-    def _import_row(self, workspace, row, mapping, strategy, defaults=None, dedupe_by="auto"):
+    def _import_row(
+        self, workspace, row, mapping, strategy, defaults=None, dedupe_by="auto", relations_mode="merge",
+        exclude_ids=None,
+    ):
         title = _mapped(row, mapping, "track.title")
         if not title:
             raise ValueError("Track title is empty")
@@ -1298,7 +1397,13 @@ class MusicImportEndpoint(MusicBaseView):
         # title, so an unfiltered title match could wrongly hit the video.
         # `dedupe_by` lets the user pick WHICH identifier defines a duplicate
         # ("none" = always create, even with identical titles).
+        # `exclude_ids` holds records CREATED earlier in this same import: when
+        # de-duplication within the file is off, two file rows sharing a title
+        # must not collapse — each becomes its own record instead of the second
+        # one "matching" the first row's freshly-created track.
         songs = MusicTrack.objects.filter(workspace=workspace, parent_track__isnull=True)
+        if exclude_ids:
+            songs = songs.exclude(id__in=exclude_ids)
         track = None
         if dedupe_by == "none":
             track = None
@@ -1398,10 +1503,18 @@ class MusicImportEndpoint(MusicBaseView):
         }
         # People/genre/company fields accept SEVERAL mapped columns (e.g. two
         # writer columns); every column's value is split and imported.
+        # relations_mode decides what happens with relations the track already
+        # has: "merge" only ADDS what the file brings (nothing is removed);
+        # "replace" makes mapped fields authoritative — relations no longer
+        # coming from any mapped column are removed. Empty cells and unmapped
+        # fields never touch existing relations in either mode.
+        replace_relations = relations_mode == "replace"
         for field, (kind, role) in role_fields.items():
+            produced_parties = set()
             for value in _mapped_many(row, mapping, field):
                 for name in _split(value):
                     party = _party(workspace, name, kind)
+                    produced_parties.add(party.id)
                     _restore_or_create(MusicCredit, workspace, {"track": track, "party": party, "role": role})
                     if release and role == MusicCredit.Role.PRIMARY_ARTIST:
                         _restore_or_create(
@@ -1409,30 +1522,37 @@ class MusicImportEndpoint(MusicBaseView):
                             workspace,
                             {"release": release, "party": party, "role": MusicReleaseArtist.Role.PRIMARY},
                         )
+            if replace_relations and produced_parties:
+                _prune(track.credits.filter(role=role).exclude(party_id__in=produced_parties))
+        produced_genres = set()
         for value in _mapped_many(row, mapping, "genres"):
             for name in _split(value):
-                _restore_or_create(
-                    MusicTrackGenre,
-                    workspace,
-                    {"track": track, "genre": _genre(workspace, name)},
-                )
+                genre = _genre(workspace, name)
+                produced_genres.add(genre.id)
+                _restore_or_create(MusicTrackGenre, workspace, {"track": track, "genre": genre})
+        if replace_relations and produced_genres:
+            _prune(track.genre_links.exclude(genre_id__in=produced_genres))
         company_fields = {
             "record_label": MusicCompany.Kind.RECORD_LABEL,
             "aggregator": MusicCompany.Kind.AGGREGATOR,
             "distributor": MusicCompany.Kind.DISTRIBUTOR,
         }
         for field, kind in company_fields.items():
+            produced_companies = set()
             for value in _mapped_many(row, mapping, field):
                 for name in _split(value):
                     company = MusicCompany.objects.filter(workspace=workspace, kind=kind, name__iexact=name).first()
                     company = company or MusicCompany.objects.create(workspace=workspace, kind=kind, name=name)
+                    produced_companies.add(company.id)
                     MusicDistribution.objects.get_or_create(workspace=workspace, track=track, company=company)
-        self._import_links(workspace, track, row, mapping, values)
+            if replace_relations and produced_companies:
+                _prune(track.distributions.filter(company__kind=kind).exclude(company_id__in=produced_companies))
+        self._import_links(workspace, track, row, mapping, values, replace_relations)
         self._apply_defaults(workspace, track, release, defaults or {})
         return outcome, track
 
     @staticmethod
-    def _import_links(workspace, track, row, mapping, values):
+    def _import_links(workspace, track, row, mapping, values, replace_relations=False):
         """Content-detected URL columns: a music-video URL materializes the
         video child track (with its ISRC/date when mapped) and both kinds
         attach as MusicLink rows — idempotent per URL so re-imports don't
@@ -1474,9 +1594,17 @@ class MusicImportEndpoint(MusicBaseView):
                         url=video_url,
                         isrc=values.get("isrc_video", ""),
                     )
+            # In replace mode mapped link columns are authoritative for their
+            # kind: video links whose URL no longer comes from any mapped
+            # column are removed
+            if replace_relations:
+                _prune(video.links.filter(kind=MusicLink.Kind.MUSIC_VIDEO).exclude(url__in=video_urls))
 
-        for streaming_url in _mapped_many(row, mapping, "track.streaming_url"):
-            if streaming_url.startswith(("http://", "https://")) and not track.links.filter(url=streaming_url).exists():
+        streaming_urls = [
+            url for url in _mapped_many(row, mapping, "track.streaming_url") if url.startswith(("http://", "https://"))
+        ]
+        for streaming_url in streaming_urls:
+            if not track.links.filter(url=streaming_url).exists():
                 MusicLink.objects.create(
                     workspace=workspace,
                     track=track,
@@ -1486,6 +1614,8 @@ class MusicImportEndpoint(MusicBaseView):
                     url=streaming_url,
                     isrc=values.get("isrc", ""),
                 )
+        if replace_relations and streaming_urls:
+            _prune(track.links.filter(kind=MusicLink.Kind.STREAMING).exclude(url__in=streaming_urls))
 
     @staticmethod
     def _apply_defaults(workspace, track, release, defaults):

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Building2, Check, Disc3, Pencil, Plus, Search, Tags, Trash2, Users } from "lucide-react";
+import { Building2, Disc3, Pencil, Plus, Search, Tags, Trash2, Users } from "lucide-react";
 import { Button } from "@plane/propel/button";
 import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
@@ -357,9 +357,9 @@ export function MusicEntityManager(props: Props) {
                 placeholder={t("music_resources.search")}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-0.5">
               {isCreating && (
-                <div className="border-accent-primary rounded-xl border bg-accent-primary/5 p-3">
+                <div className="mb-2 rounded-md border border-accent-strong bg-layer-1 p-3">
                   <ResourceInlineEditor
                     tab={tab}
                     name={name}
@@ -384,12 +384,9 @@ export function MusicEntityManager(props: Props) {
               {visible.map((item) => {
                 const itemName = resourceName(item);
                 const isEditing = editingId === item.id;
-                return (
-                  <div
-                    key={item.id}
-                    className={`group flex items-center justify-between rounded-xl border px-4 py-3 transition-colors ${selectedIds.includes(item.id) ? "border-accent-primary bg-accent-primary/5" : "border-subtle bg-layer-1 hover:border-strong hover:bg-layer-1-hover"}`}
-                  >
-                    {isEditing ? (
+                if (isEditing) {
+                  return (
+                    <div key={item.id} className="rounded-md border border-accent-strong bg-layer-1 p-3">
                       <ResourceInlineEditor
                         tab={tab}
                         name={name}
@@ -409,50 +406,55 @@ export function MusicEntityManager(props: Props) {
                         onSave={() => void save()}
                         onCancel={() => reset()}
                       />
-                    ) : (
-                      <>
-                        <div className="flex min-w-0 items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSelectedIds((current) =>
-                                current.includes(item.id)
-                                  ? current.filter((id) => id !== item.id)
-                                  : [...current, item.id]
-                              )
-                            }
-                            className={`grid size-5 shrink-0 place-items-center rounded border ${selectedIds.includes(item.id) ? "border-accent-primary bg-accent-primary text-on-color" : "border-strong"}`}
-                            aria-label={t("music_resources.select_item", { name: itemName })}
-                          >
-                            {selectedIds.includes(item.id) && <Check className="size-3" />}
-                          </button>
-                          <div className="min-w-0">
-                            <p className="truncate text-13 font-medium text-primary">{itemName}</p>
-                            {"kind" in item && (
-                              <p className="mt-0.5 text-11 text-tertiary">{item.kind.replaceAll("_", " ")}</p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex gap-1">
-                          <button
-                            type="button"
-                            className="rounded p-2 text-secondary hover:bg-layer-2"
-                            onClick={() => edit(item)}
-                            aria-label={t("music_resources.edit_item", { name: itemName })}
-                          >
-                            <Pencil className="size-4" />
-                          </button>
-                          <button
-                            type="button"
-                            className="hover:bg-red-100 hover:text-red-600 rounded p-2 text-secondary"
-                            onClick={() => setDeleting(item)}
-                            aria-label={t("music_resources.delete_item", { name: itemName })}
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
-                        </div>
-                      </>
+                    </div>
+                  );
+                }
+                const selected = selectedIds.includes(item.id);
+                return (
+                  <div
+                    key={item.id}
+                    className={`group flex items-center gap-2.5 rounded-md px-2 py-1.5 ${selected ? "bg-layer-1-selected" : "hover:bg-layer-1-hover"}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() =>
+                        setSelectedIds((current) =>
+                          current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id]
+                        )
+                      }
+                      className="shrink-0"
+                      aria-label={t("music_resources.select_item", { name: itemName })}
+                    />
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 truncate text-left text-13 hover:text-accent-primary"
+                      onClick={() => edit(item)}
+                      title={t("music_resources.edit_item", { name: itemName })}
+                    >
+                      {itemName}
+                    </button>
+                    {"kind" in item && (
+                      <span className="shrink-0 rounded-full border border-subtle bg-layer-2 px-2 py-0.5 text-10 text-tertiary">
+                        {item.kind.replaceAll("_", " ")}
+                      </span>
                     )}
+                    <button
+                      type="button"
+                      className="rounded-sm p-1.5 text-tertiary opacity-0 group-hover:opacity-100 hover:bg-layer-2 hover:text-primary"
+                      onClick={() => edit(item)}
+                      aria-label={t("music_resources.edit_item", { name: itemName })}
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-sm p-1.5 text-tertiary opacity-0 group-hover:opacity-100 hover:bg-danger-subtle hover:text-danger-primary"
+                      onClick={() => setDeleting(item)}
+                      aria-label={t("music_resources.delete_item", { name: itemName })}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
                   </div>
                 );
               })}
