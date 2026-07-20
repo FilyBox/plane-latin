@@ -120,9 +120,11 @@ export class MusicService extends APIService {
     return this.data<void>(this.delete(`/api/workspaces/${workspaceSlug}/music/companies/${companyId}/`));
   }
 
-  previewImport(workspaceSlug: string, file: File, sheet?: string) {
+  /** `source` is a fresh browser File or the id of a stored import asset */
+  previewImport(workspaceSlug: string, source: File | { assetId: string }, sheet?: string) {
     const data = new FormData();
-    data.append("file", file);
+    if (source instanceof File) data.append("file", source);
+    else data.append("asset_id", source.assetId);
     if (sheet) data.append("sheet", sheet);
     return this.data<TMusicImportPreview>(
       this.post(`/api/workspaces/${workspaceSlug}/music/import/preview/`, data, {
@@ -133,7 +135,7 @@ export class MusicService extends APIService {
 
   importSpreadsheet(
     workspaceSlug: string,
-    file: File,
+    source: File | { assetId: string },
     mapping: Record<string, string | string[]>,
     duplicateStrategy: "skip" | "update" | "error",
     dryRun: boolean,
@@ -142,13 +144,18 @@ export class MusicService extends APIService {
     invalidRowStrategy: "abort" | "skip" = "abort",
     rowOverrides: Record<string, Record<string, string>> = {},
     valueOverrides: Record<string, Record<string, string>> = {},
-    dedupeBy: string = "auto"
+    dedupeBy: string = "auto",
+    relationsMode: "merge" | "replace" = "merge",
+    dedupeWithinFile: boolean = false
   ) {
     const data = new FormData();
-    data.append("file", file);
+    if (source instanceof File) data.append("file", source);
+    else data.append("asset_id", source.assetId);
     data.append("mapping", JSON.stringify(mapping));
     data.append("duplicate_strategy", duplicateStrategy);
     data.append("dedupe_by", dedupeBy);
+    data.append("relations_mode", relationsMode);
+    data.append("dedupe_within_file", String(dedupeWithinFile));
     data.append("dry_run", String(dryRun));
     data.append("defaults", JSON.stringify(defaults));
     data.append("invalid_row_strategy", invalidRowStrategy);
@@ -163,9 +170,10 @@ export class MusicService extends APIService {
   }
 
   /** Optional AI column mapping for the manual import panel */
-  aiMapImport(workspaceSlug: string, file: File, sheet?: string) {
+  aiMapImport(workspaceSlug: string, source: File | { assetId: string }, sheet?: string) {
     const data = new FormData();
-    data.append("file", file);
+    if (source instanceof File) data.append("file", source);
+    else data.append("asset_id", source.assetId);
     if (sheet) data.append("sheet", sheet);
     return this.data<{ mapping: Record<string, string | string[]>; model: string | null }>(
       this.post(`/api/workspaces/${workspaceSlug}/music/import/ai-map/`, data, {

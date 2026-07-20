@@ -243,6 +243,27 @@ export type TMusicImportRun = {
   created_at: string;
 };
 
+export type TMusicImportRunRules = {
+  mapping?: Record<string, string | string[]>;
+  duplicate_strategy?: string;
+  dedupe_by?: string;
+  /** What happens with relations existing tracks already have: "merge" only
+   * adds what the file brings; "replace" makes mapped fields authoritative */
+  relations_mode?: "merge" | "replace";
+  /** When false (default) a file row only matches PRE-EXISTING records, so
+   * rows sharing an identifier within the file don't collapse into one */
+  dedupe_within_file?: boolean;
+  value_overrides?: Record<string, Record<string, string>>;
+  row_overrides?: Record<string, Record<string, string>>;
+  invalid_row_strategy?: "abort" | "skip";
+  defaults?: {
+    credit_entries?: { party_id: string; role: string }[];
+    distribution_entries?: { company_id: string }[];
+    genre_ids?: string[];
+    releases?: { id: string }[];
+  };
+};
+
 export type TMusicImportAsset = {
   id: string;
   name: string;
@@ -250,6 +271,13 @@ export type TMusicImportAsset = {
   size: number;
   upload_source: "manual" | "assistant" | string;
   created_at: string;
+  /** Latest applied run of this file: restores the panel configuration */
+  last_run?: {
+    sheet: string | null;
+    rules: TMusicImportRunRules;
+    summary: Record<string, number>;
+    imported_at: string;
+  } | null;
 };
 
 export type TMusicImportPreview = {
