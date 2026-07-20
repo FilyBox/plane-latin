@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "Modifier le budget",
     "delete_budget_title": "Supprimer le budget",
-    "delete_budget_description": "Le budget sera supprimé. Les dépenses qui y sont rattachées conservent leur historique. Cette action est irréversible."
+    "delete_budget_description": "Le budget sera supprimé. Les dépenses qui y sont rattachées conservent leur historique. Cette action est irréversible.",
+    "pagination": {
+      "per_page": "Par page",
+      "of": "sur",
+      "previous": "Précédent",
+      "next": "Suivant"
+    }
   }
 }

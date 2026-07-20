@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "Upravit rozpočet",
     "delete_budget_title": "Smazat rozpočet",
-    "delete_budget_description": "Rozpočet bude odstraněn. Související výdaje si zachovají historii. Tuto akci nelze vrátit zpět."
+    "delete_budget_description": "Rozpočet bude odstraněn. Související výdaje si zachovají historii. Tuto akci nelze vrátit zpět.",
+    "pagination": {
+      "per_page": "Na stránku",
+      "of": "z",
+      "previous": "Předchozí",
+      "next": "Další"
+    }
   }
 }

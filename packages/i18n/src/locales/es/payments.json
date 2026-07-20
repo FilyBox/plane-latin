@@ -250,6 +250,12 @@
     "delete_category_description": "Los gastos registrados en ella conservan su historial pero pierden la categoría. Esta acción no se puede deshacer.",
     "edit_budget": "Editar presupuesto",
     "delete_budget_title": "Eliminar presupuesto",
-    "delete_budget_description": "El presupuesto se eliminará. Los gastos registrados en él conservan su historial. Esta acción no se puede deshacer."
+    "delete_budget_description": "El presupuesto se eliminará. Los gastos registrados en él conservan su historial. Esta acción no se puede deshacer.",
+    "pagination": {
+      "per_page": "Por página",
+      "of": "de",
+      "previous": "Anterior",
+      "next": "Siguiente"
+    }
   }
 }

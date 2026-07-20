@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "Изменить бюджет",
     "delete_budget_title": "Удалить бюджет",
-    "delete_budget_description": "Бюджет будет удалён. Связанные расходы сохранят историю. Это действие необратимо."
+    "delete_budget_description": "Бюджет будет удалён. Связанные расходы сохранят историю. Это действие необратимо.",
+    "pagination": {
+      "per_page": "На странице",
+      "of": "из",
+      "previous": "Назад",
+      "next": "Вперёд"
+    }
   }
 }

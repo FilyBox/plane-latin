@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "Sửa ngân sách",
     "delete_budget_title": "Xóa ngân sách",
-    "delete_budget_description": "Ngân sách sẽ bị xóa. Các chi phí liên quan vẫn giữ lịch sử. Không thể hoàn tác."
+    "delete_budget_description": "Ngân sách sẽ bị xóa. Các chi phí liên quan vẫn giữ lịch sử. Không thể hoàn tác.",
+    "pagination": {
+      "per_page": "Mỗi trang",
+      "of": "trên",
+      "previous": "Trước",
+      "next": "Tiếp"
+    }
   }
 }

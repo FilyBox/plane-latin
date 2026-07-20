@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "Editare buget",
     "delete_budget_title": "Ștergere buget",
-    "delete_budget_description": "Bugetul va fi eliminat. Cheltuielile asociate își păstrează istoricul. Această acțiune nu poate fi anulată."
+    "delete_budget_description": "Bugetul va fi eliminat. Cheltuielile asociate își păstrează istoricul. Această acțiune nu poate fi anulată.",
+    "pagination": {
+      "per_page": "Pe pagină",
+      "of": "din",
+      "previous": "Anterior",
+      "next": "Următor"
+    }
   }
 }

@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "Edytuj budżet",
     "delete_budget_title": "Usuń budżet",
-    "delete_budget_description": "Budżet zostanie usunięty. Powiązane wydatki zachowają historię. Tej operacji nie można cofnąć."
+    "delete_budget_description": "Budżet zostanie usunięty. Powiązane wydatki zachowają historię. Tej operacji nie można cofnąć.",
+    "pagination": {
+      "per_page": "Na stronę",
+      "of": "z",
+      "previous": "Poprzednia",
+      "next": "Następna"
+    }
   }
 }

@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "予算を編集",
     "delete_budget_title": "予算を削除",
-    "delete_budget_description": "予算が削除されます。関連する経費は履歴を保持します。この操作は取り消せません。"
+    "delete_budget_description": "予算が削除されます。関連する経費は履歴を保持します。この操作は取り消せません。",
+    "pagination": {
+      "per_page": "ページごと",
+      "of": "/",
+      "previous": "前へ",
+      "next": "次へ"
+    }
   }
 }

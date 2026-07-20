@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "예산 편집",
     "delete_budget_title": "예산 삭제",
-    "delete_budget_description": "예산이 삭제됩니다. 관련 지출은 기록을 유지합니다. 이 작업은 취소할 수 없습니다."
+    "delete_budget_description": "예산이 삭제됩니다. 관련 지출은 기록을 유지합니다. 이 작업은 취소할 수 없습니다.",
+    "pagination": {
+      "per_page": "페이지당",
+      "of": "/",
+      "previous": "이전",
+      "next": "다음"
+    }
   }
 }

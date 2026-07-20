@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "编辑预算",
     "delete_budget_title": "删除预算",
-    "delete_budget_description": "该预算将被移除。相关支出会保留历史记录。此操作无法撤销。"
+    "delete_budget_description": "该预算将被移除。相关支出会保留历史记录。此操作无法撤销。",
+    "pagination": {
+      "per_page": "每页",
+      "of": "共",
+      "previous": "上一页",
+      "next": "下一页"
+    }
   }
 }

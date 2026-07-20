@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "Edit anggaran",
     "delete_budget_title": "Hapus anggaran",
-    "delete_budget_description": "Anggaran akan dihapus. Pengeluaran terkait tetap menyimpan riwayatnya. Tindakan ini tidak dapat dibatalkan."
+    "delete_budget_description": "Anggaran akan dihapus. Pengeluaran terkait tetap menyimpan riwayatnya. Tindakan ini tidak dapat dibatalkan.",
+    "pagination": {
+      "per_page": "Per halaman",
+      "of": "dari",
+      "previous": "Sebelumnya",
+      "next": "Berikutnya"
+    }
   }
 }

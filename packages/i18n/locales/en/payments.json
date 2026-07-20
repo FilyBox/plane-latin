@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "Edit budget",
     "delete_budget_title": "Delete budget",
-    "delete_budget_description": "The budget will be removed. The expenses filed against it keep their history. This cannot be undone."
+    "delete_budget_description": "The budget will be removed. The expenses filed against it keep their history. This cannot be undone.",
+    "pagination": {
+      "per_page": "Per page",
+      "of": "of",
+      "previous": "Previous",
+      "next": "Next"
+    }
   }
 }

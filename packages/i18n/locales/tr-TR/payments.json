@@ -250,6 +250,12 @@
     "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
     "edit_budget": "Bütçeyi düzenle",
     "delete_budget_title": "Bütçeyi sil",
-    "delete_budget_description": "Bütçe kaldırılacak. İlgili giderler geçmişini korur. Bu işlem geri alınamaz."
+    "delete_budget_description": "Bütçe kaldırılacak. İlgili giderler geçmişini korur. Bu işlem geri alınamaz.",
+    "pagination": {
+      "per_page": "Sayfa başına",
+      "of": "/",
+      "previous": "Önceki",
+      "next": "Sonraki"
+    }
   }
 }
