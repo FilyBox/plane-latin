@@ -105,9 +105,10 @@ export function SearchableSelect({ options, value, onSelect, onCreate, placehold
                 onClick={() => pick(option.value)}
                 className="flex w-full items-center justify-between gap-2 rounded-sm px-1.5 py-1 text-left text-12 hover:bg-layer-1-hover"
               >
-                <span className="truncate">
-                  {option.label}
-                  {option.hint && <span className="ml-1 text-11 text-tertiary">{option.hint}</span>}
+                {/* hint on its own line so long samples don't crowd the label */}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{option.label}</span>
+                  {option.hint && <span className="block truncate text-10 text-tertiary">{option.hint}</span>}
                 </span>
                 {option.value === value && <Check className="size-3 shrink-0 text-accent-primary" />}
               </button>

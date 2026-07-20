@@ -230,6 +230,7 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
         defaults = request.data.get("defaults") or {}
         strategy = request.data.get("duplicate_strategy", "skip")
         dedupe_by = request.data.get("dedupe_by", "auto")
+        relations_mode = request.data.get("relations_mode", "merge")
         value_overrides = request.data.get("value_overrides") or {}
         row_overrides = request.data.get("row_overrides") or {}
         invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
@@ -258,7 +259,8 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
                 try:
                     with transaction.atomic():
                         outcome, track = importer._import_row(
-                            workspace, effective_row, mapping_for_row, strategy, defaults, dedupe_by
+                            workspace, effective_row, mapping_for_row, strategy, defaults, dedupe_by,
+                            relations_mode=relations_mode if relations_mode in ("merge", "replace") else "merge",
                         )
                     result[outcome] += 1
                     if track is not None:

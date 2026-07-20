@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, FileSpreadsheet, Search, ShieldCheck, X, WandSparkles } from "lucide-react";
+import { AlertCircle, CheckCircle2, Eye, FileSpreadsheet, Search, ShieldCheck, X, WandSparkles } from "lucide-react";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type {
   TMusicCatalogOptions,
   TMusicCompany,
   TMusicGenre,
+  TMusicImportAsset,
   TMusicImportPreview,
   TMusicImportResult,
   TMusicParty,
@@ -14,6 +15,7 @@ import type {
 import { AlertModalCore } from "@plane/ui";
 import { fileLibraryService } from "@/services/file-library.service";
 import { musicService } from "@/services/music.service";
+import { FilePreviewModal } from "../file-library/file-preview-modal";
 import { BudgetPeekPanel } from "../payments/budget-peek-panel";
 import { SearchableSelect } from "./searchable-select";
 import { getApiError, MUSIC_FIELD } from "./shared";
@@ -38,6 +40,15 @@ const REQUIRED_IMPORT_FIELDS = ["track.title"] as const;
 const SKIP_ROW = "__SKIP_ROW__";
 
 type TTokenDecision = { mode: "" | "assign" | "empty" | "skip"; value: string };
+
+/** How each dedupe identifier reads in the plain-words summary */
+const DEDUPE_EXPLAIN: Record<string, string> = {
+  auto: "ISRC (o título + fecha original)",
+  isrc: "ISRC",
+  title: "título",
+  upc: "UPC",
+  catalog: "catálogo",
+};
 
 const columnsOf = (value: string | string[] | undefined): string[] =>
   !value ? [] : Array.isArray(value) ? value.filter(Boolean) : [value];
@@ -162,6 +173,7 @@ export function MusicImportModal({
   const [mapping, setMapping] = useState<Record<string, string | string[]>>({});
   const [strategy, setStrategy] = useState<"skip" | "update" | "error">("skip");
   const [dedupeBy, setDedupeBy] = useState("auto");
+  const [relationsMode, setRelationsMode] = useState<"merge" | "replace">("merge");
   const [valueOverrides, setValueOverrides] = useState<Record<string, Record<string, string>>>({});
   const [isAiMapping, setIsAiMapping] = useState(false);
   const [result, setResult] = useState<TMusicImportResult>();
@@ -176,13 +188,53 @@ export function MusicImportModal({
   const [rowOverrides, setRowOverrides] = useState<Record<string, Record<string, string>>>({});
   const [hasApplied, setHasApplied] = useState(false);
   const [isDeleteSourceOpen, setIsDeleteSourceOpen] = useState(false);
+  const [savedAssets, setSavedAssets] = useState<TMusicImportAsset[]>([]);
+  const [assetName, setAssetName] = useState<string>();
+  const [isFilePreviewOpen, setIsFilePreviewOpen] = useState(false);
+
+  // What the import endpoints consume: a fresh browser File, or the id of a
+  // stored asset when re-importing (the file never travels again).
+  const source: File | { assetId: string } | undefined = file ?? (assetId ? { assetId } : undefined);
+  const sourceName = file?.name ?? assetName;
 
   const missingRequired = REQUIRED_IMPORT_FIELDS.filter((field) => columnsOf(mapping[field]).length === 0);
   const multiFields = useMemo(() => new Set(preview?.multi_fields ?? []), [preview?.multi_fields]);
+
+  /** Short content sample for a column ("4:02 · 2:24 · ringtone") */
+  const columnSample = (column: string, limit = 3): string => {
+    const samples = preview?.column_samples?.[column];
+    if (!samples || samples.examples.length === 0) return "";
+    return samples.examples
+      .slice(0, limit)
+      .map((example) => (example.length > 24 ? `${example.slice(0, 24)}…` : example))
+      .join(" · ");
+  };
+
+  /** Header options for the column selects, with a content hint per column
+   * (rendered on its own line under the column name) */
+  const headerOptions = useMemo(
+    () =>
+      (preview?.headers ?? []).map((header) => {
+        const samples = preview?.column_samples?.[header];
+        if (!samples) return { value: header, label: header };
+        const example = samples.examples[0];
+        const truncated = example && example.length > 36 ? `${example.slice(0, 36)}…` : example;
+        return {
+          value: header,
+          label: header,
+          hint:
+            samples.non_empty === 0
+              ? "columna vacía"
+              : `${samples.non_empty} con datos${truncated ? ` · ej. ${truncated}` : ""}`,
+        };
+      }),
+    [preview?.headers, preview?.column_samples]
+  );
   const validationKey = JSON.stringify({
     mapping,
     strategy,
     dedupeBy,
+    relationsMode,
     sheet: preview?.selected_sheet,
     defaultCredits,
     defaultCompanyIds,
@@ -206,6 +258,7 @@ export function MusicImportModal({
     setResult(undefined);
     setStrategy("skip");
     setDedupeBy("auto");
+    setRelationsMode("merge");
     setDefaultCredits([]);
     setDefaultCompanyIds([]);
     setDefaultGenreIds([]);
@@ -217,18 +270,27 @@ export function MusicImportModal({
     setValueOverrides({});
     setHasApplied(false);
     setIsDeleteSourceOpen(false);
-  }, [isOpen]);
+    setAssetName(undefined);
+    setIsFilePreviewOpen(false);
+    // Saved files for the re-import path (with their last configuration)
+    musicService
+      .getImportAssets(workspaceSlug)
+      .then(({ results }) => setSavedAssets(results))
+      .catch(() => setSavedAssets([]));
+  }, [isOpen, workspaceSlug]);
 
-  const inspect = async (selected: File, sheet?: string) => {
+  const inspect = async (target: File | { assetId: string }, sheet?: string) => {
     setIsRunning(true);
     try {
-      const next = await musicService.previewImport(workspaceSlug, selected, sheet);
+      const next = await musicService.previewImport(workspaceSlug, target, sheet);
       setPreview(next);
       setMapping(next.mapping);
       setResult(undefined);
       setValidatedKey(undefined);
+      return next;
     } catch (error) {
       setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo leer el archivo", message: getApiError(error) });
+      return undefined;
     } finally {
       setIsRunning(false);
     }
@@ -237,10 +299,12 @@ export function MusicImportModal({
   const choose = async (selected?: File) => {
     setFile(selected);
     setAssetId(undefined);
+    setAssetName(undefined);
     setPreview(undefined);
     setResult(undefined);
     setMapping({});
     setRowOverrides({});
+    setValueOverrides({});
     setHasApplied(false);
     if (!selected) return;
     setIsRunning(true);
@@ -258,8 +322,40 @@ export function MusicImportModal({
     }
   };
 
+  /** Re-import a stored file restoring its saved configuration. The user only
+   * touches what changed; duplicates default to UPDATE existing records. */
+  const reimport = async (asset: TMusicImportAsset) => {
+    setFile(undefined);
+    setAssetId(asset.id);
+    setAssetName(asset.name);
+    setPreview(undefined);
+    setResult(undefined);
+    setHasApplied(false);
+    const rules = asset.last_run?.rules ?? {};
+    const next = await inspect({ assetId: asset.id }, asset.last_run?.sheet ?? undefined);
+    if (!next) return;
+    // Saved config wins over the fresh heuristic; missing pieces keep defaults
+    if (rules.mapping && Object.keys(rules.mapping).length > 0) setMapping(rules.mapping);
+    setStrategy("update");
+    setDedupeBy(rules.dedupe_by && rules.dedupe_by !== "none" ? rules.dedupe_by : "auto");
+    setRelationsMode(rules.relations_mode ?? "merge");
+    setValueOverrides(rules.value_overrides ?? {});
+    setRowOverrides(rules.row_overrides ?? {});
+    setInvalidRowStrategy(rules.invalid_row_strategy ?? "abort");
+    const defaults = rules.defaults ?? {};
+    setDefaultCredits(defaults.credit_entries ?? []);
+    setDefaultCompanyIds((defaults.distribution_entries ?? []).map((entry) => entry.company_id));
+    setDefaultGenreIds(defaults.genre_ids ?? []);
+    setDefaultReleaseIds((defaults.releases ?? []).map((entry) => entry.id));
+    setToast({
+      type: TOAST_TYPE.SUCCESS,
+      title: "Configuración anterior cargada",
+      message: "Se restauró el mapeo y las opciones de la última importación. Los duplicados se actualizarán por defecto.",
+    });
+  };
+
   const run = async (dryRun: boolean) => {
-    if (!file) return;
+    if (!source) return;
     if (missingRequired.length) {
       setToast({
         type: TOAST_TYPE.ERROR,
@@ -272,7 +368,7 @@ export function MusicImportModal({
     try {
       const next = await musicService.importSpreadsheet(
         workspaceSlug,
-        file,
+        source,
         mapping,
         strategy,
         dryRun,
@@ -286,7 +382,8 @@ export function MusicImportModal({
         invalidRowStrategy,
         rowOverrides,
         valueOverrides,
-        dedupeBy
+        dedupeBy,
+        relationsMode
       );
       setResult(next);
       if (dryRun) setValidatedKey(validationKey);
@@ -396,12 +493,12 @@ export function MusicImportModal({
   };
 
   const aiMap = async () => {
-    if (!file) return;
+    if (!source) return;
     setIsAiMapping(true);
     try {
       const { mapping: suggested } = await musicService.aiMapImport(
         workspaceSlug,
-        file,
+        source,
         preview?.selected_sheet ?? undefined
       );
       if (Object.keys(suggested).length === 0) {
@@ -434,7 +531,7 @@ export function MusicImportModal({
         <div className="space-y-5 p-5">
           <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-subtle bg-layer-1 text-11 sm:grid-cols-4">
             {[
-              ["1", "Elegir archivo", Boolean(file)],
+              ["1", "Elegir archivo", Boolean(source)],
               ["2", "Mapear columnas", Boolean(preview) && missingRequired.length === 0],
               ["3", "Validar", validatedKey === validationKey],
               ["4", "Importar", hasApplied],
@@ -454,19 +551,53 @@ export function MusicImportModal({
               </div>
             ))}
           </div>
-          <label className="hover:border-accent-primary flex cursor-pointer flex-col items-center rounded-xl border border-dashed border-subtle bg-layer-2 px-5 py-7 text-center">
-            <FileSpreadsheet className="mb-2 size-7 text-tertiary" />
-            <span className="text-13 font-medium">{file?.name ?? "Elegir CSV o XLSX"}</span>
-            <span className="mt-1 text-11 text-tertiary">
-              Soporta headers desordenados y formatos de fecha mezclados
-            </span>
-            <input
-              className="hidden"
-              type="file"
-              accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              onChange={(event) => void choose(event.target.files?.[0])}
-            />
-          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="hover:border-accent-primary flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-subtle bg-layer-2 px-5 py-6 text-center">
+              <FileSpreadsheet className="mb-2 size-7 text-tertiary" />
+              <span className="text-13 font-medium">{sourceName ?? "Elegir CSV o XLSX"}</span>
+              <span className="mt-1 text-11 text-tertiary">
+                Soporta headers desordenados y formatos de fecha mezclados
+              </span>
+              <input
+                className="hidden"
+                type="file"
+                accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={(event) => void choose(event.target.files?.[0])}
+              />
+            </label>
+            <div className="flex flex-col justify-center rounded-xl border border-subtle bg-layer-2 px-5 py-4">
+              <span className="text-13 font-medium">…o reimporta un archivo guardado</span>
+              <span className="mt-1 text-11 text-tertiary">
+                Carga el archivo con el mapeo y las opciones de su última importación; solo cambia lo que necesites.
+                Los duplicados se actualizan por defecto.
+              </span>
+              <SearchableSelect
+                className="mt-2"
+                options={savedAssets.map((asset) => ({
+                  value: asset.id,
+                  label: asset.name,
+                  hint: asset.last_run
+                    ? `· ${new Date(asset.last_run.imported_at).toLocaleDateString()}`
+                    : "· sin importaciones",
+                }))}
+                value={!file && assetId ? assetId : ""}
+                onSelect={(id) => {
+                  const asset = savedAssets.find((item) => item.id === id);
+                  if (asset) void reimport(asset);
+                }}
+                placeholder="Buscar archivo guardado…"
+              />
+            </div>
+          </div>
+
+          {assetId && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-subtle bg-layer-1 px-3 py-2">
+              <span className="min-w-0 truncate text-12 text-secondary">{sourceName}</span>
+              <Button variant="secondary" size="sm" onClick={() => setIsFilePreviewOpen(true)}>
+                <Eye className="mr-1 size-3.5" /> Ver archivo
+              </Button>
+            </div>
+          )}
 
           {isRunning && (
             <div className="flex items-center gap-3 rounded-xl border border-accent-subtle bg-accent-primary/5 p-4">
@@ -500,7 +631,7 @@ export function MusicImportModal({
                     className="w-56"
                     options={preview.sheets.map((sheet) => ({ value: sheet, label: sheet }))}
                     value={preview.selected_sheet}
-                    onSelect={(sheet) => file && void inspect(file, sheet)}
+                    onSelect={(sheet) => source && void inspect(source, sheet)}
                     placeholder="Buscar hojas…"
                   />
                 )}
@@ -558,9 +689,7 @@ export function MusicImportModal({
                             </span>
                             <SearchableSelect
                               className="w-44"
-                              options={preview.headers
-                                .filter((header) => !selected.includes(header))
-                                .map((header) => ({ value: header, label: header }))}
+                              options={headerOptions.filter((option) => !selected.includes(option.value))}
                               value=""
                               onSelect={(column) => column && updateMultiMapping(field, [...selected, column])}
                               placeholder="Agregar columna…"
@@ -571,6 +700,7 @@ export function MusicImportModal({
                               {selected.map((column) => (
                                 <span
                                   key={column}
+                                  title={columnSample(column) ? `Ej: ${columnSample(column)}` : undefined}
                                   className="flex items-center gap-1 rounded-full border border-subtle bg-layer-1 px-2 py-0.5 text-10"
                                 >
                                   <span className="max-w-32 truncate">{column}</span>
@@ -593,26 +723,31 @@ export function MusicImportModal({
                         </div>
                       );
                     }
+                    const sample = selected[0] ? columnSample(selected[0]) : "";
                     return (
                       <div
                         key={field}
-                        className={`grid grid-cols-1 items-center gap-2 rounded-md border px-3 py-2 md:grid-cols-2 ${
+                        className={`rounded-md border px-3 py-2 ${
                           field === "track.title" && selected.length === 0 ? "border-warning-strong" : "border-subtle"
                         }`}
                       >
-                        <span className="truncate text-11 text-secondary">
-                          {field}
-                          {field === "track.title" && <span className="text-danger-primary"> *</span>}
-                        </span>
-                        <SearchableSelect
-                          options={[
-                            { value: "", label: "No importar" },
-                            ...preview.headers.map((header) => ({ value: header, label: header })),
-                          ]}
-                          value={selected[0] ?? ""}
-                          onSelect={(column) => updateMapping(field, column)}
-                          placeholder="Buscar columna origen…"
-                        />
+                        <div className="grid grid-cols-1 items-center gap-2 md:grid-cols-2">
+                          <span className="truncate text-11 text-secondary">
+                            {field}
+                            {field === "track.title" && <span className="text-danger-primary"> *</span>}
+                          </span>
+                          <SearchableSelect
+                            options={[{ value: "", label: "No importar" }, ...headerOptions]}
+                            value={selected[0] ?? ""}
+                            onSelect={(column) => updateMapping(field, column)}
+                            placeholder="Buscar columna origen…"
+                          />
+                        </div>
+                        {sample && (
+                          <p className="mt-1 truncate text-10 text-tertiary" title={sample}>
+                            Ej: {sample}
+                          </p>
+                        )}
                       </div>
                     );
                   })}
@@ -621,24 +756,24 @@ export function MusicImportModal({
 
               <section className="rounded-xl border border-subtle bg-layer-2 p-4">
                 <div>
-                  <h3 className="text-14 font-semibold">3 · Duplicados</h3>
+                  <h3 className="text-14 font-semibold">3 · Duplicados y registros existentes</h3>
                   <p className="mt-1 text-11 text-secondary">
-                    Elige qué identificador determina que dos filas son la misma canción y qué hacer cuando se
-                    encuentre una repetida.
+                    Cada fila se compara contra TODO el catálogo actual (no solo contra este archivo). Elige con qué
+                    identificador se busca la coincidencia y qué hacer cuando exista.
                   </p>
                 </div>
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   <div>
-                    <span className="text-11 font-semibold">¿Qué define un duplicado?</span>
+                    <span className="text-11 font-semibold">¿Con qué identificador se busca la coincidencia?</span>
                     <SearchableSelect
                       className="mt-1.5"
                       options={[
-                        { value: "auto", label: "Automático (ISRC, luego título + fecha)" },
-                        { value: "title", label: "Título" },
+                        { value: "auto", label: "Automático", hint: "ISRC; si no hay, título + fecha original" },
                         { value: "isrc", label: "ISRC" },
+                        { value: "title", label: "Título" },
                         { value: "upc", label: "UPC" },
                         { value: "catalog", label: "Catálogo" },
-                        { value: "none", label: "Ninguno — conservar todos" },
+                        { value: "none", label: "No buscar — todo como registros nuevos" },
                       ]}
                       value={dedupeBy}
                       onSelect={(value) => {
@@ -650,12 +785,12 @@ export function MusicImportModal({
                   </div>
                   {dedupeBy !== "none" && (
                     <div>
-                      <span className="text-11 font-semibold">¿Qué hacer con los duplicados?</span>
+                      <span className="text-11 font-semibold">¿Qué hacer cuando coincida?</span>
                       <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
                         {(
                           [
-                            ["skip", "Conservar existentes"],
-                            ["update", "Actualizar"],
+                            ["update", "Actualizar el existente"],
+                            ["skip", "Conservarlo tal cual"],
                             ["error", "Marcar como error"],
                           ] as const
                         ).map(([value, label]) => (
@@ -679,6 +814,62 @@ export function MusicImportModal({
                     </div>
                   )}
                 </div>
+
+                {/* Plain-words summary of what THIS combination will do */}
+                <p className="mt-3 rounded-md border border-accent-subtle bg-accent-primary/5 px-3 py-2 text-11 text-secondary">
+                  {dedupeBy === "none"
+                    ? "Todas las filas se agregarán como registros NUEVOS, aunque ya existan canciones iguales en el catálogo."
+                    : strategy === "update"
+                      ? `Las filas que coincidan por ${DEDUPE_EXPLAIN[dedupeBy]} con una canción ya existente ACTUALIZARÁN ese registro con los campos mapeados; las que no coincidan se crearán como nuevas.`
+                      : strategy === "skip"
+                        ? `Las filas que coincidan por ${DEDUPE_EXPLAIN[dedupeBy]} se OMITIRÁN (el registro existente queda intacto); solo se crearán las que no coincidan.`
+                        : `Las filas que coincidan por ${DEDUPE_EXPLAIN[dedupeBy]} se marcarán como ERROR para que las revises antes de importar.`}
+                </p>
+
+                {dedupeBy !== "none" && strategy === "update" && (
+                  <div className="mt-3">
+                    <span className="text-11 font-semibold">
+                      Campos dinámicos del registro existente (artistas, writers, links, géneros…)
+                    </span>
+                    <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                      <label
+                        className={`cursor-pointer rounded-lg border p-2.5 text-11 ${relationsMode === "merge" ? "border-accent-primary bg-accent-primary/5" : "border-subtle"}`}
+                      >
+                        <input
+                          className="mr-2"
+                          type="radio"
+                          checked={relationsMode === "merge"}
+                          onChange={() => {
+                            setRelationsMode("merge");
+                            invalidateValidation();
+                          }}
+                        />
+                        <strong className="text-12">Agregar a los existentes</strong>
+                        <span className="mt-0.5 block text-tertiary">
+                          Lo que traiga el archivo se SUMA a lo que el registro ya tiene. No se quita nada.
+                        </span>
+                      </label>
+                      <label
+                        className={`cursor-pointer rounded-lg border p-2.5 text-11 ${relationsMode === "replace" ? "border-accent-primary bg-accent-primary/5" : "border-subtle"}`}
+                      >
+                        <input
+                          className="mr-2"
+                          type="radio"
+                          checked={relationsMode === "replace"}
+                          onChange={() => {
+                            setRelationsMode("replace");
+                            invalidateValidation();
+                          }}
+                        />
+                        <strong className="text-12">Reemplazar con el archivo</strong>
+                        <span className="mt-0.5 block text-tertiary">
+                          Los campos mapeados quedan EXACTAMENTE como el archivo: relaciones que ya no vengan de una
+                          columna mapeada se quitan. Campos sin mapear y celdas vacías no se tocan.
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                )}
               </section>
 
               <section className="rounded-xl border border-subtle bg-layer-2 p-4">
@@ -974,9 +1165,9 @@ export function MusicImportModal({
 
         <footer className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-subtle bg-surface-1 px-5 py-4">
           <div className="min-w-0 text-11 text-secondary">
-            {!file && "Elige un archivo CSV o XLSX para empezar."}
-            {file && missingRequired.length > 0 && "Mapea el título de la canción para continuar."}
-            {file && missingRequired.length === 0 && validatedKey !== validationKey && (
+            {!source && "Elige un archivo CSV o XLSX (o reimporta uno guardado) para empezar."}
+            {source && missingRequired.length > 0 && "Mapea el título de la canción para continuar."}
+            {source && missingRequired.length === 0 && validatedKey !== validationKey && (
               <span className="flex items-center gap-1.5">
                 <ShieldCheck className="size-3.5" /> Valida el mapeo antes de importar.
               </span>
@@ -1013,7 +1204,7 @@ export function MusicImportModal({
                     variant="primary"
                     size="sm"
                     loading={isRunning}
-                    disabled={!file || missingRequired.length > 0 || preview?.database_ready === false}
+                    disabled={!source || missingRequired.length > 0 || preview?.database_ready === false}
                     onClick={() => void run(true)}
                   >
                     Validar archivo
@@ -1026,7 +1217,7 @@ export function MusicImportModal({
                       variant="primary"
                       size="sm"
                       loading={isRunning}
-                      disabled={!file || preview?.database_ready === false}
+                      disabled={!source || preview?.database_ready === false}
                       onClick={() => void run(false)}
                     >
                       {result?.errors.length ? "Importar filas válidas" : "Importar registros"}
@@ -1037,6 +1228,16 @@ export function MusicImportModal({
           </div>
         </footer>
       </div>
+      <FilePreviewModal
+        workspaceSlug={workspaceSlug}
+        file={
+          isFilePreviewOpen && assetId
+            ? { assetId, name: sourceName ?? "Archivo de importación", contentType: file?.type ?? "" }
+            : null
+        }
+        onClose={() => setIsFilePreviewOpen(false)}
+        scope="music"
+      />
       <AlertModalCore
         isOpen={isDeleteSourceOpen}
         isSubmitting={isRunning}
