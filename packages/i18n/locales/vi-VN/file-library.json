@@ -282,6 +282,10 @@
         "emailed": "Emailed",
         "empty": "No queries yet"
       }
+    },
+    "collabora": {
+      "edit": "Chỉnh sửa",
+      "error": "Không thể mở trình chỉnh sửa"
     }
   }
 }

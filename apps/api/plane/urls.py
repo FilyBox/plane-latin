@@ -6,6 +6,8 @@
 
 from django.conf import settings
 from django.urls import include, path, re_path
+
+from plane.app.urls.collabora import wopi_urlpatterns
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -20,6 +22,9 @@ urlpatterns = [
     path("api/instances/", include("plane.license.urls")),
     path("api/v1/", include("plane.api.urls")),
     path("auth/", include("plane.authentication.urls")),
+    # WOPI lives at the root: Collabora builds these paths itself and will not
+    # accept an /api/ prefix.
+    *wopi_urlpatterns,
     path("", include("plane.web.urls")),
 ]
 

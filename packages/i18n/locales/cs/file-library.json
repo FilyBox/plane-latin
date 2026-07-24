@@ -282,6 +282,10 @@
         "emailed": "Emailed",
         "empty": "No queries yet"
       }
+    },
+    "collabora": {
+      "edit": "Upravit",
+      "error": "Editor se nepodařilo otevřít"
     }
   }
 }

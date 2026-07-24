@@ -282,6 +282,10 @@
         "emailed": "Emailed",
         "empty": "No queries yet"
       }
+    },
+    "collabora": {
+      "edit": "Редагувати",
+      "error": "Не вдалося відкрити редактор"
     }
   }
 }

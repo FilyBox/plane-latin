@@ -348,6 +348,8 @@ CELERY_IMPORTS = (
     # issue version tasks
     "plane.bgtasks.issue_version_sync",
     "plane.bgtasks.issue_description_version_sync",
+    # collabora: keep the derived PDF in step with the edited document
+    "plane.bgtasks.collabora_task",
 )
 
 FILE_SIZE_LIMIT = int(os.environ.get("FILE_SIZE_LIMIT", 5242880))
@@ -434,6 +436,21 @@ LIVE_URL = urljoin(LIVE_BASE_URL, LIVE_BASE_PATH) if LIVE_BASE_URL else None
 
 # WEB URL
 WEB_URL = os.environ.get("WEB_URL")
+
+# Collabora Online. Empty disables the editor rather than breaking the app.
+# This is the address the *browser* loads the editor from.
+COLLABORA_URL = os.environ.get("COLLABORA_URL", "")
+
+# The address the *backend* uses to reach Collabora for PDF conversion. In
+# Docker these differ: the browser needs http://localhost:9980 while the API
+# container needs http://collabora:9980. In production both are the same public
+# domain, which is why this falls back to COLLABORA_URL.
+COLLABORA_INTERNAL_URL = os.environ.get("COLLABORA_INTERNAL_URL", "") or COLLABORA_URL
+
+# Where Collabora reaches *us* for WOPI. Must be resolvable from inside the
+# Collabora container, so in Docker this is the API service name
+# (http://api:8000), never http://localhost:8000.
+WOPI_HOST_URL = os.environ.get("WOPI_HOST_URL", "")
 
 HARD_DELETE_AFTER_DAYS = int(os.environ.get("HARD_DELETE_AFTER_DAYS", 60))
 

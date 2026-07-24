@@ -297,6 +297,31 @@ export class FileLibraryService extends APIService {
     return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/?download=1${scope ? `&scope=${scope}` : ""}`;
   }
 
+  // collabora (document editing)
+
+  // Everything the iframe needs to open the document in Collabora: the editor
+  // URL (browser-facing, with its build hash), the WOPISrc, and a scoped token.
+  async getCollaboraSession(
+    workspaceSlug: string,
+    assetId: string
+  ): Promise<{ editor_url: string; wopi_src: string; access_token: string; can_write: boolean }> {
+    return this.get(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/collabora-session/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  // The derived PDF (regenerated on every save). 404 until the doc is first
+  // saved through the editor.
+  async getCollaboraPdf(workspaceSlug: string, assetId: string): Promise<{ url: string; generated_at: string | null }> {
+    return this.get(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/pdf/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
   // category links
 
   async addFileCategories(workspaceSlug: string, assetId: string, categoryIds: string[]): Promise<TLibraryFile> {

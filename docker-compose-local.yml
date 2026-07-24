@@ -140,6 +140,28 @@ services:
       - plane-db
       - plane-redis
 
+  # Collabora Online — the document editor. Heavy (~1.5 GB RAM), so it sits
+  # behind a profile and stays off unless you ask for it:
+  #   docker compose -f docker-compose-local.yml --profile editor up -d
+  collabora:
+    image: collabora/code:latest
+    profiles:
+      - editor
+    restart: unless-stopped
+    ports:
+      # 9981 on the host: the Collabora demo from the other project already
+      # holds 9980, and that one is configured for a different WOPI host.
+      - "9981:9980"
+    environment:
+      # Collabora refuses any WOPI host not listed here. Getting this wrong is
+      # the usual cause of an editor that opens to a blank page.
+      - aliasgroup1=http://api:8000
+      - username=admin
+      - password=admin
+      - extra_params=--o:ssl.enable=false --o:ssl.termination=false
+    networks:
+      - dev_env
+
 volumes:
   redisdata:
   uploads:

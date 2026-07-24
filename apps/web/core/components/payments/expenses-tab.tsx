@@ -11,7 +11,14 @@ import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TBudgetSummary, TExpense, TExpenseCategory, TExpenseStatus } from "@plane/types";
+import type {
+  TBudget,
+  TBudgetSummary,
+  TBudgetSummaryRow,
+  TExpense,
+  TExpenseCategory,
+  TExpenseStatus,
+} from "@plane/types";
 import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
@@ -45,6 +52,10 @@ export function ExpensesTab(props: Props) {
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<TExpense | null>(null);
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  // Which budget the modal is editing; null = creating a new one
+  const [editingBudget, setEditingBudget] = useState<TBudget | null>(null);
+  // Prefills the bucket when creating straight from a card that has no budget
+  const [budgetDefaults, setBudgetDefaults] = useState<{ category?: string; currency?: string }>({});
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<TExpense | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -66,6 +77,37 @@ export function ExpensesTab(props: Props) {
     () => financeService.getSummary(workspaceSlug, period.from, period.to),
     { revalidateOnFocus: false }
   );
+
+  // The summary aggregates by (category, currency) and carries no budget id, so
+  // editing from a card needs the budget rows to resolve which one was clicked.
+  const { data: budgets, mutate: mutateBudgets } = useSWR<TBudget[]>(
+    `PAYMENT_BUDGETS_${workspaceSlug}`,
+    () => financeService.getBudgets(workspaceSlug),
+    { revalidateOnFocus: false }
+  );
+
+  /** Opens the modal on the budget behind a summary card. A card with no budget
+   * ("No budget") opens the create form with its bucket prefilled.
+   */
+  const openBudgetFor = (row: TBudgetSummaryRow) => {
+    const matches = (budgets ?? []).filter(
+      (item) =>
+        item.category === row.category_id &&
+        item.currency === row.currency &&
+        item.period_start <= period.to &&
+        item.period_end >= period.from
+    );
+    const target = matches.sort((a, b) => b.period_start.localeCompare(a.period_start))[0] ?? null;
+    setEditingBudget(target);
+    setBudgetDefaults(target ? {} : { category: row.category_id ?? undefined, currency: row.currency });
+    setIsBudgetModalOpen(true);
+  };
+
+  const closeBudgetModal = () => {
+    setIsBudgetModalOpen(false);
+    setEditingBudget(null);
+    setBudgetDefaults({});
+  };
 
   const filters = useMemo(
     () => ({ from: period.from, to: period.to, search: search || undefined, statuses: statusFilter }),
@@ -131,8 +173,16 @@ export function ExpensesTab(props: Props) {
         isOpen={isBudgetModalOpen}
         categories={categories ?? []}
         defaultPeriod={period}
-        onClose={() => setIsBudgetModalOpen(false)}
-        onSaved={mutateSummary}
+        budget={editingBudget}
+        defaultCategory={budgetDefaults.category}
+        defaultCurrency={budgetDefaults.currency}
+        onClose={closeBudgetModal}
+        onSaved={() => {
+          // A budget changes both the card and the row list behind it
+          void mutateSummary();
+          void mutateBudgets();
+          onChanged?.();
+        }}
       />
       <CategoriesModal
         workspaceSlug={workspaceSlug}
@@ -214,7 +264,11 @@ export function ExpensesTab(props: Props) {
           </button>
           <button
             type="button"
-            onClick={() => setIsBudgetModalOpen(true)}
+            onClick={() => {
+              setEditingBudget(null);
+              setBudgetDefaults({});
+              setIsBudgetModalOpen(true);
+            }}
             disabled={(categories?.length ?? 0) === 0}
             title={t("payments.new_budget")}
             className="flex h-8 items-center gap-1 rounded-sm border border-subtle px-2 text-12 hover:bg-layer-1-hover disabled:opacity-50"
@@ -237,7 +291,7 @@ export function ExpensesTab(props: Props) {
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-2 sm:p-4">
-        <BudgetSummary rows={summary?.results ?? []} />
+        <BudgetSummary rows={summary?.results ?? []} onSelect={openBudgetFor} />
 
         {isLoading ? (
           <div className="flex justify-center py-10">

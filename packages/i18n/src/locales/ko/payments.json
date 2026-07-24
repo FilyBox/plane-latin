@@ -178,7 +178,13 @@
         "variable": "Variable",
         "expense": "Recorded expense"
       },
-      "aggregate": { "sum": "Sum", "average": "Average", "min": "Minimum", "max": "Maximum", "count": "Count" }
+      "aggregate": {
+        "sum": "Sum",
+        "average": "Average",
+        "min": "Minimum",
+        "max": "Maximum",
+        "count": "Count"
+      }
     },
     "variables": {
       "title": "Financial variables",
@@ -234,11 +240,22 @@
       "deleted": "Expense deleted",
       "error": "Something went wrong",
       "duplicate_budget": "This category already has a budget for that period",
-      "duplicate_category": "A category with this name already exists"
+      "duplicate_category": "A category with this name already exists",
+      "budget_saved": "예산이 저장되었습니다",
+      "budget_deleted": "예산이 삭제되었습니다"
     },
     "delete_expense_title": "Delete expense",
     "delete_expense_description": "This expense will be removed from the ledger. This cannot be undone.",
     "delete_category_title": "Delete category",
-    "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone."
+    "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
+    "edit_budget": "예산 편집",
+    "delete_budget_title": "예산 삭제",
+    "delete_budget_description": "예산이 삭제됩니다. 관련 지출은 기록을 유지합니다. 이 작업은 취소할 수 없습니다.",
+    "pagination": {
+      "per_page": "페이지당",
+      "of": "/",
+      "previous": "이전",
+      "next": "다음"
+    }
   }
 }

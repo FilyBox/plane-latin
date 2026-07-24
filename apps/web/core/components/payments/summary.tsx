@@ -14,10 +14,12 @@ import { formatMoney, spentRatio } from "./shared";
 
 type Props = {
   rows: TBudgetSummaryRow[];
+  /** Click a card to edit its budget (or create one when it has none) */
+  onSelect?: (row: TBudgetSummaryRow) => void;
 };
 
 export function BudgetSummary(props: Props) {
-  const { rows } = props;
+  const { rows, onSelect } = props;
   const { t } = useTranslation();
 
   if (rows.length === 0) {
@@ -33,11 +35,21 @@ export function BudgetSummary(props: Props) {
       {rows.map((row) => {
         const ratio = spentRatio(row.spent, row.budgeted);
         const isOverBudget = ratio !== null && ratio > 1;
+        // Uncategorized spend has no bucket to budget, so nothing to open
+        const isEditable = Boolean(onSelect && row.category_id);
+        // A real button when it acts like one: keyboard + screen readers for free
+        const Card = isEditable ? "button" : "div";
         return (
-          <div
+          <Card
             // A category appears once per currency, so the id alone is not unique
             key={`${row.category_id ?? "none"}_${row.currency}`}
-            className="rounded-md border border-subtle p-3"
+            type={isEditable ? "button" : undefined}
+            onClick={isEditable ? () => onSelect?.(row) : undefined}
+            className={cn(
+              "block w-full rounded-md border border-subtle p-3 text-left",
+              isEditable && "hover:border-accent-primary cursor-pointer hover:bg-layer-1-hover"
+            )}
+            title={isEditable ? t("payments.edit_budget") : undefined}
           >
             <div className="flex items-center justify-between gap-2">
               <span className="truncate text-13 font-medium">{row.category_name ?? "—"}</span>
@@ -80,7 +92,7 @@ export function BudgetSummary(props: Props) {
                 </span>
               )}
             </div>
-          </div>
+          </Card>
         );
       })}
     </div>

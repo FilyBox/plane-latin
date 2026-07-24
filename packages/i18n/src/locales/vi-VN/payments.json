@@ -178,7 +178,13 @@
         "variable": "Variable",
         "expense": "Recorded expense"
       },
-      "aggregate": { "sum": "Sum", "average": "Average", "min": "Minimum", "max": "Maximum", "count": "Count" }
+      "aggregate": {
+        "sum": "Sum",
+        "average": "Average",
+        "min": "Minimum",
+        "max": "Maximum",
+        "count": "Count"
+      }
     },
     "variables": {
       "title": "Financial variables",
@@ -234,11 +240,22 @@
       "deleted": "Expense deleted",
       "error": "Something went wrong",
       "duplicate_budget": "This category already has a budget for that period",
-      "duplicate_category": "A category with this name already exists"
+      "duplicate_category": "A category with this name already exists",
+      "budget_saved": "Đã lưu ngân sách",
+      "budget_deleted": "Đã xóa ngân sách"
     },
     "delete_expense_title": "Delete expense",
     "delete_expense_description": "This expense will be removed from the ledger. This cannot be undone.",
     "delete_category_title": "Delete category",
-    "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone."
+    "delete_category_description": "Expenses filed under it keep their history but lose the category. This cannot be undone.",
+    "edit_budget": "Sửa ngân sách",
+    "delete_budget_title": "Xóa ngân sách",
+    "delete_budget_description": "Ngân sách sẽ bị xóa. Các chi phí liên quan vẫn giữ lịch sử. Không thể hoàn tác.",
+    "pagination": {
+      "per_page": "Mỗi trang",
+      "of": "trên",
+      "previous": "Trước",
+      "next": "Tiếp"
+    }
   }
 }
