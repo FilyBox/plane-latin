@@ -282,6 +282,10 @@
         "emailed": "Emailed",
         "empty": "No queries yet"
       }
+    },
+    "collabora": {
+      "edit": "Editează",
+      "error": "Editorul nu a putut fi deschis"
     }
   }
 }

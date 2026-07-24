@@ -152,6 +152,25 @@ ya está lista.
 > (comandos con `docker compose ...`) y deja la primera dedicada a `pnpm dev`.
 > Así no tienes que apagar la web para correr otros comandos.
 
+### Encender el panel de administración (god-mode) — opcional
+
+El panel de administración (god-mode: donde activas las funciones por
+workspace, subes la configuración de la instancia, etc.) es **otra app aparte**,
+igual que la web. Solo la necesitas si vas a tocar ajustes de administrador.
+
+Es el mismo patrón que la web, pero cambiando `web` por `admin`:
+
+```bash
+pnpm dev --filter=admin
+```
+
+Corre en un puerto distinto: **http://localhost:3001**. Déjala en su propia
+Terminal, igual que la web.
+
+> **Si sale "Port 3001 already in use":** otro programa ocupa ese puerto (a
+> veces Grafana u otra herramienta). Ciérralo mientras trabajas con el admin, o
+> revisa qué lo usa con `lsof -nP -iTCP:3001 -sTCP:LISTEN`.
+
 ---
 
 ## 5. Entrar por primera vez
@@ -168,12 +187,15 @@ usuario, un espacio de trabajo (workspace), y listo.
 
 ### Direcciones útiles
 
-| Para qué                           | Dirección                      |
-| ---------------------------------- | ------------------------------ |
-| La app (lo que usas)               | http://localhost:3000          |
-| Panel de administración (god-mode) | http://localhost:3000/god-mode |
-| El servidor / API                  | http://localhost:8000          |
-| Almacén de archivos (MinIO)        | http://localhost:9090          |
+| Para qué                           | Dirección             |
+| ---------------------------------- | --------------------- |
+| La app (lo que usas)               | http://localhost:3000 |
+| Panel de administración (god-mode) | http://localhost:3001 |
+| El servidor / API                  | http://localhost:8000 |
+| Almacén de archivos (MinIO)        | http://localhost:9090 |
+
+> El panel de administración solo está disponible si lo encendiste con
+> `pnpm dev --filter=admin` (ver sección 4).
 
 ---
 
@@ -312,6 +334,9 @@ docker compose -f docker-compose-local.yml exec api python manage.py migrate
 pnpm dev --filter=web
 
 # 5. Abre http://localhost:3000
+
+# (Opcional) Panel de administración / god-mode, en otra Terminal:
+pnpm dev --filter=admin   # http://localhost:3001
 ```
 
 Nada de esto toca producción: todo corre contra la base de datos local dentro de

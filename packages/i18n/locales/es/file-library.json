@@ -282,6 +282,10 @@
         "emailed": "Enviado por correo",
         "empty": "Aún no hay consultas"
       }
+    },
+    "collabora": {
+      "edit": "Editar",
+      "error": "No se pudo abrir el editor"
     }
   }
 }

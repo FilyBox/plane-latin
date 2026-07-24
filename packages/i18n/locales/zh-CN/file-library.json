@@ -282,6 +282,10 @@
         "emailed": "Emailed",
         "empty": "No queries yet"
       }
+    },
+    "collabora": {
+      "edit": "编辑",
+      "error": "无法打开编辑器"
     }
   }
 }

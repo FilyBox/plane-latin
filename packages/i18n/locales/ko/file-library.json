@@ -282,6 +282,10 @@
         "emailed": "Emailed",
         "empty": "No queries yet"
       }
+    },
+    "collabora": {
+      "edit": "편집",
+      "error": "편집기를 열 수 없습니다"
     }
   }
 }

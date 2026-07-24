@@ -282,6 +282,10 @@
         "emailed": "Emailed",
         "empty": "No queries yet"
       }
+    },
+    "collabora": {
+      "edit": "Bearbeiten",
+      "error": "Editor konnte nicht geöffnet werden"
     }
   }
 }

@@ -9,6 +9,7 @@ from .cycle import urlpatterns as cycle_urls
 from .estimate import urlpatterns as estimate_urls
 from .external import urlpatterns as external_urls
 from .contract import urlpatterns as contract_urls
+from .collabora import app_urlpatterns as collabora_urls
 from .file_library import urlpatterns as file_library_urls
 from .finance import urlpatterns as finance_urls
 from .assistant import urlpatterns as assistant_urls
@@ -36,6 +37,7 @@ urlpatterns = [
     *estimate_urls,
     *external_urls,
     *contract_urls,
+    *collabora_urls,
     *file_library_urls,
     *finance_urls,
     *music_urls,

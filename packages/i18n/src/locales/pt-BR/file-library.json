@@ -282,6 +282,10 @@
         "emailed": "Emailed",
         "empty": "No queries yet"
       }
+    },
+    "collabora": {
+      "edit": "Editar",
+      "error": "Não foi possível abrir o editor"
     }
   }
 }
