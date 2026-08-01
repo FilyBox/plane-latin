@@ -174,3 +174,298 @@ export type TContractFilters = {
   fecha_fin_efectiva_after?: string;
   fecha_fin_efectiva_before?: string;
 };
+
+export type TContractFieldType =
+  | "SIGNATURE"
+  | "INITIALS"
+  | "NAME"
+  | "EMAIL"
+  | "DATE"
+  | "TEXT"
+  | "NUMBER"
+  | "RADIO"
+  | "CHECKBOX"
+  | "DROPDOWN";
+
+export type TContractFieldChoice = {
+  id?: number;
+  value: string;
+  checked?: boolean;
+};
+
+export type TContractFieldMeta = {
+  type?: Lowercase<TContractFieldType>;
+  label?: string;
+  placeholder?: string;
+  required?: boolean;
+  readOnly?: boolean;
+  fontSize?: number;
+  overflow?: "auto" | "horizontal" | "vertical" | "crop";
+  textAlign?: "left" | "center" | "right";
+  verticalAlign?: "top" | "middle" | "bottom";
+  lineHeight?: number | null;
+  letterSpacing?: number | null;
+  text?: string;
+  characterLimit?: number;
+  numberFormat?: string | null;
+  value?: string;
+  minValue?: number | null;
+  maxValue?: number | null;
+  values?: TContractFieldChoice[];
+  direction?: "vertical" | "horizontal";
+  validationRule?: string;
+  validationLength?: number;
+  defaultValue?: string;
+  /** DOCX variable that generated this field; semantic fields are repositioned on every render. */
+  templateVariable?: string;
+};
+
+export type TContractAuthoringField = {
+  /** Client-only stable key; ignored by the API integration. */
+  clientId?: string;
+  type: TContractFieldType;
+  page: number;
+  positionX: number;
+  positionY: number;
+  width: number;
+  height: number;
+  fieldMeta?: TContractFieldMeta;
+};
+
+export type TContractAuthoringRecipient = {
+  name: string;
+  email: string;
+  role: "SIGNER" | "APPROVER" | "CC" | "VIEWER" | "ASSISTANT";
+  signingOrder: number;
+  placeholderLabel?: string;
+  actionAuth?: Array<"ACCOUNT" | "PASSKEY" | "TWO_FACTOR_AUTH" | "PASSWORD" | "EXPLICIT_NONE">;
+  fields: TContractAuthoringField[];
+};
+
+export type TContractAuthoringSettings = {
+  subject: string;
+  message: string;
+  timezone: string;
+  dateFormat: string;
+  redirectUrl: string;
+  language: string;
+  distributionMethod: "EMAIL" | "NONE";
+  signingOrder: "PARALLEL" | "SEQUENTIAL";
+  allowDictateNextSigner: boolean;
+  typedSignatureEnabled: boolean;
+  uploadSignatureEnabled: boolean;
+  drawSignatureEnabled: boolean;
+  emailReplyTo: string;
+  emailSettings: {
+    recipientSigningRequest: boolean;
+    recipientRemoved: boolean;
+    recipientSigned: boolean;
+    documentPending: boolean;
+    documentCompleted: boolean;
+    documentDeleted: boolean;
+    ownerDocumentCompleted: boolean;
+    ownerRecipientExpired: boolean;
+    ownerDocumentCreated: boolean;
+  };
+  envelopeExpirationPeriod: { disabled: true } | { unit: "day" | "week" | "month" | "year"; amount: number };
+  reminderSettings: {
+    sendAfter: { disabled: true } | { unit: "day" | "week" | "month"; amount: number };
+    repeatEvery: { disabled: true } | { unit: "day" | "week" | "month"; amount: number };
+  };
+};
+
+export type TContractTemplateVariant = {
+  id: string;
+  workspace_id: string;
+  template_id: string;
+  name: string;
+  source_asset_id: string;
+  source_file_name: string;
+  revision_count: number;
+  latest_revision: Pick<TContractTemplateRevision, "id" | "revision" | "content_sha256" | "created_at"> | null;
+  is_default: boolean;
+  signature_blueprint: Array<TContractAuthoringField & { recipient_index: number }>;
+  signature_blueprint_layout: {
+    page_count?: number;
+    media_boxes?: number[][];
+  };
+  recipient_blueprint: Array<
+    Omit<TContractAuthoringRecipient, "fields" | "email" | "name"> & {
+      placeholderLabel: string;
+    }
+  >;
+  authoring_settings: Partial<TContractAuthoringSettings>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TContractTemplate = {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  is_active: boolean;
+  variants: TContractTemplateVariant[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type TContractTemplateRevision = {
+  id: string;
+  workspace_id: string;
+  variant_id: string;
+  revision: number;
+  source_asset_id: string;
+  pdf_asset_id: string;
+  content_sha256: string;
+  layout_signature: {
+    page_count?: number;
+    media_boxes?: number[][];
+  };
+  variable_schema: TContractTemplateVariableSchema;
+  signature_blueprint: Array<TContractAuthoringField & { recipient_index: number }>;
+  signature_blueprint_layout: {
+    page_count?: number;
+    media_boxes?: number[][];
+    content_sha256?: string;
+  };
+  recipient_blueprint: TContractTemplateVariant["recipient_blueprint"];
+  authoring_settings: Partial<TContractAuthoringSettings>;
+  created_at: string;
+};
+
+export type TContractTemplateVariable = {
+  key: string;
+  label: string;
+  type: "text" | "date" | "number";
+  required: boolean;
+  occurrences: number;
+};
+
+export type TContractTemplateSemanticRecipient = {
+  index: number;
+  label: string;
+  requires_name: boolean;
+  requires_email: boolean;
+  field_types: TContractFieldType[];
+};
+
+export type TContractTemplateSemanticField = {
+  key: string;
+  label: string;
+  type: TContractFieldType;
+  recipient_index: number;
+};
+
+export type TContractTemplateVariableSchema = {
+  variables: TContractTemplateVariable[];
+  recipients: TContractTemplateSemanticRecipient[];
+  signing_fields: TContractTemplateSemanticField[];
+  placeholder_count: number;
+};
+
+export type TContractTemplateSchemaResponse = {
+  variant_id: string;
+  content_sha256: string;
+  source: { kind: "CURRENT" | "REVISION"; revision_id: string | null; revision: number | null };
+  schema: TContractTemplateVariableSchema;
+  manual_fields_status: "COMPATIBLE" | "REQUIRES_REVIEW" | "NONE";
+  manual_field_count: number;
+  revisions: TContractTemplateRevision[];
+};
+
+export type TContractSigner = {
+  id: string;
+  signature_request_id: string;
+  name: string;
+  email: string;
+  role: string;
+  signing_order: number;
+  status: "NOT_SENT" | "SENT" | "OPENED" | "SIGNED" | "REJECTED";
+  documenso_recipient_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TContractSigningLink = {
+  id: number | null;
+  name: string;
+  email: string;
+  role: string;
+  signing_order: number | null;
+  url: string;
+};
+
+export type TContractSigningDetailsRecipient = {
+  id: number | null;
+  name: string;
+  email: string;
+  role: string;
+  signing_order: number | null;
+  signing_status: string;
+  read_status: string;
+  send_status: string;
+  signed_at: string | null;
+  rejection_reason: string | null;
+};
+
+export type TContractSigningDetailsField = {
+  id: number | null;
+  recipient_id: number | null;
+  type: TContractFieldType;
+  page: number | null;
+  label: string;
+  value: string;
+  inserted: boolean;
+};
+
+export type TContractSigningDetails = {
+  status: string | null;
+  recipients: TContractSigningDetailsRecipient[];
+  fields: TContractSigningDetailsField[];
+  synced_at?: string;
+  error?: string;
+};
+
+export type TContractSignatureStatus =
+  | "DRAFT"
+  | "PREPARING"
+  | "READY"
+  | "PENDING"
+  | "COMPLETED"
+  | "REJECTED"
+  | "CANCELLED"
+  | "ERROR";
+
+export type TContractSignatureRequest = {
+  id: string;
+  workspace_id: string;
+  revision: TContractTemplateRevision;
+  rendered_source_asset_id: string | null;
+  rendered_pdf_asset_id: string | null;
+  title: string;
+  authoring_mode: "DOCUMENT" | "TEMPLATE";
+  status: TContractSignatureStatus;
+  recipients: TContractAuthoringRecipient[];
+  fields: Array<TContractAuthoringField & { recipient_index: number }>;
+  authoring_settings: TContractAuthoringSettings;
+  variable_values: Record<string, string>;
+  preparation_warnings: string[];
+  rendered_layout_signature: {
+    page_count?: number;
+    media_boxes?: number[][];
+  };
+  documenso_envelope_id: string | null;
+  documenso_envelope_item_id: string | null;
+  source_asset_id: string;
+  pdf_asset_id: string;
+  signed_asset_id: string | null;
+  analysis_contract_id: string | null;
+  error: { message?: string } | null;
+  sent_at: string | null;
+  completed_at: string | null;
+  signers: TContractSigner[];
+  signing_details: TContractSigningDetails | null;
+  created_at: string;
+  updated_at: string;
+};

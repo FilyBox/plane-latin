@@ -27,12 +27,13 @@ from xml.etree import ElementTree
 import jwt
 import requests
 from django.conf import settings
+from django.utils import timezone as django_timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from plane.app.permissions import ROLE, allow_permission
-from plane.db.models import FileAsset, Workspace
+from plane.db.models import FileAsset, WopiDocumentLock, Workspace
 from plane.settings.storage import S3Storage
 from plane.utils.exception_logger import log_exception
 
@@ -41,6 +42,7 @@ from ..base import BaseAPIView
 # How long the editing session token stays valid. Collabora refreshes the
 # document on its own; if a session outlives this the user re-opens the file.
 TOKEN_TTL_SECONDS = 60 * 60 * 10
+LOCK_TTL_SECONDS = 60 * 30
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -172,9 +174,68 @@ class WopiCheckFileInfoEndpoint(WopiBaseView):
                 # The version string must change whenever the bytes change, or
                 # Collabora will serve a stale copy from its own cache.
                 "Version": asset.updated_at.isoformat(),
-                "PostMessageOrigin": settings.WEB_URL,
+                "LastModifiedTime": asset.updated_at.isoformat(),
+                "PostMessageOrigin": settings.APP_BASE_URL or settings.WEB_URL,
+                "SupportsLocks": True,
             }
         )
+
+    def post(self, request, asset_id):
+        asset, claims = self.resolve(request, asset_id)
+        if not asset:
+            return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
+        if not claims["can_write"]:
+            return Response({"error": "Read only"}, status=status.HTTP_403_FORBIDDEN)
+
+        override = request.headers.get("X-WOPI-Override", "").upper()
+        supplied_lock = request.headers.get("X-WOPI-Lock", "")
+        now = django_timezone.now()
+        existing = WopiDocumentLock.objects.filter(asset=asset).first()
+        if existing and existing.expires_at <= now:
+            existing.delete(soft=False)
+            existing = None
+
+        conflict_headers = {"X-WOPI-Lock": existing.lock_id if existing else ""}
+        if override == "GET_LOCK":
+            return Response(status=status.HTTP_200_OK, headers=conflict_headers)
+        if override == "LOCK":
+            if not supplied_lock:
+                return Response({"error": "Missing lock"}, status=status.HTTP_400_BAD_REQUEST)
+            if existing and existing.lock_id != supplied_lock:
+                return Response(
+                    {"error": "Lock mismatch"},
+                    status=status.HTTP_409_CONFLICT,
+                    headers=conflict_headers,
+                )
+            WopiDocumentLock.objects.update_or_create(
+                asset=asset,
+                defaults={
+                    "lock_id": supplied_lock,
+                    "owner_user_id": claims["user_id"],
+                    "expires_at": now + timedelta(seconds=LOCK_TTL_SECONDS),
+                },
+            )
+            return Response(status=status.HTTP_200_OK)
+        if override == "REFRESH_LOCK":
+            if not existing or existing.lock_id != supplied_lock:
+                return Response(
+                    {"error": "Lock mismatch"},
+                    status=status.HTTP_409_CONFLICT,
+                    headers=conflict_headers,
+                )
+            existing.expires_at = now + timedelta(seconds=LOCK_TTL_SECONDS)
+            existing.save(update_fields=["expires_at", "updated_at"])
+            return Response(status=status.HTTP_200_OK)
+        if override == "UNLOCK":
+            if not existing or existing.lock_id != supplied_lock:
+                return Response(
+                    {"error": "Lock mismatch"},
+                    status=status.HTTP_409_CONFLICT,
+                    headers=conflict_headers,
+                )
+            existing.delete(soft=False)
+            return Response(status=status.HTTP_200_OK)
+        return Response({"error": "Unsupported WOPI operation"}, status=status.HTTP_501_NOT_IMPLEMENTED)
 
 
 class WopiFileContentsEndpoint(WopiBaseView):
@@ -185,7 +246,7 @@ class WopiFileContentsEndpoint(WopiBaseView):
         if not asset:
             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
 
-        storage = S3Storage(request=request)
+        storage = S3Storage.for_asset(asset, request=request)
         try:
             obj = storage.s3_client.get_object(
                 Bucket=storage.aws_storage_bucket_name,
@@ -206,13 +267,25 @@ class WopiFileContentsEndpoint(WopiBaseView):
         if not claims["can_write"]:
             return Response({"error": "Read only"}, status=status.HTTP_403_FORBIDDEN)
 
+        existing_lock = WopiDocumentLock.objects.filter(
+            asset=asset,
+            expires_at__gt=django_timezone.now(),
+        ).first()
+        supplied_lock = request.headers.get("X-WOPI-Lock", "")
+        if existing_lock and existing_lock.lock_id != supplied_lock:
+            return Response(
+                {"error": "Lock mismatch"},
+                status=status.HTTP_409_CONFLICT,
+                headers={"X-WOPI-Lock": existing_lock.lock_id},
+            )
+
         body = request.body
         if not body:
             # Collabora occasionally probes with an empty body; treat as no-op
             # rather than truncating a real document to zero bytes.
             return Response({"status": "ok"})
 
-        storage = S3Storage(request=request)
+        storage = S3Storage.for_asset(asset, request=request)
         uploaded = storage.upload_file(
             file_obj=io.BytesIO(body),
             object_name=asset.asset.name,
@@ -307,7 +380,7 @@ class CollaboraPdfEndpoint(BaseAPIView):
             # last conversion failed and is waiting on the next save.
             return Response({"error": "No PDF yet"}, status=status.HTTP_404_NOT_FOUND)
 
-        storage = S3Storage(request=request)
+        storage = S3Storage.for_asset(asset, request=request)
         name = asset.attributes.get("name", "document")
         return Response(
             {

@@ -39,7 +39,7 @@ def regenerate_pdf(asset_id: str) -> None:
     if not asset:
         return
 
-    storage = S3Storage()
+    storage = S3Storage.for_asset(asset)
     try:
         source = storage.s3_client.get_object(
             Bucket=storage.aws_storage_bucket_name,

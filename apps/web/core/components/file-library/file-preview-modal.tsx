@@ -53,11 +53,12 @@ type Props = {
   workspaceSlug: string;
   file: TPreviewFile | null;
   onClose: () => void;
-  scope?: "music";
+  scope?: "music" | "contract";
+  readOnly?: boolean;
 };
 
 export const FilePreviewModal = observer(function FilePreviewModal(props: Props) {
-  const { workspaceSlug, file, onClose, scope } = props;
+  const { workspaceSlug, file, onClose, scope, readOnly = false } = props;
   const { t } = useTranslation();
   const { getPresignedViewUrl, getFileDownloadUrl } = useFileLibrary();
   // states
@@ -221,7 +222,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                 )}
                 {/* Office docs can be opened in the Collabora editor. Not for
                   the music scope, which is a read-only asset browser. */}
-                {!scope && isEditable(file.name) && (
+                {!scope && !readOnly && isEditable(file.name) && (
                   <button
                     type="button"
                     onClick={() => setEditingAssetId(file.assetId)}
@@ -356,7 +357,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                       </div>
                     )}
                     <Link
-                      to={`/${workspaceSlug}/file-library/contracts?peek=${contract.id}`}
+                      to={`/${workspaceSlug}/file-library/contracts/analyzed?peek=${contract.id}`}
                       onClick={onClose}
                       className="inline-block w-full rounded-md border border-subtle px-2.5 py-1.5 text-center text-12 font-medium hover:bg-layer-1-hover"
                     >

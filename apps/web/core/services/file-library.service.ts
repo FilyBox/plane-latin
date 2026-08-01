@@ -273,7 +273,7 @@ export class FileLibraryService extends APIService {
       });
   }
 
-  getFileViewUrl(workspaceSlug: string, assetId: string, scope?: "music"): string {
+  getFileViewUrl(workspaceSlug: string, assetId: string, scope?: "music" | "contract"): string {
     return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/${scope ? `?scope=${scope}` : ""}`;
   }
 
@@ -283,7 +283,7 @@ export class FileLibraryService extends APIService {
   }
 
   /** Resolves the storage presigned URL so in-app viewers can fetch the file directly */
-  async getPresignedViewUrl(workspaceSlug: string, assetId: string, scope?: "music"): Promise<string> {
+  async getPresignedViewUrl(workspaceSlug: string, assetId: string, scope?: "music" | "contract"): Promise<string> {
     return this.get(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/`, {
       params: { response: "json", scope },
     })
@@ -293,7 +293,7 @@ export class FileLibraryService extends APIService {
       });
   }
 
-  getFileDownloadUrl(workspaceSlug: string, assetId: string, scope?: "music"): string {
+  getFileDownloadUrl(workspaceSlug: string, assetId: string, scope?: "music" | "contract"): string {
     return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/download/?download=1${scope ? `&scope=${scope}` : ""}`;
   }
 

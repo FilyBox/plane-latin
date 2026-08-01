@@ -165,163 +165,165 @@ export function ContractsRoot(props: Props) {
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden">
-      {/* toolbar */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle px-3 py-2.5 sm:px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="relative">
-            <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-tertiary" />
-            <input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder={t("file_library.contracts.search_placeholder")}
-              className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pr-2 pl-8 text-12 sm:w-64"
-            />
+      <>
+        {/* toolbar */}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle px-3 py-2.5 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="relative">
+              <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-tertiary" />
+              <input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder={t("file_library.contracts.search_placeholder")}
+                className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pr-2 pl-8 text-12 sm:w-64"
+              />
+            </div>
+            <ContractFiltersDropdown workspaceSlug={workspaceSlug} filters={filters} onChange={setFilters} />
+            {/* contextual download: every contract matching the current filters */}
+            <button
+              type="button"
+              onClick={() => void downloadContractFiles(contracts ?? [])}
+              disabled={(contracts ?? []).length === 0}
+              title={t("file_library.download_all_hint")}
+              className="flex items-center gap-1 rounded-sm border border-subtle px-2 py-1.5 text-12 hover:bg-layer-1-hover disabled:opacity-50"
+            >
+              <Download className="size-3.5" />
+              <span className="hidden lg:inline">{t("file_library.download_all")}</span>
+            </button>
           </div>
-          <ContractFiltersDropdown workspaceSlug={workspaceSlug} filters={filters} onChange={setFilters} />
-          {/* contextual download: every contract matching the current filters */}
-          <button
-            type="button"
-            onClick={() => void downloadContractFiles(contracts ?? [])}
-            disabled={(contracts ?? []).length === 0}
-            title={t("file_library.download_all_hint")}
-            className="flex items-center gap-1 rounded-sm border border-subtle px-2 py-1.5 text-12 hover:bg-layer-1-hover disabled:opacity-50"
-          >
-            <Download className="size-3.5" />
-            <span className="hidden lg:inline">{t("file_library.download_all")}</span>
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          {(activeJobs?.length ?? 0) > 0 && (
-            <span className="flex items-center gap-1.5 rounded-full bg-accent-primary/10 px-2.5 py-1 text-11 font-medium text-accent-primary">
-              <Loader2 className="size-3 animate-spin" />
-              <span className="hidden sm:inline">
-                {t("file_library.contracts.active_jobs", { count: activeJobs?.length ?? 0 })}
+          <div className="flex items-center gap-2">
+            {(activeJobs?.length ?? 0) > 0 && (
+              <span className="flex items-center gap-1.5 rounded-full bg-accent-primary/10 px-2.5 py-1 text-11 font-medium text-accent-primary">
+                <Loader2 className="size-3 animate-spin" />
+                <span className="hidden sm:inline">
+                  {t("file_library.contracts.active_jobs", { count: activeJobs?.length ?? 0 })}
+                </span>
+                <span className="sm:hidden">{activeJobs?.length ?? 0}</span>
               </span>
-              <span className="sm:hidden">{activeJobs?.length ?? 0}</span>
-            </span>
-          )}
-          <Button variant="primary" size="sm" onClick={() => setIsChatOpen(true)}>
-            <MessageSquare className="size-3.5" />
-            <span className="hidden sm:inline">{t("file_library.contracts.chat.button")}</span>
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => setIsQueryModalOpen(true)}>
-            <Sparkles className="size-3.5" />
-            <span className="hidden sm:inline">{t("file_library.contracts.query.button")}</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* applied filter pills */}
-      <AppliedContractFilters
-        workspaceSlug={workspaceSlug}
-        filters={filters}
-        onChange={setFilters}
-        onClearAll={() => setFiltersState({})}
-      />
-
-      {/* bulk actions bar */}
-      {selectedIds.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle bg-layer-1 px-3 py-2 sm:px-4">
-          <span className="text-12 font-medium">
-            {t("file_library.contracts.bulk.selected", { count: selectedIds.length })}
-          </span>
-          <Button variant="secondary" size="sm" onClick={() => setIsBulkRetryModalOpen(true)} disabled={isBulkActing}>
-            <RefreshCcw className="size-3.5" />
-            {t("file_library.contracts.retry.button")}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => void handleBulk("reanalyze")} disabled={isBulkActing}>
-            <Sparkles className="size-3.5" />
-            {t("file_library.contracts.reanalyze.button")}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() =>
-              void downloadContractFiles((contracts ?? []).filter((contract) => selectedIds.includes(contract.id)))
-            }
-          >
-            <Download className="size-3.5" />
-            {t("file_library.download_selected")}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setIsBulkActionsModalOpen(true)}
-            disabled={selectedFileAssetIds.length === 0}
-          >
-            <Layers className="size-3.5" />
-            {t("file_library.bulk.button")}
-          </Button>
-          <button
-            type="button"
-            onClick={() => setSelectedIds([])}
-            className="flex items-center gap-1 rounded-sm px-2 py-1 text-12 text-tertiary hover:bg-layer-1-hover"
-          >
-            <X className="size-3.5" />
-            {t("file_library.contracts.bulk.clear")}
-          </button>
-        </div>
-      )}
-
-      {/* table (desktop) / cards (mobile) */}
-      <div className="min-h-0 flex-1">
-        {isLoading && !contracts ? (
-          <div className="flex h-full items-center justify-center">
-            <Loader2 className="size-6 animate-spin text-tertiary" />
+            )}
+            <Button variant="primary" size="sm" onClick={() => setIsChatOpen(true)}>
+              <MessageSquare className="size-3.5" />
+              <span className="hidden sm:inline">{t("file_library.contracts.chat.button")}</span>
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setIsQueryModalOpen(true)}>
+              <Sparkles className="size-3.5" />
+              <span className="hidden sm:inline">{t("file_library.contracts.query.button")}</span>
+            </Button>
           </div>
-        ) : (
-          <ContractsTable
-            contracts={contracts ?? []}
-            activeJobsByContract={activeJobsByContract}
-            selectedContractId={selectedContractId}
-            onSelect={(contract) => setSelectedContractId(contract.id)}
-            selectedIds={selectedIds}
-            onToggleSelect={toggleSelect}
-            onToggleSelectAll={toggleSelectAll}
+        </div>
+
+        {/* applied filter pills */}
+        <AppliedContractFilters
+          workspaceSlug={workspaceSlug}
+          filters={filters}
+          onChange={setFilters}
+          onClearAll={() => setFiltersState({})}
+        />
+
+        {/* bulk actions bar */}
+        {selectedIds.length > 0 && (
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle bg-layer-1 px-3 py-2 sm:px-4">
+            <span className="text-12 font-medium">
+              {t("file_library.contracts.bulk.selected", { count: selectedIds.length })}
+            </span>
+            <Button variant="secondary" size="sm" onClick={() => setIsBulkRetryModalOpen(true)} disabled={isBulkActing}>
+              <RefreshCcw className="size-3.5" />
+              {t("file_library.contracts.retry.button")}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => void handleBulk("reanalyze")} disabled={isBulkActing}>
+              <Sparkles className="size-3.5" />
+              {t("file_library.contracts.reanalyze.button")}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                void downloadContractFiles((contracts ?? []).filter((contract) => selectedIds.includes(contract.id)))
+              }
+            >
+              <Download className="size-3.5" />
+              {t("file_library.download_selected")}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsBulkActionsModalOpen(true)}
+              disabled={selectedFileAssetIds.length === 0}
+            >
+              <Layers className="size-3.5" />
+              {t("file_library.bulk.button")}
+            </Button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds([])}
+              className="flex items-center gap-1 rounded-sm px-2 py-1 text-12 text-tertiary hover:bg-layer-1-hover"
+            >
+              <X className="size-3.5" />
+              {t("file_library.contracts.bulk.clear")}
+            </button>
+          </div>
+        )}
+
+        {/* table (desktop) / cards (mobile) */}
+        <div className="min-h-0 flex-1">
+          {isLoading && !contracts ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="size-6 animate-spin text-tertiary" />
+            </div>
+          ) : (
+            <ContractsTable
+              contracts={contracts ?? []}
+              activeJobsByContract={activeJobsByContract}
+              selectedContractId={selectedContractId}
+              onSelect={(contract) => setSelectedContractId(contract.id)}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
+              onToggleSelectAll={toggleSelectAll}
+            />
+          )}
+        </div>
+
+        {/* peek panel */}
+        {selectedContractId && (
+          <ContractPeekPanel
+            workspaceSlug={workspaceSlug}
+            contractId={selectedContractId}
+            onClose={() => setSelectedContractId(null)}
+            onMutate={() => void mutateContracts()}
           />
         )}
-      </div>
 
-      {/* peek panel */}
-      {selectedContractId && (
-        <ContractPeekPanel
+        <ContractChatModal
           workspaceSlug={workspaceSlug}
-          contractId={selectedContractId}
-          onClose={() => setSelectedContractId(null)}
-          onMutate={() => void mutateContracts()}
+          isOpen={isChatOpen}
+          onClose={() => {
+            setIsChatOpen(false);
+            setChatInitialQuery(undefined);
+          }}
+          initialQuery={chatInitialQuery}
         />
-      )}
-
-      <ContractChatModal
-        workspaceSlug={workspaceSlug}
-        isOpen={isChatOpen}
-        onClose={() => {
-          setIsChatOpen(false);
-          setChatInitialQuery(undefined);
-        }}
-        initialQuery={chatInitialQuery}
-      />
-      <ContractQueryModal
-        workspaceSlug={workspaceSlug}
-        isOpen={isQueryModalOpen}
-        onClose={() => setIsQueryModalOpen(false)}
-      />
-      <RetryOptionsModal
-        isOpen={isBulkRetryModalOpen}
-        onClose={() => setIsBulkRetryModalOpen(false)}
-        onConfirm={(options) => handleBulk("retry", options)}
-        count={selectedIds.length}
-      />
-      <BulkActionsModal
-        workspaceSlug={workspaceSlug}
-        isOpen={isBulkActionsModalOpen}
-        onClose={() => {
-          setIsBulkActionsModalOpen(false);
-          setSelectedIds([]);
-          void mutateContracts();
-        }}
-        initialFileIds={selectedFileAssetIds}
-      />
+        <ContractQueryModal
+          workspaceSlug={workspaceSlug}
+          isOpen={isQueryModalOpen}
+          onClose={() => setIsQueryModalOpen(false)}
+        />
+        <RetryOptionsModal
+          isOpen={isBulkRetryModalOpen}
+          onClose={() => setIsBulkRetryModalOpen(false)}
+          onConfirm={(options) => handleBulk("retry", options)}
+          count={selectedIds.length}
+        />
+        <BulkActionsModal
+          workspaceSlug={workspaceSlug}
+          isOpen={isBulkActionsModalOpen}
+          onClose={() => {
+            setIsBulkActionsModalOpen(false);
+            setSelectedIds([]);
+            void mutateContracts();
+          }}
+          initialFileIds={selectedFileAssetIds}
+        />
+      </>
     </div>
   );
 }

@@ -136,9 +136,7 @@ class ContractProcessingJob(BaseModel):
         FAILED = "FAILED", "Failed"
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_jobs")
-    contract = models.ForeignKey(
-        "db.Contract", on_delete=models.CASCADE, null=True, blank=True, related_name="jobs"
-    )
+    contract = models.ForeignKey("db.Contract", on_delete=models.CASCADE, null=True, blank=True, related_name="jobs")
     initiated_by = models.ForeignKey(
         "db.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="contract_jobs"
     )
@@ -236,9 +234,7 @@ class ContractChat(BaseModel):
     user = models.ForeignKey("db.User", on_delete=models.CASCADE, related_name="contract_chats")
     title = models.CharField(max_length=255, blank=True)
     mode = models.CharField(max_length=20, choices=Mode.choices, default=Mode.GENERAL)
-    contract = models.ForeignKey(
-        "db.Contract", on_delete=models.CASCADE, null=True, blank=True, related_name="chats"
-    )
+    contract = models.ForeignKey("db.Contract", on_delete=models.CASCADE, null=True, blank=True, related_name="chats")
 
     class Meta:
         verbose_name = "Contract Chat"
@@ -274,3 +270,193 @@ class ContractChatMessage(BaseModel):
 
     def __str__(self):
         return f"{self.role}: {str(self.content)[:40]}"
+
+
+class ContractTemplate(BaseModel):
+    """Workspace-owned contract definition.
+
+    Editable Word files live on variants. Keeping the template itself free of
+    a source file makes every selectable option follow the same revision flow,
+    including the automatically-created "Principal" variant.
+    """
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_templates")
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "contract_templates"
+        ordering = ("name",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "name"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="unique_contract_template_name",
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class ContractTemplateVariant(BaseModel):
+    """An independently editable DOCX rendition of a template."""
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_template_variants")
+    template = models.ForeignKey("db.ContractTemplate", on_delete=models.CASCADE, related_name="variants")
+    name = models.CharField(max_length=255)
+    source_asset = models.ForeignKey(
+        "db.FileAsset", on_delete=models.PROTECT, related_name="contract_template_variants"
+    )
+    is_default = models.BooleanField(default=False)
+    signature_blueprint = models.JSONField(default=list, blank=True)
+    signature_blueprint_layout = models.JSONField(default=dict, blank=True)
+    recipient_blueprint = models.JSONField(default=list, blank=True)
+    authoring_settings = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "contract_template_variants"
+        ordering = ("name",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["template", "name"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="unique_contract_template_variant_name",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.template.name} / {self.name}"
+
+
+class ContractTemplateRevision(BaseModel):
+    """Immutable DOCX/PDF snapshot used by a signature request."""
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_template_revisions")
+    variant = models.ForeignKey("db.ContractTemplateVariant", on_delete=models.PROTECT, related_name="revisions")
+    revision = models.PositiveIntegerField()
+    source_asset = models.ForeignKey("db.FileAsset", on_delete=models.PROTECT, related_name="contract_revision_sources")
+    pdf_asset = models.ForeignKey("db.FileAsset", on_delete=models.PROTECT, related_name="contract_revision_pdfs")
+    content_sha256 = models.CharField(max_length=64)
+    layout_signature = models.JSONField(default=dict, blank=True)
+    variable_schema = models.JSONField(default=dict, blank=True)
+    signature_blueprint = models.JSONField(default=list, blank=True)
+    signature_blueprint_layout = models.JSONField(default=dict, blank=True)
+    recipient_blueprint = models.JSONField(default=list, blank=True)
+    authoring_settings = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "contract_template_revisions"
+        ordering = ("-revision",)
+        constraints = [models.UniqueConstraint(fields=["variant", "revision"], name="unique_contract_variant_revision")]
+
+
+class ContractSignatureRequest(BaseModel):
+    """Plane's lifecycle record for one Documenso envelope."""
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"
+        PREPARING = "PREPARING", "Preparing PDF"
+        READY = "READY", "Ready for authoring"
+        PENDING = "PENDING", "Sent for signature"
+        COMPLETED = "COMPLETED", "Completed"
+        REJECTED = "REJECTED", "Rejected"
+        CANCELLED = "CANCELLED", "Cancelled"
+        ERROR = "ERROR", "Error"
+
+    class AuthoringMode(models.TextChoices):
+        DOCUMENT = "DOCUMENT", "Document"
+        TEMPLATE = "TEMPLATE", "Template mapping"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_signature_requests")
+    revision = models.ForeignKey(
+        "db.ContractTemplateRevision", on_delete=models.PROTECT, related_name="signature_requests"
+    )
+    rendered_source_asset = models.ForeignKey(
+        "db.FileAsset", on_delete=models.PROTECT, null=True, blank=True, related_name="rendered_contract_sources"
+    )
+    rendered_pdf_asset = models.ForeignKey(
+        "db.FileAsset", on_delete=models.PROTECT, null=True, blank=True, related_name="rendered_contract_pdfs"
+    )
+    title = models.CharField(max_length=500)
+    authoring_mode = models.CharField(max_length=20, choices=AuthoringMode.choices, default=AuthoringMode.DOCUMENT)
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.DRAFT)
+    recipients = models.JSONField(default=list, blank=True)
+    fields = models.JSONField(default=list, blank=True)
+    authoring_settings = models.JSONField(default=dict, blank=True)
+    variable_values = models.JSONField(default=dict, blank=True)
+    preparation_warnings = models.JSONField(default=list, blank=True)
+    rendered_layout_signature = models.JSONField(default=dict, blank=True)
+    documenso_envelope_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
+    documenso_envelope_item_id = models.CharField(max_length=255, null=True, blank=True)
+    signed_asset = models.ForeignKey(
+        "db.FileAsset", on_delete=models.SET_NULL, null=True, blank=True, related_name="signed_contract_requests"
+    )
+    analysis_contract = models.OneToOneField(
+        "db.Contract",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="signature_request",
+    )
+    error = models.JSONField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "contract_signature_requests"
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["workspace", "status"], name="contract_sign_ws_status_idx"),
+        ]
+
+
+class ContractSigner(BaseModel):
+    class Status(models.TextChoices):
+        NOT_SENT = "NOT_SENT", "Not sent"
+        SENT = "SENT", "Sent"
+        OPENED = "OPENED", "Opened"
+        SIGNED = "SIGNED", "Signed"
+        REJECTED = "REJECTED", "Rejected"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_signers")
+    signature_request = models.ForeignKey(
+        "db.ContractSignatureRequest", on_delete=models.CASCADE, related_name="signers"
+    )
+    name = models.CharField(max_length=255)
+    email = models.EmailField()
+    role = models.CharField(max_length=30, default="SIGNER")
+    signing_order = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.NOT_SENT)
+    documenso_recipient_id = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "contract_signers"
+        ordering = ("signing_order", "created_at")
+
+
+class ContractWebhookEvent(BaseModel):
+    """Idempotent inbox for Documenso lifecycle notifications."""
+
+    event_key = models.CharField(max_length=128, unique=True)
+    event_type = models.CharField(max_length=80)
+    payload = models.JSONField(default=dict)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "contract_webhook_events"
+        ordering = ("-created_at",)
+
+
+class WopiDocumentLock(BaseModel):
+    """Short-lived WOPI lock used to reject conflicting Collabora saves."""
+
+    asset = models.OneToOneField("db.FileAsset", on_delete=models.CASCADE, related_name="wopi_lock")
+    lock_id = models.CharField(max_length=1024)
+    owner_user_id = models.CharField(max_length=255)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        db_table = "wopi_document_locks"

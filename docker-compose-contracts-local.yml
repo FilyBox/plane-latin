@@ -1,0 +1,200 @@
+services:
+  plane-minio:
+    environment:
+      MINIO_ROOT_USER: access-key
+      MINIO_ROOT_PASSWORD: secret-key
+ 
+  plane-minio-init:
+    image: minio/mc
+    profiles:
+      - contracts
+    networks:
+      - dev_env
+    depends_on:
+      - plane-minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://plane-minio:9000 access-key secret-key; do sleep 2; done;
+      mc mb local/uploads -p || true &&
+      mc mb local/plane-contracts -p || true
+      "
+
+  api:
+    environment: &plane-contract_environment
+      USE_MINIO: "1"
+      AWS_ACCESS_KEY_ID: access-key
+      AWS_SECRET_ACCESS_KEY: secret-key
+      AWS_S3_ENDPOINT_URL: http://plane-minio:9000
+      AWS_S3_PUBLIC_ENDPOINT_URL: http://localhost:9000
+      AWS_S3_BUCKET_NAME: uploads
+      CONTRACTS_S3_BUCKET_NAME: plane-contracts
+      COLLABORA_URL: http://localhost:9981
+      COLLABORA_INTERNAL_URL: http://collabora:9980
+      WOPI_HOST_URL: http://api:8000
+      DOCUMENSO_URL: http://localhost:3004
+      DOCUMENSO_INTERNAL_URL: http://documenso:3000
+      DOCUMENSO_API_TOKEN: api_plane_local_development
+      DOCUMENSO_WEBHOOK_SECRET: documenso-plane-local-secret
+
+  worker:
+    environment: *plane-contract_environment
+
+  beat-worker:
+    environment: *plane-contract_environment
+
+  migrator:
+    environment: *plane-contract_environment
+
+  collabora:
+    build:
+      context: ../libreoffice
+      dockerfile: Dockerfile
+    profiles:
+      - contracts
+    restart: unless-stopped
+    networks:
+      - dev_env
+    ports:
+      - "9981:9980"
+    environment:
+      username: admin
+      password: plane-local-collabora
+      aliasgroup1: http://api:8000
+      server_name: localhost:9981
+      extra_params: --o:ssl.enable=false --o:ssl.termination=false
+    cap_add:
+      - MKNOD
+
+  documenso-db:
+    image: postgres:15-alpine
+    profiles:
+      - contracts
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: documenso
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: documenso
+    volumes:
+      - documenso_database:/var/lib/postgresql/data
+    networks:
+      - dev_env
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U documenso"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  documenso-mail:
+    image: inbucket/inbucket:stable
+    profiles:
+      - contracts
+    restart: unless-stopped
+    networks:
+      - dev_env
+    ports:
+      - "9005:9000"
+      - "2500:2500"
+
+  documenso-cert:
+    image: alpine/openssl:latest
+    profiles:
+      - contracts
+    volumes:
+      - documenso_cert:/cert
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        (test -f /cert/cert.p12 ||
+        (openssl req -x509 -newkey rsa:2048 -nodes -days 3650
+        -subj '/CN=Plane Local Contracts'
+        -keyout /tmp/key.pem -out /tmp/cert.pem &&
+        openssl pkcs12 -export -out /cert/cert.p12
+        -inkey /tmp/key.pem -in /tmp/cert.pem
+        -passout pass:plane-local-signing)) &&
+        chmod 644 /cert/cert.p12
+
+  documenso-seed:
+    build:
+      context: ../CRM
+      dockerfile: docker/Dockerfile
+      target: installer
+    profiles:
+      - contracts
+    working_dir: /app
+    volumes:
+      - ../CRM/assets:/app/assets:ro
+      - ../CRM/packages/app-tests:/app/packages/app-tests:ro
+    networks:
+      - dev_env
+    depends_on:
+      documenso-db:
+        condition: service_healthy
+    environment:
+      NEXT_PRIVATE_DATABASE_URL: postgresql://documenso:password@documenso-db:5432/documenso
+      NEXT_PRIVATE_DIRECT_DATABASE_URL: postgresql://documenso:password@documenso-db:5432/documenso
+      NEXT_PRIVATE_ENCRYPTION_KEY: CAFEBABE
+      NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY: DEADBEEF
+      PLANE_INTEGRATION_API_TOKEN: api_plane_local_development
+      PLANE_WEBHOOK_URL: http://api:8000/api/integrations/documenso/webhook/
+      PLANE_WEBHOOK_SECRET: documenso-plane-local-secret
+    command:
+      - sh
+      - -c
+      - >
+        ln -sfn /app/packages/app-tests /app/node_modules/@documenso/app-tests &&
+        npx prisma migrate deploy --schema packages/prisma/schema.prisma &&
+        npm run prisma:seed -w @documenso/prisma
+
+  documenso:
+    build:
+      context: ../CRM
+      dockerfile: docker/Dockerfile
+    profiles:
+      - contracts
+    restart: unless-stopped
+    networks:
+      - dev_env
+    depends_on:
+      documenso-db:
+        condition: service_healthy
+      documenso-seed:
+        condition: service_completed_successfully
+      documenso-cert:
+        condition: service_completed_successfully
+      documenso-mail:
+        condition: service_started
+    ports:
+      - "3004:3000"
+    volumes:
+      - documenso_cert:/opt/documenso:ro
+    environment:
+      PORT: "3000"
+      NEXTAUTH_SECRET: plane-local-documenso-nextauth
+      NEXT_PRIVATE_ENCRYPTION_KEY: CAFEBABE
+      NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY: DEADBEEF
+      NEXT_PUBLIC_WEBAPP_URL: http://localhost:3004
+      NEXT_PRIVATE_INTERNAL_WEBAPP_URL: http://documenso:3000
+      NEXT_PRIVATE_DATABASE_URL: postgresql://documenso:password@documenso-db:5432/documenso
+      NEXT_PRIVATE_DIRECT_DATABASE_URL: postgresql://documenso:password@documenso-db:5432/documenso
+      NEXT_PUBLIC_UPLOAD_TRANSPORT: database
+      NEXT_PRIVATE_SMTP_TRANSPORT: smtp-auth
+      NEXT_PRIVATE_SMTP_HOST: documenso-mail
+      NEXT_PRIVATE_SMTP_PORT: "2500"
+      NEXT_PRIVATE_SMTP_SECURE: "false"
+      NEXT_PRIVATE_SMTP_UNSAFE_IGNORE_TLS: "true"
+      NEXT_PRIVATE_SMTP_FROM_NAME: Plane Contracts
+      NEXT_PRIVATE_SMTP_FROM_ADDRESS: contracts@plane.local
+      NEXT_PRIVATE_SIGNING_LOCAL_FILE_PATH: /opt/documenso/cert.p12
+      NEXT_PRIVATE_SIGNING_PASSPHRASE: plane-local-signing
+      NEXT_PUBLIC_FEATURE_BILLING_ENABLED: ""
+      NEXT_PRIVATE_JOBS_PROVIDER: local
+      # Local-only SSRF allow-list so Documenso can call Plane over Docker DNS.
+      NEXT_PRIVATE_WEBHOOK_SSRF_BYPASS_HOSTS: api
+      NEXT_PUBLIC_DISABLE_SIGNUP: "false"
+      NEXT_PUBLIC_DISABLE_SIGNIN: "false"
+
+volumes:
+  documenso_database:
+  documenso_cert:

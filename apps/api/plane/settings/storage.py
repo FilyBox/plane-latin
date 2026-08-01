@@ -22,13 +22,13 @@ class S3Storage(S3Boto3Storage):
 
     """S3 storage class to generate presigned URLs for S3 objects"""
 
-    def __init__(self, request=None):
+    def __init__(self, request=None, bucket_name=None):
         # Get the AWS credentials and bucket name from the environment
         self.aws_access_key_id = os.environ.get("AWS_ACCESS_KEY_ID")
         # Use the AWS_SECRET_ACCESS_KEY environment variable for the secret key
         self.aws_secret_access_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
         # Use the AWS_S3_BUCKET_NAME environment variable for the bucket name
-        self.aws_storage_bucket_name = os.environ.get("AWS_S3_BUCKET_NAME")
+        self.aws_storage_bucket_name = bucket_name or os.environ.get("AWS_S3_BUCKET_NAME")
         # Use the AWS_REGION environment variable for the region
         self.aws_region = os.environ.get("AWS_REGION")
         # Use the AWS_S3_ENDPOINT_URL environment variable for the endpoint URL
@@ -36,19 +36,29 @@ class S3Storage(S3Boto3Storage):
         # Use the SIGNED_URL_EXPIRATION environment variable for the expiration time (default: 3600 seconds)
         self.signed_url_expiration = int(os.environ.get("SIGNED_URL_EXPIRATION", "3600"))
 
+        request_endpoint_url = None
         if os.environ.get("USE_MINIO") == "1":
             # Determine protocol based on environment variable
             if os.environ.get("MINIO_ENDPOINT_SSL") == "1":
                 endpoint_protocol = "https"
             else:
                 endpoint_protocol = request.scheme if request else "http"
+            if request:
+                request_endpoint_url = f"{endpoint_protocol}://{request.get_host()}"
+
+            # Server-side reads and writes must use the storage endpoint. The
+            # request host is Plane's API, not MinIO, when running the local
+            # Docker stack. Keep the request host only as a compatibility
+            # fallback for installations that intentionally proxy S3 through
+            # Plane and do not configure an internal endpoint.
+            internal_endpoint_url = self.aws_s3_endpoint_url or request_endpoint_url
             # Create an S3 client for MinIO
             self.s3_client = boto3.client(
                 "s3",
                 aws_access_key_id=self.aws_access_key_id,
                 aws_secret_access_key=self.aws_secret_access_key,
                 region_name=self.aws_region,
-                endpoint_url=(f"{endpoint_protocol}://{request.get_host()}" if request else self.aws_s3_endpoint_url),
+                endpoint_url=internal_endpoint_url,
                 config=boto3.session.Config(signature_version="s3v4"),
             )
         else:
@@ -69,7 +79,7 @@ class S3Storage(S3Boto3Storage):
         # resolve from the browser; server-side operations keep using
         # self.s3_client. Falls back to self.s3_client when unset (production
         # behind a proxy is unaffected).
-        public_endpoint_url = os.environ.get("AWS_S3_PUBLIC_ENDPOINT_URL")
+        public_endpoint_url = os.environ.get("AWS_S3_PUBLIC_ENDPOINT_URL") or request_endpoint_url
         if public_endpoint_url:
             self.s3_presigned_client = boto3.client(
                 "s3",
@@ -81,6 +91,16 @@ class S3Storage(S3Boto3Storage):
             )
         else:
             self.s3_presigned_client = self.s3_client
+
+    @classmethod
+    def for_asset(cls, asset, request=None):
+        """Resolve the physical bucket recorded on a FileAsset.
+
+        Existing assets predate bucket-aware metadata, so absence of the
+        marker intentionally falls back to the regular Plane uploads bucket.
+        """
+        metadata = asset.storage_metadata or {}
+        return cls(request=request, bucket_name=metadata.get("bucket"))
 
     def generate_presigned_post(self, object_name, file_type, file_size, expiration=None):
         """Generate a presigned URL to upload an S3 object"""

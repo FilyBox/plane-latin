@@ -23,7 +23,6 @@ from rest_framework.response import Response
 
 # Module imports
 from plane.app.permissions.internal import WorkerServicePermission
-from plane.app.serializers import ContractSerializer
 from plane.app.views.base import BaseAPIView
 from plane.db.models import (
     Contract,
@@ -185,10 +184,8 @@ class InternalAssetPresignedUrlEndpoint(InternalBaseView):
     """Resolves a presigned GET URL for an asset so the Worker can download it."""
 
     def get(self, request, asset_id):
-        import os
-
         asset = FileAsset.objects.get(id=asset_id)
-        storage = S3Storage()
+        storage = S3Storage.for_asset(asset)
         url = storage.generate_presigned_url(object_name=asset.asset.name)
         return Response(
             {
@@ -198,7 +195,7 @@ class InternalAssetPresignedUrlEndpoint(InternalBaseView):
                 # S3 location so Textract can read the document in place
                 # (no presigned URL, no download to the Worker)
                 "s3_key": asset.asset.name,
-                "s3_bucket": os.environ.get("AWS_S3_BUCKET_NAME"),
+                "s3_bucket": storage.aws_storage_bucket_name,
             },
             status=status.HTTP_200_OK,
         )
@@ -439,9 +436,7 @@ class InternalChunkSearchEndpoint(InternalBaseView):
                     "similarity": round(1.0 - float(chunk.distance), 4),
                     "contract_id": str(contract.id),
                     "title": contract.titulo,
-                    "file_name": (contract.file_asset.attributes or {}).get("name")
-                    if contract.file_asset_id
-                    else None,
+                    "file_name": (contract.file_asset.attributes or {}).get("name") if contract.file_asset_id else None,
                     "asset_id": str(contract.file_asset_id) if contract.file_asset_id else None,
                 }
             )

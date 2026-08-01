@@ -8,6 +8,8 @@
 import { API_BASE_URL } from "@plane/constants";
 import type {
   TContract,
+  TContractAuthoringSettings,
+  TContractAuthoringRecipient,
   TContractChat,
   TContractChatMessage,
   TContractChatMode,
@@ -15,6 +17,11 @@ import type {
   TContractJob,
   TContractQuery,
   TContractRetryOptions,
+  TContractSignatureRequest,
+  TContractSigningLink,
+  TContractTemplate,
+  TContractTemplateRevision,
+  TContractTemplateSchemaResponse,
   TContractUpdatePayload,
 } from "@plane/types";
 // services
@@ -55,11 +62,7 @@ export class ContractService extends APIService {
       });
   }
 
-  async updateContract(
-    workspaceSlug: string,
-    contractId: string,
-    data: TContractUpdatePayload
-  ): Promise<TContract> {
+  async updateContract(workspaceSlug: string, contractId: string, data: TContractUpdatePayload): Promise<TContract> {
     return this.patch(`/api/workspaces/${workspaceSlug}/contracts/${contractId}/`, data)
       .then((response) => response?.data)
       .catch((error) => {
@@ -214,6 +217,138 @@ export class ContractService extends APIService {
       .catch((error) => {
         throw error?.response?.data;
       });
+  }
+
+  async getTemplates(workspaceSlug: string): Promise<TContractTemplate[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/contract-templates/`).then((response) => response.data);
+  }
+
+  async getTemplate(workspaceSlug: string, templateId: string): Promise<TContractTemplate> {
+    return this.get(`/api/workspaces/${workspaceSlug}/contract-templates/${templateId}/`).then(
+      (response) => response.data
+    );
+  }
+
+  getContractAssetThumbnailUrl(workspaceSlug: string, assetId: string, version?: string): string {
+    const query = version ? `?v=${encodeURIComponent(version)}` : "";
+    return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/contract-assets/${assetId}/thumbnail/${query}`;
+  }
+
+  async deleteTemplate(workspaceSlug: string, templateId: string): Promise<void> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/contract-templates/${templateId}/`).then(
+      (response) => response.data
+    );
+  }
+
+  async createTemplate(
+    workspaceSlug: string,
+    payload: { name: string; description?: string; file: File }
+  ): Promise<TContractTemplate> {
+    const data = new FormData();
+    data.append("name", payload.name);
+    data.append("description", payload.description ?? "");
+    data.append("file", payload.file);
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-templates/`, data, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }).then((response) => response.data);
+  }
+
+  async createVariant(
+    workspaceSlug: string,
+    templateId: string,
+    payload: { name: string; source_variant_id: string }
+  ): Promise<TContractTemplate> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-templates/${templateId}/variants/`, payload).then(
+      (response) => response.data
+    );
+  }
+
+  async getTemplateSchema(
+    workspaceSlug: string,
+    variantId: string,
+    revisionId?: string
+  ): Promise<TContractTemplateSchemaResponse> {
+    const query = revisionId ? `?revision_id=${encodeURIComponent(revisionId)}` : "";
+    return this.get(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/schema/${query}`).then(
+      (response) => response.data
+    );
+  }
+
+  async saveTemplateRevision(workspaceSlug: string, variantId: string): Promise<TContractTemplateRevision> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/revisions/`).then(
+      (response) => response.data
+    );
+  }
+
+  async getSignatureRequests(workspaceSlug: string): Promise<TContractSignatureRequest[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/contract-signature-requests/`).then((response) => response.data);
+  }
+
+  async getSignatureRequest(workspaceSlug: string, requestId: string): Promise<TContractSignatureRequest> {
+    return this.get(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/`).then(
+      (response) => response.data
+    );
+  }
+
+  async prepareSignatureRequest(
+    workspaceSlug: string,
+    payload: {
+      variant_id: string;
+      title: string;
+      authoring_mode?: "DOCUMENT" | "TEMPLATE";
+      revision_id?: string;
+      variable_values?: Record<string, string>;
+      omitted_variable_keys?: string[];
+      recipients?: Array<Partial<TContractAuthoringRecipient>>;
+    }
+  ): Promise<TContractSignatureRequest> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/`, payload).then(
+      (response) => response.data
+    );
+  }
+
+  async getSignatureRequestPdf(workspaceSlug: string, requestId: string): Promise<{ url: string }> {
+    return this.get(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/pdf/`).then(
+      (response) => response.data
+    );
+  }
+
+  async saveSignatureRequest(
+    workspaceSlug: string,
+    requestId: string,
+    recipients: TContractAuthoringRecipient[],
+    authoringSettings?: TContractAuthoringSettings,
+    title?: string
+  ): Promise<TContractSignatureRequest> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/`, {
+      recipients,
+      authoring_settings: authoringSettings,
+      title,
+    }).then((response) => response.data);
+  }
+
+  async sendSignatureRequest(
+    workspaceSlug: string,
+    requestId: string,
+    recipients: TContractAuthoringRecipient[],
+    authoringSettings?: TContractAuthoringSettings
+  ): Promise<TContractSignatureRequest> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/send/`, {
+      recipients,
+      authoring_settings: authoringSettings,
+    }).then((response) => response.data);
+  }
+
+  async syncSignatureRequest(workspaceSlug: string, requestId: string): Promise<TContractSignatureRequest> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/sync/`).then(
+      (response) => response.data
+    );
+  }
+
+  async getSignatureRequestLinks(workspaceSlug: string, requestId: string): Promise<TContractSigningLink[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/links/`).then(
+      (response) => response.data.links
+    );
   }
 }
 

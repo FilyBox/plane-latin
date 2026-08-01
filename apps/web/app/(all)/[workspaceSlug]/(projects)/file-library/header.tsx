@@ -5,7 +5,7 @@
  */
 
 import { observer } from "mobx-react";
-import { FileText, Files } from "lucide-react";
+import { FileCheck2, FileText, Files, LayoutTemplate, Sparkles } from "lucide-react";
 import { useLocation, useParams } from "react-router";
 import { useTranslation } from "@plane/i18n";
 import { Breadcrumbs, Header } from "@plane/ui";
@@ -17,6 +17,10 @@ export const FileLibraryHeader = observer(function FileLibraryHeader() {
   const { workspaceSlug } = useParams();
   const { pathname } = useLocation();
   const isContracts = pathname.includes("/file-library/contracts");
+  const isAnalyzedContracts = pathname.includes("/file-library/contracts/analyzed");
+  const isContractTemplates = pathname.includes("/file-library/contracts/templates");
+  const isContractDocuments = pathname.includes("/file-library/contracts/documents");
+  const isTemplateDetail = /\/file-library\/contracts\/templates\/[^/]+/.test(pathname);
 
   return (
     <Header>
@@ -36,9 +40,46 @@ export const FileLibraryHeader = observer(function FileLibraryHeader() {
               <Breadcrumbs.Item
                 component={
                   <BreadcrumbLink
+                    href={
+                      isAnalyzedContracts || isContractTemplates || isContractDocuments
+                        ? `/${workspaceSlug}/file-library/contracts/analyzed`
+                        : undefined
+                    }
                     label={t("file_library.contracts.title")}
                     icon={<FileText className="h-4 w-4 text-tertiary" />}
                   />
+                }
+              />
+            )}
+            {isAnalyzedContracts && (
+              <Breadcrumbs.Item
+                component={
+                  <BreadcrumbLink label="Analizados con IA" icon={<Sparkles className="h-4 w-4 text-tertiary" />} />
+                }
+              />
+            )}
+            {isContractTemplates && (
+              <Breadcrumbs.Item
+                component={
+                  <BreadcrumbLink
+                    href={isTemplateDetail ? `/${workspaceSlug}/file-library/contracts/templates` : undefined}
+                    label="Plantillas"
+                    icon={<LayoutTemplate className="h-4 w-4 text-tertiary" />}
+                  />
+                }
+              />
+            )}
+            {isTemplateDetail && (
+              <Breadcrumbs.Item
+                component={
+                  <BreadcrumbLink label="Detalle de plantilla" icon={<FileText className="h-4 w-4 text-tertiary" />} />
+                }
+              />
+            )}
+            {isContractDocuments && (
+              <Breadcrumbs.Item
+                component={
+                  <BreadcrumbLink label="Contratos creados" icon={<FileCheck2 className="h-4 w-4 text-tertiary" />} />
                 }
               />
             )}

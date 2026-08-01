@@ -85,10 +85,28 @@ export const coreRoutes: RouteConfigEntry[] = [
         // File library
         layout("./(all)/[workspaceSlug]/(projects)/file-library/layout.tsx", [
           route(":workspaceSlug/file-library", "./(all)/[workspaceSlug]/(projects)/file-library/page.tsx"),
-          route(
-            ":workspaceSlug/file-library/contracts",
-            "./(all)/[workspaceSlug]/(projects)/file-library/contracts/page.tsx"
-          ),
+          layout("./(all)/[workspaceSlug]/(projects)/file-library/contracts/layout.tsx", [
+            route(
+              ":workspaceSlug/file-library/contracts",
+              "./(all)/[workspaceSlug]/(projects)/file-library/contracts/page.tsx"
+            ),
+            route(
+              ":workspaceSlug/file-library/contracts/analyzed",
+              "./(all)/[workspaceSlug]/(projects)/file-library/contracts/analyzed/page.tsx"
+            ),
+            route(
+              ":workspaceSlug/file-library/contracts/templates",
+              "./(all)/[workspaceSlug]/(projects)/file-library/contracts/templates/page.tsx"
+            ),
+            route(
+              ":workspaceSlug/file-library/contracts/templates/:templateId",
+              "./(all)/[workspaceSlug]/(projects)/file-library/contracts/templates/[templateId]/page.tsx"
+            ),
+            route(
+              ":workspaceSlug/file-library/contracts/documents",
+              "./(all)/[workspaceSlug]/(projects)/file-library/contracts/documents/page.tsx"
+            ),
+          ]),
         ]),
 
         // Workspace AI assistant

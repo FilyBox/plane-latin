@@ -51,7 +51,7 @@ export function ContractChatModal(props: Props) {
             initialQuery={initialQuery}
             onOpenContract={(contractId) => {
               onClose();
-              void navigate(`/${workspaceSlug}/file-library/contracts?peek=${contractId}`);
+              void navigate(`/${workspaceSlug}/file-library/contracts/analyzed?peek=${contractId}`);
             }}
           />
         )}

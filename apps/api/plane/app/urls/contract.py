@@ -5,6 +5,7 @@
 from django.urls import path
 
 from plane.app.views import (
+    ContractAssetThumbnailEndpoint,
     ContractChatDetailEndpoint,
     ContractChatMessageEndpoint,
     ContractChatModelsEndpoint,
@@ -12,11 +13,24 @@ from plane.app.views import (
     ContractDetailEndpoint,
     ContractJobsEndpoint,
     ContractQueryEndpoint,
+    ContractSignatureRequestDetailEndpoint,
+    ContractSignatureRequestPdfEndpoint,
+    ContractSignatureRequestsEndpoint,
+    ContractSignatureRequestSendEndpoint,
+    ContractSignatureRequestLinksEndpoint,
+    ContractSignatureRequestSyncEndpoint,
+    ContractTemplateVariantDetailEndpoint,
+    ContractTemplateVariantRevisionsEndpoint,
+    ContractTemplateVariantSchemaEndpoint,
+    ContractTemplateVariantsEndpoint,
+    ContractTemplateDetailEndpoint,
+    ContractTemplatesEndpoint,
     ContractReanalyzeConfirmEndpoint,
     ContractReanalyzeEndpoint,
     ContractRetryEndpoint,
     ContractsBulkEndpoint,
     ContractsEndpoint,
+    DocumensoWebhookEndpoint,
     InternalAssetPresignedUrlEndpoint,
     InternalChunkSearchEndpoint,
     InternalContractChunksEndpoint,
@@ -31,6 +45,71 @@ from plane.app.views import (
 
 urlpatterns = [
     # Workspace-facing
+    path(
+        "workspaces/<str:slug>/contract-templates/",
+        ContractTemplatesEndpoint.as_view(),
+        name="contract-templates",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-templates/<uuid:template_id>/",
+        ContractTemplateDetailEndpoint.as_view(),
+        name="contract-template-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-assets/<uuid:asset_id>/thumbnail/",
+        ContractAssetThumbnailEndpoint.as_view(),
+        name="contract-asset-thumbnail",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-templates/<uuid:template_id>/variants/",
+        ContractTemplateVariantsEndpoint.as_view(),
+        name="contract-template-variants",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/",
+        ContractTemplateVariantDetailEndpoint.as_view(),
+        name="contract-template-variant-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/revisions/",
+        ContractTemplateVariantRevisionsEndpoint.as_view(),
+        name="contract-template-variant-revisions",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/schema/",
+        ContractTemplateVariantSchemaEndpoint.as_view(),
+        name="contract-template-variant-schema",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/",
+        ContractSignatureRequestsEndpoint.as_view(),
+        name="contract-signature-requests",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/",
+        ContractSignatureRequestDetailEndpoint.as_view(),
+        name="contract-signature-request-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/pdf/",
+        ContractSignatureRequestPdfEndpoint.as_view(),
+        name="contract-signature-request-pdf",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/send/",
+        ContractSignatureRequestSendEndpoint.as_view(),
+        name="contract-signature-request-send",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/links/",
+        ContractSignatureRequestLinksEndpoint.as_view(),
+        name="contract-signature-request-links",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/sync/",
+        ContractSignatureRequestSyncEndpoint.as_view(),
+        name="contract-signature-request-sync",
+    ),
     path(
         "workspaces/<str:slug>/contracts/",
         ContractsEndpoint.as_view(),
@@ -146,5 +225,10 @@ urlpatterns = [
         "internal/contract-queries/<uuid:query_id>/result/",
         InternalQueryResultEndpoint.as_view(),
         name="internal-query-result",
+    ),
+    path(
+        "integrations/documenso/webhook/",
+        DocumensoWebhookEndpoint.as_view(),
+        name="documenso-webhook",
     ),
 ]

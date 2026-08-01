@@ -30,3 +30,19 @@ from .internal import (
     InternalWorkspaceContractsEndpoint,
     InternalWorkspaceTagsEndpoint,
 )
+from .workflow import (
+    ContractAssetThumbnailEndpoint,
+    ContractSignatureRequestDetailEndpoint,
+    ContractSignatureRequestPdfEndpoint,
+    ContractSignatureRequestsEndpoint,
+    ContractSignatureRequestSendEndpoint,
+    ContractSignatureRequestLinksEndpoint,
+    ContractSignatureRequestSyncEndpoint,
+    ContractTemplateVariantDetailEndpoint,
+    ContractTemplateVariantRevisionsEndpoint,
+    ContractTemplateVariantSchemaEndpoint,
+    ContractTemplateVariantsEndpoint,
+    ContractTemplateDetailEndpoint,
+    ContractTemplatesEndpoint,
+    DocumensoWebhookEndpoint,
+)

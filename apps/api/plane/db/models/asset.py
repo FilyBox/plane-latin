@@ -47,6 +47,10 @@ class FileAsset(BaseModel):
         WORKSPACE_FILE_LIBRARY = "WORKSPACE_FILE_LIBRARY"
         MUSIC_CATALOG = "MUSIC_CATALOG"
         CONTRACT_THUMBNAIL = "CONTRACT_THUMBNAIL"
+        CONTRACT_TEMPLATE = "CONTRACT_TEMPLATE"
+        CONTRACT_REVISION = "CONTRACT_REVISION"
+        CONTRACT_UNSIGNED = "CONTRACT_UNSIGNED"
+        CONTRACT_SIGNED = "CONTRACT_SIGNED"
 
     attributes = models.JSONField(default=dict)
     asset = models.FileField(upload_to=get_upload_path, max_length=800)

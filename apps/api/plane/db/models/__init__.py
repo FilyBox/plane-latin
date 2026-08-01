@@ -61,7 +61,14 @@ from .contract import (
     ContractChunk,
     ContractProcessingJob,
     ContractQuery,
+    ContractSignatureRequest,
+    ContractSigner,
     ContractStatusIAProcessed,
+    ContractTemplate,
+    ContractTemplateRevision,
+    ContractTemplateVariant,
+    ContractWebhookEvent,
+    WopiDocumentLock,
 )
 from .importer import Importer
 from .intake import Intake, IntakeIssue

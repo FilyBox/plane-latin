@@ -66,7 +66,11 @@ def file_library_export_task(exporter_id):
                     entry_name = _unique_name(
                         sanitize_filename((asset.attributes or {}).get("name") or str(asset.id)), used_names
                     )
-                    body = storage.s3_client.get_object(Bucket=bucket, Key=asset.asset.name)["Body"]
+                    asset_storage = S3Storage.for_asset(asset)
+                    body = asset_storage.s3_client.get_object(
+                        Bucket=asset_storage.aws_storage_bucket_name,
+                        Key=asset.asset.name,
+                    )["Body"]
                     try:
                         with archive.open(entry_name, "w") as destination:
                             for chunk in body.iter_chunks(chunk_size=1024 * 1024):

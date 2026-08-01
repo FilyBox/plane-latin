@@ -44,7 +44,7 @@ if SECRET_KEY in _INSECURE_SECRET_KEYS:
         "This makes your installation vulnerable to session forgery, CSRF bypass, and "
         "password-reset token forging. Set a unique SECRET_KEY before deploying to production. "
         "Generate one with: "
-        "python3 -c \"from django.utils.crypto import get_random_secret_key; print(get_random_secret_key())\""
+        'python3 -c "from django.utils.crypto import get_random_secret_key; print(get_random_secret_key())"'
     )
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -74,9 +74,7 @@ for _cidr in _webhook_allowed_ips_raw.split(","):
 # Example: "silo,silo.namespace.svc.cluster.local,internal-api.lan"
 _webhook_allowed_hosts_raw = os.environ.get("WEBHOOK_ALLOWED_HOSTS", "")
 WEBHOOK_ALLOWED_HOSTS = [
-    _host.strip().rstrip(".").lower()
-    for _host in _webhook_allowed_hosts_raw.split(",")
-    if _host.strip()
+    _host.strip().rstrip(".").lower() for _host in _webhook_allowed_hosts_raw.split(",") if _host.strip()
 ]
 
 # Webhook disallowed domains — comma-separated hostnames. Webhooks targeting
@@ -85,9 +83,7 @@ WEBHOOK_ALLOWED_HOSTS = [
 # for self-hosted deployments; set to e.g. "plane.so" to block specific domains.
 _webhook_disallowed_domains_raw = os.environ.get("WEBHOOK_DISALLOWED_DOMAINS", "")
 WEBHOOK_DISALLOWED_DOMAINS = [
-    _d.strip().rstrip(".").lower()
-    for _d in _webhook_disallowed_domains_raw.split(",")
-    if _d.strip()
+    _d.strip().rstrip(".").lower() for _d in _webhook_disallowed_domains_raw.split(",") if _d.strip()
 ]
 
 # Allowed Hosts
@@ -305,6 +301,9 @@ STORAGES["default"] = {"BACKEND": "plane.settings.storage.S3Storage"}
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "access-key")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "secret-key")
 AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_S3_BUCKET_NAME", "uploads")
+# Contract templates, revisions and signed artifacts are isolated from the
+# general file library while reusing the same S3-compatible credentials.
+CONTRACTS_S3_BUCKET_NAME = os.environ.get("CONTRACTS_S3_BUCKET_NAME", "plane-contracts")
 AWS_REGION = os.environ.get("AWS_REGION", "")
 AWS_DEFAULT_ACL = "public-read"
 AWS_QUERYSTRING_AUTH = False
@@ -367,6 +366,13 @@ PLANE_INTERNAL_API_SECRET = os.environ.get("PLANE_INTERNAL_API_SECRET")
 CF_WORKER_TRIGGER_URL = os.environ.get("CF_WORKER_TRIGGER_URL")
 # Secret Django sends in X-Trigger-Secret when asking the Worker to start a run
 CF_WORKER_TRIGGER_SECRET = os.environ.get("CF_WORKER_TRIGGER_SECRET")
+
+# Documenso OSS envelope API. The internal URL is used by Django in Docker;
+# the public URL is informational/browser-facing for local diagnostics.
+DOCUMENSO_URL = os.environ.get("DOCUMENSO_URL", "http://localhost:3004")
+DOCUMENSO_INTERNAL_URL = os.environ.get("DOCUMENSO_INTERNAL_URL", DOCUMENSO_URL)
+DOCUMENSO_API_TOKEN = os.environ.get("DOCUMENSO_API_TOKEN", "")
+DOCUMENSO_WEBHOOK_SECRET = os.environ.get("DOCUMENSO_WEBHOOK_SECRET", "")
 
 # Unsplash Access key
 UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY")
