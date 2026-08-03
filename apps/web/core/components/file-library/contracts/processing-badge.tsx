@@ -37,7 +37,11 @@ export function ProcessingBadge(props: Props) {
   }
 
   const config = {
-    PENDING: { icon: Clock, className: "bg-layer-1 text-tertiary", label: t("file_library.contracts.processing.pending") },
+    PENDING: {
+      icon: Clock,
+      className: "bg-layer-1 text-tertiary",
+      label: t("file_library.contracts.processing.pending"),
+    },
     COMPLETED: {
       icon: CheckCircle2,
       className: "bg-success-subtle text-success-primary",

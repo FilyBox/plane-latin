@@ -6,7 +6,6 @@
 
 import type { ComponentType, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -38,8 +37,8 @@ import {
 } from "lucide-react";
 // plane imports
 import { PDFViewer, type PDFViewerPageOverlayProps } from "@plane/extend-ui";
+import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
-import { PlaneLogo } from "@plane/propel/icons";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type {
   TContractAuthoringField,
@@ -61,7 +60,7 @@ type FieldType = TContractAuthoringField["type"];
 type SelectedField = { recipientIndex: number; clientId: string };
 
 type FieldDefinition = {
-  label: string;
+  labelKey: string;
   icon: ComponentType<{ className?: string }>;
   width: number;
   height: number;
@@ -70,21 +69,31 @@ type FieldDefinition = {
 const RECIPIENT_COLORS = ["#16A34A", "#0284C7", "#7C3AED", "#D97706", "#DC2626", "#DB2777", "#4F46E5"];
 
 const FIELD_DEFINITIONS: Record<FieldType, FieldDefinition> = {
-  SIGNATURE: { label: "Firma", icon: PenLine, width: 28, height: 7 },
-  INITIALS: { label: "Iniciales", icon: CaseUpper, width: 16, height: 5 },
-  NAME: { label: "Nombre", icon: UserRound, width: 24, height: 5 },
-  EMAIL: { label: "Correo", icon: AtSign, width: 28, height: 5 },
-  DATE: { label: "Fecha", icon: CalendarDays, width: 18, height: 5 },
-  TEXT: { label: "Texto", icon: Type, width: 24, height: 5 },
-  NUMBER: { label: "Número", icon: Hash, width: 18, height: 5 },
-  RADIO: { label: "Selección única", icon: CircleDot, width: 24, height: 7 },
-  CHECKBOX: { label: "Casillas", icon: CheckSquare, width: 24, height: 7 },
-  DROPDOWN: { label: "Desplegable", icon: ChevronDown, width: 24, height: 5 },
+  SIGNATURE: { labelKey: "file_library.contracts.workflow.field_types.signature", icon: PenLine, width: 28, height: 7 },
+  INITIALS: { labelKey: "file_library.contracts.workflow.field_types.initials", icon: CaseUpper, width: 16, height: 5 },
+  NAME: { labelKey: "file_library.contracts.workflow.field_types.name", icon: UserRound, width: 24, height: 5 },
+  EMAIL: { labelKey: "file_library.contracts.workflow.field_types.email", icon: AtSign, width: 28, height: 5 },
+  DATE: { labelKey: "file_library.contracts.workflow.field_types.date", icon: CalendarDays, width: 18, height: 5 },
+  TEXT: { labelKey: "file_library.contracts.workflow.field_types.text", icon: Type, width: 24, height: 5 },
+  NUMBER: { labelKey: "file_library.contracts.workflow.field_types.number", icon: Hash, width: 18, height: 5 },
+  RADIO: { labelKey: "file_library.contracts.workflow.field_types.radio", icon: CircleDot, width: 24, height: 7 },
+  CHECKBOX: {
+    labelKey: "file_library.contracts.workflow.field_types.checkbox",
+    icon: CheckSquare,
+    width: 24,
+    height: 7,
+  },
+  DROPDOWN: {
+    labelKey: "file_library.contracts.workflow.field_types.dropdown",
+    icon: ChevronDown,
+    width: 24,
+    height: 5,
+  },
 };
 
 const DEFAULT_SETTINGS: TContractAuthoringSettings = {
-  subject: "Firma requerida: {{document.name}}",
-  message: "Hola {{recipient.name}}, revisa y firma {{document.name}}.",
+  subject: "Signature required: {{document.name}}",
+  message: "Hello {{recipient.name}}, please review and sign {{document.name}}.",
   timezone: "Etc/UTC",
   dateFormat: "yyyy-MM-dd hh:mm a",
   redirectUrl: "",
@@ -118,7 +127,10 @@ const mergeSettings = (value?: Partial<TContractAuthoringSettings>): TContractAu
   ...DEFAULT_SETTINGS,
   ...value,
   emailSettings: { ...DEFAULT_SETTINGS.emailSettings, ...value?.emailSettings },
-  reminderSettings: { ...DEFAULT_SETTINGS.reminderSettings, ...value?.reminderSettings },
+  reminderSettings: {
+    ...DEFAULT_SETTINGS.reminderSettings,
+    ...value?.reminderSettings,
+  },
 });
 
 const makeClientId = () =>
@@ -175,18 +187,24 @@ const recipientsForRequest = (signatureRequest: TContractSignatureRequest): TCon
   return signatureRequest.recipients.map((recipient, recipientIndex) => ({
     ...recipient,
     signingOrder: recipientIndex + 1,
-    fields: recipient.fields.map((field) => ({ ...field, clientId: makeClientId() })),
+    fields: recipient.fields.map((field) => ({
+      ...field,
+      clientId: makeClientId(),
+    })),
   }));
 };
 
-const getRecipientLabel = (recipient: TContractAuthoringRecipient, index: number) =>
-  recipient.name.trim() || recipient.email.trim() || recipient.placeholderLabel?.trim() || `Destinatario ${index + 1}`;
+const getRecipientLabel = (recipient: TContractAuthoringRecipient, fallback: string) =>
+  recipient.name.trim() || recipient.email.trim() || recipient.placeholderLabel?.trim() || fallback;
 
 const isFieldRole = (role: TContractAuthoringRecipient["role"]) =>
   role === "SIGNER" || role === "APPROVER" || role === "ASSISTANT";
 
 const reindexRecipients = (recipients: TContractAuthoringRecipient[]) =>
-  recipients.map((recipient, index) => ({ ...recipient, signingOrder: index + 1 }));
+  recipients.map((recipient, index) => ({
+    ...recipient,
+    signingOrder: index + 1,
+  }));
 
 function FieldOverlay({
   field,
@@ -203,6 +221,7 @@ function FieldOverlay({
   onChange: (patch: Partial<TContractAuthoringField>) => void;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   const interactionRef = useRef<{
     mode: "move" | "resize";
     startX: number;
@@ -281,17 +300,17 @@ function FieldOverlay({
         <Icon className="size-3 shrink-0" />
         <span className="truncate">
           {field.type === "TEXT"
-            ? field.fieldMeta?.text || field.fieldMeta?.placeholder || definition.label
+            ? field.fieldMeta?.text || field.fieldMeta?.placeholder || t(definition.labelKey)
             : field.type === "NUMBER"
-              ? field.fieldMeta?.value || field.fieldMeta?.placeholder || definition.label
+              ? field.fieldMeta?.value || field.fieldMeta?.placeholder || t(definition.labelKey)
               : field.type === "DROPDOWN"
-                ? field.fieldMeta?.defaultValue || "Seleccionar opción"
-                : definition.label}
+                ? field.fieldMeta?.defaultValue || t("file_library.contracts.workflow.authoring.select_option")
+                : t(definition.labelKey)}
         </span>
       </span>
       <button
         type="button"
-        aria-label="Redimensionar campo"
+        aria-label={t("file_library.contracts.workflow.authoring.resize_field")}
         className="absolute right-0 bottom-0 grid size-4 cursor-nwse-resize place-items-center rounded-tl bg-white"
         style={{ color }}
         onPointerDown={(event) => startInteraction(event, "resize")}
@@ -362,6 +381,7 @@ function ContractPrefillFields({
   recipients: TContractAuthoringRecipient[];
   onChange: (recipientIndex: number, clientId: string, patch: Partial<TContractAuthoringField>) => void;
 }) {
+  const { t } = useTranslation();
   const prefillable = recipients.flatMap((recipient, recipientIndex) =>
     recipient.fields
       .filter((field) => ["TEXT", "NUMBER", "RADIO", "CHECKBOX", "DROPDOWN"].includes(field.type))
@@ -372,20 +392,29 @@ function ContractPrefillFields({
   return (
     <section className="rounded-xl border border-subtle bg-surface-1 p-4">
       <div className="mb-4">
-        <h2 className="text-13 font-semibold">Datos prellenados</h2>
+        <h2 className="text-13 font-semibold">{t("file_library.contracts.workflow.authoring.prefilled_data")}</h2>
         <p className="mt-0.5 text-10 text-tertiary">
-          Completa los campos ya mapeados en la plantilla. Los campos editables seguirán disponibles al firmar.
+          {t("file_library.contracts.workflow.authoring.prefilled_description")}
         </p>
       </div>
       <div className="grid grid-cols-2 gap-3">
         {prefillable.map(({ recipient, recipientIndex, field }) => {
-          const meta = { ...getDefaultFieldMeta(field.type), ...field.fieldMeta };
-          const label = meta.label || FIELD_DEFINITIONS[field.type].label;
+          const meta = {
+            ...getDefaultFieldMeta(field.type),
+            ...field.fieldMeta,
+          };
+          const label = meta.label || t(FIELD_DEFINITIONS[field.type].labelKey);
           const updateMeta = (patch: Partial<typeof meta>) =>
-            onChange(recipientIndex, field.clientId!, { fieldMeta: { ...meta, ...patch } });
+            onChange(recipientIndex, field.clientId!, {
+              fieldMeta: { ...meta, ...patch },
+            });
           return (
             <label key={field.clientId} className="space-y-1 text-10 font-medium text-tertiary">
-              {label} · {getRecipientLabel(recipient, recipientIndex)}
+              {label} ·{" "}
+              {getRecipientLabel(
+                recipient,
+                t("file_library.contracts.workflow.common.recipient_number", { number: recipientIndex + 1 })
+              )}
               {field.type === "TEXT" ? (
                 <input
                   className="w-full rounded-md border border-subtle bg-transparent px-2.5 py-2 text-11"
@@ -422,7 +451,7 @@ function ContractPrefillFields({
                       });
                   }}
                 >
-                  <option value="">Sin valor prellenado</option>
+                  <option value="">{t("file_library.contracts.workflow.authoring.no_prefilled_value")}</option>
                   {(meta.values ?? []).map((choice) => (
                     <option key={choice.id ?? choice.value} value={choice.value}>
                       {choice.value}
@@ -440,12 +469,16 @@ function ContractPrefillFields({
                         onChange={(event) =>
                           updateMeta({
                             values: meta.values?.map((item) =>
-                              item.id === choice.id ? Object.assign({}, item, { checked: event.target.checked }) : item
+                              item.id === choice.id
+                                ? Object.assign({}, item, {
+                                    checked: event.target.checked,
+                                  })
+                                : item
                             ),
                           })
                         }
                       />
-                      {choice.value || "Opción"}
+                      {choice.value || t("file_library.contracts.workflow.field_settings.option")}
                     </span>
                   ))}
                 </span>
@@ -469,6 +502,7 @@ export function ContractAuthoringModal({
   onClose: () => void;
   onSent: () => void;
 }) {
+  const { t } = useTranslation();
   const { data: currentUser } = useUser();
   const [pdfUrl, setPdfUrl] = useState<string>();
   const [pdfError, setPdfError] = useState<string>();
@@ -477,9 +511,16 @@ export function ContractAuthoringModal({
     recipientsForRequest(signatureRequest)
   );
   const [title, setTitle] = useState(signatureRequest.title);
-  const [settings, setSettings] = useState<TContractAuthoringSettings>(() =>
-    mergeSettings(signatureRequest.authoring_settings)
-  );
+  const [settings, setSettings] = useState<TContractAuthoringSettings>(() => {
+    const merged = mergeSettings(signatureRequest.authoring_settings);
+    return {
+      ...merged,
+      subject:
+        signatureRequest.authoring_settings?.subject || t("file_library.contracts.workflow.authoring.default_subject"),
+      message:
+        signatureRequest.authoring_settings?.message || t("file_library.contracts.workflow.authoring.default_message"),
+    };
+  });
   const [activeTab, setActiveTab] = useState<AuthoringTab>("RECIPIENTS");
   const [activeRecipientIndex, setActiveRecipientIndex] = useState(0);
   const [selectedTool, setSelectedTool] = useState<FieldType>();
@@ -513,12 +554,12 @@ export function ContractAuthoringModal({
         return undefined;
       })
       .catch(() => {
-        if (!cancelled) setPdfError("No se pudo cargar el PDF del contrato.");
+        if (!cancelled) setPdfError(t("file_library.contracts.workflow.authoring.pdf_load_failed"));
       });
     return () => {
       cancelled = true;
     };
-  }, [signatureRequest.id, workspaceSlug]);
+  }, [signatureRequest.id, t, workspaceSlug]);
 
   const updateRecipients = useCallback(
     (updater: (current: TContractAuthoringRecipient[]) => TContractAuthoringRecipient[]) => {
@@ -566,7 +607,10 @@ export function ContractAuthoringModal({
         : signingRecipientIndexes[0];
       if (recipientIndex === undefined) {
         setActiveTab("RECIPIENTS");
-        setToast({ type: TOAST_TYPE.ERROR, title: "Agrega primero un firmante o aprobador" });
+        setToast({
+          type: TOAST_TYPE.ERROR,
+          title: t("file_library.contracts.workflow.authoring.add_signer_first"),
+        });
         return;
       }
       const definition = FIELD_DEFINITIONS[type];
@@ -580,7 +624,7 @@ export function ContractAuthoringModal({
       setSelectedTool(undefined);
       setDraggingFieldType(undefined);
     },
-    [activeRecipientIndex, signingRecipientIndexes, updateRecipients]
+    [activeRecipientIndex, signingRecipientIndexes, t, updateRecipients]
   );
 
   const removeSelectedField = useCallback(() => {
@@ -588,7 +632,10 @@ export function ContractAuthoringModal({
     updateRecipients((current) =>
       current.map((recipient, index) =>
         index === selectedField.recipientIndex
-          ? { ...recipient, fields: recipient.fields.filter((field) => field.clientId !== selectedField.clientId) }
+          ? {
+              ...recipient,
+              fields: recipient.fields.filter((field) => field.clientId !== selectedField.clientId),
+            }
           : recipient
       )
     );
@@ -619,15 +666,19 @@ export function ContractAuthoringModal({
       try {
         await contractService.saveSignatureRequest(workspaceSlug, signatureRequest.id, recipients, settings, title);
         if (latestVersionRef.current === version) setSavedVersion(version);
-        if (showConfirmation) setToast({ type: TOAST_TYPE.SUCCESS, title: "Borrador guardado" });
+        if (showConfirmation)
+          setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.workflow.authoring.draft_saved") });
       } catch (error: any) {
-        setToast({ type: TOAST_TYPE.ERROR, title: error?.error ?? "No se pudo guardar el borrador" });
+        setToast({
+          type: TOAST_TYPE.ERROR,
+          title: error?.error ?? t("file_library.contracts.workflow.authoring.draft_save_failed"),
+        });
         throw error;
       } finally {
         setIsSaving(false);
       }
     },
-    [recipients, savedVersion, settings, signatureRequest.id, title, workspaceSlug]
+    [recipients, savedVersion, settings, signatureRequest.id, title, t, workspaceSlug]
   );
 
   useEffect(() => {
@@ -637,31 +688,44 @@ export function ContractAuthoringModal({
   }, [editVersion, saveDraft, savedVersion]);
 
   const validationMessage = useMemo(() => {
-    if (recipients.length === 0) return "Agrega al menos un destinatario.";
+    if (recipients.length === 0) return t("file_library.contracts.workflow.authoring.validation_recipient");
     if (signatureRequest.authoring_mode === "TEMPLATE") {
       for (const [index, recipient] of recipients.entries()) {
-        if (!recipient.placeholderLabel?.trim()) return `Asigna una etiqueta al destinatario ${index + 1}.`;
+        if (!recipient.placeholderLabel?.trim())
+          return t("file_library.contracts.workflow.authoring.validation_recipient_label", { number: index + 1 });
         if (recipient.role === "SIGNER" && !recipient.fields.some((field) => field.type === "SIGNATURE"))
-          return `${getRecipientLabel(recipient, index)} necesita un campo de firma.`;
+          return t("file_library.contracts.workflow.authoring.validation_signature", {
+            name: getRecipientLabel(
+              recipient,
+              t("file_library.contracts.workflow.common.recipient_number", { number: index + 1 })
+            ),
+          });
         if (recipient.role === "ASSISTANT" && index === recipients.length - 1)
-          return "El asistente no puede ser el último destinatario.";
+          return t("file_library.contracts.workflow.authoring.validation_assistant");
       }
       return undefined;
     }
     const emails = new Set<string>();
     for (const [index, recipient] of recipients.entries()) {
-      if (!recipient.name.trim()) return `Falta el nombre del destinatario ${index + 1}.`;
+      if (!recipient.name.trim())
+        return t("file_library.contracts.workflow.authoring.validation_name", { number: index + 1 });
       const email = recipient.email.trim().toLowerCase();
-      if (!email || !email.includes("@")) return `El correo del destinatario ${index + 1} no es válido.`;
-      if (emails.has(email)) return "No puedes agregar el mismo correo más de una vez.";
+      if (!email || !email.includes("@"))
+        return t("file_library.contracts.workflow.authoring.validation_email", { number: index + 1 });
+      if (emails.has(email)) return t("file_library.contracts.workflow.authoring.validation_duplicate_email");
       emails.add(email);
       if (recipient.role === "SIGNER" && !recipient.fields.some((field) => field.type === "SIGNATURE"))
-        return `${getRecipientLabel(recipient, index)} necesita un campo de firma.`;
+        return t("file_library.contracts.workflow.authoring.validation_signature", {
+          name: getRecipientLabel(
+            recipient,
+            t("file_library.contracts.workflow.common.recipient_number", { number: index + 1 })
+          ),
+        });
       if (recipient.role === "ASSISTANT" && index === recipients.length - 1)
-        return "El asistente no puede ser el último destinatario.";
+        return t("file_library.contracts.workflow.authoring.validation_assistant");
     }
     return undefined;
-  }, [recipients, signatureRequest.authoring_mode]);
+  }, [recipients, signatureRequest.authoring_mode, t]);
 
   const handleSend = async () => {
     if (validationMessage) return;
@@ -674,17 +738,23 @@ export function ContractAuthoringModal({
         const links = await contractService.getSignatureRequestLinks(workspaceSlug, signatureRequest.id);
         setDistributionOpen(false);
         setSigningLinks(links);
-        setToast({ type: TOAST_TYPE.SUCCESS, title: "Enlaces de firma generados" });
+        setToast({
+          type: TOAST_TYPE.SUCCESS,
+          title: t("file_library.contracts.workflow.authoring.links_generated"),
+        });
       } else {
         setToast({
           type: TOAST_TYPE.SUCCESS,
-          title: "Contrato enviado por correo",
-          message: "En local, revisa la bandeja de Inbucket en http://localhost:9005.",
+          title: t("file_library.contracts.workflow.authoring.sent_email"),
+          message: t("file_library.contracts.workflow.authoring.local_inbucket"),
         });
         onClose();
       }
     } catch (error: any) {
-      setToast({ type: TOAST_TYPE.ERROR, title: error?.error ?? "No se pudo enviar el contrato" });
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: error?.error ?? t("file_library.contracts.workflow.authoring.send_failed"),
+      });
     } finally {
       setIsSending(false);
     }
@@ -714,11 +784,18 @@ export function ContractAuthoringModal({
             ...recipient,
             fields: recipient.fields.filter((field) => field.clientId !== selectedField.clientId),
           };
-        if (index === nextRecipientIndex) return { ...recipient, fields: [...recipient.fields, selectedFieldData] };
+        if (index === nextRecipientIndex)
+          return {
+            ...recipient,
+            fields: [...recipient.fields, selectedFieldData],
+          };
         return recipient;
       })
     );
-    setSelectedField({ recipientIndex: nextRecipientIndex, clientId: selectedField.clientId });
+    setSelectedField({
+      recipientIndex: nextRecipientIndex,
+      clientId: selectedField.clientId,
+    });
     setActiveRecipientIndex(nextRecipientIndex);
   };
 
@@ -751,7 +828,10 @@ export function ContractAuthoringModal({
         index === selectedField.recipientIndex ? { ...recipient, fields: [...recipient.fields, ...copies] } : recipient
       )
     );
-    setSelectedField({ recipientIndex: selectedField.recipientIndex, clientId: copies[copies.length - 1].clientId! });
+    setSelectedField({
+      recipientIndex: selectedField.recipientIndex,
+      clientId: copies[copies.length - 1].clientId!,
+    });
   };
 
   const handleTemplateSave = async () => {
@@ -759,11 +839,17 @@ export function ContractAuthoringModal({
     try {
       await contractService.saveSignatureRequest(workspaceSlug, signatureRequest.id, recipients, settings, title);
       setSavedVersion(latestVersionRef.current);
-      setToast({ type: TOAST_TYPE.SUCCESS, title: "Plantilla de firma guardada" });
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: t("file_library.contracts.workflow.authoring.template_saved"),
+      });
       onSent();
       onClose();
     } catch (error: any) {
-      setToast({ type: TOAST_TYPE.ERROR, title: error?.error ?? "No se pudo guardar la plantilla" });
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: error?.error ?? t("file_library.contracts.workflow.authoring.template_save_failed"),
+      });
     } finally {
       setIsSaving(false);
     }
@@ -786,9 +872,11 @@ export function ContractAuthoringModal({
             selectedTool && activeTab === "FIELDS" ? (
               <div className="border-accent-primary/30 flex items-center gap-2 rounded-md border bg-accent-primary/10 px-2.5 py-1 text-11 text-accent-primary">
                 <Check className="size-3.5" />
-                Haz clic para colocar {FIELD_DEFINITIONS[selectedTool].label}
+                {t("file_library.contracts.workflow.authoring.click_to_place", {
+                  field: t(FIELD_DEFINITIONS[selectedTool].labelKey),
+                })}
                 <button type="button" className="font-medium underline" onClick={() => setSelectedTool(undefined)}>
-                  Cancelar
+                  {t("file_library.contracts.workflow.common.cancel")}
                 </button>
               </div>
             ) : undefined
@@ -832,7 +920,7 @@ export function ContractAuthoringModal({
                 className="mt-2 text-12 text-accent-primary underline"
                 onClick={() => window.location.reload()}
               >
-                Volver a intentar
+                {t("file_library.contracts.workflow.common.retry")}
               </button>
             </div>
           ) : (
@@ -849,9 +937,24 @@ export function ContractAuthoringModal({
     description: string;
     icon: ComponentType<{ className?: string }>;
   }> = [
-    { id: "RECIPIENTS", label: "Documento", description: "Agrega destinatarios", icon: FileText },
-    { id: "FIELDS", label: "Campos", description: "Coloca campos de firma", icon: PenLine },
-    { id: "PREVIEW", label: "Vista previa", description: "Revisa y envía", icon: Eye },
+    {
+      id: "RECIPIENTS",
+      label: t("file_library.contracts.workflow.authoring.document"),
+      description: t("file_library.contracts.workflow.authoring.add_recipients"),
+      icon: FileText,
+    },
+    {
+      id: "FIELDS",
+      label: t("file_library.contracts.workflow.common.fields"),
+      description: t("file_library.contracts.workflow.authoring.place_fields"),
+      icon: PenLine,
+    },
+    {
+      id: "PREVIEW",
+      label: t("file_library.contracts.workflow.common.preview"),
+      description: t("file_library.contracts.workflow.authoring.review_send"),
+      icon: Eye,
+    },
   ];
   const activeStepIndex = paritySteps.findIndex((step) => step.id === activeTab);
 
@@ -864,7 +967,7 @@ export function ContractAuthoringModal({
         <span className="min-w-0">
           <span className="block truncate text-12 font-medium">{title}.pdf</span>
           <span className="block text-10 text-tertiary">
-            {pdfPageCount} página{pdfPageCount === 1 ? "" : "s"}
+            {t("file_library.contracts.workflow.authoring.page_count", { count: pdfPageCount })}
           </span>
         </span>
       </div>
@@ -880,32 +983,42 @@ export function ContractAuthoringModal({
         onClick={() => void handleTemplateSave()}
       >
         {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-        Guardar plantilla
+        {t("file_library.contracts.workflow.authoring.save_template")}
       </Button>
     ) : (
       <Button
         variant="primary"
         size="sm"
-        disabled={isSending || Boolean(validationMessage)}
+        disabled={isSending}
         onClick={() => {
+          if (validationMessage) {
+            setToast({
+              type: TOAST_TYPE.ERROR,
+              title: t("file_library.contracts.workflow.authoring.missing_information"),
+              message: validationMessage,
+            });
+            setActiveTab("RECIPIENTS");
+            return;
+          }
           setActiveTab("PREVIEW");
           setDistributionOpen(true);
         }}
       >
         <Send className="size-3.5" />
-        Enviar documento
+        {t("file_library.contracts.workflow.distribute.title")}
       </Button>
     );
 
   const documensoModal = (
-    <div className="fixed inset-0 z-[70] flex h-screen w-screen flex-col bg-surface-1 text-primary">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-subtle bg-surface-1 px-6">
+    <div className="absolute inset-0 z-20 flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface-1 text-primary">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-subtle bg-surface-1 px-4">
         <div className="flex min-w-0 items-center gap-4">
-          <PlaneLogo className="h-6 w-auto shrink-0 text-primary" />
-          <span className="bg-subtle h-7 w-px" />
+          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-layer-1 text-accent-primary">
+            <FileText className="size-4" />
+          </span>
           <input
             value={title}
-            aria-label="Título del contrato"
+            aria-label={t("file_library.contracts.workflow.authoring.contract_title")}
             className="w-[min(38vw,480px)] truncate border-0 bg-transparent text-14 font-medium outline-none"
             onChange={(event) => {
               setTitle(event.target.value);
@@ -913,13 +1026,15 @@ export function ContractAuthoringModal({
             }}
           />
           <span className="rounded-full bg-layer-2 px-2.5 py-1 text-10 font-medium text-secondary">
-            {signatureRequest.authoring_mode === "TEMPLATE" ? "Plantilla" : "Borrador"}
+            {signatureRequest.authoring_mode === "TEMPLATE"
+              ? t("file_library.contracts.workflow.common.template")
+              : t("file_library.contracts.workflow.request_status.draft")}
           </span>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
-            aria-label="Configuración del documento"
+            aria-label={t("file_library.contracts.workflow.authoring.document_settings")}
             className="grid size-9 place-items-center rounded-md border border-subtle hover:bg-layer-1-hover"
             onClick={() => setSettingsOpen(true)}
           >
@@ -929,18 +1044,23 @@ export function ContractAuthoringModal({
         </div>
       </header>
 
-      <div className="flex h-[calc(100vh-4rem)] min-h-0">
+      <div className="flex min-h-0 flex-1">
         <aside className="flex w-80 shrink-0 flex-col border-r border-subtle bg-surface-1 px-4 py-5">
           <div className="flex items-center justify-between px-2">
-            <h1 className="text-15 font-semibold">Editor de documentos</h1>
+            <h1 className="text-15 font-semibold">{t("file_library.contracts.workflow.authoring.editor")}</h1>
             <span className="rounded-full bg-layer-2 px-2.5 py-1 text-10 text-secondary">
-              Paso {activeStepIndex + 1} de 3
+              {t("file_library.contracts.workflow.authoring.step_progress", {
+                current: activeStepIndex + 1,
+                total: paritySteps.length,
+              })}
             </span>
           </div>
           <div className="mx-2 mt-4 h-1 overflow-hidden rounded-full bg-layer-2">
             <div
               className="h-full rounded-full bg-accent-primary transition-[width]"
-              style={{ width: `${((activeStepIndex + 1) / paritySteps.length) * 100}%` }}
+              style={{
+                width: `${((activeStepIndex + 1) / paritySteps.length) * 100}%`,
+              }}
             />
           </div>
           <nav className="mt-4 space-y-2">
@@ -978,37 +1098,12 @@ export function ContractAuthoringModal({
               );
             })}
           </nav>
-          <div className="my-5 border-t border-subtle" />
-          <p className="px-2 text-10 font-semibold tracking-wide text-tertiary uppercase">Acciones rápidas</p>
-          <div className="mt-2 space-y-1">
-            <button
-              type="button"
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-12 hover:bg-layer-1-hover"
-              onClick={() => setSettingsOpen(true)}
-            >
-              <Settings className="size-4 text-tertiary" /> Configuración
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-12 hover:bg-layer-1-hover"
-              onClick={() => void saveDraft(editVersion, true)}
-            >
-              <Save className="size-4 text-tertiary" /> Guardar borrador
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-12 hover:bg-layer-1-hover"
-              onClick={() => setActiveTab("PREVIEW")}
-            >
-              <Eye className="size-4 text-tertiary" /> Vista previa
-            </button>
-          </div>
           <button
             type="button"
             className="mt-auto flex items-center gap-2 rounded-md px-3 py-2.5 text-12 text-secondary hover:bg-layer-1-hover"
             onClick={() => void handleClose()}
           >
-            <ArrowLeft className="size-4" /> Volver a contratos
+            <ArrowLeft className="size-4" /> {t("file_library.contracts.workflow.authoring.back_to_contracts")}
           </button>
         </aside>
 
@@ -1021,7 +1116,9 @@ export function ContractAuthoringModal({
                     <div className="flex gap-3">
                       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-primary" />
                       <div>
-                        <p className="text-11 font-semibold text-warning-primary">Revisa los campos antes de enviar</p>
+                        <p className="text-11 font-semibold text-warning-primary">
+                          {t("file_library.contracts.workflow.authoring.review_warning")}
+                        </p>
                         {signatureRequest.preparation_warnings.map((warning) => (
                           <p key={warning} className="mt-1 text-10 text-warning-primary">
                             {warning}
@@ -1032,21 +1129,25 @@ export function ContractAuthoringModal({
                   </div>
                 ) : null}
                 <section className="shadow-sm rounded-xl border border-subtle bg-surface-1 p-6">
-                  <h2 className="text-15 font-semibold">Documentos</h2>
-                  <p className="mt-1 text-11 text-tertiary">Agrega los documentos que deseas enviar para firma.</p>
+                  <h2 className="text-15 font-semibold">{t("file_library.contracts.workflow.authoring.documents")}</h2>
+                  <p className="mt-1 text-11 text-tertiary">
+                    {t("file_library.contracts.workflow.authoring.documents_description")}
+                  </p>
                   <div className="mt-5 rounded-lg border border-dashed border-subtle bg-layer-1/50 p-8 text-center">
                     <span className="mx-auto grid size-11 place-items-center rounded-full bg-layer-2 text-tertiary">
                       <FileText className="size-5" />
                     </span>
                     <p className="mt-3 text-12 font-medium">{title}.pdf</p>
-                    <p className="mt-1 text-10 text-tertiary">PDF generado desde la variante seleccionada</p>
+                    <p className="mt-1 text-10 text-tertiary">
+                      {t("file_library.contracts.workflow.authoring.generated_pdf")}
+                    </p>
                   </div>
                   <div className="mt-4 flex items-center gap-3 rounded-lg border border-subtle px-4 py-3">
                     <FileText className="size-5 shrink-0 text-accent-primary" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-12 font-medium">{title}.pdf</p>
                       <p className="text-10 text-tertiary">
-                        {pdfPageCount} página{pdfPageCount === 1 ? "" : "s"}
+                        {t("file_library.contracts.workflow.authoring.page_count", { count: pdfPageCount })}
                       </p>
                     </div>
                     <span className="rounded bg-layer-2 px-2 py-1 text-9 font-medium">PDF</span>
@@ -1056,9 +1157,11 @@ export function ContractAuthoringModal({
                 <section className="shadow-sm rounded-xl border border-subtle bg-surface-1 p-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <h2 className="text-15 font-semibold">Destinatarios</h2>
+                      <h2 className="text-15 font-semibold">
+                        {t("file_library.contracts.workflow.authoring.recipients")}
+                      </h2>
                       <p className="mt-1 text-11 text-tertiary">
-                        Agrega las personas que deben recibir o completar el documento.
+                        {t("file_library.contracts.workflow.authoring.recipients_description")}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1078,7 +1181,7 @@ export function ContractAuthoringModal({
                             ])
                           }
                         >
-                          <UserRound className="size-3.5" /> Agregarme
+                          <UserRound className="size-3.5" /> {t("file_library.contracts.workflow.authoring.add_me")}
                         </Button>
                       ) : null}
                       <Button
@@ -1094,23 +1197,27 @@ export function ContractAuthoringModal({
                           ])
                         }
                       >
-                        <Plus className="size-3.5" /> Agregar destinatario
+                        <Plus className="size-3.5" /> {t("file_library.contracts.workflow.authoring.add_recipient")}
                       </Button>
                     </div>
                   </div>
                   <div className="mt-5 flex items-center justify-between rounded-lg border border-subtle bg-layer-1 px-4 py-3">
                     <span className="flex items-center gap-2 text-11">
-                      <Users className="size-4 text-tertiary" /> Orden de firma
+                      <Users className="size-4 text-tertiary" />
+                      {t("file_library.contracts.workflow.authoring.signing_order")}
                     </span>
                     <select
                       className="rounded-md border border-subtle bg-surface-1 px-3 py-1.5 text-11 outline-none"
                       value={settings.signingOrder}
                       onChange={(event) =>
-                        updateSettings({ ...settings, signingOrder: event.target.value as "PARALLEL" | "SEQUENTIAL" })
+                        updateSettings({
+                          ...settings,
+                          signingOrder: event.target.value as "PARALLEL" | "SEQUENTIAL",
+                        })
                       }
                     >
-                      <option value="PARALLEL">Paralelo</option>
-                      <option value="SEQUENTIAL">Secuencial</option>
+                      <option value="PARALLEL">{t("file_library.contracts.workflow.authoring.parallel")}</option>
+                      <option value="SEQUENTIAL">{t("file_library.contracts.workflow.authoring.sequential")}</option>
                     </select>
                   </div>
                   <div className="mt-4 space-y-3">
@@ -1135,7 +1242,9 @@ export function ContractAuthoringModal({
                         <GripVertical className="size-4 shrink-0 cursor-grab text-tertiary" />
                         <span
                           className="grid size-8 shrink-0 place-items-center rounded-full text-11 font-semibold text-white"
-                          style={{ backgroundColor: RECIPIENT_COLORS[recipientIndex % RECIPIENT_COLORS.length] }}
+                          style={{
+                            backgroundColor: RECIPIENT_COLORS[recipientIndex % RECIPIENT_COLORS.length],
+                          }}
                         >
                           {recipientIndex + 1}
                         </span>
@@ -1143,9 +1252,11 @@ export function ContractAuthoringModal({
                           <input
                             className="focus:border-accent-primary min-w-0 flex-1 rounded-md border border-subtle px-3 py-2 text-11 outline-none"
                             value={recipient.placeholderLabel ?? ""}
-                            placeholder="Rol, por ejemplo Cliente"
+                            placeholder={t("file_library.contracts.workflow.authoring.role_placeholder")}
                             onChange={(event) =>
-                              updateRecipient(recipientIndex, { placeholderLabel: event.target.value })
+                              updateRecipient(recipientIndex, {
+                                placeholderLabel: event.target.value,
+                              })
                             }
                           />
                         ) : (
@@ -1154,14 +1265,22 @@ export function ContractAuthoringModal({
                               className="focus:border-accent-primary min-w-0 flex-1 rounded-md border border-subtle px-3 py-2 text-11 outline-none"
                               value={recipient.email}
                               type="email"
-                              placeholder="Correo electrónico"
-                              onChange={(event) => updateRecipient(recipientIndex, { email: event.target.value })}
+                              placeholder={t("file_library.contracts.workflow.authoring.email_placeholder")}
+                              onChange={(event) =>
+                                updateRecipient(recipientIndex, {
+                                  email: event.target.value,
+                                })
+                              }
                             />
                             <input
                               className="focus:border-accent-primary min-w-0 flex-1 rounded-md border border-subtle px-3 py-2 text-11 outline-none"
                               value={recipient.name}
-                              placeholder="Nombre"
-                              onChange={(event) => updateRecipient(recipientIndex, { name: event.target.value })}
+                              placeholder={t("file_library.contracts.workflow.common.name")}
+                              onChange={(event) =>
+                                updateRecipient(recipientIndex, {
+                                  name: event.target.value,
+                                })
+                              }
                             />
                           </>
                         )}
@@ -1171,19 +1290,22 @@ export function ContractAuthoringModal({
                           onChange={(event) => {
                             const role = event.target.value as TContractAuthoringRecipient["role"];
                             if (role === "ASSISTANT" && settings.signingOrder !== "SEQUENTIAL")
-                              updateSettings({ ...settings, signingOrder: "SEQUENTIAL" });
+                              updateSettings({
+                                ...settings,
+                                signingOrder: "SEQUENTIAL",
+                              });
                             updateRecipient(recipientIndex, { role });
                           }}
                         >
-                          <option value="SIGNER">Debe firmar</option>
-                          <option value="APPROVER">Debe aprobar</option>
-                          <option value="ASSISTANT">Asistente</option>
-                          <option value="VIEWER">Solo visualiza</option>
-                          <option value="CC">Recibe una copia</option>
+                          <option value="SIGNER">{t("file_library.contracts.workflow.roles.signer")}</option>
+                          <option value="APPROVER">{t("file_library.contracts.workflow.roles.approver")}</option>
+                          <option value="ASSISTANT">{t("file_library.contracts.workflow.roles.assistant")}</option>
+                          <option value="VIEWER">{t("file_library.contracts.workflow.roles.viewer")}</option>
+                          <option value="CC">{t("file_library.contracts.workflow.roles.cc")}</option>
                         </select>
                         <button
                           type="button"
-                          aria-label="Eliminar destinatario"
+                          aria-label={t("file_library.contracts.workflow.authoring.delete_recipient")}
                           className="grid size-8 shrink-0 place-items-center rounded-md text-tertiary hover:bg-danger-primary/10 hover:text-danger-primary"
                           onClick={() =>
                             updateRecipients((current) => current.filter((_, index) => index !== recipientIndex))
@@ -1207,13 +1329,13 @@ export function ContractAuthoringModal({
                       ])
                     }
                   >
-                    <Plus className="size-4" /> Agregar firmante
+                    <Plus className="size-4" /> {t("file_library.contracts.workflow.authoring.add_signer")}
                   </button>
                 </section>
                 <ContractPrefillFields recipients={recipients} onChange={updateField} />
                 <div className="flex justify-end">
                   <Button variant="primary" size="sm" onClick={() => setActiveTab("FIELDS")}>
-                    Agregar campos <ArrowRight className="size-3.5" />
+                    {t("file_library.contracts.workflow.authoring.add_fields")} <ArrowRight className="size-3.5" />
                   </Button>
                 </div>
               </div>
@@ -1229,7 +1351,7 @@ export function ContractAuthoringModal({
               <aside className="flex w-80 shrink-0 flex-col border-l border-subtle bg-surface-1">
                 <div className="p-4">
                   <label htmlFor="contract-selected-recipient" className="block text-10 font-semibold text-tertiary">
-                    Destinatario seleccionado
+                    {t("file_library.contracts.workflow.authoring.selected_recipient")}
                   </label>
                   <select
                     id="contract-selected-recipient"
@@ -1239,16 +1361,19 @@ export function ContractAuthoringModal({
                   >
                     {signingRecipientIndexes.map((recipientIndex) => (
                       <option key={recipientIndex} value={recipientIndex}>
-                        {getRecipientLabel(recipients[recipientIndex], recipientIndex)}
+                        {getRecipientLabel(
+                          recipients[recipientIndex],
+                          t("file_library.contracts.workflow.common.recipient_number", { number: recipientIndex + 1 })
+                        )}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div className="border-t border-subtle" />
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                  <h2 className="text-12 font-semibold">Agregar campos</h2>
+                  <h2 className="text-12 font-semibold">{t("file_library.contracts.workflow.authoring.add_fields")}</h2>
                   <p className="mt-1 text-10 text-tertiary">
-                    Arrastra un campo al documento o selecciónalo y haz clic.
+                    {t("file_library.contracts.workflow.authoring.add_fields_description")}
                   </p>
                   <div className="mt-4 grid grid-cols-2 gap-2">
                     {(Object.entries(FIELD_DEFINITIONS) as [FieldType, FieldDefinition][]).map(([type, definition]) => {
@@ -1273,7 +1398,7 @@ export function ContractAuthoringModal({
                           }}
                           onDragEnd={() => setDraggingFieldType(undefined)}
                         >
-                          <Icon className="size-4 shrink-0" /> {definition.label}
+                          <Icon className="size-4 shrink-0" /> {t(definition.labelKey)}
                         </button>
                       );
                     })}
@@ -1284,19 +1409,24 @@ export function ContractAuthoringModal({
                     onClick={() =>
                       setToast({
                         type: TOAST_TYPE.INFO,
-                        title: "La detección visual con IA no forma parte del editor Community portado",
+                        title: t("file_library.contracts.workflow.authoring.ai_detection_notice"),
                       })
                     }
                   >
-                    <Layers className="size-4" /> Detectar campos con IA
+                    <Layers className="size-4" /> {t("file_library.contracts.workflow.authoring.detect_ai")}
                   </button>
                   {selectedFieldData && selectedField ? (
                     <section className="mt-5 space-y-3 border-t border-subtle pt-5">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-12 font-semibold">Configuración del campo</p>
+                          <p className="text-12 font-semibold">
+                            {t("file_library.contracts.workflow.authoring.field_configuration")}
+                          </p>
                           <p className="mt-0.5 text-10 text-tertiary">
-                            {FIELD_DEFINITIONS[selectedFieldData.type].label} · página {selectedFieldData.page}
+                            {t(FIELD_DEFINITIONS[selectedFieldData.type].labelKey)} ·{" "}
+                            {t("file_library.contracts.workflow.authoring.page_number", {
+                              number: selectedFieldData.page,
+                            })}
                           </p>
                         </div>
                         <button
@@ -1308,7 +1438,7 @@ export function ContractAuthoringModal({
                         </button>
                       </div>
                       <label className="block text-10 font-medium text-tertiary">
-                        Asignado a
+                        {t("file_library.contracts.workflow.authoring.assigned_to")}
                         <select
                           className="mt-1.5 w-full rounded-md border border-subtle bg-surface-1 px-3 py-2 text-11"
                           value={selectedField.recipientIndex}
@@ -1316,7 +1446,12 @@ export function ContractAuthoringModal({
                         >
                           {signingRecipientIndexes.map((recipientIndex) => (
                             <option key={recipientIndex} value={recipientIndex}>
-                              {getRecipientLabel(recipients[recipientIndex], recipientIndex)}
+                              {getRecipientLabel(
+                                recipients[recipientIndex],
+                                t("file_library.contracts.workflow.common.recipient_number", {
+                                  number: recipientIndex + 1,
+                                })
+                              )}
                             </option>
                           ))}
                         </select>
@@ -1327,14 +1462,14 @@ export function ContractAuthoringModal({
                           className="flex items-center justify-center gap-1.5 rounded-md border border-subtle px-2 py-2 text-10 hover:bg-layer-1-hover"
                           onClick={() => duplicateSelectedField()}
                         >
-                          <Copy className="size-3.5" /> Duplicar
+                          <Copy className="size-3.5" /> {t("file_library.contracts.workflow.authoring.duplicate")}
                         </button>
                         <button
                           type="button"
                           className="flex items-center justify-center gap-1.5 rounded-md border border-subtle px-2 py-2 text-10 hover:bg-layer-1-hover"
                           onClick={() => duplicateSelectedField(true)}
                         >
-                          <Layers className="size-3.5" /> Todas las páginas
+                          <Layers className="size-3.5" /> {t("file_library.contracts.workflow.authoring.all_pages")}
                         </button>
                       </div>
                       <ContractFieldSettings
@@ -1348,10 +1483,10 @@ export function ContractAuthoringModal({
                 </div>
                 <div className="flex justify-between border-t border-subtle p-4">
                   <Button variant="secondary" size="sm" onClick={() => setActiveTab("RECIPIENTS")}>
-                    Atrás
+                    {t("file_library.contracts.workflow.common.back")}
                   </Button>
                   <Button variant="primary" size="sm" onClick={() => setActiveTab("PREVIEW")}>
-                    Vista previa
+                    {t("file_library.contracts.workflow.common.preview")}
                   </Button>
                 </div>
               </aside>
@@ -1362,7 +1497,8 @@ export function ContractAuthoringModal({
             <div className="flex size-full min-h-0 flex-col">
               {parityDocumentSelector}
               <div className="border-warning-primary/30 border-b bg-warning-primary/10 px-5 py-3 text-center text-11 text-warning-primary">
-                <strong>Modo de vista previa.</strong> Así verán el documento tus destinatarios.
+                <strong>{t("file_library.contracts.workflow.authoring.preview_mode")}</strong>{" "}
+                {t("file_library.contracts.workflow.authoring.preview_description")}
               </div>
               <div className="min-h-0 flex-1">{pdfCanvas}</div>
             </div>
@@ -1399,6 +1535,5 @@ export function ContractAuthoringModal({
     </div>
   );
 
-  const container = typeof document !== "undefined" ? document.getElementById("full-screen-portal") : null;
-  return container ? createPortal(documensoModal, container) : documensoModal;
+  return documensoModal;
 }

@@ -213,6 +213,7 @@ class ContractTemplateRevisionSerializer(BaseSerializer):
             "workspace_id",
             "variant_id",
             "revision",
+            "name",
             "source_asset_id",
             "pdf_asset_id",
             "content_sha256",

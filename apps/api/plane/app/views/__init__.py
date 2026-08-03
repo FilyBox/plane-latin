@@ -344,6 +344,7 @@ from .contract import (
     ContractSignatureRequestLinksEndpoint,
     ContractSignatureRequestSyncEndpoint,
     ContractTemplateVariantDetailEndpoint,
+    ContractTemplateVariantEditSessionEndpoint,
     ContractTemplateVariantRevisionsEndpoint,
     ContractTemplateVariantSchemaEndpoint,
     ContractTemplateVariantsEndpoint,

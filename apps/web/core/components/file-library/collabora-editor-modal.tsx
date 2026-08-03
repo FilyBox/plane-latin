@@ -23,6 +23,7 @@ type Props = {
   assetId: string | null;
   fileName: string;
   onClose: () => void;
+  deferredCommit?: boolean;
 };
 
 /**
@@ -34,7 +35,7 @@ type Props = {
  * once the session resolves.
  */
 export function CollaboraEditorModal(props: Props) {
-  const { workspaceSlug, assetId, fileName, onClose } = props;
+  const { workspaceSlug, assetId, fileName, onClose, deferredCommit = false } = props;
   const { t } = useTranslation();
   const formRef = useRef<HTMLFormElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -158,7 +159,14 @@ export function CollaboraEditorModal(props: Props) {
           transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
         >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-subtle px-4 py-2.5">
-            <span className="truncate text-14 font-medium">{fileName}</span>
+            <div className="min-w-0">
+              <p className="truncate text-14 font-medium">{fileName}</p>
+              {deferredCommit ? (
+                <p className="text-9 text-tertiary">
+                  {t("file_library.contracts.workflow.collabora.deferred_commit_hint")}
+                </p>
+              ) : null}
+            </div>
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -173,7 +181,17 @@ export function CollaboraEditorModal(props: Props) {
                 ) : (
                   <Save className="size-4" />
                 )}
-                {saveState === "saving" ? "Guardando…" : saveState === "saved" ? "Guardado" : "Guardar"}
+                {t(
+                  saveState === "saving"
+                    ? "file_library.contracts.workflow.common.saving"
+                    : saveState === "saved"
+                      ? deferredCommit
+                        ? "file_library.contracts.workflow.collabora.draft_saved"
+                        : "file_library.contracts.workflow.common.saved"
+                      : deferredCommit
+                        ? "file_library.contracts.workflow.collabora.save_draft"
+                        : "file_library.contracts.workflow.common.save"
+                )}
               </button>
               <button
                 type="button"

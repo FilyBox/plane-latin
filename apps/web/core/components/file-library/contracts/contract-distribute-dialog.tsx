@@ -5,6 +5,7 @@
  */
 
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "@plane/i18n";
 import type { TContractAuthoringSettings } from "@plane/types";
 import { Button } from "@plane/propel/button";
 import { EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
@@ -26,14 +27,15 @@ export function ContractDistributeDialog({
   onClose,
   onSubmit,
 }: Props) {
+  const { t } = useTranslation();
   const update = (patch: Partial<TContractAuthoringSettings>) => onChange({ ...settings, ...patch });
   const byEmail = settings.distributionMethod === "EMAIL";
 
   return (
     <ModalCore isOpen handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.MD}>
       <header className="px-6 pt-6 pb-3">
-        <h2 className="text-16 font-semibold">Enviar documento</h2>
-        <p className="mt-1 text-12 text-tertiary">Los destinatarios podrán firmar el documento una vez enviado.</p>
+        <h2 className="text-16 font-semibold">{t("file_library.contracts.workflow.distribute.title")}</h2>
+        <p className="mt-1 text-12 text-tertiary">{t("file_library.contracts.workflow.distribute.description")}</p>
       </header>
 
       <div className="px-6">
@@ -43,14 +45,14 @@ export function ContractDistributeDialog({
             className={`rounded px-3 py-2 text-12 ${byEmail ? "shadow-sm bg-surface-1" : "text-tertiary"}`}
             onClick={() => update({ distributionMethod: "EMAIL" })}
           >
-            Correo
+            {t("file_library.contracts.workflow.distribute.email")}
           </button>
           <button
             type="button"
             className={`rounded px-3 py-2 text-12 ${!byEmail ? "shadow-sm bg-surface-1" : "text-tertiary"}`}
             onClick={() => update({ distributionMethod: "NONE" })}
           >
-            Sin correo
+            {t("file_library.contracts.workflow.distribute.no_email")}
           </button>
         </div>
 
@@ -58,7 +60,10 @@ export function ContractDistributeDialog({
           {byEmail ? (
             <fieldset disabled={isSubmitting} className="flex flex-col gap-4 pt-2">
               <label className="space-y-1.5 text-11 font-medium">
-                Responder a <span className="font-normal text-tertiary">(Opcional)</span>
+                {t("file_library.contracts.workflow.distribute.reply_to")}{" "}
+                <span className="font-normal text-tertiary">
+                  ({t("file_library.contracts.workflow.common.optional")})
+                </span>
                 <input
                   className="focus:border-accent-primary w-full rounded-md border border-subtle bg-surface-1 px-3 py-2 text-12 outline-none"
                   type="email"
@@ -68,7 +73,10 @@ export function ContractDistributeDialog({
                 />
               </label>
               <label className="space-y-1.5 text-11 font-medium">
-                Asunto <span className="font-normal text-tertiary">(Opcional)</span>
+                {t("file_library.contracts.workflow.distribute.subject")}{" "}
+                <span className="font-normal text-tertiary">
+                  ({t("file_library.contracts.workflow.common.optional")})
+                </span>
                 <input
                   className="focus:border-accent-primary w-full rounded-md border border-subtle bg-surface-1 px-3 py-2 text-12 outline-none"
                   maxLength={254}
@@ -77,7 +85,10 @@ export function ContractDistributeDialog({
                 />
               </label>
               <label className="space-y-1.5 text-11 font-medium">
-                Mensaje <span className="font-normal text-tertiary">(Opcional)</span>
+                {t("file_library.contracts.workflow.distribute.message")}{" "}
+                <span className="font-normal text-tertiary">
+                  ({t("file_library.contracts.workflow.common.optional")})
+                </span>
                 <textarea
                   className="focus:border-accent-primary h-16 w-full resize-none rounded-md border border-subtle bg-surface-1 px-3 py-2 text-12 outline-none"
                   maxLength={5000}
@@ -88,10 +99,8 @@ export function ContractDistributeDialog({
             </fieldset>
           ) : (
             <div className="flex min-h-[16.5rem] flex-col items-center justify-center rounded-lg border border-subtle px-7 text-center text-12 text-tertiary">
-              <p>No enviaremos ninguna notificación a los destinatarios.</p>
-              <p className="mt-2">
-                Generaremos enlaces de firma individuales para que puedas enviarlos por el medio que prefieras.
-              </p>
+              <p>{t("file_library.contracts.workflow.distribute.no_email_notice")}</p>
+              <p className="mt-2">{t("file_library.contracts.workflow.distribute.links_notice")}</p>
             </div>
           )}
         </div>
@@ -105,11 +114,15 @@ export function ContractDistributeDialog({
 
       <footer className="flex justify-end gap-2 px-6 py-5">
         <Button variant="secondary" size="sm" disabled={isSubmitting} onClick={onClose}>
-          Cancelar
+          {t("file_library.contracts.workflow.common.cancel")}
         </Button>
         <Button variant="primary" size="sm" disabled={isSubmitting || Boolean(validationMessage)} onClick={onSubmit}>
           {isSubmitting ? <Loader2 className="size-3.5 animate-spin" /> : null}
-          {byEmail ? "Enviar" : "Generar enlaces"}
+          {t(
+            byEmail
+              ? "file_library.contracts.workflow.distribute.send"
+              : "file_library.contracts.workflow.distribute.generate_links"
+          )}
         </Button>
       </footer>
     </ModalCore>

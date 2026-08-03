@@ -5,14 +5,16 @@
  */
 
 import { useParams } from "react-router";
+import { useTranslation } from "@plane/i18n";
 import { PageHead } from "@/components/core/page-title";
 import { ContractWorkflow } from "@/components/file-library/contracts/workflow";
 
 export default function ContractTemplatesPage() {
+  const { t } = useTranslation();
   const { workspaceSlug = "" } = useParams();
   return (
     <>
-      <PageHead title="Plantillas de contratos" />
+      <PageHead title={t("file_library.contracts.workflow.page_titles.templates")} />
       <ContractWorkflow workspaceSlug={workspaceSlug} />
     </>
   );

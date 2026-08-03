@@ -39,7 +39,7 @@ function SourceCard({ source }: { source: TContractChatSource }) {
         {name}
         {source.file_name && source.title && <span className="ml-1.5 text-11 text-tertiary">{source.file_name}</span>}
       </button>
-      <span className="shrink-0 rounded-full bg-layer-1 px-1.5 text-10 tabular-nums text-tertiary">
+      <span className="shrink-0 rounded-full bg-layer-1 px-1.5 text-10 text-tertiary tabular-nums">
         {(source.similarity * 100).toFixed(0)}%
       </span>
       {source.asset_id && (

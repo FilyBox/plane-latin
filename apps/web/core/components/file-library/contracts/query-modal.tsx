@@ -77,7 +77,7 @@ export function ContractQueryModal(props: Props) {
                 if (e.key === "Enter") void handleSubmit();
               }}
               placeholder={t("file_library.contracts.query.placeholder")}
-              className="w-full rounded-md border border-subtle bg-transparent py-2 pl-8 pr-3 text-13"
+              className="w-full rounded-md border border-subtle bg-transparent py-2 pr-3 pl-8 text-13"
             />
           </div>
           <Button variant="primary" size="sm" onClick={handleSubmit} disabled={isSubmitting || !query.trim()}>

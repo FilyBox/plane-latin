@@ -8,6 +8,7 @@ import { useState } from "react";
 import { FileWarning, Loader2, RefreshCcw } from "lucide-react";
 import useSWR from "swr";
 import { DocxViewerPreview, PDFViewer } from "@plane/extend-ui";
+import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { cn } from "@plane/utils";
 import { fileLibraryService } from "@/services/file-library.service";
@@ -21,6 +22,7 @@ type Props = {
 };
 
 export function ContractAssetPreview({ workspaceSlug, assetId, fileName, contentType, className }: Props) {
+  const { t } = useTranslation();
   const [isDark, setIsDark] = useState(() =>
     typeof document !== "undefined" ? document.documentElement.dataset.theme === "dark" : false
   );
@@ -41,10 +43,12 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
         <div className={cn("grid place-items-center bg-layer-1", className)}>
           <div className="text-center">
             <FileWarning className="mx-auto size-7 text-tertiary" />
-            <p className="mt-2 text-11 font-medium text-primary">No se pudo cargar la vista previa</p>
-            <p className="mt-1 text-9 text-tertiary">Comprueba que el archivo siga disponible.</p>
+            <p className="mt-2 text-11 font-medium text-primary">
+              {t("file_library.contracts.workflow.preview.load_failed")}
+            </p>
+            <p className="mt-1 text-9 text-tertiary">{t("file_library.contracts.workflow.preview.check_available")}</p>
             <Button variant="secondary" size="sm" className="mt-3" onClick={() => void mutate()}>
-              <RefreshCcw className="size-3.5" /> Reintentar
+              <RefreshCcw className="size-3.5" /> {t("file_library.contracts.workflow.common.retry")}
             </Button>
           </div>
         </div>

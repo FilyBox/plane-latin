@@ -31,6 +31,7 @@ import {
 } from "@/hooks/use-navigation-preferences";
 // plane-web imports
 import { SidebarItem } from "@/plane-web/components/workspace/sidebar/sidebar-item";
+import { ContractsSidebarItem } from "./contracts-sidebar-item";
 
 export const SidebarMenuItems = observer(function SidebarMenuItems() {
   // routers
@@ -167,9 +168,13 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
                 {WORKSPACE_SIDEBAR_STATIC_PINNED_NAVIGATION_ITEMS_LINKS.map((item) => (
                   <SidebarItem key={item.key} item={item} />
                 ))}
-                {sortedNavigationItems.map((item) => (
-                  <SidebarItem key={item.key} item={item} />
-                ))}
+                {sortedNavigationItems.map((item) =>
+                  item.key === "contracts" ? (
+                    <ContractsSidebarItem key={item.key} item={item} />
+                  ) : (
+                    <SidebarItem key={item.key} item={item} />
+                  )
+                )}
                 <SidebarNavItem>
                   <button
                     type="button"

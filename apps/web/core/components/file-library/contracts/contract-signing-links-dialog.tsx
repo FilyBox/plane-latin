@@ -6,6 +6,7 @@
 
 import { Check, Copy, Link as LinkIcon, X } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "@plane/i18n";
 import type { TContractSigningLink } from "@plane/types";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
@@ -17,6 +18,7 @@ type Props = {
 };
 
 export function ContractSigningLinksDialog({ links, onClose }: Props) {
+  const { t } = useTranslation();
   const [copiedUrl, setCopiedUrl] = useState<string>();
 
   const copy = async (value: string) => {
@@ -27,17 +29,15 @@ export function ContractSigningLinksDialog({ links, onClose }: Props) {
 
   const bulkCopy = async () => {
     await navigator.clipboard.writeText(links.map((link) => `${link.email}\n${link.url}`).join("\n\n"));
-    setToast({ type: TOAST_TYPE.SUCCESS, title: "Todos los enlaces se copiaron al portapapeles" });
+    setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.workflow.signing_links.copied_all") });
   };
 
   return (
     <ModalCore isOpen handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.LG}>
       <header className="flex items-start justify-between px-6 pt-6 pb-3">
         <div>
-          <h2 className="text-16 font-semibold">Copiar enlaces de firma</h2>
-          <p className="mt-1 text-12 text-tertiary">
-            Copia y comparte estos enlaces para que cada destinatario pueda completar el contrato.
-          </p>
+          <h2 className="text-16 font-semibold">{t("file_library.contracts.workflow.signing_links.title")}</h2>
+          <p className="mt-1 text-12 text-tertiary">{t("file_library.contracts.workflow.signing_links.description")}</p>
         </div>
         <button type="button" className="rounded p-1.5 hover:bg-layer-1-hover" onClick={onClose}>
           <X className="size-4" />
@@ -46,7 +46,9 @@ export function ContractSigningLinksDialog({ links, onClose }: Props) {
 
       <ul className="mx-6 divide-y divide-subtle overflow-hidden rounded-lg border border-subtle">
         {links.length === 0 ? (
-          <li className="py-8 text-center text-12 text-tertiary">No hay destinatarios con enlace de firma.</li>
+          <li className="py-8 text-center text-12 text-tertiary">
+            {t("file_library.contracts.workflow.signing_links.empty")}
+          </li>
         ) : null}
         {links.map((link) => (
           <li key={link.id ?? link.url} className="flex items-center justify-between gap-3 px-4 py-3">
@@ -69,7 +71,11 @@ export function ContractSigningLinksDialog({ links, onClose }: Props) {
               ) : (
                 <Copy className="size-3.5" />
               )}
-              {copiedUrl === link.url ? "Copiado" : "Copiar"}
+              {t(
+                copiedUrl === link.url
+                  ? "file_library.contracts.workflow.common.copied"
+                  : "file_library.contracts.workflow.common.copy"
+              )}
             </button>
           </li>
         ))}
@@ -77,10 +83,10 @@ export function ContractSigningLinksDialog({ links, onClose }: Props) {
 
       <footer className="flex justify-end gap-2 px-6 py-5">
         <Button variant="secondary" size="sm" onClick={onClose}>
-          Cerrar
+          {t("file_library.contracts.workflow.common.close")}
         </Button>
         <Button variant="primary" size="sm" disabled={links.length === 0} onClick={() => void bulkCopy()}>
-          <LinkIcon className="size-3.5" /> Copiar todos
+          <LinkIcon className="size-3.5" /> {t("file_library.contracts.workflow.signing_links.copy_all")}
         </Button>
       </footer>
     </ModalCore>

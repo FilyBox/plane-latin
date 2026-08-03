@@ -39,6 +39,7 @@ from .workflow import (
     ContractSignatureRequestLinksEndpoint,
     ContractSignatureRequestSyncEndpoint,
     ContractTemplateVariantDetailEndpoint,
+    ContractTemplateVariantEditSessionEndpoint,
     ContractTemplateVariantRevisionsEndpoint,
     ContractTemplateVariantSchemaEndpoint,
     ContractTemplateVariantsEndpoint,

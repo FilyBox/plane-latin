@@ -4,6 +4,7 @@
  */
 
 import { Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "@plane/i18n";
 import type { TContractAuthoringField, TContractFieldChoice, TContractFieldMeta } from "@plane/types";
 
 type Props = {
@@ -64,7 +65,7 @@ const DEFAULT_META: Record<TContractAuthoringField["type"], TContractFieldMeta> 
     fontSize: 12,
     required: false,
     readOnly: false,
-    values: [{ id: 1, value: "Opción 1" }],
+    values: [{ id: 1, value: "" }],
   },
 };
 
@@ -74,6 +75,7 @@ export const getDefaultFieldMeta = (type: TContractAuthoringField["type"]): TCon
 });
 
 export function ContractFieldSettings({ field, onChange }: Props) {
+  const { t } = useTranslation();
   const meta = { ...getDefaultFieldMeta(field.type), ...field.fieldMeta };
   const update = (patch: Partial<TContractFieldMeta>) => onChange({ ...meta, ...patch });
   const isChoice = field.type === "RADIO" || field.type === "CHECKBOX" || field.type === "DROPDOWN";
@@ -92,7 +94,9 @@ export function ContractFieldSettings({ field, onChange }: Props) {
         field.type === "DROPDOWN"
           ? {
               id: Math.max(0, ...values.map((value) => value.id ?? 0)) + 1,
-              value: `Opción ${values.length + 1}`,
+              value: t("file_library.contracts.workflow.field_settings.option_number", {
+                number: values.length + 1,
+              }),
             }
           : { id: Math.max(0, ...values.map((value) => value.id ?? 0)) + 1, value: "", checked: false },
       ],
@@ -103,7 +107,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2">
         <label className={labelClass}>
-          Tamaño de fuente
+          {t("file_library.contracts.workflow.field_settings.font_size")}
           <input
             className={inputClass}
             type="number"
@@ -115,15 +119,15 @@ export function ContractFieldSettings({ field, onChange }: Props) {
         </label>
         {isTextual ? (
           <label className={labelClass}>
-            Alineación
+            {t("file_library.contracts.workflow.field_settings.alignment")}
             <select
               className={inputClass}
               value={meta.textAlign ?? "left"}
               onChange={(event) => update({ textAlign: event.target.value as TContractFieldMeta["textAlign"] })}
             >
-              <option value="left">Izquierda</option>
-              <option value="center">Centro</option>
-              <option value="right">Derecha</option>
+              <option value="left">{t("file_library.contracts.workflow.field_settings.left")}</option>
+              <option value="center">{t("file_library.contracts.workflow.field_settings.center")}</option>
+              <option value="right">{t("file_library.contracts.workflow.field_settings.right")}</option>
             </select>
           </label>
         ) : null}
@@ -131,7 +135,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
 
       {["TEXT", "NUMBER", "RADIO", "CHECKBOX"].includes(field.type) ? (
         <label className={labelClass}>
-          Etiqueta
+          {t("file_library.contracts.workflow.field_settings.label")}
           <input
             className={inputClass}
             value={meta.label ?? ""}
@@ -142,7 +146,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
 
       {field.type === "TEXT" || field.type === "NUMBER" ? (
         <label className={labelClass}>
-          Placeholder
+          {t("file_library.contracts.workflow.field_settings.placeholder")}
           <input
             className={inputClass}
             value={meta.placeholder ?? ""}
@@ -154,7 +158,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
       {field.type === "TEXT" ? (
         <>
           <label className={labelClass}>
-            Valor prellenado
+            {t("file_library.contracts.workflow.field_settings.prefilled_value")}
             <textarea
               className={`${inputClass} min-h-16`}
               value={meta.text ?? ""}
@@ -163,7 +167,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className={labelClass}>
-              Límite de caracteres
+              {t("file_library.contracts.workflow.field_settings.character_limit")}
               <input
                 className={inputClass}
                 type="number"
@@ -173,7 +177,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
               />
             </label>
             <label className={labelClass}>
-              Alineación vertical
+              {t("file_library.contracts.workflow.field_settings.vertical_alignment")}
               <select
                 className={inputClass}
                 value={meta.verticalAlign ?? "middle"}
@@ -181,9 +185,9 @@ export function ContractFieldSettings({ field, onChange }: Props) {
                   update({ verticalAlign: event.target.value as TContractFieldMeta["verticalAlign"] })
                 }
               >
-                <option value="top">Arriba</option>
-                <option value="middle">Centro</option>
-                <option value="bottom">Abajo</option>
+                <option value="top">{t("file_library.contracts.workflow.field_settings.top")}</option>
+                <option value="middle">{t("file_library.contracts.workflow.field_settings.center")}</option>
+                <option value="bottom">{t("file_library.contracts.workflow.field_settings.bottom")}</option>
               </select>
             </label>
           </div>
@@ -193,17 +197,17 @@ export function ContractFieldSettings({ field, onChange }: Props) {
       {field.type === "NUMBER" ? (
         <>
           <label className={labelClass}>
-            Formato numérico
+            {t("file_library.contracts.workflow.field_settings.number_format")}
             <input
               className={inputClass}
-              placeholder="Ej. 0,0.00"
+              placeholder={t("file_library.contracts.workflow.field_settings.number_placeholder")}
               value={meta.numberFormat ?? ""}
               onChange={(event) => update({ numberFormat: event.target.value })}
             />
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className={labelClass}>
-              Mínimo
+              {t("file_library.contracts.workflow.field_settings.minimum")}
               <input
                 className={inputClass}
                 type="number"
@@ -212,7 +216,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
               />
             </label>
             <label className={labelClass}>
-              Máximo
+              {t("file_library.contracts.workflow.field_settings.maximum")}
               <input
                 className={inputClass}
                 type="number"
@@ -226,14 +230,14 @@ export function ContractFieldSettings({ field, onChange }: Props) {
 
       {field.type === "RADIO" || field.type === "CHECKBOX" ? (
         <label className={labelClass}>
-          Dirección
+          {t("file_library.contracts.workflow.field_settings.direction")}
           <select
             className={inputClass}
             value={meta.direction ?? "vertical"}
             onChange={(event) => update({ direction: event.target.value as "vertical" | "horizontal" })}
           >
-            <option value="vertical">Vertical</option>
-            <option value="horizontal">Horizontal</option>
+            <option value="vertical">{t("file_library.contracts.workflow.field_settings.vertical")}</option>
+            <option value="horizontal">{t("file_library.contracts.workflow.field_settings.horizontal")}</option>
           </select>
         </label>
       ) : null}
@@ -241,20 +245,20 @@ export function ContractFieldSettings({ field, onChange }: Props) {
       {field.type === "CHECKBOX" ? (
         <div className="grid grid-cols-2 gap-2">
           <label className={labelClass}>
-            Validación
+            {t("file_library.contracts.workflow.field_settings.validation")}
             <select
               className={inputClass}
               value={meta.validationRule ?? ""}
               onChange={(event) => update({ validationRule: event.target.value })}
             >
-              <option value="">Sin validación</option>
-              <option value="Select at least">Seleccionar al menos</option>
-              <option value="Select at most">Seleccionar como máximo</option>
-              <option value="Select exactly">Seleccionar exactamente</option>
+              <option value="">{t("file_library.contracts.workflow.field_settings.no_validation")}</option>
+              <option value="Select at least">{t("file_library.contracts.workflow.field_settings.at_least")}</option>
+              <option value="Select at most">{t("file_library.contracts.workflow.field_settings.at_most")}</option>
+              <option value="Select exactly">{t("file_library.contracts.workflow.field_settings.exactly")}</option>
             </select>
           </label>
           <label className={labelClass}>
-            Cantidad
+            {t("file_library.contracts.workflow.field_settings.amount")}
             <input
               className={inputClass}
               type="number"
@@ -269,7 +273,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
       {isChoice ? (
         <section className="space-y-2 border-t border-subtle pt-3">
           <div className="flex items-center justify-between">
-            <p className="text-11 font-semibold">Opciones</p>
+            <p className="text-11 font-semibold">{t("file_library.contracts.workflow.field_settings.options")}</p>
             <button type="button" className="rounded p-1 hover:bg-layer-1-hover" onClick={addChoice}>
               <Plus className="size-3.5" />
             </button>
@@ -310,13 +314,13 @@ export function ContractFieldSettings({ field, onChange }: Props) {
           ))}
           {field.type === "DROPDOWN" ? (
             <label className={labelClass}>
-              Opción predeterminada
+              {t("file_library.contracts.workflow.field_settings.default_option")}
               <select
                 className={inputClass}
                 value={meta.defaultValue ?? ""}
                 onChange={(event) => update({ defaultValue: event.target.value })}
               >
-                <option value="">Sin valor predeterminado</option>
+                <option value="">{t("file_library.contracts.workflow.field_settings.no_default")}</option>
                 {(meta.values ?? [])
                   .filter((item) => item.value)
                   .map((item) => (
@@ -337,7 +341,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
             checked={Boolean(meta.required)}
             onChange={(event) => update({ required: event.target.checked })}
           />
-          Obligatorio
+          {t("file_library.contracts.workflow.field_settings.required")}
         </label>
         <label className="flex items-center gap-2 text-11">
           <input
@@ -345,7 +349,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
             checked={Boolean(meta.readOnly)}
             onChange={(event) => update({ readOnly: event.target.checked })}
           />
-          Solo lectura
+          {t("file_library.contracts.workflow.field_settings.read_only")}
         </label>
       </div>
     </div>

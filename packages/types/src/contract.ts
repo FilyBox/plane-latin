@@ -315,6 +315,7 @@ export type TContractTemplateRevision = {
   workspace_id: string;
   variant_id: string;
   revision: number;
+  name: string;
   source_asset_id: string;
   pdf_asset_id: string;
   content_sha256: string;

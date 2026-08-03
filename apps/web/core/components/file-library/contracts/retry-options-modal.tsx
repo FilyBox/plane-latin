@@ -142,9 +142,7 @@ export function RetryOptionsModal(props: Props) {
                     </span>
                     <span>
                       <span className="block">{t(option.i18nKey)}</span>
-                      {option.hintKey && (
-                        <span className="block text-11 text-tertiary">{t(option.hintKey)}</span>
-                      )}
+                      {option.hintKey && <span className="block text-11 text-tertiary">{t(option.hintKey)}</span>}
                     </span>
                   </button>
                 );

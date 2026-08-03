@@ -139,14 +139,14 @@ export function ContractsTable(props: Props) {
                   </div>
                 </td>
                 <td className="max-w-48 truncate px-3 py-2.5">{contract.artistas ?? "—"}</td>
-                <td className="whitespace-nowrap px-3 py-2.5">{typeKey ? t(typeKey) : "—"}</td>
-                <td className="whitespace-nowrap px-3 py-2.5">
+                <td className="px-3 py-2.5 whitespace-nowrap">{typeKey ? t(typeKey) : "—"}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap">
                   <StatusPill contract={contract} />
                 </td>
-                <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{contract.fecha_inicio ?? "—"}</td>
-                <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{contract.fecha_fin ?? "—"}</td>
-                <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{contract.fecha_fin_efectiva ?? "—"}</td>
-                <td className="whitespace-nowrap px-3 py-2.5">
+                <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">{contract.fecha_inicio ?? "—"}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">{contract.fecha_fin ?? "—"}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">{contract.fecha_fin_efectiva ?? "—"}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap">
                   <ProcessingBadge contract={contract} activeJob={activeJobsByContract[contract.id]} />
                 </td>
               </tr>
@@ -184,7 +184,7 @@ export function ContractsTable(props: Props) {
                     <StatusPill contract={contract} />
                     {typeKey && <span className="rounded-full bg-layer-1 px-2 py-0.5 text-tertiary">{t(typeKey)}</span>}
                     {contract.fecha_fin_efectiva && (
-                      <span className="rounded-full bg-layer-1 px-2 py-0.5 tabular-nums text-tertiary">
+                      <span className="rounded-full bg-layer-1 px-2 py-0.5 text-tertiary tabular-nums">
                         {t("file_library.contracts.fields.fecha_fin_efectiva")}: {contract.fecha_fin_efectiva}
                       </span>
                     )}

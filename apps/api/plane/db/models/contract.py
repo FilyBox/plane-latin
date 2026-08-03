@@ -336,6 +336,7 @@ class ContractTemplateRevision(BaseModel):
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_template_revisions")
     variant = models.ForeignKey("db.ContractTemplateVariant", on_delete=models.PROTECT, related_name="revisions")
     revision = models.PositiveIntegerField()
+    name = models.CharField(max_length=255, blank=True, default="")
     source_asset = models.ForeignKey("db.FileAsset", on_delete=models.PROTECT, related_name="contract_revision_sources")
     pdf_asset = models.ForeignKey("db.FileAsset", on_delete=models.PROTECT, related_name="contract_revision_pdfs")
     content_sha256 = models.CharField(max_length=64)

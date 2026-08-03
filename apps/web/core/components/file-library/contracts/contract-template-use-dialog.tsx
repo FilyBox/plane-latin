@@ -15,11 +15,11 @@ import {
   FileClock,
   FilePenLine,
   Loader2,
-  Save,
   Users,
   X,
 } from "lucide-react";
 import useSWR from "swr";
+import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TContractAuthoringRecipient, TContractSignatureRequest, TContractTemplateVariant } from "@plane/types";
@@ -42,12 +42,12 @@ type PreparedRecipient = Partial<TContractAuthoringRecipient> & { clientKey: str
 const INPUT_CLASS =
   "mt-1.5 h-9 w-full rounded-md border border-subtle bg-surface-1 px-3 text-11 text-primary outline-none focus:border-accent-primary disabled:cursor-not-allowed disabled:bg-layer-1 disabled:text-tertiary";
 
-const roleLabel: Record<TContractAuthoringRecipient["role"], string> = {
-  SIGNER: "Debe firmar",
-  APPROVER: "Debe aprobar",
-  ASSISTANT: "Asistente",
-  VIEWER: "Solo visualiza",
-  CC: "Recibe una copia",
+const roleLabelKey: Record<TContractAuthoringRecipient["role"], string> = {
+  SIGNER: "file_library.contracts.workflow.roles.signer",
+  APPROVER: "file_library.contracts.workflow.roles.approver",
+  ASSISTANT: "file_library.contracts.workflow.roles.assistant",
+  VIEWER: "file_library.contracts.workflow.roles.viewer",
+  CC: "file_library.contracts.workflow.roles.cc",
 };
 
 const suggestedVariables = [
@@ -72,21 +72,17 @@ export function ContractTemplateUseDialog({
   onPrepared,
   initialRevisionId,
 }: Props) {
-  const [selectedSource, setSelectedSource] = useState(initialRevisionId ?? "CURRENT");
+  const { t } = useTranslation();
+  const selectedSource = initialRevisionId ?? "CURRENT";
   const [title, setTitle] = useState(templateName);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [omittedVariableKeys, setOmittedVariableKeys] = useState<string[]>([]);
   const [recipients, setRecipients] = useState<PreparedRecipient[]>([]);
   const [copiedToken, setCopiedToken] = useState<string>();
   const [isPreparing, setIsPreparing] = useState(false);
-  const [isSavingVersion, setIsSavingVersion] = useState(false);
   const [previewFile, setPreviewFile] = useState<TPreviewFile | null>(null);
   const revisionId = selectedSource === "CURRENT" ? undefined : selectedSource;
-  const {
-    data,
-    isLoading,
-    mutate: mutateSchema,
-  } = useSWR(
+  const { data, isLoading } = useSWR(
     `CONTRACT_TEMPLATE_SCHEMA_${workspaceSlug}_${variant.id}_${selectedSource}`,
     () => contractService.getTemplateSchema(workspaceSlug, variant.id, revisionId),
     { revalidateOnFocus: false }
@@ -128,14 +124,16 @@ export function ContractTemplateUseDialog({
             (typeof crypto !== "undefined" && "randomUUID" in crypto
               ? crypto.randomUUID()
               : `recipient-${Date.now()}-${Math.random()}`),
-          placeholderLabel: blueprint?.placeholderLabel ?? `Firmante ${index + 1}`,
+          placeholderLabel:
+            blueprint?.placeholderLabel ??
+            t("file_library.contracts.workflow.common.signer_number", { number: index + 1 }),
           role: previous.role ?? blueprint?.role ?? "SIGNER",
           signingOrder: index + 1,
           actionAuth: previous.actionAuth ?? blueprint?.actionAuth ?? [],
         };
       })
     );
-  }, [recipientBlueprint, recipientCount]);
+  }, [recipientBlueprint, recipientCount, t]);
 
   useEffect(() => {
     const availableKeys = new Set(data?.schema.variables.map((variable) => variable.key) ?? []);
@@ -143,38 +141,26 @@ export function ContractTemplateUseDialog({
   }, [data?.schema.variables]);
 
   const validationMessage = useMemo(() => {
-    if (!title.trim()) return "Escribe un título para el contrato.";
+    if (!title.trim()) return t("file_library.contracts.workflow.use.validation_title");
     for (const variable of data?.schema.variables ?? []) {
       if (!omittedVariableKeys.includes(variable.key) && variable.required && !variableValues[variable.key]?.trim())
-        return `Completa ${variable.label} o desactiva la opción Aplicar.`;
+        return t("file_library.contracts.workflow.use.validation_variable", { name: variable.label });
     }
     for (let index = 0; index < recipientCount; index++) {
       const recipient = recipients[index];
-      const label = recipient?.placeholderLabel ?? `Firmante ${index + 1}`;
-      if (!recipient?.name?.trim()) return `Completa el nombre de ${label}.`;
-      if (!recipient.email?.includes("@")) return `Completa un correo válido para ${label}.`;
+      const label =
+        recipient?.placeholderLabel ?? t("file_library.contracts.workflow.common.signer_number", { number: index + 1 });
+      if (!recipient?.name?.trim()) return t("file_library.contracts.workflow.use.validation_name", { name: label });
+      if (!recipient.email?.includes("@"))
+        return t("file_library.contracts.workflow.use.validation_email", { name: label });
     }
     return undefined;
-  }, [data?.schema.variables, omittedVariableKeys, recipientCount, recipients, title, variableValues]);
+  }, [data?.schema.variables, omittedVariableKeys, recipientCount, recipients, t, title, variableValues]);
 
   const copyVariable = async (token: string) => {
     await navigator.clipboard.writeText(token);
     setCopiedToken(token);
     window.setTimeout(() => setCopiedToken((current) => (current === token ? undefined : current)), 1600);
-  };
-
-  const saveCurrentVersion = async () => {
-    setIsSavingVersion(true);
-    try {
-      const revision = await contractService.saveTemplateRevision(workspaceSlug, variant.id);
-      await mutateSchema();
-      setSelectedSource(revision.id);
-      setToast({ type: TOAST_TYPE.SUCCESS, title: `Versión ${revision.revision} guardada` });
-    } catch (error: any) {
-      setToast({ type: TOAST_TYPE.ERROR, title: error?.error ?? "No se pudo guardar la versión" });
-    } finally {
-      setIsSavingVersion(false);
-    }
   };
 
   const prepare = async () => {
@@ -191,27 +177,38 @@ export function ContractTemplateUseDialog({
       });
       onPrepared(request);
     } catch (error: any) {
-      setToast({ type: TOAST_TYPE.ERROR, title: error?.error ?? "No se pudo preparar el contrato" });
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: error?.error ?? t("file_library.contracts.workflow.use.prepare_failed"),
+      });
     } finally {
       setIsPreparing(false);
     }
+  };
+
+  const handleDialogClose = () => {
+    if (previewFile) {
+      setPreviewFile(null);
+      return;
+    }
+    onClose();
   };
 
   return (
     <>
       <ModalCore
         isOpen
-        handleClose={onClose}
+        handleClose={handleDialogClose}
         position={EModalPosition.CENTER}
         width={EModalWidth.XXXXL}
         className="flex max-h-[92vh] flex-col overflow-hidden"
       >
         <header className="flex items-start justify-between border-b border-subtle px-5 py-4 sm:px-6">
           <div>
-            <h2 className="text-15 font-semibold text-primary">Usar {templateName}</h2>
-            <p className="mt-1 text-11 text-tertiary">
-              Selecciona la versión, decide qué variables aplicar y revisa los campos.
-            </p>
+            <h2 className="text-15 font-semibold text-primary">
+              {t("file_library.contracts.workflow.use.title", { name: templateName })}
+            </h2>
+            <p className="mt-1 text-11 text-tertiary">{t("file_library.contracts.workflow.use.description")}</p>
           </div>
           <button
             type="button"
@@ -223,11 +220,11 @@ export function ContractTemplateUseDialog({
         </header>
 
         <div className="flex items-center gap-2 border-b border-subtle bg-layer-1 px-5 py-2.5 text-10 text-tertiary sm:px-6">
-          <span className="font-medium text-primary">1. Versión</span>
+          <span className="font-medium text-primary">{t("file_library.contracts.workflow.use.step_version")}</span>
           <span>→</span>
-          <span className="font-medium text-primary">2. Datos y firmantes</span>
+          <span className="font-medium text-primary">{t("file_library.contracts.workflow.use.step_data")}</span>
           <span>→</span>
-          <span>3. Revisar campos y enviar</span>
+          <span>{t("file_library.contracts.workflow.use.step_review")}</span>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
@@ -236,63 +233,57 @@ export function ContractTemplateUseDialog({
               <section className="rounded-lg border border-subtle p-4">
                 <div className="flex items-center gap-2">
                   <FileClock className="size-4 text-accent-primary" />
-                  <h3 className="text-12 font-semibold text-primary">Versión del documento</h3>
+                  <h3 className="text-12 font-semibold text-primary">
+                    {t("file_library.contracts.workflow.use.document_version")}
+                  </h3>
                 </div>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <select
-                    className="focus:border-accent-primary h-9 min-w-0 flex-1 rounded-md border border-subtle bg-surface-1 px-3 text-11 text-primary outline-none"
-                    value={selectedSource}
-                    onChange={(event) => setSelectedSource(event.target.value)}
-                  >
-                    <option value="CURRENT">Word actual · últimos cambios guardados</option>
-                    {(data?.revisions ?? []).map((revision) => (
-                      <option key={revision.id} value={revision.id}>
-                        Versión {revision.revision} · {new Date(revision.created_at).toLocaleString()}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex h-9 min-w-0 flex-1 items-center rounded-md border border-subtle bg-layer-1 px-3 text-11 text-primary">
+                    <FileClock className="mr-2 size-3.5 shrink-0 text-tertiary" />
+                    <span className="truncate">
+                      {selectedRevision
+                        ? selectedRevision.name ||
+                          t("file_library.contracts.workflow.common.version_number", {
+                            number: selectedRevision.revision,
+                          })
+                        : t("file_library.contracts.workflow.use.current_document")}
+                    </span>
+                  </div>
                   <Button
                     variant="secondary"
-                    size="lg"
+                    size="sm"
                     onClick={() =>
                       setPreviewFile({
                         assetId: selectedRevision?.source_asset_id ?? variant.source_asset_id,
                         name:
                           selectedRevision != null
-                            ? `${templateName} · versión ${selectedRevision.revision}.docx`
+                            ? t("file_library.contracts.workflow.use.revision_file_name", {
+                                name: templateName,
+                                number: selectedRevision.revision,
+                              })
                             : variant.source_file_name,
                         contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                       })
                     }
                   >
-                    <Eye className="size-4" /> Vista previa
+                    <Eye className="size-4" /> {t("file_library.contracts.workflow.common.preview")}
                   </Button>
-                  {selectedSource === "CURRENT" ? (
-                    <Button
-                      variant="secondary"
-                      size="lg"
-                      disabled={isSavingVersion}
-                      onClick={() => void saveCurrentVersion()}
-                    >
-                      {isSavingVersion ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                      Guardar versión
-                    </Button>
-                  ) : null}
                 </div>
                 {data?.manual_fields_status === "REQUIRES_REVIEW" ? (
                   <div className="mt-3 flex gap-2 rounded-md bg-warning-primary/10 p-3 text-10 text-warning-primary">
                     <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                    El Word cambió. Los campos manuales deben revisarse; las variables se recalcularán automáticamente.
+                    {t("file_library.contracts.workflow.use.fields_require_review")}
                   </div>
                 ) : data?.manual_fields_status === "COMPATIBLE" ? (
                   <div className="mt-3 flex gap-2 rounded-md bg-success-primary/10 p-3 text-10 text-success-primary">
-                    <CheckCircle2 className="size-4 shrink-0" /> Esta versión conserva su configuración de campos.
+                    <CheckCircle2 className="size-4 shrink-0" />
+                    {t("file_library.contracts.workflow.use.fields_compatible")}
                   </div>
                 ) : null}
               </section>
 
               <label className="block text-11 font-medium text-secondary">
-                Título del contrato
+                {t("file_library.contracts.workflow.use.contract_title")}
                 <input className={INPUT_CLASS} value={title} onChange={(event) => setTitle(event.target.value)} />
               </label>
 
@@ -306,25 +297,28 @@ export function ContractTemplateUseDialog({
                 <section>
                   <div className="flex items-center gap-2">
                     <Users className="size-4 text-accent-primary" />
-                    <h3 className="text-12 font-semibold text-primary">Personas del contrato</h3>
+                    <h3 className="text-12 font-semibold text-primary">
+                      {t("file_library.contracts.workflow.use.people")}
+                    </h3>
                   </div>
                   <p className="mt-1 text-10 text-tertiary">
-                    Se detectaron por los marcadores y campos guardados de la plantilla.
+                    {t("file_library.contracts.workflow.use.people_description")}
                   </p>
                   <div className="mt-3 space-y-3">
                     {recipients.map((recipient, index) => (
                       <div key={recipient.clientKey} className="rounded-lg border border-subtle p-4">
                         <div className="mb-3 flex items-center justify-between gap-2">
                           <p className="text-11 font-semibold text-primary">
-                            {recipient.placeholderLabel ?? `Firmante ${index + 1}`}
+                            {recipient.placeholderLabel ??
+                              t("file_library.contracts.workflow.common.signer_number", { number: index + 1 })}
                           </p>
                           <span className="rounded-full bg-layer-2 px-2 py-1 text-9 text-tertiary">
-                            {roleLabel[recipient.role ?? "SIGNER"]}
+                            {t(roleLabelKey[recipient.role ?? "SIGNER"])}
                           </span>
                         </div>
                         <div className="grid gap-3 sm:grid-cols-2">
                           <label className="text-10 font-medium text-secondary">
-                            Nombre
+                            {t("file_library.contracts.workflow.common.name")}
                             <input
                               className={INPUT_CLASS}
                               value={recipient.name ?? ""}
@@ -338,7 +332,7 @@ export function ContractTemplateUseDialog({
                             />
                           </label>
                           <label className="text-10 font-medium text-secondary">
-                            Correo
+                            {t("file_library.contracts.workflow.common.email")}
                             <input
                               className={INPUT_CLASS}
                               type="email"
@@ -363,21 +357,36 @@ export function ContractTemplateUseDialog({
                 <section>
                   <div className="flex items-center gap-2">
                     <Braces className="size-4 text-accent-primary" />
-                    <h3 className="text-12 font-semibold text-primary">Datos del documento</h3>
+                    <h3 className="text-12 font-semibold text-primary">
+                      {t("file_library.contracts.workflow.use.document_data")}
+                    </h3>
                   </div>
                   <p className="mt-1 text-10 text-tertiary">
-                    Desactiva “Aplicar” si quieres eliminar una variable de este contrato sin modificar la plantilla.
+                    {t("file_library.contracts.workflow.use.document_data_description")}
                   </p>
                   <div className="mt-3 space-y-2">
                     {data?.schema.variables.map((variable) => {
                       const enabled = !omittedVariableKeys.includes(variable.key);
                       return (
-                        <div
-                          key={variable.key}
-                          className="grid gap-3 rounded-lg border border-subtle p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
-                        >
-                          <label className="text-10 font-medium text-secondary">
-                            {variable.label}
+                        <div key={variable.key} className="rounded-lg border border-subtle p-3">
+                          <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
+                            <span className="truncate text-10 font-medium text-secondary">{variable.label}</span>
+                            <label className="flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-md border border-subtle px-3 text-11 text-secondary hover:bg-layer-1-hover">
+                              <input
+                                type="checkbox"
+                                checked={enabled}
+                                onChange={(event) =>
+                                  setOmittedVariableKeys((current) =>
+                                    event.target.checked
+                                      ? current.filter((key) => key !== variable.key)
+                                      : [...current, variable.key]
+                                  )
+                                }
+                              />
+                              {t("file_library.contracts.workflow.common.apply")}
+                            </label>
+                          </div>
+                          <label className="block">
                             <input
                               className={INPUT_CLASS}
                               type={variable.type}
@@ -389,22 +398,12 @@ export function ContractTemplateUseDialog({
                             />
                             <span className="font-normal mt-1 block text-tertiary">
                               {`{{${variable.key}}}`}
-                              {variable.occurrences > 1 ? ` · aparece ${variable.occurrences} veces` : ""}
+                              {variable.occurrences > 1
+                                ? ` · ${t("file_library.contracts.workflow.use.occurrences", {
+                                    count: variable.occurrences,
+                                  })}`
+                                : ""}
                             </span>
-                          </label>
-                          <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-subtle px-3 text-10 text-secondary hover:bg-layer-1-hover">
-                            <input
-                              type="checkbox"
-                              checked={enabled}
-                              onChange={(event) =>
-                                setOmittedVariableKeys((current) =>
-                                  event.target.checked
-                                    ? current.filter((key) => key !== variable.key)
-                                    : [...current, variable.key]
-                                )
-                              }
-                            />
-                            Aplicar
                           </label>
                         </div>
                       );
@@ -416,25 +415,29 @@ export function ContractTemplateUseDialog({
 
             <aside className="h-fit overflow-hidden rounded-lg border border-subtle lg:sticky lg:top-0">
               <div className="border-b border-subtle p-4">
-                <h3 className="text-11 font-semibold text-primary">Variables de esta versión</h3>
+                <h3 className="text-11 font-semibold text-primary">
+                  {t("file_library.contracts.workflow.use.version_variables")}
+                </h3>
                 <p className="mt-1 text-10 leading-4 text-tertiary">
-                  Estas son las variables que Plane encontró en el Word seleccionado.
+                  {t("file_library.contracts.workflow.use.version_variables_description")}
                 </p>
                 {data ? (
                   <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                     <div className="rounded-md bg-layer-1 p-2">
                       <strong className="block text-12 text-primary">{data.schema.variables.length}</strong>
-                      <span className="text-9 text-tertiary">datos</span>
+                      <span className="text-9 text-tertiary">{t("file_library.contracts.workflow.use.data")}</span>
                     </div>
                     <div className="rounded-md bg-layer-1 p-2">
                       <strong className="block text-12 text-primary">{recipientCount}</strong>
-                      <span className="text-9 text-tertiary">personas</span>
+                      <span className="text-9 text-tertiary">
+                        {t("file_library.contracts.workflow.use.people_count")}
+                      </span>
                     </div>
                     <div className="rounded-md bg-layer-1 p-2">
                       <strong className="block text-12 text-primary">
                         {data.schema.signing_fields.length + data.manual_field_count}
                       </strong>
-                      <span className="text-9 text-tertiary">campos</span>
+                      <span className="text-9 text-tertiary">{t("file_library.contracts.workflow.use.fields")}</span>
                     </div>
                   </div>
                 ) : null}
@@ -459,24 +462,23 @@ export function ContractTemplateUseDialog({
                   ))
                 ) : !isLoading ? (
                   <div className="px-2 py-5 text-center text-10 text-tertiary">
-                    No hay marcadores semánticos en esta versión. Los campos guardados seguirán cargándose y puedes
-                    agregar variables desde Word.
+                    {t("file_library.contracts.workflow.use.no_markers")}
                   </div>
                 ) : null}
               </div>
 
               <div className="border-t border-subtle p-3">
-                <Button variant="secondary" size="lg" className="w-full" onClick={onEditWord}>
-                  <FilePenLine className="size-4" /> Editar variables en Word
+                <Button variant="secondary" size="sm" className="w-full" onClick={onEditWord}>
+                  <FilePenLine className="size-4" /> {t("file_library.contracts.workflow.use.edit_variables")}
                 </Button>
                 <p className="mt-2 text-9 leading-4 text-tertiary">
-                  Al cerrar Word volverás aquí y Plane detectará los cambios.
+                  {t("file_library.contracts.workflow.use.edit_variables_hint")}
                 </p>
               </div>
 
               <details className="border-t border-subtle p-3">
                 <summary className="cursor-pointer text-10 font-medium text-secondary">
-                  Variables que puedes agregar
+                  {t("file_library.contracts.workflow.use.available_variables")}
                 </summary>
                 <div className="mt-2 space-y-1">
                   {suggestedVariables.map((token) => (
@@ -499,17 +501,17 @@ export function ContractTemplateUseDialog({
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-subtle px-5 py-4 sm:px-6">
           <p className="min-w-0 text-10 text-warning-primary">{validationMessage}</p>
           <div className="ml-auto flex gap-2">
-            <Button variant="secondary" size="lg" disabled={isPreparing} onClick={onClose}>
-              Cancelar
+            <Button variant="secondary" size="sm" disabled={isPreparing} onClick={onClose}>
+              {t("file_library.contracts.workflow.common.cancel")}
             </Button>
             <Button
               variant="primary"
-              size="lg"
+              size="sm"
               disabled={isPreparing || isLoading || Boolean(validationMessage)}
               onClick={() => void prepare()}
             >
               {isPreparing ? <Loader2 className="size-4 animate-spin" /> : null}
-              Preparar y revisar campos
+              {t("file_library.contracts.workflow.use.prepare")}
             </Button>
           </div>
         </footer>

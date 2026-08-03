@@ -210,11 +210,14 @@ def _layout_with_content(layout, content_sha256):
     return {**(layout or {}), "content_sha256": content_sha256}
 
 
-def _get_or_create_template_revision(variant, user, source_bytes=None):
+def _get_or_create_template_revision(variant, user, source_bytes=None, name=""):
     source_bytes = source_bytes if source_bytes is not None else _read_asset(variant.source_asset)
     content_sha256 = hashlib.sha256(source_bytes).hexdigest()
     existing = ContractTemplateRevision.objects.filter(variant=variant, content_sha256=content_sha256).first()
     if existing:
+        if name and existing.name != name:
+            existing.name = name
+            existing.save(update_fields=["name", "updated_at"])
         return existing, False
 
     pdf_bytes = convert_to_pdf(
@@ -252,6 +255,7 @@ def _get_or_create_template_revision(variant, user, source_bytes=None):
         workspace=variant.workspace,
         variant=variant,
         revision=next_revision,
+        name=str(name or "").strip()[:255],
         source_asset=source_asset,
         pdf_asset=pdf_asset,
         content_sha256=content_sha256,
@@ -264,6 +268,29 @@ def _get_or_create_template_revision(variant, user, source_bytes=None):
         created_by=user,
     )
     return revision, True
+
+
+def _overwrite_asset_content(asset, content):
+    storage = S3Storage.for_asset(asset)
+    uploaded = storage.upload_file(
+        BytesIO(content),
+        asset.asset.name,
+        content_type=(asset.attributes or {}).get("type", DOCX_MIME),
+    )
+    if not uploaded:
+        raise RuntimeError("Unable to restore contract document")
+    asset.size = len(content)
+    asset.save(update_fields=["size", "updated_at"])
+
+
+def _dispose_edit_backup(backup):
+    try:
+        S3Storage.for_asset(backup).delete_files([backup.asset.name])
+    except Exception as exc:
+        log_exception(exc)
+    backup.is_deleted = True
+    backup.deleted_at = timezone.now()
+    backup.save(update_fields=["is_deleted", "deleted_at", "updated_at"])
 
 
 def _revision_schema(revision):
@@ -849,13 +876,114 @@ class ContractTemplateVariantRevisionsEndpoint(BaseAPIView):
             id=variant_id, workspace__slug=slug
         )
         try:
-            revision, created = _get_or_create_template_revision(variant, request.user)
+            revision, created = _get_or_create_template_revision(
+                variant,
+                request.user,
+                name=str(request.data.get("name") or "").strip(),
+            )
         except Exception as exc:
             log_exception(exc)
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
             ContractTemplateRevisionSerializer(revision).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class ContractTemplateVariantEditSessionEndpoint(BaseAPIView):
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def post(self, request, slug, variant_id):
+        variant = ContractTemplateVariant.objects.select_related("source_asset", "workspace").get(
+            id=variant_id,
+            workspace__slug=slug,
+        )
+        try:
+            backup = _create_asset(
+                workspace=variant.workspace,
+                user=request.user,
+                key=_asset_key(variant.workspace_id, "edit-backups", "docx"),
+                name=f"backup-{(variant.source_asset.attributes or {}).get('name', str(variant.id))}",
+                mime_type=DOCX_MIME,
+                content=_read_asset(variant.source_asset),
+                entity_type=FileAsset.EntityTypeContext.CONTRACT_REVISION,
+            )
+            backup.entity_identifier = f"contract-edit-backup:{variant.id}"
+            backup.save(update_fields=["entity_identifier", "updated_at"])
+        except Exception as exc:
+            log_exception(exc)
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"backup_asset_id": backup.id}, status=status.HTTP_201_CREATED)
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def patch(self, request, slug, variant_id):
+        variant = ContractTemplateVariant.objects.select_related("source_asset", "workspace", "template").get(
+            id=variant_id,
+            workspace__slug=slug,
+        )
+        backup = FileAsset.objects.filter(
+            id=request.data.get("backup_asset_id"),
+            workspace=variant.workspace,
+            user=request.user,
+            entity_identifier=f"contract-edit-backup:{variant.id}",
+            is_deleted=False,
+        ).first()
+        if not backup:
+            return Response({"error": "Edit backup not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        action = str(request.data.get("action") or "").upper()
+        if action not in {"DISCARD", "OVERWRITE", "NEW_REVISION", "NEW_VARIANT"}:
+            return Response({"error": "Invalid edit action"}, status=status.HTTP_400_BAD_REQUEST)
+        name = str(request.data.get("name") or "").strip()[:255]
+        if action in {"NEW_REVISION", "NEW_VARIANT"} and not name:
+            return Response({"error": "A name is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        revision = None
+        result_variant = variant
+        try:
+            backup_bytes = _read_asset(backup)
+            if action == "DISCARD":
+                _overwrite_asset_content(variant.source_asset, backup_bytes)
+            elif action == "NEW_REVISION":
+                revision, _ = _get_or_create_template_revision(variant, request.user, name=name)
+            elif action == "NEW_VARIANT":
+                edited_bytes = _read_asset(variant.source_asset)
+                source_asset = _create_asset(
+                    workspace=variant.workspace,
+                    user=request.user,
+                    key=_asset_key(variant.workspace_id, "variants", "docx"),
+                    name=f"{name}.docx",
+                    mime_type=DOCX_MIME,
+                    content=edited_bytes,
+                    entity_type=FileAsset.EntityTypeContext.CONTRACT_TEMPLATE,
+                )
+                result_variant = ContractTemplateVariant.objects.create(
+                    workspace=variant.workspace,
+                    template=variant.template,
+                    name=name,
+                    source_asset=source_asset,
+                    signature_blueprint=variant.signature_blueprint,
+                    signature_blueprint_layout=variant.signature_blueprint_layout,
+                    recipient_blueprint=variant.recipient_blueprint,
+                    authoring_settings=variant.authoring_settings,
+                    created_by=request.user,
+                )
+                revision, _ = _get_or_create_template_revision(result_variant, request.user, source_bytes=edited_bytes)
+                _overwrite_asset_content(variant.source_asset, backup_bytes)
+            _dispose_edit_backup(backup)
+        except Exception as exc:
+            log_exception(exc)
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        template = ContractTemplate.objects.prefetch_related(
+            "variants__source_asset", "variants__revisions__source_asset", "variants__revisions__pdf_asset"
+        ).get(id=variant.template_id)
+        return Response(
+            {
+                "template": ContractTemplateSerializer(template).data,
+                "variant_id": result_variant.id,
+                "revision_id": revision.id if revision else None,
+                "action": action,
+            }
         )
 
 

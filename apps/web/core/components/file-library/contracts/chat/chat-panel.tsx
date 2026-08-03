@@ -42,7 +42,8 @@ type Props = {
 };
 
 const toThreadMessage = (message: TContractChatMessage): ThreadMessageLike => {
-  if (message.role === "USER") return { id: message.id, role: "user", content: [{ type: "text", text: message.content }] };
+  if (message.role === "USER")
+    return { id: message.id, role: "user", content: [{ type: "text", text: message.content }] };
   const content: ThreadMessageLike["content"] = [{ type: "text", text: message.content }];
   if (message.sources && message.sources.length > 0) {
     // Matching contracts render as a Tool UI (assistant-ui tools/tool-ui)
@@ -188,10 +189,7 @@ export function ContractChatPanel(props: Props) {
     }
   };
 
-  const sourcesContext = useMemo(
-    () => ({ workspaceSlug, onOpenContract }),
-    [workspaceSlug, onOpenContract]
-  );
+  const sourcesContext = useMemo(() => ({ workspaceSlug, onOpenContract }), [workspaceSlug, onOpenContract]);
 
   const historyList = (
     <div className="flex h-full min-h-0 flex-col">
@@ -228,7 +226,7 @@ export function ContractChatPanel(props: Props) {
             <button
               type="button"
               onClick={() => void handleDeleteChat(chat.id)}
-              className="shrink-0 rounded-sm p-1 text-tertiary opacity-0 hover:text-danger-primary group-hover:opacity-100"
+              className="shrink-0 rounded-sm p-1 text-tertiary opacity-0 group-hover:opacity-100 hover:text-danger-primary"
             >
               <Trash2 className="size-3" />
             </button>
@@ -247,11 +245,14 @@ export function ContractChatPanel(props: Props) {
         <ContractSourcesToolUI />
         <div className="relative flex h-full min-h-0 w-full">
           {/* history — persistent column on desktop, overlay drawer on mobile/compact */}
-          {!compact && (
-            <div className="hidden w-56 shrink-0 border-r border-subtle lg:block">{historyList}</div>
-          )}
+          {!compact && <div className="hidden w-56 shrink-0 border-r border-subtle lg:block">{historyList}</div>}
           <div className="flex h-full min-h-0 flex-1 flex-col">
-            <div className={cn("flex shrink-0 items-center justify-between border-b border-subtle px-3 py-1.5", compact ? "" : "lg:hidden")}>
+            <div
+              className={cn(
+                "flex shrink-0 items-center justify-between border-b border-subtle px-3 py-1.5",
+                compact ? "" : "lg:hidden"
+              )}
+            >
               <button
                 type="button"
                 onClick={() => setShowHistory((value) => !value)}
@@ -301,13 +302,22 @@ export function ContractChatPanel(props: Props) {
               <div className="flex h-full w-64 max-w-[85%] flex-col border-r border-subtle bg-surface-1 shadow-raised-200">
                 <div className="flex items-center justify-between border-b border-subtle px-3 py-2">
                   <span className="text-12 font-medium">{t("file_library.contracts.chat.history")}</span>
-                  <button type="button" onClick={() => setShowHistory(false)} className="rounded-sm p-1 hover:bg-layer-1-hover">
+                  <button
+                    type="button"
+                    onClick={() => setShowHistory(false)}
+                    className="rounded-sm p-1 hover:bg-layer-1-hover"
+                  >
                     <X className="size-3.5" />
                   </button>
                 </div>
                 <div className="min-h-0 flex-1">{historyList}</div>
               </div>
-              <button type="button" className="flex-1 bg-black/20" onClick={() => setShowHistory(false)} aria-label="close" />
+              <button
+                type="button"
+                className="flex-1 bg-black/20"
+                onClick={() => setShowHistory(false)}
+                aria-label="close"
+              />
             </div>
           )}
         </div>

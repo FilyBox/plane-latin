@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "react-router";
 import useSWR from "swr";
+import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TContractSignatureRequest, TContractSigningLink } from "@plane/types";
@@ -32,15 +33,15 @@ import { ContractSigningLinksDialog } from "./contract-signing-links-dialog";
 
 type Props = { workspaceSlug: string };
 
-const STATUS_LABELS: Record<TContractSignatureRequest["status"], string> = {
-  DRAFT: "Borrador",
-  PREPARING: "Preparando",
-  READY: "Listo para revisar",
-  PENDING: "Pendiente de firmas",
-  COMPLETED: "Firmado",
-  REJECTED: "Rechazado",
-  CANCELLED: "Cancelado",
-  ERROR: "Error",
+const STATUS_LABEL_KEYS: Record<TContractSignatureRequest["status"], string> = {
+  DRAFT: "file_library.contracts.workflow.request_status.draft",
+  PREPARING: "file_library.contracts.workflow.request_status.preparing",
+  READY: "file_library.contracts.workflow.request_status.ready",
+  PENDING: "file_library.contracts.workflow.request_status.pending",
+  COMPLETED: "file_library.contracts.workflow.request_status.completed",
+  REJECTED: "file_library.contracts.workflow.request_status.rejected",
+  CANCELLED: "file_library.contracts.workflow.request_status.cancelled",
+  ERROR: "file_library.contracts.workflow.request_status.error",
 };
 
 const statusClass = (status: TContractSignatureRequest["status"]) => {
@@ -50,19 +51,20 @@ const statusClass = (status: TContractSignatureRequest["status"]) => {
   return "bg-layer-2 text-secondary";
 };
 
-const signerStatusLabel: Record<string, string> = {
-  NOT_SENT: "Sin enviar",
-  NOT_SIGNED: "Pendiente",
-  SENT: "Enviado",
-  OPENED: "Abierto",
-  SIGNED: "Completado",
-  REJECTED: "Rechazado",
-  PENDING: "Pendiente",
-  APPROVED: "Aprobado",
-  COMPLETED: "Completado",
+const SIGNER_STATUS_LABEL_KEYS: Record<string, string> = {
+  NOT_SENT: "file_library.contracts.workflow.signer_status.not_sent",
+  NOT_SIGNED: "file_library.contracts.workflow.signer_status.pending",
+  SENT: "file_library.contracts.workflow.signer_status.sent",
+  OPENED: "file_library.contracts.workflow.signer_status.opened",
+  SIGNED: "file_library.contracts.workflow.signer_status.completed",
+  REJECTED: "file_library.contracts.workflow.signer_status.rejected",
+  PENDING: "file_library.contracts.workflow.signer_status.pending",
+  APPROVED: "file_library.contracts.workflow.signer_status.approved",
+  COMPLETED: "file_library.contracts.workflow.signer_status.completed",
 };
 
 export function ContractDocuments({ workspaceSlug }: Props) {
+  const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     data: requests,
@@ -110,9 +112,12 @@ export function ContractDocuments({ workspaceSlug }: Props) {
       await Promise.all([mutate(), expandedId === requestId ? mutateDetail() : Promise.resolve()]);
       setSyncedId(requestId);
       window.setTimeout(() => setSyncedId((current) => (current === requestId ? undefined : current)), 1800);
-      setToast({ type: TOAST_TYPE.SUCCESS, title: "Estado de firmas actualizado" });
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.workflow.documents.sync_success") });
     } catch (error: any) {
-      setToast({ type: TOAST_TYPE.ERROR, title: error?.error ?? "No se pudo sincronizar" });
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: error?.error ?? t("file_library.contracts.workflow.documents.sync_failed"),
+      });
     } finally {
       setSyncingId(undefined);
     }
@@ -123,7 +128,10 @@ export function ContractDocuments({ workspaceSlug }: Props) {
     try {
       setSigningLinks(await contractService.getSignatureRequestLinks(workspaceSlug, requestId));
     } catch (error: any) {
-      setToast({ type: TOAST_TYPE.ERROR, title: error?.error ?? "No se pudieron obtener los enlaces" });
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: error?.error ?? t("file_library.contracts.workflow.documents.links_failed"),
+      });
     } finally {
       setLoadingLinksFor(undefined);
     }
@@ -134,7 +142,7 @@ export function ContractDocuments({ workspaceSlug }: Props) {
     if (!assetId) return;
     setPreviewFile({
       assetId,
-      name: `${request.title}${request.signed_asset_id ? " · firmado" : ""}.pdf`,
+      name: `${request.title}${request.signed_asset_id ? t("file_library.contracts.workflow.documents.signed_suffix") : ""}.pdf`,
       contentType: "application/pdf",
     });
   };
@@ -143,38 +151,40 @@ export function ContractDocuments({ workspaceSlug }: Props) {
     <div className="h-full overflow-y-auto bg-surface-1">
       <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
         <header>
-          <h1 className="text-20 font-semibold text-primary">Contratos creados</h1>
-          <p className="mt-1 text-12 text-secondary">
-            Revisa borradores, entregas, firmas y los valores completados por cada participante.
-          </p>
+          <h1 className="text-20 font-semibold text-primary">{t("file_library.contracts.workflow.documents.title")}</h1>
+          <p className="mt-1 text-12 text-secondary">{t("file_library.contracts.workflow.documents.description")}</p>
         </header>
 
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-lg border border-subtle p-4">
             <FileCheck2 className="size-4 text-accent-primary" />
             <p className="mt-2 text-18 font-semibold text-primary">{orderedRequests.length}</p>
-            <p className="text-10 text-tertiary">Contratos creados</p>
+            <p className="text-10 text-tertiary">{t("file_library.contracts.workflow.documents.created")}</p>
           </div>
           <div className="rounded-lg border border-subtle p-4">
             <Clock3 className="size-4 text-warning-primary" />
             <p className="mt-2 text-18 font-semibold text-primary">
               {orderedRequests.filter((request) => request.status === "PENDING").length}
             </p>
-            <p className="text-10 text-tertiary">Esperando firmas</p>
+            <p className="text-10 text-tertiary">{t("file_library.contracts.workflow.documents.awaiting")}</p>
           </div>
           <div className="rounded-lg border border-subtle p-4">
             <UserRoundCheck className="size-4 text-success-primary" />
             <p className="mt-2 text-18 font-semibold text-primary">
               {orderedRequests.filter((request) => request.status === "COMPLETED").length}
             </p>
-            <p className="text-10 text-tertiary">Completados</p>
+            <p className="text-10 text-tertiary">{t("file_library.contracts.workflow.documents.completed")}</p>
           </div>
         </div>
 
         <section className="overflow-hidden rounded-lg border border-subtle">
           <div className="border-b border-subtle px-4 py-3">
-            <h2 className="text-13 font-semibold text-primary">Seguimiento</h2>
-            <p className="mt-0.5 text-10 text-tertiary">Expande un contrato para consultar firmantes y respuestas.</p>
+            <h2 className="text-13 font-semibold text-primary">
+              {t("file_library.contracts.workflow.documents.tracking")}
+            </h2>
+            <p className="mt-0.5 text-10 text-tertiary">
+              {t("file_library.contracts.workflow.documents.tracking_description")}
+            </p>
           </div>
           {isLoading ? (
             <div className="grid min-h-48 place-items-center">
@@ -183,8 +193,12 @@ export function ContractDocuments({ workspaceSlug }: Props) {
           ) : orderedRequests.length === 0 ? (
             <div className="px-6 py-14 text-center">
               <Send className="mx-auto size-7 text-tertiary" />
-              <p className="mt-3 text-12 font-medium text-primary">No hay contratos preparados</p>
-              <p className="mt-1 text-10 text-tertiary">Usa una versión desde Plantillas para comenzar.</p>
+              <p className="mt-3 text-12 font-medium text-primary">
+                {t("file_library.contracts.workflow.documents.empty_title")}
+              </p>
+              <p className="mt-1 text-10 text-tertiary">
+                {t("file_library.contracts.workflow.documents.empty_description")}
+              </p>
             </div>
           ) : (
             <div className="divide-y divide-subtle">
@@ -208,7 +222,11 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                         <span className="min-w-0">
                           <span className="block truncate text-12 font-medium text-primary">{request.title}</span>
                           <span className="mt-1 flex flex-wrap items-center gap-2 text-9 text-tertiary">
-                            <span>Versión {request.revision.revision}</span>
+                            <span>
+                              {t("file_library.contracts.workflow.common.version_number", {
+                                number: request.revision.revision,
+                              })}
+                            </span>
                             <span>·</span>
                             <span
                               className={cn(
@@ -216,7 +234,10 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                                 signerCount > 0 && signedCount === signerCount ? "text-success-primary" : ""
                               )}
                             >
-                              {signedCount}/{signerCount} firmantes completados
+                              {t("file_library.contracts.workflow.documents.signers_completed", {
+                                signed: signedCount,
+                                total: signerCount,
+                              })}
                             </span>
                             <span>·</span>
                             <span>{new Date(request.created_at).toLocaleString()}</span>
@@ -225,16 +246,16 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                       </button>
                       <div className="flex flex-wrap items-center gap-2 md:justify-end">
                         <span className={cn("rounded-full px-2 py-1 text-9 font-medium", statusClass(request.status))}>
-                          {STATUS_LABELS[request.status]}
+                          {t(STATUS_LABEL_KEYS[request.status])}
                         </span>
                         {request.pdf_asset_id ? (
                           <Button variant="secondary" size="sm" onClick={() => previewRequest(request)}>
-                            <Eye className="size-3.5" /> Ver PDF
+                            <Eye className="size-3.5" /> {t("file_library.contracts.workflow.documents.view_pdf")}
                           </Button>
                         ) : null}
                         {request.status === "READY" ? (
                           <Button variant="primary" size="sm" onClick={() => setAuthoringRequest(request)}>
-                            <Send className="size-3.5" /> Revisar y enviar
+                            <Send className="size-3.5" /> {t("file_library.contracts.workflow.documents.review_send")}
                           </Button>
                         ) : null}
                         {request.documenso_envelope_id ? (
@@ -252,10 +273,10 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                               <RefreshCcw className="size-3.5" />
                             )}{" "}
                             {syncingId === request.id
-                              ? "Sincronizando…"
+                              ? t("file_library.contracts.workflow.documents.syncing")
                               : syncedId === request.id
-                                ? "Actualizado"
-                                : "Sincronizar"}
+                                ? t("file_library.contracts.workflow.common.updated")
+                                : t("file_library.contracts.workflow.documents.sync")}
                           </Button>
                         ) : null}
                         {request.documenso_envelope_id ? (
@@ -270,7 +291,7 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                             ) : (
                               <Link2 className="size-3.5" />
                             )}{" "}
-                            Enlaces
+                            {t("file_library.contracts.workflow.documents.links")}
                           </Button>
                         ) : null}
                       </div>
@@ -315,6 +336,7 @@ export function ContractDocuments({ workspaceSlug }: Props) {
 }
 
 function ContractProgressDetail({ request, isLoading }: { request: TContractSignatureRequest; isLoading: boolean }) {
+  const { t } = useTranslation();
   if (isLoading)
     return (
       <div className="grid min-h-28 place-items-center border-t border-subtle bg-layer-1">
@@ -341,12 +363,12 @@ function ContractProgressDetail({ request, isLoading }: { request: TContractSign
     <div className="border-t border-subtle bg-layer-1 p-4 sm:p-5">
       {request.signing_details?.error ? (
         <p className="mb-3 rounded-md bg-warning-primary/10 p-3 text-10 text-warning-primary">
-          No fue posible consultar el detalle remoto: {request.signing_details.error}
+          {t("file_library.contracts.workflow.documents.remote_error", { error: request.signing_details.error })}
         </p>
       ) : null}
       <div className="grid gap-3 lg:grid-cols-2">
         {participants.length === 0 ? (
-          <p className="text-11 text-tertiary">Aún no hay participantes configurados.</p>
+          <p className="text-11 text-tertiary">{t("file_library.contracts.workflow.documents.no_participants")}</p>
         ) : (
           participants.map((recipient, index) => {
             const fields = (request.signing_details?.fields ?? []).filter(
@@ -361,7 +383,8 @@ function ContractProgressDetail({ request, isLoading }: { request: TContractSign
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-11 font-semibold text-primary">
-                      {recipient.name || `Participante ${index + 1}`}
+                      {recipient.name ||
+                        t("file_library.contracts.workflow.documents.participant_number", { number: index + 1 })}
                     </p>
                     <p className="mt-0.5 truncate text-9 text-tertiary">{recipient.email}</p>
                   </div>
@@ -372,23 +395,43 @@ function ContractProgressDetail({ request, isLoading }: { request: TContractSign
                     )}
                   >
                     {completed ? <CheckCircle2 className="size-3" /> : <Clock3 className="size-3" />}
-                    {signerStatusLabel[recipient.signing_status] ?? recipient.signing_status}
+                    {SIGNER_STATUS_LABEL_KEYS[recipient.signing_status]
+                      ? t(SIGNER_STATUS_LABEL_KEYS[recipient.signing_status])
+                      : recipient.signing_status}
                   </span>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2 text-9 text-tertiary">
-                  <span>{recipient.send_status === "SENT" ? "Correo enviado" : "Sin enviar"}</span>
+                  <span>
+                    {t(
+                      recipient.send_status === "SENT"
+                        ? "file_library.contracts.workflow.documents.email_sent"
+                        : "file_library.contracts.workflow.signer_status.not_sent"
+                    )}
+                  </span>
                   <span>·</span>
-                  <span>{recipient.read_status === "OPENED" ? "Documento abierto" : "Sin abrir"}</span>
+                  <span>
+                    {t(
+                      recipient.read_status === "OPENED"
+                        ? "file_library.contracts.workflow.documents.document_opened"
+                        : "file_library.contracts.workflow.documents.not_opened"
+                    )}
+                  </span>
                   {recipient.signed_at ? (
                     <>
                       <span>·</span>
-                      <span>Firmó {new Date(recipient.signed_at).toLocaleString()}</span>
+                      <span>
+                        {t("file_library.contracts.workflow.documents.signed_at", {
+                          date: new Date(recipient.signed_at).toLocaleString(),
+                        })}
+                      </span>
                     </>
                   ) : null}
                 </div>
                 {fields.length > 0 ? (
                   <div className="mt-3 overflow-hidden rounded-md border border-subtle">
-                    <div className="bg-layer-1 px-3 py-2 text-9 font-semibold text-tertiary">CAMPOS COMPLETADOS</div>
+                    <div className="bg-layer-1 px-3 py-2 text-9 font-semibold text-tertiary">
+                      {t("file_library.contracts.workflow.documents.completed_fields")}
+                    </div>
                     <dl className="divide-y divide-subtle">
                       {fields.map((field) => (
                         <div
@@ -397,14 +440,16 @@ function ContractProgressDetail({ request, isLoading }: { request: TContractSign
                         >
                           <dt className="truncate text-9 text-tertiary">{field.label || field.type}</dt>
                           <dd className={cn("text-10 break-words text-primary", !field.value && "text-tertiary")}>
-                            {field.value || "Pendiente"}
+                            {field.value || t("file_library.contracts.workflow.signer_status.pending")}
                           </dd>
                         </div>
                       ))}
                     </dl>
                   </div>
                 ) : (
-                  <p className="mt-3 text-9 text-tertiary">No hay valores de campos disponibles todavía.</p>
+                  <p className="mt-3 text-9 text-tertiary">
+                    {t("file_library.contracts.workflow.documents.no_field_values")}
+                  </p>
                 )}
               </div>
             );
@@ -413,7 +458,9 @@ function ContractProgressDetail({ request, isLoading }: { request: TContractSign
       </div>
       {request.signing_details?.synced_at ? (
         <p className="mt-3 text-right text-9 text-tertiary">
-          Última consulta: {new Date(request.signing_details.synced_at).toLocaleString()}
+          {t("file_library.contracts.workflow.documents.last_sync", {
+            date: new Date(request.signing_details.synced_at).toLocaleString(),
+          })}
         </p>
       ) : null}
     </div>

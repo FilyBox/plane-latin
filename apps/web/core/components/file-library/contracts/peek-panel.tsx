@@ -57,7 +57,11 @@ const EDITABLE_TEXT_FIELDS: { key: keyof TContractUpdatePayload; i18nKey: string
   { key: "testigos", i18nKey: "file_library.contracts.fields.testigos" },
   { key: "involucrados", i18nKey: "file_library.contracts.fields.involucrados" },
   { key: "tiempo_extension_posible", i18nKey: "file_library.contracts.fields.tiempo_extension_posible" },
-  { key: "expansion_time_description", i18nKey: "file_library.contracts.fields.expansion_time_description", textarea: true },
+  {
+    key: "expansion_time_description",
+    i18nKey: "file_library.contracts.fields.expansion_time_description",
+    textarea: true,
+  },
   { key: "collection_period_description", i18nKey: "file_library.contracts.fields.collection_period_description" },
   { key: "collection_period_duration", i18nKey: "file_library.contracts.fields.collection_period_duration" },
   { key: "retention_period_description", i18nKey: "file_library.contracts.fields.retention_period_description" },
@@ -70,16 +74,32 @@ const DATE_FIELDS: { key: keyof TContractUpdatePayload; i18nKey: string }[] = [
   { key: "fecha_fin_efectiva", i18nKey: "file_library.contracts.fields.fecha_fin_efectiva" },
 ];
 
-const SELECT_FIELDS: { key: keyof TContractUpdatePayload; i18nKey: string; options: { value: string; i18nKey: string }[] }[] = [
-  { key: "estatus_contrato", i18nKey: "file_library.contracts.fields.estatus_contrato", options: CONTRACT_STATUS_OPTIONS },
+const SELECT_FIELDS: {
+  key: keyof TContractUpdatePayload;
+  i18nKey: string;
+  options: { value: string; i18nKey: string }[];
+}[] = [
+  {
+    key: "estatus_contrato",
+    i18nKey: "file_library.contracts.fields.estatus_contrato",
+    options: CONTRACT_STATUS_OPTIONS,
+  },
   { key: "tipo_contrato", i18nKey: "file_library.contracts.fields.tipo_contrato", options: CONTRACT_TYPE_OPTIONS },
   {
     key: "es_posible_expandirlo",
     i18nKey: "file_library.contracts.fields.es_posible_expandirlo",
     options: YES_NO_UNSPECIFIED_OPTIONS,
   },
-  { key: "periodo_coleccion", i18nKey: "file_library.contracts.fields.periodo_coleccion", options: YES_NO_UNSPECIFIED_OPTIONS },
-  { key: "periodo_retencion", i18nKey: "file_library.contracts.fields.periodo_retencion", options: YES_NO_UNSPECIFIED_OPTIONS },
+  {
+    key: "periodo_coleccion",
+    i18nKey: "file_library.contracts.fields.periodo_coleccion",
+    options: YES_NO_UNSPECIFIED_OPTIONS,
+  },
+  {
+    key: "periodo_retencion",
+    i18nKey: "file_library.contracts.fields.periodo_retencion",
+    options: YES_NO_UNSPECIFIED_OPTIONS,
+  },
 ];
 
 export function ContractPeekPanel(props: Props) {
@@ -110,7 +130,10 @@ export function ContractPeekPanel(props: Props) {
   const { data: jobs, mutate: mutateJobs } = useSWR(
     `CONTRACT_JOBS_${contractId}`,
     () => contractService.getJobs(workspaceSlug, { contractId }),
-    { refreshInterval: (latest) => (latest?.some((job) => job.status === "QUEUED" || job.status === "RUNNING") ? 2000 : 0) }
+    {
+      refreshInterval: (latest) =>
+        latest?.some((job) => job.status === "QUEUED" || job.status === "RUNNING") ? 2000 : 0,
+    }
   );
   const activeJob = jobs?.find((job) => job.status === "QUEUED" || job.status === "RUNNING");
 
@@ -215,9 +238,7 @@ export function ContractPeekPanel(props: Props) {
       onMutate();
       setToast({
         type: TOAST_TYPE.SUCCESS,
-        title: accept
-          ? t("file_library.contracts.reanalyze.applied")
-          : t("file_library.contracts.reanalyze.discarded"),
+        title: accept ? t("file_library.contracts.reanalyze.applied") : t("file_library.contracts.reanalyze.discarded"),
       });
     } catch {
       setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.reanalyze.failed") });
@@ -300,7 +321,9 @@ export function ContractPeekPanel(props: Props) {
         </label>
       ))}
       {contract?.ai_model_used && (
-        <p className="text-11 text-tertiary">{t("file_library.contracts.ai_model", { model: contract.ai_model_used })}</p>
+        <p className="text-11 text-tertiary">
+          {t("file_library.contracts.ai_model", { model: contract.ai_model_used })}
+        </p>
       )}
     </div>
   );
@@ -505,15 +528,13 @@ export function ContractPeekPanel(props: Props) {
             <div className="flex shrink-0 items-center gap-1 border-b border-subtle px-3 pt-2">
               {(["info", "process", "chat"] as Tab[]).map((key) => tabButton(key))}
             </div>
-            {isLoading || !contract ? (
-              loaderPane
-            ) : paneTab === "chat" ? (
-              chatPane
-            ) : paneTab === "process" ? (
-              processPane
-            ) : (
-              infoPane
-            )}
+            {isLoading || !contract
+              ? loaderPane
+              : paneTab === "chat"
+                ? chatPane
+                : paneTab === "process"
+                  ? processPane
+                  : infoPane}
             {saveBar}
           </div>
         </div>
@@ -551,7 +572,10 @@ function JobCard({ job }: { job: TContractJob }) {
       {/* progress bar + current stage */}
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-layer-1">
         <div
-          className={cn("h-full rounded-full transition-all", job.status === "FAILED" ? "bg-danger-strong" : "bg-accent-primary")}
+          className={cn(
+            "h-full rounded-full transition-all",
+            job.status === "FAILED" ? "bg-danger-strong" : "bg-accent-primary"
+          )}
           style={{ width: `${job.progress}%` }}
         />
       </div>

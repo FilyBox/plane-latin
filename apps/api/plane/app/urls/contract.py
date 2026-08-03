@@ -20,6 +20,7 @@ from plane.app.views import (
     ContractSignatureRequestLinksEndpoint,
     ContractSignatureRequestSyncEndpoint,
     ContractTemplateVariantDetailEndpoint,
+    ContractTemplateVariantEditSessionEndpoint,
     ContractTemplateVariantRevisionsEndpoint,
     ContractTemplateVariantSchemaEndpoint,
     ContractTemplateVariantsEndpoint,
@@ -69,6 +70,11 @@ urlpatterns = [
         "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/",
         ContractTemplateVariantDetailEndpoint.as_view(),
         name="contract-template-variant-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/edit-session/",
+        ContractTemplateVariantEditSessionEndpoint.as_view(),
+        name="contract-template-variant-edit-session",
     ),
     path(
         "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/revisions/",

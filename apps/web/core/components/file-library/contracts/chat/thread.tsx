@@ -37,7 +37,7 @@ function UserMessage() {
   return (
     <MessagePrimitive.Root asChild>
       <motion.div {...messageMotion} className="flex justify-end px-3 py-1.5">
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent-primary/10 px-3.5 py-2 text-13">
+        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-accent-primary/10 px-3.5 py-2 text-13 whitespace-pre-wrap">
           <MessagePrimitive.Parts components={PARTS_COMPONENTS} />
         </div>
       </motion.div>
@@ -49,7 +49,7 @@ function AssistantMessage() {
   return (
     <MessagePrimitive.Root asChild>
       <motion.div {...messageMotion} className="flex justify-start px-3 py-1.5">
-        <div className="max-w-[92%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-layer-1 px-3.5 py-2 text-13">
+        <div className="max-w-[92%] rounded-2xl rounded-bl-sm bg-layer-1 px-3.5 py-2 text-13 whitespace-pre-wrap">
           <MessagePrimitive.Parts components={PARTS_COMPONENTS} />
         </div>
       </motion.div>
@@ -86,10 +86,7 @@ export function ContractChatThread(props: Props) {
         </ThreadPrimitive.Empty>
         <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
         <ThreadPrimitive.If running>
-          <motion.div
-            {...messageMotion}
-            className="flex items-center gap-2 px-4 py-2 text-12 text-tertiary"
-          >
+          <motion.div {...messageMotion} className="flex items-center gap-2 px-4 py-2 text-12 text-tertiary">
             <Loader2 className="size-3.5 animate-spin" />
             <span className="animate-pulse">{t("file_library.contracts.chat.thinking")}</span>
           </motion.div>

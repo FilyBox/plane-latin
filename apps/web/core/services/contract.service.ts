@@ -274,8 +274,32 @@ export class ContractService extends APIService {
     );
   }
 
-  async saveTemplateRevision(workspaceSlug: string, variantId: string): Promise<TContractTemplateRevision> {
-    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/revisions/`).then(
+  async saveTemplateRevision(
+    workspaceSlug: string,
+    variantId: string,
+    name?: string
+  ): Promise<TContractTemplateRevision> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/revisions/`, { name }).then(
+      (response) => response.data
+    );
+  }
+
+  async startTemplateEditSession(workspaceSlug: string, variantId: string): Promise<{ backup_asset_id: string }> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/edit-session/`).then(
+      (response) => response.data
+    );
+  }
+
+  async finishTemplateEditSession(
+    workspaceSlug: string,
+    variantId: string,
+    payload: {
+      backup_asset_id: string;
+      action: "DISCARD" | "OVERWRITE" | "NEW_REVISION" | "NEW_VARIANT";
+      name?: string;
+    }
+  ): Promise<{ template: TContractTemplate; variant_id: string; revision_id: string | null; action: string }> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/edit-session/`, payload).then(
       (response) => response.data
     );
   }
