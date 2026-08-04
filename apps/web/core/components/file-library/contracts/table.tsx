@@ -4,13 +4,14 @@
  * See the LICENSE file for details.
  */
 
-import { Check, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import type { TContract, TContractJob } from "@plane/types";
 import { cn } from "@plane/utils";
 // local imports
 import { CONTRACT_STATUS_OPTIONS, CONTRACT_TYPE_OPTIONS } from "./constants";
+import { ContractSelectionCheckbox } from "./list-controls";
 import { ProcessingBadge } from "./processing-badge";
 
 type Props = {
@@ -27,24 +28,6 @@ type Props = {
 const statusLabelKey = (value: string | null) =>
   CONTRACT_STATUS_OPTIONS.find((o) => o.value === value)?.i18nKey ?? null;
 const typeLabelKey = (value: string | null) => CONTRACT_TYPE_OPTIONS.find((o) => o.value === value)?.i18nKey ?? null;
-
-function SelectCheckbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onChange();
-      }}
-      className={cn(
-        "flex size-4 shrink-0 items-center justify-center rounded-sm border",
-        checked ? "border-accent-strong bg-accent-primary text-on-color" : "border-strong"
-      )}
-    >
-      {checked && <Check className="size-3" />}
-    </button>
-  );
-}
 
 function StatusPill({ contract }: { contract: TContract }) {
   const { t } = useTranslation();
@@ -97,7 +80,7 @@ export function ContractsTable(props: Props) {
         <thead className="sticky top-0 z-[1] bg-surface-1">
           <tr className="border-b border-subtle text-11 font-medium text-tertiary">
             <th className="w-10 px-4 py-2">
-              <SelectCheckbox checked={allSelected} onChange={onToggleSelectAll} />
+              <ContractSelectionCheckbox checked={allSelected} onChange={onToggleSelectAll} />
             </th>
             <th className="px-2 py-2">{t("file_library.contracts.fields.titulo")}</th>
             <th className="px-3 py-2">{t("file_library.contracts.fields.artistas")}</th>
@@ -122,7 +105,7 @@ export function ContractsTable(props: Props) {
                 )}
               >
                 <td className="px-4 py-2.5">
-                  <SelectCheckbox
+                  <ContractSelectionCheckbox
                     checked={selectedIds.includes(contract.id)}
                     onChange={() => onToggleSelect(contract.id)}
                   />
@@ -170,7 +153,7 @@ export function ContractsTable(props: Props) {
               )}
             >
               <div className="flex items-start gap-2.5">
-                <SelectCheckbox
+                <ContractSelectionCheckbox
                   checked={selectedIds.includes(contract.id)}
                   onChange={() => onToggleSelect(contract.id)}
                 />

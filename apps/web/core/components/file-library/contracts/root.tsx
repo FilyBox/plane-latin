@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Download, Layers, Loader2, MessageSquare, Plus, RefreshCcw, Search, Sparkles, X } from "lucide-react";
+import { Download, Layers, Loader2, MessageSquare, Plus, RefreshCcw, Search, Sparkles } from "lucide-react";
 import { useSearchParams } from "react-router";
 import useSWR from "swr";
 // plane imports
@@ -23,6 +23,7 @@ import { downloadAssets } from "../download";
 // local imports
 import { ContractChatModal } from "./chat/chat-modal";
 import { AppliedContractFilters, ContractFiltersDropdown } from "./filters";
+import { ContractBulkActionsBar } from "./list-controls";
 import { ContractPeekPanel } from "./peek-panel";
 import { ContractQueryModal } from "./query-modal";
 import { RetryOptionsModal } from "./retry-options-modal";
@@ -163,11 +164,13 @@ export function ContractsRoot(props: Props) {
           setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.upload.no_category") });
           return;
         }
-        for (const file of pdfs) {
-          const response = await fileLibraryService.uploadFile(workspaceSlug, file);
-          await fileLibraryService.addFileCategories(workspaceSlug, response.asset_id, [contractsCategory.id]);
-          uploaded += 1;
-        }
+        await Promise.all(
+          pdfs.map(async (file) => {
+            const response = await fileLibraryService.uploadFile(workspaceSlug, file);
+            await fileLibraryService.addFileCategories(workspaceSlug, response.asset_id, [contractsCategory.id]);
+            uploaded += 1;
+          })
+        );
         setToast({
           type: TOAST_TYPE.SUCCESS,
           title: t("file_library.contracts.upload.started", { count: uploaded }),
@@ -291,48 +294,35 @@ export function ContractsRoot(props: Props) {
         />
 
         {/* bulk actions bar */}
-        {selectedIds.length > 0 && (
-          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle bg-layer-1 px-3 py-2 sm:px-4">
-            <span className="text-12 font-medium">
-              {t("file_library.contracts.bulk.selected", { count: selectedIds.length })}
-            </span>
-            <Button variant="secondary" size="sm" onClick={() => setIsBulkRetryModalOpen(true)} disabled={isBulkActing}>
-              <RefreshCcw className="size-3.5" />
-              {t("file_library.contracts.retry.button")}
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => void handleBulk("reanalyze")} disabled={isBulkActing}>
-              <Sparkles className="size-3.5" />
-              {t("file_library.contracts.reanalyze.button")}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() =>
-                void downloadContractFiles((contracts ?? []).filter((contract) => selectedIds.includes(contract.id)))
-              }
-            >
-              <Download className="size-3.5" />
-              {t("file_library.download_selected")}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setIsBulkActionsModalOpen(true)}
-              disabled={selectedFileAssetIds.length === 0}
-            >
-              <Layers className="size-3.5" />
-              {t("file_library.bulk.button")}
-            </Button>
-            <button
-              type="button"
-              onClick={() => setSelectedIds([])}
-              className="flex items-center gap-1 rounded-sm px-2 py-1 text-12 text-tertiary hover:bg-layer-1-hover"
-            >
-              <X className="size-3.5" />
-              {t("file_library.contracts.bulk.clear")}
-            </button>
-          </div>
-        )}
+        <ContractBulkActionsBar count={selectedIds.length} onClear={() => setSelectedIds([])}>
+          <Button variant="secondary" size="sm" onClick={() => setIsBulkRetryModalOpen(true)} disabled={isBulkActing}>
+            <RefreshCcw className="size-3.5" />
+            {t("file_library.contracts.retry.button")}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => void handleBulk("reanalyze")} disabled={isBulkActing}>
+            <Sparkles className="size-3.5" />
+            {t("file_library.contracts.reanalyze.button")}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              void downloadContractFiles((contracts ?? []).filter((contract) => selectedIds.includes(contract.id)))
+            }
+          >
+            <Download className="size-3.5" />
+            {t("file_library.download_selected")}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsBulkActionsModalOpen(true)}
+            disabled={selectedFileAssetIds.length === 0}
+          >
+            <Layers className="size-3.5" />
+            {t("file_library.bulk.button")}
+          </Button>
+        </ContractBulkActionsBar>
 
         {/* table (desktop) / cards (mobile) */}
         <div className="min-h-0 flex-1">

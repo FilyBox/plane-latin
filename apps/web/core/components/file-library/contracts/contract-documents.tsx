@@ -10,18 +10,20 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { FileCheck2, Link2, PenLine, RefreshCcw, Search, Send } from "lucide-react";
+import { Download, FileCheck2, Link2, Loader2, PenLine, RefreshCcw, Search, Send } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
-import { Input } from "@plane/propel/input";
+import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TContractSignatureRequest } from "@plane/types";
 import { CustomMenu } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
+import { downloadAssets } from "../download";
 import { ContractRequestPeek } from "./contract-request-peek";
-import { ContractEmptyState, ContractLoading, ContractPageHeader, RequestStatusBadge } from "./ui";
+import { ContractBulkActionsBar, ContractSelectionCheckbox } from "./list-controls";
+import { ContractEmptyState, ContractLoading, RequestStatusBadge } from "./ui";
 
 type Props = { workspaceSlug: string };
 type StatusFilter = "ALL" | "IN_PROGRESS" | "COMPLETED" | "DRAFTS" | "ATTENTION";
@@ -61,6 +63,8 @@ const FILTERS: { key: StatusFilter; labelKey: string; match: (r: TContractSignat
   },
 ];
 
+const isCompletedSignerStatus = (status: string) => ["SIGNED", "APPROVED", "COMPLETED"].includes(status);
+
 /** Compact "x minutes ago" without pulling in a date library. */
 function useRelativeTime() {
   const { t } = useTranslation();
@@ -83,6 +87,8 @@ export function ContractDocuments({ workspaceSlug }: Props) {
   const [filter, setFilter] = useState<StatusFilter>("ALL");
   const [peekRequestId, setPeekRequestId] = useState<string>();
   const [syncingId, setSyncingId] = useState<string>();
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkSyncing, setIsBulkSyncing] = useState(false);
 
   const {
     data: requests,
@@ -149,77 +155,177 @@ export function ContractDocuments({ workspaceSlug }: Props) {
     }
   };
 
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
-        <ContractPageHeader
-          title={t("file_library.contracts.workflow.documents.title")}
-          description={t("file_library.contracts.workflow.documents.description")}
-        />
+  const toggleSelect = (requestId: string) =>
+    setSelectedIds((current) =>
+      current.includes(requestId) ? current.filter((id) => id !== requestId) : [...current, requestId]
+    );
+  const toggleSelectAll = () =>
+    setSelectedIds((current) =>
+      visible.length > 0 && visible.every((request) => current.includes(request.id))
+        ? current.filter((id) => !visible.some((request) => request.id === id))
+        : [...new Set([...current, ...visible.map((request) => request.id)])]
+    );
 
-        {/* filters replace the old KPI card row — same numbers, but actionable */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative mr-auto">
+  const downloadRequests = async (items: TContractSignatureRequest[]) => {
+    const targets = items
+      .map((request) => {
+        const assetId =
+          request.status === "COMPLETED" && request.signed_asset_id
+            ? request.signed_asset_id
+            : request.rendered_pdf_asset_id || request.pdf_asset_id;
+        if (!assetId) return null;
+        return {
+          assetId,
+          name: `${request.title}${request.status === "COMPLETED" ? "-signed" : ""}.pdf`,
+        };
+      })
+      .filter((target): target is { assetId: string; name: string } => target !== null);
+    if (targets.length === 0) return;
+    try {
+      await downloadAssets(workspaceSlug, targets, "contratos-creados");
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.download_failed") });
+    }
+  };
+
+  const syncSelected = async () => {
+    const syncable = ordered.filter(
+      (request) => selectedIds.includes(request.id) && Boolean(request.documenso_envelope_id)
+    );
+    if (syncable.length === 0) return;
+    setIsBulkSyncing(true);
+    try {
+      await Promise.all(syncable.map((request) => contractService.syncSignatureRequest(workspaceSlug, request.id)));
+      await mutate();
+      setSelectedIds([]);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: t("file_library.contracts.workflow.documents.bulk_sync_success", { count: syncable.length }),
+      });
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.workflow.documents.sync_failed") });
+    } finally {
+      setIsBulkSyncing(false);
+    }
+  };
+
+  return (
+    <div className="relative flex h-full w-full flex-col overflow-hidden">
+      {/* filters replace the old KPI card row — same numbers, but actionable */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle px-3 py-2.5 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="relative">
             <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-tertiary" />
-            <Input
+            <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("file_library.contracts.workflow.documents.search_placeholder")}
-              className="w-56 pl-8"
+              className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pr-2 pl-8 text-12 sm:w-64"
             />
           </div>
-          {FILTERS.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setFilter(item.key)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-13 font-medium transition-colors",
-                filter === item.key
-                  ? "border-accent-strong bg-accent-subtle-hover text-accent-primary"
-                  : "border-subtle text-secondary hover:bg-layer-1-hover"
-              )}
-            >
-              {t(item.labelKey)}
-              <span
-                className={cn(
-                  "rounded px-1 text-11",
-                  filter === item.key ? "bg-surface-1 text-accent-primary" : "bg-layer-2 text-tertiary"
-                )}
-              >
-                {counts[item.key]}
-              </span>
-            </button>
-          ))}
+          <select
+            value={filter}
+            onChange={(event) => setFilter(event.target.value as StatusFilter)}
+            className="rounded-md border border-subtle bg-surface-1 px-2.5 py-1.5 text-12 text-secondary outline-none focus:border-accent-strong"
+          >
+            {FILTERS.map((item) => (
+              <option key={item.key} value={item.key}>
+                {t(item.labelKey)} ({counts[item.key]})
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={ordered.length === 0}
+            title={t("file_library.download_all_hint")}
+            onClick={() => void downloadRequests(ordered)}
+          >
+            <Download className="size-3.5" />
+            <span className="hidden lg:inline">{t("file_library.download_all")}</span>
+          </Button>
         </div>
 
-        <div className="overflow-hidden rounded-lg border border-subtle bg-layer-1">
-          {isLoading && !requests ? (
-            <ContractLoading />
-          ) : visible.length === 0 ? (
-            <ContractEmptyState
-              icon={<Send className="size-5" />}
-              title={t(
-                ordered.length === 0
-                  ? "file_library.contracts.workflow.documents.empty_title"
-                  : "file_library.contracts.workflow.documents.no_matches_title"
-              )}
-              description={t(
-                ordered.length === 0
-                  ? "file_library.contracts.workflow.documents.empty_description"
-                  : "file_library.contracts.workflow.documents.no_matches_description"
-              )}
-            />
-          ) : (
+        <span className="text-11 text-tertiary">
+          {t("file_library.contracts.workflow.documents.result_count", { count: visible.length })}
+        </span>
+      </div>
+
+      <ContractBulkActionsBar count={selectedIds.length} onClear={() => setSelectedIds([])}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => void downloadRequests(ordered.filter((request) => selectedIds.includes(request.id)))}
+        >
+          <Download className="size-3.5" />
+          {t("file_library.download_selected")}
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={
+            isBulkSyncing ||
+            !ordered.some((request) => selectedIds.includes(request.id) && request.documenso_envelope_id)
+          }
+          onClick={() => void syncSelected()}
+        >
+          {isBulkSyncing ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCcw className="size-3.5" />}
+          {t("file_library.contracts.workflow.documents.sync_selected")}
+        </Button>
+      </ContractBulkActionsBar>
+
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {isLoading && !requests ? (
+          <ContractLoading className="h-full" />
+        ) : visible.length === 0 ? (
+          <ContractEmptyState
+            className="h-full"
+            icon={<Send className="size-5" />}
+            title={t(
+              ordered.length === 0
+                ? "file_library.contracts.workflow.documents.empty_title"
+                : "file_library.contracts.workflow.documents.no_matches_title"
+            )}
+            description={t(
+              ordered.length === 0
+                ? "file_library.contracts.workflow.documents.empty_description"
+                : "file_library.contracts.workflow.documents.no_matches_description"
+            )}
+          />
+        ) : (
+          <div className="h-full overflow-auto">
+            <div className="sticky top-0 z-[2] hidden grid-cols-[40px_minmax(240px,1fr)_140px_240px_180px_40px] items-center border-b border-subtle bg-surface-1 text-11 font-medium text-tertiary md:grid">
+              <span className="px-4 py-2">
+                <ContractSelectionCheckbox
+                  checked={visible.every((request) => selectedIds.includes(request.id))}
+                  onChange={toggleSelectAll}
+                />
+              </span>
+              <span className="px-2 py-2">{t("file_library.contracts.workflow.common.contract")}</span>
+              <span className="px-3 py-2">{t("file_library.contracts.workflow.documents.status")}</span>
+              <span className="px-3 py-2">{t("file_library.contracts.workflow.documents.signing_progress")}</span>
+              <span className="px-3 py-2">{t("file_library.contracts.workflow.documents.activity")}</span>
+              <span className="px-3 py-2 text-right">{t("file_library.contracts.workflow.common.actions")}</span>
+            </div>
             <ul className="divide-y divide-subtle">
               {visible.map((request) => {
+                const remoteSigners = request.signing_details?.recipients ?? [];
                 const signerCount =
+                  remoteSigners.length ||
                   request.signers.length ||
                   request.recipients.filter((recipient) => recipient.role === "SIGNER").length;
-                const signedCount = request.signers.filter((signer) => signer.status === "SIGNED").length;
+                const signedCount = remoteSigners.length
+                  ? remoteSigners.filter((signer) => isCompletedSignerStatus(signer.signing_status)).length
+                  : request.signers.filter((signer) => isCompletedSignerStatus(signer.status)).length;
                 const needsAuthoring = request.status === "READY" || request.status === "DRAFT";
                 return (
-                  <li key={request.id} className="relative flex items-center gap-3 px-4 py-3 hover:bg-layer-1-hover">
+                  <li
+                    key={request.id}
+                    className={cn(
+                      "relative flex items-center gap-3 px-4 py-3 hover:bg-layer-1-hover md:grid md:grid-cols-[40px_minmax(240px,1fr)_140px_240px_180px_40px] md:gap-0 md:px-0 md:py-0",
+                      peekRequestId === request.id && "bg-layer-1"
+                    )}
+                  >
                     {/* Full-row click target as a real button, so the quick-actions
                         menu below is not nested inside another button. */}
                     <button
@@ -229,26 +335,59 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                       className="absolute inset-0 z-0 cursor-pointer"
                     />
 
-                    <span className="pointer-events-none z-1 grid size-8 shrink-0 place-items-center rounded-md bg-layer-2 text-accent-primary">
+                    <span className="z-1 md:px-4 md:py-2.5">
+                      <ContractSelectionCheckbox
+                        checked={selectedIds.includes(request.id)}
+                        onChange={() => toggleSelect(request.id)}
+                      />
+                    </span>
+
+                    <span className="pointer-events-none z-1 grid size-8 shrink-0 place-items-center rounded-md bg-layer-2 text-accent-primary md:hidden">
                       <FileCheck2 className="size-4" />
                     </span>
 
-                    <div className="pointer-events-none z-1 min-w-0 flex-1">
-                      <p className="truncate text-13 font-medium text-primary">{request.title}</p>
-                      <p className="mt-0.5 truncate text-11 text-tertiary">
-                        {t("file_library.contracts.workflow.common.version_number", {
-                          number: request.revision.revision,
-                        })}{" "}
-                        · {relative(request.updated_at)}
-                      </p>
+                    <div className="pointer-events-none z-1 flex min-w-0 flex-1 items-center gap-2 md:px-2 md:py-2.5">
+                      <FileCheck2 className="hidden size-4 shrink-0 text-accent-primary md:block" />
+                      <div className="min-w-0">
+                        <p className="truncate text-13 font-medium text-primary">{request.title}</p>
+                        <p className="mt-0.5 truncate text-11 text-tertiary">
+                          {t("file_library.contracts.workflow.common.version_number", {
+                            number: request.revision.revision,
+                          })}{" "}
+                          · {relative(request.updated_at)}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="pointer-events-none z-1 flex shrink-0 items-center gap-3">
-                      <SignerProgress signed={signedCount} total={signerCount} />
+                    <div className="pointer-events-none z-1 flex shrink-0 flex-col items-end gap-1 md:hidden">
+                      <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} />
+                      <span className="text-10 text-tertiary">
+                        {t("file_library.contracts.workflow.documents.signers_completed", {
+                          completed: signedCount,
+                          total: signerCount,
+                        })}
+                      </span>
+                    </div>
+
+                    <div className="pointer-events-none z-1 hidden px-3 py-2.5 md:block">
                       <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} />
                     </div>
 
-                    <div className="z-1 shrink-0">
+                    <div className="pointer-events-none z-1 hidden px-3 py-2.5 md:block">
+                      <SignerProgress signed={signedCount} total={signerCount} />
+                    </div>
+
+                    <div className="pointer-events-none z-1 hidden px-3 py-2.5 text-11 text-tertiary md:block">
+                      <p className="truncate">
+                        {request.completed_at
+                          ? new Date(request.completed_at).toLocaleString()
+                          : request.sent_at
+                            ? new Date(request.sent_at).toLocaleString()
+                            : relative(request.updated_at)}
+                      </p>
+                    </div>
+
+                    <div className="z-1 shrink-0 md:px-3 md:py-2.5 md:text-right">
                       <CustomMenu
                         ellipsis
                         placement="bottom-end"
@@ -276,14 +415,20 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                             </span>
                           </CustomMenu.MenuItem>
                         ) : null}
+                        <CustomMenu.MenuItem onClick={() => void downloadRequests([request])}>
+                          <span className="flex items-center gap-2">
+                            <Download className="size-3.5" />
+                            {t("file_library.download")}
+                          </span>
+                        </CustomMenu.MenuItem>
                       </CustomMenu>
                     </div>
                   </li>
                 );
               })}
             </ul>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {peekRequestId ? (

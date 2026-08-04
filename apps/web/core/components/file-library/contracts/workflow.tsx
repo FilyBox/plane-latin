@@ -11,37 +11,32 @@
  * Word file, and never opens an editor nobody asked for.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Braces,
   CheckCircle2,
-  ChevronRight,
+  Download,
   FilePlus2,
   FileText,
   Loader2,
   Plus,
+  Search,
   Trash2,
   Upload,
   UserRound,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TContractTemplate, TContractTemplateSchemaResponse } from "@plane/types";
-import { AlertModalCore, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
+import { AlertModalCore, CustomMenu, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
-import {
-  ContractEmptyState,
-  ContractField,
-  ContractInput,
-  ContractLoading,
-  ContractPageHeader,
-  ContractSection,
-  ContractTextarea,
-} from "./ui";
+import { downloadAssets } from "../download";
+import { ContractBulkActionsBar, ContractSelectionCheckbox } from "./list-controls";
+import { ContractEmptyState, ContractField, ContractInput, ContractLoading, ContractTextarea } from "./ui";
 
 type Props = { workspaceSlug: string };
 
@@ -66,6 +61,9 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
   const [created, setCreated] = useState<CreatedTemplate>();
   const [deletingTemplate, setDeletingTemplate] = useState<TContractTemplate>();
   const [isDeleting, setIsDeleting] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const closeCreation = () => {
     setUploadOpen(false);
@@ -125,113 +123,266 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
     navigate(`/${workspaceSlug}/file-library/contracts/templates/${templateId}`);
   };
 
+  const orderedTemplates = useMemo(
+    () =>
+      [...(templates ?? [])].sort(
+        (left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+      ),
+    [templates]
+  );
+  const visibleTemplates = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return orderedTemplates;
+    return orderedTemplates.filter(
+      (template) => template.name.toLowerCase().includes(term) || template.description.toLowerCase().includes(term)
+    );
+  }, [orderedTemplates, search]);
+
+  const toggleSelect = (templateId: string) =>
+    setSelectedIds((current) =>
+      current.includes(templateId) ? current.filter((id) => id !== templateId) : [...current, templateId]
+    );
+  const toggleSelectAll = () =>
+    setSelectedIds((current) =>
+      visibleTemplates.length > 0 && visibleTemplates.every((template) => current.includes(template.id))
+        ? current.filter((id) => !visibleTemplates.some((template) => template.id === id))
+        : [...new Set([...current, ...visibleTemplates.map((template) => template.id)])]
+    );
+
+  const downloadTemplates = async (items: TContractTemplate[]) => {
+    const targets = items.flatMap((template) =>
+      template.variants.map((variant) => ({
+        assetId: variant.source_asset_id,
+        name: variant.source_file_name || `${template.name}-${variant.name}.docx`,
+      }))
+    );
+    const uniqueTargets = [...new Map(targets.map((target) => [target.assetId, target])).values()];
+    if (uniqueTargets.length === 0) return;
+    try {
+      await downloadAssets(workspaceSlug, uniqueTargets, "plantillas-contratos");
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.download_failed") });
+    }
+  };
+
+  const deleteSelectedTemplates = async () => {
+    if (selectedIds.length === 0) return;
+    setIsDeleting(true);
+    try {
+      await Promise.all(selectedIds.map((templateId) => contractService.deleteTemplate(workspaceSlug, templateId)));
+      await mutate();
+      setSelectedIds([]);
+      setBulkDeleteOpen(false);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: t("file_library.contracts.workflow.templates.bulk_deleted", { count: selectedIds.length }),
+      });
+    } catch (error: any) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: error?.error ?? t("file_library.contracts.workflow.templates.delete_failed"),
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
-        <ContractPageHeader
-          title={t("file_library.contracts.workflow.templates.title")}
-          description={t("file_library.contracts.workflow.templates.description")}
-          actions={
-            <Button variant="primary" size="sm" onClick={() => setUploadOpen(true)}>
-              <Plus className="size-4" /> {t("file_library.contracts.workflow.templates.new")}
-            </Button>
-          }
-        />
-
-        <div className="flex items-start gap-3 rounded-lg border border-subtle bg-layer-1 p-4">
-          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-accent-subtle-hover text-accent-primary">
-            <Braces className="size-4" />
-          </span>
-          <div>
-            <p className="text-13 font-medium text-primary">
-              {t("file_library.contracts.workflow.templates.variables_title")}
-            </p>
-            <p className="mt-1 text-11 leading-4 text-tertiary">
-              {t("file_library.contracts.workflow.templates.variables_prefix")} <code>{"{{NombreFirmante1}}"}</code>,{" "}
-              <code>{"{{CorreoFirmante1}}"}</code> {t("file_library.contracts.workflow.templates.variables_or")}{" "}
-              <code>{"{{FirmaFirmante1}}"}</code>. {t("file_library.contracts.workflow.templates.variables_suffix")}
-            </p>
+    <div className="relative flex h-full w-full flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle px-3 py-2.5 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="relative">
+            <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-tertiary" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("file_library.contracts.workflow.templates.search_placeholder")}
+              className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pr-2 pl-8 text-12 sm:w-64"
+            />
           </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={orderedTemplates.length === 0}
+            title={t("file_library.download_all_hint")}
+            onClick={() => void downloadTemplates(orderedTemplates)}
+          >
+            <Download className="size-3.5" />
+            <span className="hidden lg:inline">{t("file_library.download_all")}</span>
+          </Button>
         </div>
+        <Button variant="primary" size="sm" onClick={() => setUploadOpen(true)}>
+          <Plus className="size-3.5" /> {t("file_library.contracts.workflow.templates.new")}
+        </Button>
+      </div>
 
-        <ContractSection
-          title={t("file_library.contracts.workflow.templates.library")}
-          description={t("file_library.contracts.workflow.templates.library_description")}
-          actions={
-            <span className="text-11 text-tertiary">
-              {t("file_library.contracts.workflow.templates.count", { count: templates?.length ?? 0 })}
-            </span>
+      <div className="flex shrink-0 items-start gap-3 border-b border-subtle bg-layer-1 px-3 py-2.5 sm:px-4">
+        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-accent-subtle-hover text-accent-primary">
+          <Braces className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-13 font-medium text-primary">
+            {t("file_library.contracts.workflow.templates.variables_title")}
+          </p>
+          <p className="mt-0.5 truncate text-11 text-tertiary">
+            {t("file_library.contracts.workflow.templates.variables_prefix")} <code>{"{{NombreFirmante1}}"}</code>,{" "}
+            <code>{"{{CorreoFirmante1}}"}</code> {t("file_library.contracts.workflow.templates.variables_or")}{" "}
+            <code>{"{{FirmaFirmante1}}"}</code>. {t("file_library.contracts.workflow.templates.variables_suffix")}
+          </p>
+        </div>
+      </div>
+
+      <ContractBulkActionsBar count={selectedIds.length} onClear={() => setSelectedIds([])}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() =>
+            void downloadTemplates(orderedTemplates.filter((template) => selectedIds.includes(template.id)))
           }
         >
-          {isLoading ? (
-            <ContractLoading />
-          ) : (templates ?? []).length === 0 ? (
-            <ContractEmptyState
-              icon={<FilePlus2 className="size-5" />}
-              title={t("file_library.contracts.workflow.templates.empty_title")}
-              description={t("file_library.contracts.workflow.templates.empty_description")}
-              action={
-                <Button variant="primary" size="sm" onClick={() => setUploadOpen(true)}>
-                  <Upload className="size-4" /> {t("file_library.contracts.workflow.templates.upload_word")}
-                </Button>
-              }
-            />
-          ) : (
-            <ul className="divide-y divide-subtle">
-              {(templates ?? []).map((template) => {
+          <Download className="size-3.5" />
+          {t("file_library.download_selected")}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+          <Trash2 className="size-3.5" />
+          {t("file_library.contracts.workflow.templates.delete_selected")}
+        </Button>
+      </ContractBulkActionsBar>
+
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {isLoading ? (
+          <ContractLoading className="h-full" />
+        ) : orderedTemplates.length === 0 ? (
+          <ContractEmptyState
+            className="h-full"
+            icon={<FilePlus2 className="size-5" />}
+            title={t("file_library.contracts.workflow.templates.empty_title")}
+            description={t("file_library.contracts.workflow.templates.empty_description")}
+            action={
+              <Button variant="primary" size="sm" onClick={() => setUploadOpen(true)}>
+                <Upload className="size-4" /> {t("file_library.contracts.workflow.templates.upload_word")}
+              </Button>
+            }
+          />
+        ) : visibleTemplates.length === 0 ? (
+          <ContractEmptyState
+            className="h-full"
+            icon={<Search className="size-5" />}
+            title={t("file_library.contracts.workflow.templates.no_matches_title")}
+            description={t("file_library.contracts.workflow.templates.no_matches_description")}
+          />
+        ) : (
+          <div className="h-full overflow-auto">
+            <table className="hidden w-full min-w-[820px] border-collapse text-left md:table">
+              <thead className="sticky top-0 z-[1] bg-surface-1">
+                <tr className="border-b border-subtle text-11 font-medium text-tertiary">
+                  <th className="w-10 px-4 py-2">
+                    <ContractSelectionCheckbox
+                      checked={visibleTemplates.every((template) => selectedIds.includes(template.id))}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
+                  <th className="px-2 py-2">{t("file_library.contracts.workflow.common.name")}</th>
+                  <th className="px-3 py-2">{t("file_library.contracts.workflow.common.description")}</th>
+                  <th className="px-3 py-2">{t("file_library.contracts.workflow.common.variants")}</th>
+                  <th className="px-3 py-2">{t("file_library.contracts.workflow.common.versions")}</th>
+                  <th className="px-3 py-2">{t("file_library.contracts.workflow.templates.updated_at")}</th>
+                  <th className="w-12 px-3 py-2 text-right">{t("file_library.contracts.workflow.common.actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleTemplates.map((template) => {
+                  const revisionCount = template.variants.reduce((total, variant) => total + variant.revision_count, 0);
+                  return (
+                    <tr
+                      key={template.id}
+                      onClick={() => goToTemplate(template.id)}
+                      className="cursor-pointer border-b border-subtle text-13 hover:bg-layer-1-hover"
+                    >
+                      <td className="px-4 py-2.5">
+                        <ContractSelectionCheckbox
+                          checked={selectedIds.includes(template.id)}
+                          onChange={() => toggleSelect(template.id)}
+                        />
+                      </td>
+                      <td className="max-w-64 px-2 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <FileText className="size-4 shrink-0 text-accent-primary" />
+                          <span className="truncate font-medium text-primary">{template.name}</span>
+                        </div>
+                      </td>
+                      <td className="max-w-96 truncate px-3 py-2.5 text-secondary">
+                        {template.description || t("file_library.contracts.workflow.common.no_description")}
+                      </td>
+                      <td className="px-3 py-2.5 tabular-nums">{template.variants.length}</td>
+                      <td className="px-3 py-2.5 tabular-nums">{revisionCount}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap text-tertiary">
+                        {new Date(template.updated_at).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2.5 text-right" onClick={(event) => event.stopPropagation()}>
+                        <CustomMenu
+                          ellipsis
+                          placement="bottom-end"
+                          ariaLabel={t("file_library.contracts.workflow.common.actions")}
+                        >
+                          <CustomMenu.MenuItem onClick={() => goToTemplate(template.id)}>
+                            {t("file_library.contracts.workflow.templates.open_named", { name: template.name })}
+                          </CustomMenu.MenuItem>
+                          <CustomMenu.MenuItem onClick={() => void downloadTemplates([template])}>
+                            {t("file_library.download")}
+                          </CustomMenu.MenuItem>
+                          <CustomMenu.MenuItem onClick={() => setDeletingTemplate(template)}>
+                            <span className="text-danger-primary">
+                              {t("file_library.contracts.workflow.templates.delete_named", { name: template.name })}
+                            </span>
+                          </CustomMenu.MenuItem>
+                        </CustomMenu>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <div className="space-y-2 p-3 md:hidden">
+              {visibleTemplates.map((template) => {
                 const revisionCount = template.variants.reduce((total, variant) => total + variant.revision_count, 0);
                 return (
-                  <li key={template.id} className="group flex items-center gap-3 px-4 py-3 hover:bg-layer-1-hover">
-                    <Link
-                      to={`/${workspaceSlug}/file-library/contracts/templates/${template.id}`}
-                      className="flex min-w-0 flex-1 items-center gap-3"
-                    >
-                      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-layer-2 text-accent-primary">
-                        <FileText className="size-4" />
+                  <div
+                    key={template.id}
+                    className="relative w-full rounded-lg border border-subtle p-3 text-left hover:bg-layer-1-hover"
+                  >
+                    <button
+                      type="button"
+                      aria-label={template.name}
+                      onClick={() => goToTemplate(template.id)}
+                      className="absolute inset-0 z-0"
+                    />
+                    <div className="pointer-events-none relative z-1 flex items-start gap-2.5">
+                      <span className="pointer-events-auto">
+                        <ContractSelectionCheckbox
+                          checked={selectedIds.includes(template.id)}
+                          onChange={() => toggleSelect(template.id)}
+                        />
                       </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-13 font-medium text-primary">{template.name}</span>
-                        <span className="block max-w-md truncate text-11 text-tertiary">
+                      <FileText className="size-4 shrink-0 text-accent-primary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-13 font-medium text-primary">{template.name}</p>
+                        <p className="mt-1 truncate text-11 text-tertiary">
                           {template.description || t("file_library.contracts.workflow.common.no_description")}
-                        </span>
-                      </span>
-                    </Link>
-                    <div className="hidden shrink-0 items-center gap-4 text-11 text-tertiary sm:flex">
-                      <span>
-                        {template.variants.length} {t("file_library.contracts.workflow.common.variants")}
-                      </span>
-                      <span>
-                        {revisionCount} {t("file_library.contracts.workflow.common.versions")}
-                      </span>
-                      <span>{new Date(template.updated_at).toLocaleDateString()}</span>
+                        </p>
+                        <p className="mt-2 text-11 text-tertiary">
+                          {template.variants.length} {t("file_library.contracts.workflow.common.variants")} ·{" "}
+                          {revisionCount} {t("file_library.contracts.workflow.common.versions")}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setDeletingTemplate(template)}
-                        className="rounded p-1.5 text-tertiary hover:bg-layer-2 hover:text-danger-primary"
-                        aria-label={t("file_library.contracts.workflow.templates.delete_named", {
-                          name: template.name,
-                        })}
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                      <Link
-                        to={`/${workspaceSlug}/file-library/contracts/templates/${template.id}`}
-                        className="rounded p-1.5 text-tertiary hover:bg-layer-2 hover:text-primary"
-                        aria-label={t("file_library.contracts.workflow.templates.open_named", {
-                          name: template.name,
-                        })}
-                      >
-                        <ChevronRight className="size-4" />
-                      </Link>
-                    </div>
-                  </li>
+                  </div>
                 );
               })}
-            </ul>
-          )}
-        </ContractSection>
+            </div>
+          </div>
+        )}
       </div>
 
       <ModalCore
@@ -334,6 +485,16 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
             {t("file_library.contracts.workflow.templates.delete_suffix")}
           </>
         }
+      />
+      <AlertModalCore
+        isOpen={bulkDeleteOpen}
+        handleClose={() => setBulkDeleteOpen(false)}
+        handleSubmit={() => void deleteSelectedTemplates()}
+        isSubmitting={isDeleting}
+        title={t("file_library.contracts.workflow.templates.delete_selected")}
+        content={t("file_library.contracts.workflow.templates.bulk_delete_description", {
+          count: selectedIds.length,
+        })}
       />
     </div>
   );

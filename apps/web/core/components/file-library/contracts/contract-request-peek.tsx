@@ -3,41 +3,31 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  * See the LICENSE file for details.
  *
- * Peek panel for a signature request — the same side-peek / modal / full-screen
- * shell the work-item and analyzed-contract peeks use.
- *
- * This panel is where every process in the contracts flow *ends*: sending,
- * signing, sealing and the hand-off to the AI analysis all resolve into a
- * visible terminal state here instead of a toast that leaves the user nowhere.
+ * Signature request detail rendered with the same preview-first shell as the
+ * analyzed-contract panel. Signing information stays first; AI data only
+ * appears after the request reaches COMPLETED.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
-import { AlertTriangle, Link2, RefreshCcw, X } from "lucide-react";
+import { AlertTriangle, Link2, Loader2, RefreshCcw } from "lucide-react";
 import { Link } from "react-router";
 import useSWR from "swr";
 // plane imports
+import { PDFViewer } from "@plane/extend-ui";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
-import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/propel/icons";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import { Tooltip } from "@plane/propel/tooltip";
-import type { TContractSignatureRequest, TContractSigningLink } from "@plane/types";
+import type { TContract, TContractSignatureRequest, TContractSigningLink } from "@plane/types";
 import { cn } from "@plane/utils";
 // services
 import { contractService } from "@/services/contract.service";
+import { fileLibraryService } from "@/services/file-library.service";
 // local imports
-import { FilePreviewModal, type TPreviewFile } from "../file-preview-modal";
-import { ContractEmptyState, ContractLoading, ContractSection } from "./ui";
+import { downloadAssets } from "../download";
+import { ContractPeekLayout, type TContractPeekTab } from "./contract-peek-layout";
+import { ContractEmptyState, ContractLoading, ContractSection, RequestStatusBadge } from "./ui";
 
-type TPeekModes = "side-peek" | "modal" | "full-screen";
-type Tab = "progress" | "document" | "links";
-
-const PEEK_OPTIONS: { key: TPeekModes; icon: typeof SidePanelIcon; i18nKey: string }[] = [
-  { key: "side-peek", icon: SidePanelIcon, i18nKey: "common.side_peek" },
-  { key: "modal", icon: CenterPanelIcon, i18nKey: "common.modal" },
-  { key: "full-screen", icon: FullScreenPanelIcon, i18nKey: "common.full_screen" },
-];
+type Tab = "document" | "signature" | "analysis" | "process" | "links";
 
 const STATUS_LABEL_KEYS: Record<TContractSignatureRequest["status"], string> = {
   DRAFT: "file_library.contracts.workflow.request_status.draft",
@@ -69,18 +59,16 @@ type Props = {
   requestId: string;
   onClose: () => void;
   onMutate: () => void;
-  /** Opens the field editor route for a request that is still being authored. */
   onOpenEditor: (request: TContractSignatureRequest) => void;
 };
 
 export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutate, onOpenEditor }: Props) {
   const { t } = useTranslation();
-  const [peekMode, setPeekMode] = useState<TPeekModes>("side-peek");
-  const [tab, setTab] = useState<Tab>("progress");
+  const [tab, setTab] = useState<Tab>("signature");
   const [isSyncing, setIsSyncing] = useState(false);
   const [links, setLinks] = useState<TContractSigningLink[]>();
   const [isLoadingLinks, setIsLoadingLinks] = useState(false);
-  const [previewFile, setPreviewFile] = useState<TPreviewFile | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
   const {
     data: request,
@@ -90,21 +78,51 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
     `CONTRACT_SIGNATURE_REQUEST_${workspaceSlug}_${requestId}`,
     () => contractService.getSignatureRequest(workspaceSlug, requestId),
     {
-      // Poll while the envelope is still moving; stop once it reaches a terminal state.
       refreshInterval: (latest) => (latest && ["PENDING", "PREPARING", "READY"].includes(latest.status) ? 10000 : 0),
       revalidateOnFocus: false,
     }
   );
 
+  const canShowAnalysis = request?.status === "COMPLETED";
+  const { data: analysis, isLoading: isLoadingAnalysis } = useSWR<TContract>(
+    canShowAnalysis && request?.analysis_contract_id
+      ? `CONTRACT_DETAIL_${workspaceSlug}_${request.analysis_contract_id}`
+      : null,
+    () => contractService.getContract(workspaceSlug, request!.analysis_contract_id!),
+    { revalidateOnFocus: false }
+  );
+
+  const previewAssetId =
+    request?.status === "COMPLETED" && request.signed_asset_id
+      ? request.signed_asset_id
+      : request?.rendered_pdf_asset_id || request?.pdf_asset_id;
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !previewFile) onClose();
+      if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, previewFile]);
+  }, [onClose]);
 
-  // Signing links only exist once an envelope was created without email delivery.
+  useEffect(() => {
+    let cancelled = false;
+    setPdfUrl(null);
+    if (!previewAssetId) return;
+    const loadPreview = async () => {
+      try {
+        const url = await fileLibraryService.getPresignedViewUrl(workspaceSlug, previewAssetId);
+        if (!cancelled) setPdfUrl(url);
+      } catch {
+        if (!cancelled) setPdfUrl(null);
+      }
+    };
+    void loadPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewAssetId, workspaceSlug]);
+
   useEffect(() => {
     if (tab !== "links" || links || !request?.documenso_envelope_id) return;
     setIsLoadingLinks(true);
@@ -153,340 +171,363 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
 
   const signedCount = participants.filter((participant) => isSignedStatus(participant.signing_status)).length;
 
-  const openPdf = (signed: boolean) => {
-    if (!request) return;
-    const assetId = signed ? request.signed_asset_id : request.pdf_asset_id;
-    if (!assetId) return;
-    setPreviewFile({
-      assetId,
-      name: `${request.title}${signed ? t("file_library.contracts.workflow.documents.signed_suffix") : ""}.pdf`,
-      contentType: "application/pdf",
-    });
-  };
-
   const copyLink = async (url: string) => {
     await navigator.clipboard.writeText(url);
     setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.workflow.common.copied") });
   };
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "progress", label: t("file_library.contracts.workflow.request_peek.tab_progress") },
-    { key: "document", label: t("file_library.contracts.workflow.request_peek.tab_document") },
+  const downloadSigned = async () => {
+    if (!request?.signed_asset_id) return;
+    try {
+      await downloadAssets(
+        workspaceSlug,
+        [
+          {
+            assetId: request.signed_asset_id,
+            name: `${request.title}${t("file_library.contracts.workflow.documents.signed_suffix")}.pdf`,
+          },
+        ],
+        request.title
+      );
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.download_failed") });
+    }
+  };
+
+  const tabs: TContractPeekTab[] = [
+    {
+      key: "document",
+      label: t("file_library.contracts.workflow.request_peek.tab_document"),
+      document: true,
+    },
+    {
+      key: "signature",
+      label: t("file_library.contracts.workflow.request_peek.tab_signature"),
+    },
+    ...(canShowAnalysis
+      ? [
+          {
+            key: "analysis",
+            label: t("file_library.contracts.workflow.request_peek.tab_analysis"),
+          },
+          {
+            key: "process",
+            label: t("file_library.contracts.tabs.process"),
+          },
+        ]
+      : []),
     ...(request?.documenso_envelope_id
-      ? [{ key: "links" as Tab, label: t("file_library.contracts.workflow.request_peek.tab_links") }]
+      ? [
+          {
+            key: "links",
+            label: t("file_library.contracts.workflow.request_peek.tab_links"),
+          },
+        ]
       : []),
   ];
 
-  return createPortal(
-    <div
-      className={cn("fixed z-30 flex flex-col overflow-hidden bg-surface-1", {
-        "top-0 right-0 h-full w-full border-l border-subtle md:w-[45%]": peekMode === "side-peek",
-        "shadow-xl top-1/2 left-1/2 h-[85%] w-[85%] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-subtle":
-          peekMode === "modal",
-        "inset-0 size-full": peekMode === "full-screen",
-      })}
-    >
-      {/* header */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-subtle px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <button
-            type="button"
-            aria-label={t("file_library.contracts.workflow.common.close")}
-            className="grid size-7 shrink-0 place-items-center rounded-md text-tertiary hover:bg-layer-1-hover hover:text-primary"
-            onClick={onClose}
-          >
-            <X className="size-4" />
-          </button>
-          <div className="min-w-0">
-            <p className="truncate text-14 font-semibold text-primary">{request?.title ?? "—"}</p>
-            {request ? (
-              <p className="mt-0.5 truncate text-11 text-tertiary">
-                {t("file_library.contracts.workflow.common.version_number", { number: request.revision.revision })} ·{" "}
-                {new Date(request.created_at).toLocaleString()}
-              </p>
-            ) : null}
+  const documentPane =
+    isLoading && !request ? (
+      <ContractLoading className="h-full" />
+    ) : !previewAssetId ? (
+      <ContractEmptyState
+        className="h-full"
+        icon={<AlertTriangle className="size-5" />}
+        title={t("file_library.contracts.workflow.request_peek.preview_unavailable")}
+      />
+    ) : pdfUrl ? (
+      <PDFViewer src={pdfUrl} fileName={`${request?.title ?? "contract"}.pdf`} className="h-full" showUpload={false} />
+    ) : (
+      <div className="flex h-full items-center justify-center text-tertiary">
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+    );
+
+  const signaturePane = !request ? (
+    <ContractLoading className="h-full" />
+  ) : (
+    <div className="h-full overflow-y-auto p-4">
+      <ContractSection
+        title={t("file_library.contracts.workflow.request_peek.signers_title")}
+        description={t("file_library.contracts.workflow.documents.signers_completed", {
+          completed: signedCount,
+          total: participants.length,
+        })}
+        bodyClassName="divide-y divide-subtle"
+      >
+        {participants.length === 0 ? (
+          <p className="px-4 py-6 text-center text-13 text-tertiary">
+            {t("file_library.contracts.workflow.documents.no_participants")}
+          </p>
+        ) : (
+          participants.map((participant, index) => {
+            const fields = (request.signing_details?.fields ?? []).filter(
+              (field) => field.recipient_id === participant.id
+            );
+            const done = isSignedStatus(participant.signing_status);
+            const rejected = participant.signing_status === "REJECTED";
+            return (
+              <div key={participant.id ?? `${participant.email}:${participant.role}`} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-13 font-medium text-primary">
+                      {participant.name ||
+                        t("file_library.contracts.workflow.documents.participant_number", {
+                          number: index + 1,
+                        })}
+                    </p>
+                    <p className="truncate text-11 text-tertiary">{participant.email}</p>
+                  </div>
+                  <span
+                    className={cn(
+                      "shrink-0 text-11",
+                      done ? "text-success-primary" : rejected ? "text-danger-primary" : "text-tertiary"
+                    )}
+                  >
+                    {SIGNER_STATUS_LABEL_KEYS[participant.signing_status]
+                      ? t(SIGNER_STATUS_LABEL_KEYS[participant.signing_status])
+                      : participant.signing_status}
+                  </span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-11 text-tertiary">
+                  <span>
+                    {t(
+                      participant.send_status === "SENT"
+                        ? "file_library.contracts.workflow.documents.email_sent"
+                        : "file_library.contracts.workflow.signer_status.not_sent"
+                    )}
+                  </span>
+                  <span>
+                    {t(
+                      participant.read_status === "OPENED"
+                        ? "file_library.contracts.workflow.documents.document_opened"
+                        : "file_library.contracts.workflow.documents.not_opened"
+                    )}
+                  </span>
+                  {participant.signed_at ? (
+                    <span>
+                      {t("file_library.contracts.workflow.documents.signed_at", {
+                        date: new Date(participant.signed_at).toLocaleString(),
+                      })}
+                    </span>
+                  ) : null}
+                </div>
+                {participant.rejection_reason ? (
+                  <p className="mt-2 text-11 text-danger-primary">{participant.rejection_reason}</p>
+                ) : null}
+                {fields.length > 0 ? (
+                  <dl className="mt-2 space-y-1">
+                    {fields.map((field) => (
+                      <div
+                        key={field.id ?? `${field.type}:${field.page}:${field.label}`}
+                        className="flex gap-3 text-11"
+                      >
+                        <dt className="w-32 shrink-0 truncate text-tertiary">{field.label || field.type}</dt>
+                        <dd className={cn("min-w-0 break-words", field.value ? "text-primary" : "text-tertiary")}>
+                          {field.value || t("file_library.contracts.workflow.signer_status.pending")}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+              </div>
+            );
+          })
+        )}
+      </ContractSection>
+      {request.signing_details?.synced_at ? (
+        <p className="mt-3 text-right text-11 text-tertiary">
+          {t("file_library.contracts.workflow.documents.last_sync", {
+            date: new Date(request.signing_details.synced_at).toLocaleString(),
+          })}
+        </p>
+      ) : null}
+    </div>
+  );
+
+  const linksPane = isLoadingLinks ? (
+    <ContractLoading className="h-full" />
+  ) : (links ?? []).length === 0 ? (
+    <ContractEmptyState
+      className="h-full"
+      icon={<Link2 className="size-5" />}
+      title={t("file_library.contracts.workflow.request_peek.no_links")}
+      description={t("file_library.contracts.workflow.request_peek.no_links_description")}
+    />
+  ) : (
+    <div className="h-full space-y-2 overflow-y-auto p-4">
+      {(links ?? []).map((link) => (
+        <div key={link.id ?? `${link.email}:${link.role}`} className="rounded-lg border border-subtle bg-layer-1 p-3">
+          <p className="text-13 font-medium text-primary">{link.name || link.email}</p>
+          <p className="mt-0.5 text-11 text-tertiary">{link.email}</p>
+          <div className="mt-2 flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded bg-layer-2 px-2 py-1.5 text-11 text-secondary">
+              {link.url}
+            </code>
+            <Button variant="secondary" size="sm" onClick={() => void copyLink(link.url)}>
+              {t("file_library.contracts.workflow.common.copy")}
+            </Button>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {request?.documenso_envelope_id ? (
-            <Tooltip tooltipContent={t("file_library.contracts.workflow.documents.sync")}>
-              <button
-                type="button"
-                aria-label={t("file_library.contracts.workflow.documents.sync")}
-                disabled={isSyncing}
-                onClick={() => void sync()}
-                className="grid size-7 place-items-center rounded-md text-tertiary hover:bg-layer-1-hover hover:text-primary"
-              >
-                <RefreshCcw className={cn("size-3.5", isSyncing && "animate-spin")} />
-              </button>
-            </Tooltip>
-          ) : null}
-          {PEEK_OPTIONS.map((option) => (
-            <Tooltip key={option.key} tooltipContent={t(option.i18nKey)}>
-              <button
-                type="button"
-                aria-label={t(option.i18nKey)}
-                onClick={() => setPeekMode(option.key)}
-                className={cn(
-                  "grid size-7 place-items-center rounded-md hover:bg-layer-1-hover",
-                  peekMode === option.key ? "text-accent-primary" : "text-tertiary"
-                )}
-              >
-                <option.icon className="size-3.5" />
-              </button>
-            </Tooltip>
-          ))}
-        </div>
-      </div>
+      ))}
+      <Button
+        variant="secondary"
+        size="sm"
+        className="w-full"
+        onClick={() => void copyLink((links ?? []).map((link) => `${link.name}: ${link.url}`).join("\n"))}
+      >
+        {t("file_library.contracts.workflow.signing_links.copy_all")}
+      </Button>
+    </div>
+  );
 
-      {isLoading && !request ? (
-        <ContractLoading className="flex-1" />
-      ) : !request ? (
-        <ContractEmptyState
-          className="flex-1"
-          icon={<AlertTriangle className="size-5" />}
-          title={t("file_library.contracts.workflow.request_peek.not_found")}
-        />
-      ) : (
-        <>
-          {/* terminal-state banner */}
+  const analysisPane = (
+    <AnalysisDetails
+      contract={analysis}
+      isLoading={isLoadingAnalysis}
+      analysisRequested={Boolean(request?.analysis_contract_id)}
+    />
+  );
+  const processPane = (
+    <AnalysisProcess
+      contract={analysis}
+      isLoading={isLoadingAnalysis}
+      analysisRequested={Boolean(request?.analysis_contract_id)}
+    />
+  );
+  const sidePane =
+    tab === "analysis" ? analysisPane : tab === "process" ? processPane : tab === "links" ? linksPane : signaturePane;
+
+  return (
+    <ContractPeekLayout
+      title={request?.title ?? t("file_library.contracts.workflow.documents.title")}
+      status={
+        request ? <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} /> : null
+      }
+      headerActions={
+        request?.documenso_envelope_id ? (
+          <button
+            type="button"
+            aria-label={t("file_library.contracts.workflow.documents.sync")}
+            title={t("file_library.contracts.workflow.documents.sync")}
+            disabled={isSyncing}
+            onClick={() => void sync()}
+            className="grid size-7 place-items-center rounded-md text-tertiary hover:bg-layer-1-hover hover:text-primary disabled:opacity-50"
+          >
+            <RefreshCcw className={cn("size-3.5", isSyncing && "animate-spin")} />
+          </button>
+        ) : null
+      }
+      topContent={
+        request ? (
           <RequestOutcomeBanner
             workspaceSlug={workspaceSlug}
             request={request}
             onOpenEditor={() => onOpenEditor(request)}
-            onDownloadSigned={() => openPdf(true)}
+            onDownloadSigned={() => void downloadSigned()}
           />
-
-          {/* tabs */}
-          <div className="flex shrink-0 gap-1 border-b border-subtle px-4">
-            {tabs.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setTab(item.key)}
-                className={cn(
-                  "-mb-px border-b-2 px-3 py-2.5 text-13 font-medium transition-colors",
-                  tab === item.key
-                    ? "border-accent-strong text-primary"
-                    : "border-transparent text-tertiary hover:text-secondary"
-                )}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {tab === "progress" ? (
-              <div className="space-y-4">
-                <ContractSection
-                  title={t("file_library.contracts.workflow.request_peek.signers_title")}
-                  description={t("file_library.contracts.workflow.documents.signers_completed", {
-                    completed: signedCount,
-                    total: participants.length,
-                  })}
-                  bodyClassName="divide-y divide-subtle"
-                >
-                  {participants.length === 0 ? (
-                    <p className="px-4 py-6 text-center text-13 text-tertiary">
-                      {t("file_library.contracts.workflow.documents.no_participants")}
-                    </p>
-                  ) : (
-                    participants.map((participant, index) => {
-                      const fields = (request.signing_details?.fields ?? []).filter(
-                        (field) => field.recipient_id === participant.id
-                      );
-                      const done = isSignedStatus(participant.signing_status);
-                      const rejected = participant.signing_status === "REJECTED";
-                      return (
-                        <div key={participant.id ?? `${participant.email}:${participant.role}`} className="px-4 py-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-13 font-medium text-primary">
-                                {participant.name ||
-                                  t("file_library.contracts.workflow.documents.participant_number", {
-                                    number: index + 1,
-                                  })}
-                              </p>
-                              <p className="truncate text-11 text-tertiary">{participant.email}</p>
-                            </div>
-                            {/* Status as plain text — a badge per row turned the
-                                panel into a wall of pills. */}
-                            <span
-                              className={cn(
-                                "shrink-0 text-11",
-                                done ? "text-success-primary" : rejected ? "text-danger-primary" : "text-tertiary"
-                              )}
-                            >
-                              {SIGNER_STATUS_LABEL_KEYS[participant.signing_status]
-                                ? t(SIGNER_STATUS_LABEL_KEYS[participant.signing_status])
-                                : participant.signing_status}
-                            </span>
-                          </div>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-11 text-tertiary">
-                            <span>
-                              {t(
-                                participant.send_status === "SENT"
-                                  ? "file_library.contracts.workflow.documents.email_sent"
-                                  : "file_library.contracts.workflow.signer_status.not_sent"
-                              )}
-                            </span>
-                            <span>
-                              {t(
-                                participant.read_status === "OPENED"
-                                  ? "file_library.contracts.workflow.documents.document_opened"
-                                  : "file_library.contracts.workflow.documents.not_opened"
-                              )}
-                            </span>
-                            {participant.signed_at ? (
-                              <span>
-                                {t("file_library.contracts.workflow.documents.signed_at", {
-                                  date: new Date(participant.signed_at).toLocaleString(),
-                                })}
-                              </span>
-                            ) : null}
-                          </div>
-                          {participant.rejection_reason ? (
-                            <p className="mt-2 text-11 text-danger-primary">{participant.rejection_reason}</p>
-                          ) : null}
-                          {fields.length > 0 ? (
-                            <dl className="mt-2 space-y-1">
-                              {fields.map((field) => (
-                                <div
-                                  key={field.id ?? `${field.type}:${field.page}:${field.label}`}
-                                  className="flex gap-3 text-11"
-                                >
-                                  <dt className="w-32 shrink-0 truncate text-tertiary">{field.label || field.type}</dt>
-                                  <dd
-                                    className={cn(
-                                      "min-w-0 break-words",
-                                      field.value ? "text-primary" : "text-tertiary"
-                                    )}
-                                  >
-                                    {field.value || t("file_library.contracts.workflow.signer_status.pending")}
-                                  </dd>
-                                </div>
-                              ))}
-                            </dl>
-                          ) : null}
-                        </div>
-                      );
-                    })
-                  )}
-                </ContractSection>
-
-                {request.signing_details?.synced_at ? (
-                  <p className="text-right text-11 text-tertiary">
-                    {t("file_library.contracts.workflow.documents.last_sync", {
-                      date: new Date(request.signing_details.synced_at).toLocaleString(),
-                    })}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {tab === "document" ? (
-              <div className="space-y-3">
-                <ContractSection
-                  title={t("file_library.contracts.workflow.request_peek.documents_title")}
-                  bodyClassName="divide-y divide-subtle"
-                >
-                  <DocumentRow
-                    label={t("file_library.contracts.workflow.request_peek.generated_pdf")}
-                    description={`${request.title}.pdf`}
-                    disabled={!request.pdf_asset_id}
-                    onOpen={() => openPdf(false)}
-                    openLabel={t("file_library.contracts.workflow.documents.view_pdf")}
-                  />
-                  {request.signed_asset_id ? (
-                    <DocumentRow
-                      label={t("file_library.contracts.workflow.request_peek.signed_pdf")}
-                      description={t("file_library.contracts.workflow.request_peek.signed_pdf_description")}
-                      onOpen={() => openPdf(true)}
-                      openLabel={t("file_library.contracts.workflow.documents.view_pdf")}
-                    />
-                  ) : null}
-                </ContractSection>
-              </div>
-            ) : null}
-
-            {tab === "links" ? (
-              isLoadingLinks ? (
-                <ContractLoading />
-              ) : (links ?? []).length === 0 ? (
-                <ContractEmptyState
-                  icon={<Link2 className="size-5" />}
-                  title={t("file_library.contracts.workflow.request_peek.no_links")}
-                  description={t("file_library.contracts.workflow.request_peek.no_links_description")}
-                />
-              ) : (
-                <div className="space-y-2">
-                  {(links ?? []).map((link) => (
-                    <div
-                      key={link.id ?? `${link.email}:${link.role}`}
-                      className="rounded-lg border border-subtle bg-layer-1 p-3"
-                    >
-                      <p className="text-13 font-medium text-primary">{link.name || link.email}</p>
-                      <p className="mt-0.5 text-11 text-tertiary">{link.email}</p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <code className="min-w-0 flex-1 truncate rounded bg-layer-2 px-2 py-1.5 text-11 text-secondary">
-                          {link.url}
-                        </code>
-                        <Button variant="secondary" size="sm" onClick={() => void copyLink(link.url)}>
-                          {t("file_library.contracts.workflow.common.copy")}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => void copyLink((links ?? []).map((link) => `${link.name}: ${link.url}`).join("\n"))}
-                  >
-                    {t("file_library.contracts.workflow.signing_links.copy_all")}
-                  </Button>
-                </div>
-              )
-            ) : null}
-          </div>
-        </>
-      )}
-
-      <FilePreviewModal
-        workspaceSlug={workspaceSlug}
-        file={previewFile}
-        onClose={() => setPreviewFile(null)}
-        scope="contract"
-        readOnly
-      />
-    </div>,
-    document.body
+        ) : null
+      }
+      tabs={tabs}
+      activeTab={tab}
+      desktopActiveTab={tab === "document" ? "signature" : tab}
+      onTabChange={(key) => setTab(key as Tab)}
+      documentPane={documentPane}
+      sidePane={sidePane}
+      onClose={onClose}
+    />
   );
 }
 
-function DocumentRow({
-  label,
-  description,
-  onOpen,
-  openLabel,
-  disabled,
+function AnalysisDetails({
+  contract,
+  isLoading,
+  analysisRequested,
 }: {
-  label: string;
-  description: string;
-  onOpen: () => void;
-  openLabel: string;
-  disabled?: boolean;
+  contract?: TContract;
+  isLoading: boolean;
+  analysisRequested: boolean;
 }) {
-  return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3">
-      <div className="min-w-0">
-        <p className="truncate text-13 font-medium text-primary">{label}</p>
-        <p className="truncate text-11 text-tertiary">{description}</p>
+  const { t } = useTranslation();
+  if (isLoading)
+    return (
+      <div className="flex h-full items-center justify-center text-tertiary">
+        <Loader2 className="size-5 animate-spin" />
       </div>
-      <Button variant="secondary" size="sm" disabled={disabled} onClick={onOpen}>
-        {openLabel}
-      </Button>
+    );
+  if (!contract)
+    return (
+      <ContractEmptyState
+        className="h-full"
+        icon={<RefreshCcw className="size-5" />}
+        title={t("file_library.contracts.workflow.request_peek.analysis_running")}
+        description={t(
+          analysisRequested
+            ? "file_library.contracts.workflow.request_peek.analysis_processing_description"
+            : "file_library.contracts.workflow.request_peek.analysis_waiting_description"
+        )}
+      />
+    );
+
+  const fields = [
+    ["file_library.contracts.fields.titulo", contract.titulo],
+    ["file_library.contracts.fields.resumen_general", contract.resumen_general],
+    ["file_library.contracts.fields.tipo_contrato", contract.tipo_contrato],
+    ["file_library.contracts.fields.estatus_contrato", contract.estatus_contrato],
+    ["file_library.contracts.fields.fecha_inicio", contract.fecha_inicio],
+    ["file_library.contracts.fields.fecha_fin", contract.fecha_fin],
+    ["file_library.contracts.fields.artistas", contract.artistas],
+    ["file_library.contracts.fields.involucrados", contract.involucrados],
+  ] as const;
+
+  return (
+    <div className="h-full overflow-y-auto p-4">
+      <dl className="divide-y divide-subtle rounded-md border border-subtle">
+        {fields.map(([label, value]) => (
+          <div key={label} className="grid gap-1 px-3 py-2.5 sm:grid-cols-[10rem_1fr]">
+            <dt className="text-11 font-medium text-tertiary">{t(label)}</dt>
+            <dd className="text-12 whitespace-pre-wrap text-primary">{value || "—"}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function AnalysisProcess({
+  contract,
+  isLoading,
+  analysisRequested,
+}: {
+  contract?: TContract;
+  isLoading: boolean;
+  analysisRequested: boolean;
+}) {
+  const { t } = useTranslation();
+  if (isLoading) return <ContractLoading className="h-full" />;
+  return (
+    <div className="h-full overflow-y-auto p-4">
+      <ContractSection title={t("file_library.contracts.process.pipeline_state")}>
+        <div className="space-y-1 px-4 py-3 text-12 text-tertiary">
+          <p>
+            {contract?.text_extracted_at
+              ? t("file_library.contracts.process.text_extracted", {
+                  date: new Date(contract.text_extracted_at).toLocaleString(),
+                })
+              : t("file_library.contracts.process.text_pending")}
+          </p>
+          {contract?.processed_at ? (
+            <p>
+              {t("file_library.contracts.process.analyzed", {
+                date: new Date(contract.processed_at).toLocaleString(),
+              })}
+            </p>
+          ) : null}
+          {!analysisRequested ? (
+            <p>{t("file_library.contracts.workflow.request_peek.analysis_waiting_description")}</p>
+          ) : null}
+        </div>
+      </ContractSection>
     </div>
   );
 }

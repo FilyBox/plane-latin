@@ -283,6 +283,9 @@
         "empty": "No queries yet"
       },
       "workflow": {
+        "list": {
+          "toggle_selection": "Toggle selection"
+        },
         "authoring": {
           "add_fields": "Add fields",
           "add_fields_description": "Drag fields onto the document and assign them to a recipient.",
@@ -409,6 +412,12 @@
           "title": "Send for signature"
         },
         "documents": {
+          "activity": "Activity",
+          "bulk_sync_success": "{count} contracts synchronized",
+          "result_count": "{count} contracts",
+          "signing_progress": "Signing progress",
+          "status": "Status",
+          "sync_selected": "Sync selected",
           "awaiting": "Awaiting signature",
           "completed": "Completed",
           "completed_fields": "Completed fields",
@@ -535,6 +544,10 @@
           "load_failed": "The preview could not be loaded."
         },
         "request_peek": {
+          "analysis_waiting_description": "The AI analysis starts automatically after every signer completes the contract.",
+          "preview_unavailable": "No PDF preview is available yet",
+          "tab_analysis": "AI analysis",
+          "tab_signature": "Signatures",
           "analysis_running": "AI analysis in progress",
           "completed_at": "Completed on {date}",
           "completed_description": "Every signer completed the contract.",
@@ -681,6 +694,13 @@
           "version_saved": "Version saved"
         },
         "templates": {
+          "bulk_delete_description": "Delete the {count} selected templates and all their variants and versions?",
+          "bulk_deleted": "{count} templates deleted",
+          "delete_selected": "Delete selected",
+          "no_matches_description": "Try another name or clear the search.",
+          "no_matches_title": "No templates match your search",
+          "search_placeholder": "Search templates…",
+          "updated_at": "Updated",
           "analyzing": "Analyzing",
           "and_more": "{count, plural, one {and # more} other {and # more}}",
           "continue_setup": "Configure roles and fields",

@@ -283,6 +283,9 @@
         "empty": "Aún no hay consultas"
       },
       "workflow": {
+        "list": {
+          "toggle_selection": "Alternar selección"
+        },
         "authoring": {
           "add_fields": "Agregar campos",
           "add_fields_description": "Arrastra campos al documento y asígnalos a un destinatario.",
@@ -409,6 +412,12 @@
           "title": "Enviar para firma"
         },
         "documents": {
+          "activity": "Actividad",
+          "bulk_sync_success": "{count} contratos sincronizados",
+          "result_count": "{count} contratos",
+          "signing_progress": "Progreso de firma",
+          "status": "Estado",
+          "sync_selected": "Sincronizar seleccionados",
           "awaiting": "Esperando firma",
           "completed": "Completado",
           "completed_fields": "Campos completados",
@@ -535,6 +544,10 @@
           "load_failed": "No se pudo cargar la vista previa."
         },
         "request_peek": {
+          "analysis_waiting_description": "El análisis con IA inicia automáticamente cuando todos los firmantes completan el contrato.",
+          "preview_unavailable": "Aún no hay una vista previa en PDF disponible",
+          "tab_analysis": "Análisis con IA",
+          "tab_signature": "Firmas",
           "analysis_running": "Análisis con IA en curso",
           "completed_at": "Completado el {date}",
           "completed_description": "Todos los firmantes completaron el contrato.",
@@ -681,6 +694,13 @@
           "version_saved": "Versión guardada"
         },
         "templates": {
+          "bulk_delete_description": "¿Eliminar las {count} plantillas seleccionadas y todas sus variantes y versiones?",
+          "bulk_deleted": "{count} plantillas eliminadas",
+          "delete_selected": "Eliminar seleccionadas",
+          "no_matches_description": "Prueba con otro nombre o limpia la búsqueda.",
+          "no_matches_title": "Ninguna plantilla coincide con la búsqueda",
+          "search_placeholder": "Buscar plantillas…",
+          "updated_at": "Actualizada",
           "analyzing": "Analizando",
           "and_more": "{count, plural, one {y # más} other {y # más}}",
           "continue_setup": "Configurar roles y campos",
