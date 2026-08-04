@@ -239,9 +239,10 @@ export class ContractService extends APIService {
   }
 
   /** Fetches the converted preview with Plane's authenticated HTTP client. */
-  async getContractAssetPreviewPdf(workspaceSlug: string, assetId: string): Promise<Blob> {
+  async getContractAssetPreviewPdf(workspaceSlug: string, assetId: string, version?: string): Promise<Blob> {
+    const query = version ? `?v=${encodeURIComponent(version)}` : "";
     return this.get(
-      `/api/workspaces/${workspaceSlug}/contract-assets/${assetId}/preview-pdf/`,
+      `/api/workspaces/${workspaceSlug}/contract-assets/${assetId}/preview-pdf/${query}`,
       {},
       { responseType: "blob" }
     ).then((response) => response.data);

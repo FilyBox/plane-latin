@@ -19,10 +19,12 @@ type Props = {
   assetId: string;
   fileName: string;
   contentType: string;
+  /** Changes whenever an asset is overwritten in place, forcing a fresh preview. */
+  version?: string;
   className?: string;
 };
 
-export function ContractAssetPreview({ workspaceSlug, assetId, fileName, contentType, className }: Props) {
+export function ContractAssetPreview({ workspaceSlug, assetId, fileName, contentType, version, className }: Props) {
   const { t } = useTranslation();
   const [isDark, setIsDark] = useState(() =>
     typeof document !== "undefined" ? document.documentElement.dataset.theme === "dark" : false
@@ -33,7 +35,7 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
     isLoading,
     mutate,
   } = useSWR(
-    `CONTRACT_ASSET_PREVIEW_${workspaceSlug}_${assetId}`,
+    `CONTRACT_ASSET_PREVIEW_${workspaceSlug}_${assetId}_${version ?? "LATEST"}`,
     () => fileLibraryService.getPresignedViewUrl(workspaceSlug, assetId, "contract"),
     { revalidateOnFocus: false }
   );
@@ -45,8 +47,8 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
     isLoading: isLoadingPreviewPdf,
     mutate: mutatePreviewPdf,
   } = useSWR(
-    isWordSource ? `CONTRACT_ASSET_PREVIEW_PDF_BLOB_${workspaceSlug}_${assetId}` : null,
-    () => contractService.getContractAssetPreviewPdf(workspaceSlug, assetId),
+    isWordSource ? `CONTRACT_ASSET_PREVIEW_PDF_BLOB_${workspaceSlug}_${assetId}_${version ?? "LATEST"}` : null,
+    () => contractService.getContractAssetPreviewPdf(workspaceSlug, assetId, version),
     { revalidateOnFocus: false }
   );
   const previewPdfUrl = useMemo(() => (previewPdfBlob ? URL.createObjectURL(previewPdfBlob) : null), [previewPdfBlob]);

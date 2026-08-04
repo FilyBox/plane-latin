@@ -162,13 +162,19 @@ export function ContractTemplateUseDialog({
   const previewAsset = selectedRevision
     ? {
         assetId: selectedRevision.pdf_asset_id,
+        version: selectedRevision.content_sha256,
         name: t("file_library.contracts.workflow.use.revision_file_name", {
           name: templateName,
           number: selectedRevision.revision,
         }),
         contentType: "application/pdf" as const,
       }
-    : { assetId: variant.source_asset_id, name: variant.source_file_name, contentType: DOCX_TYPE };
+    : {
+        assetId: variant.source_asset_id,
+        version: data?.content_sha256 ?? variant.updated_at,
+        name: variant.source_file_name,
+        contentType: DOCX_TYPE,
+      };
 
   return (
     <ModalCore
@@ -372,11 +378,12 @@ export function ContractTemplateUseDialog({
           </div>
           <div className="min-h-0 flex-1 p-3">
             <ContractAssetPreview
-              key={previewAsset.assetId}
+              key={`${previewAsset.assetId}-${previewAsset.version}`}
               workspaceSlug={workspaceSlug}
               assetId={previewAsset.assetId}
               fileName={previewAsset.name}
               contentType={previewAsset.contentType}
+              version={previewAsset.version}
               className="size-full overflow-hidden rounded-md border border-subtle bg-surface-1"
             />
           </div>

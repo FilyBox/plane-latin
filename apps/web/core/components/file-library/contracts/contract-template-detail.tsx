@@ -14,7 +14,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft,
   Braces,
   Check,
   CheckCircle2,
@@ -372,6 +371,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   const selectedAsset = selectedRevision
     ? {
         assetId: selectedRevision.pdf_asset_id,
+        version: selectedRevision.content_sha256,
         name: `${t(
           "file_library.contracts.workflow.template_detail.revision_pdf_name",
           {
@@ -386,6 +386,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     : selectedVariant
       ? {
           assetId: selectedVariant.source_asset_id,
+          version: schema?.content_sha256 ?? selectedVariant.updated_at,
           name: selectedVariant.source_file_name,
           contentType: DOCX_TYPE,
         }
@@ -539,11 +540,12 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                   <div className="min-h-140 p-3 sm:p-4">
                     {selectedAsset ? (
                       <ContractAssetPreview
-                        key={selectedAsset.assetId}
+                        key={`${selectedAsset.assetId}-${selectedAsset.version}`}
                         workspaceSlug={workspaceSlug}
                         assetId={selectedAsset.assetId}
                         fileName={selectedAsset.name}
                         contentType={selectedAsset.contentType}
+                        version={selectedAsset.version}
                         className="shadow-sm h-[min(64vh,720px)] min-h-130 overflow-hidden rounded-md border border-subtle bg-surface-1"
                       />
                     ) : (
@@ -579,7 +581,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                         thumbnailUrl={contractService.getContractAssetThumbnailUrl(
                           workspaceSlug,
                           selectedVariant.source_asset_id,
-                          selectedVariant.updated_at,
+                          schema?.content_sha256 ?? selectedVariant.updated_at,
                         )}
                         onSelect={() => setSelectedVersionId("CURRENT")}
                       />
@@ -1134,7 +1136,8 @@ function ContractVersionCard({
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const [failedThumbnailUrl, setFailedThumbnailUrl] = useState<string>();
+  const thumbnailFailed = failedThumbnailUrl === thumbnailUrl;
 
   return (
     <button
@@ -1157,7 +1160,7 @@ function ContractVersionCard({
             alt=""
             loading="lazy"
             className="size-full bg-white object-cover object-top"
-            onError={() => setThumbnailFailed(true)}
+            onError={() => setFailedThumbnailUrl(thumbnailUrl)}
           />
         )}
       </span>
