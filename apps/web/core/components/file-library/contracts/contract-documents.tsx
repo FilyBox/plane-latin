@@ -2,36 +2,29 @@
  * Copyright (c) 2023-present Plane Software, Inc. and contributors
  * SPDX-License-Identifier: AGPL-3.0-only
  * See the LICENSE file for details.
+ *
+ * "Created contracts" — the tracking surface for signature requests.
+ *
+ * Rows follow Plane's list idiom: one primary action plus a quick-actions menu,
+ * with the detail living in a peek panel rather than an inline accordion.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Clock3,
-  Eye,
-  FileCheck2,
-  Link2,
-  Loader2,
-  RefreshCcw,
-  Send,
-  UserRoundCheck,
-} from "lucide-react";
-import { useSearchParams } from "react-router";
+import { FileCheck2, Link2, PenLine, RefreshCcw, Search, Send } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
-import { Button } from "@plane/propel/button";
+import { Input } from "@plane/propel/input";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TContractSignatureRequest, TContractSigningLink } from "@plane/types";
+import type { TContractSignatureRequest } from "@plane/types";
+import { CustomMenu } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
-import { FilePreviewModal, type TPreviewFile } from "../file-preview-modal";
-import { ContractAuthoringModal } from "./contract-authoring-modal";
-import { ContractSigningLinksDialog } from "./contract-signing-links-dialog";
+import { ContractRequestPeek } from "./contract-request-peek";
+import { ContractEmptyState, ContractLoading, ContractPageHeader, RequestStatusBadge } from "./ui";
 
 type Props = { workspaceSlug: string };
+type StatusFilter = "ALL" | "IN_PROGRESS" | "COMPLETED" | "DRAFTS" | "ATTENTION";
 
 const STATUS_LABEL_KEYS: Record<TContractSignatureRequest["status"], string> = {
   DRAFT: "file_library.contracts.workflow.request_status.draft",
@@ -44,28 +37,53 @@ const STATUS_LABEL_KEYS: Record<TContractSignatureRequest["status"], string> = {
   ERROR: "file_library.contracts.workflow.request_status.error",
 };
 
-const statusClass = (status: TContractSignatureRequest["status"]) => {
-  if (status === "COMPLETED") return "bg-success-primary/10 text-success-primary";
-  if (status === "REJECTED" || status === "ERROR") return "bg-danger-primary/10 text-danger-primary";
-  if (status === "PENDING") return "bg-warning-primary/10 text-warning-primary";
-  return "bg-layer-2 text-secondary";
-};
+const FILTERS: { key: StatusFilter; labelKey: string; match: (r: TContractSignatureRequest) => boolean }[] = [
+  { key: "ALL", labelKey: "file_library.contracts.workflow.documents.filter_all", match: () => true },
+  {
+    key: "IN_PROGRESS",
+    labelKey: "file_library.contracts.workflow.documents.filter_in_progress",
+    match: (r) => r.status === "PENDING",
+  },
+  {
+    key: "COMPLETED",
+    labelKey: "file_library.contracts.workflow.documents.filter_completed",
+    match: (r) => r.status === "COMPLETED",
+  },
+  {
+    key: "DRAFTS",
+    labelKey: "file_library.contracts.workflow.documents.filter_drafts",
+    match: (r) => r.status === "DRAFT" || r.status === "READY" || r.status === "PREPARING",
+  },
+  {
+    key: "ATTENTION",
+    labelKey: "file_library.contracts.workflow.documents.filter_attention",
+    match: (r) => r.status === "ERROR" || r.status === "REJECTED",
+  },
+];
 
-const SIGNER_STATUS_LABEL_KEYS: Record<string, string> = {
-  NOT_SENT: "file_library.contracts.workflow.signer_status.not_sent",
-  NOT_SIGNED: "file_library.contracts.workflow.signer_status.pending",
-  SENT: "file_library.contracts.workflow.signer_status.sent",
-  OPENED: "file_library.contracts.workflow.signer_status.opened",
-  SIGNED: "file_library.contracts.workflow.signer_status.completed",
-  REJECTED: "file_library.contracts.workflow.signer_status.rejected",
-  PENDING: "file_library.contracts.workflow.signer_status.pending",
-  APPROVED: "file_library.contracts.workflow.signer_status.approved",
-  COMPLETED: "file_library.contracts.workflow.signer_status.completed",
-};
+/** Compact "x minutes ago" without pulling in a date library. */
+function useRelativeTime() {
+  const { t } = useTranslation();
+  return (iso: string) => {
+    const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (minutes < 1) return t("file_library.contracts.workflow.documents.updated_just_now");
+    if (minutes < 60) return t("file_library.contracts.workflow.documents.updated_minutes", { count: minutes });
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return t("file_library.contracts.workflow.documents.updated_hours", { count: hours });
+    return new Date(iso).toLocaleDateString();
+  };
+}
 
 export function ContractDocuments({ workspaceSlug }: Props) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const relative = useRelativeTime();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<StatusFilter>("ALL");
+  const [peekRequestId, setPeekRequestId] = useState<string>();
+  const [syncingId, setSyncingId] = useState<string>();
+
   const {
     data: requests,
     mutate,
@@ -75,43 +93,51 @@ export function ContractDocuments({ workspaceSlug }: Props) {
     () => contractService.getSignatureRequests(workspaceSlug),
     { refreshInterval: 15000, revalidateOnFocus: false }
   );
-  const [expandedId, setExpandedId] = useState<string>();
-  const [syncingId, setSyncingId] = useState<string>();
-  const [syncedId, setSyncedId] = useState<string>();
-  const [authoringRequest, setAuthoringRequest] = useState<TContractSignatureRequest>();
-  const [signingLinks, setSigningLinks] = useState<TContractSigningLink[]>();
-  const [loadingLinksFor, setLoadingLinksFor] = useState<string>();
-  const [previewFile, setPreviewFile] = useState<TPreviewFile | null>(null);
-  const {
-    data: detail,
-    mutate: mutateDetail,
-    isLoading: isDetailLoading,
-  } = useSWR(
-    expandedId ? `CONTRACT_SIGNATURE_REQUEST_${workspaceSlug}_${expandedId}` : null,
-    () => contractService.getSignatureRequest(workspaceSlug, expandedId!),
-    { revalidateOnFocus: false }
-  );
 
+  // Deep link from the template detail and from a just-sent contract.
   useEffect(() => {
     const requestId = searchParams.get("request");
     if (!requestId) return;
-    setExpandedId(requestId);
+    setPeekRequestId(requestId);
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  const orderedRequests = useMemo(
+  const openEditor = (request: TContractSignatureRequest) =>
+    navigate(`/${workspaceSlug}/file-library/contracts/documents/${request.id}/editor`);
+
+  const ordered = useMemo(
     () => [...(requests ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [requests]
   );
 
-  const syncRequest = async (requestId: string) => {
+  const counts = useMemo(
+    () =>
+      Object.fromEntries(FILTERS.map((item) => [item.key, ordered.filter(item.match).length])) as Record<
+        StatusFilter,
+        number
+      >,
+    [ordered]
+  );
+
+  const visible = useMemo(() => {
+    const activeFilter = FILTERS.find((item) => item.key === filter)!;
+    const term = search.trim().toLowerCase();
+    return ordered.filter(
+      (request) =>
+        activeFilter.match(request) &&
+        (!term ||
+          request.title.toLowerCase().includes(term) ||
+          request.signers.some(
+            (signer) => signer.name.toLowerCase().includes(term) || signer.email.toLowerCase().includes(term)
+          ))
+    );
+  }, [filter, ordered, search]);
+
+  const sync = async (requestId: string) => {
     setSyncingId(requestId);
-    setSyncedId(undefined);
     try {
       await contractService.syncSignatureRequest(workspaceSlug, requestId);
-      await Promise.all([mutate(), expandedId === requestId ? mutateDetail() : Promise.resolve()]);
-      setSyncedId(requestId);
-      window.setTimeout(() => setSyncedId((current) => (current === requestId ? undefined : current)), 1800);
+      await mutate();
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.workflow.documents.sync_success") });
     } catch (error: any) {
       setToast({
@@ -123,346 +149,177 @@ export function ContractDocuments({ workspaceSlug }: Props) {
     }
   };
 
-  const showSigningLinks = async (requestId: string) => {
-    setLoadingLinksFor(requestId);
-    try {
-      setSigningLinks(await contractService.getSignatureRequestLinks(workspaceSlug, requestId));
-    } catch (error: any) {
-      setToast({
-        type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.documents.links_failed"),
-      });
-    } finally {
-      setLoadingLinksFor(undefined);
-    }
-  };
-
-  const previewRequest = (request: TContractSignatureRequest) => {
-    const assetId = request.signed_asset_id ?? request.pdf_asset_id;
-    if (!assetId) return;
-    setPreviewFile({
-      assetId,
-      name: `${request.title}${request.signed_asset_id ? t("file_library.contracts.workflow.documents.signed_suffix") : ""}.pdf`,
-      contentType: "application/pdf",
-    });
-  };
-
   return (
-    <div className="h-full overflow-y-auto bg-surface-1">
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <header>
-          <h1 className="text-20 font-semibold text-primary">{t("file_library.contracts.workflow.documents.title")}</h1>
-          <p className="mt-1 text-12 text-secondary">{t("file_library.contracts.workflow.documents.description")}</p>
-        </header>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+        <ContractPageHeader
+          title={t("file_library.contracts.workflow.documents.title")}
+          description={t("file_library.contracts.workflow.documents.description")}
+        />
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-subtle p-4">
-            <FileCheck2 className="size-4 text-accent-primary" />
-            <p className="mt-2 text-18 font-semibold text-primary">{orderedRequests.length}</p>
-            <p className="text-10 text-tertiary">{t("file_library.contracts.workflow.documents.created")}</p>
+        {/* filters replace the old KPI card row — same numbers, but actionable */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative mr-auto">
+            <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-tertiary" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("file_library.contracts.workflow.documents.search_placeholder")}
+              className="w-56 pl-8"
+            />
           </div>
-          <div className="rounded-lg border border-subtle p-4">
-            <Clock3 className="size-4 text-warning-primary" />
-            <p className="mt-2 text-18 font-semibold text-primary">
-              {orderedRequests.filter((request) => request.status === "PENDING").length}
-            </p>
-            <p className="text-10 text-tertiary">{t("file_library.contracts.workflow.documents.awaiting")}</p>
-          </div>
-          <div className="rounded-lg border border-subtle p-4">
-            <UserRoundCheck className="size-4 text-success-primary" />
-            <p className="mt-2 text-18 font-semibold text-primary">
-              {orderedRequests.filter((request) => request.status === "COMPLETED").length}
-            </p>
-            <p className="text-10 text-tertiary">{t("file_library.contracts.workflow.documents.completed")}</p>
-          </div>
+          {FILTERS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setFilter(item.key)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-13 font-medium transition-colors",
+                filter === item.key
+                  ? "border-accent-strong bg-accent-subtle-hover text-accent-primary"
+                  : "border-subtle text-secondary hover:bg-layer-1-hover"
+              )}
+            >
+              {t(item.labelKey)}
+              <span
+                className={cn(
+                  "rounded px-1 text-11",
+                  filter === item.key ? "bg-surface-1 text-accent-primary" : "bg-layer-2 text-tertiary"
+                )}
+              >
+                {counts[item.key]}
+              </span>
+            </button>
+          ))}
         </div>
 
-        <section className="overflow-hidden rounded-lg border border-subtle">
-          <div className="border-b border-subtle px-4 py-3">
-            <h2 className="text-13 font-semibold text-primary">
-              {t("file_library.contracts.workflow.documents.tracking")}
-            </h2>
-            <p className="mt-0.5 text-10 text-tertiary">
-              {t("file_library.contracts.workflow.documents.tracking_description")}
-            </p>
-          </div>
-          {isLoading ? (
-            <div className="grid min-h-48 place-items-center">
-              <Loader2 className="size-5 animate-spin text-tertiary" />
-            </div>
-          ) : orderedRequests.length === 0 ? (
-            <div className="px-6 py-14 text-center">
-              <Send className="mx-auto size-7 text-tertiary" />
-              <p className="mt-3 text-12 font-medium text-primary">
-                {t("file_library.contracts.workflow.documents.empty_title")}
-              </p>
-              <p className="mt-1 text-10 text-tertiary">
-                {t("file_library.contracts.workflow.documents.empty_description")}
-              </p>
-            </div>
+        <div className="overflow-hidden rounded-lg border border-subtle bg-layer-1">
+          {isLoading && !requests ? (
+            <ContractLoading />
+          ) : visible.length === 0 ? (
+            <ContractEmptyState
+              icon={<Send className="size-5" />}
+              title={t(
+                ordered.length === 0
+                  ? "file_library.contracts.workflow.documents.empty_title"
+                  : "file_library.contracts.workflow.documents.no_matches_title"
+              )}
+              description={t(
+                ordered.length === 0
+                  ? "file_library.contracts.workflow.documents.empty_description"
+                  : "file_library.contracts.workflow.documents.no_matches_description"
+              )}
+            />
           ) : (
-            <div className="divide-y divide-subtle">
-              {orderedRequests.map((request) => {
-                const signedCount = request.signers.filter((signer) => signer.status === "SIGNED").length;
+            <ul className="divide-y divide-subtle">
+              {visible.map((request) => {
                 const signerCount =
                   request.signers.length ||
                   request.recipients.filter((recipient) => recipient.role === "SIGNER").length;
-                const isExpanded = expandedId === request.id;
+                const signedCount = request.signers.filter((signer) => signer.status === "SIGNED").length;
+                const needsAuthoring = request.status === "READY" || request.status === "DRAFT";
                 return (
-                  <article key={request.id}>
-                    <div className="grid gap-3 px-4 py-3.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-                      <button
-                        type="button"
-                        onClick={() => setExpandedId(isExpanded ? undefined : request.id)}
-                        className="flex min-w-0 items-start gap-3 text-left"
-                      >
-                        <span className="mt-0.5 text-tertiary">
-                          {isExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-12 font-medium text-primary">{request.title}</span>
-                          <span className="mt-1 flex flex-wrap items-center gap-2 text-9 text-tertiary">
-                            <span>
-                              {t("file_library.contracts.workflow.common.version_number", {
-                                number: request.revision.revision,
-                              })}
-                            </span>
-                            <span>·</span>
-                            <span
-                              className={cn(
-                                "font-medium",
-                                signerCount > 0 && signedCount === signerCount ? "text-success-primary" : ""
-                              )}
-                            >
-                              {t("file_library.contracts.workflow.documents.signers_completed", {
-                                signed: signedCount,
-                                total: signerCount,
-                              })}
-                            </span>
-                            <span>·</span>
-                            <span>{new Date(request.created_at).toLocaleString()}</span>
-                          </span>
-                        </span>
-                      </button>
-                      <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                        <span className={cn("rounded-full px-2 py-1 text-9 font-medium", statusClass(request.status))}>
-                          {t(STATUS_LABEL_KEYS[request.status])}
-                        </span>
-                        {request.pdf_asset_id ? (
-                          <Button variant="secondary" size="sm" onClick={() => previewRequest(request)}>
-                            <Eye className="size-3.5" /> {t("file_library.contracts.workflow.documents.view_pdf")}
-                          </Button>
-                        ) : null}
-                        {request.status === "READY" ? (
-                          <Button variant="primary" size="sm" onClick={() => setAuthoringRequest(request)}>
-                            <Send className="size-3.5" /> {t("file_library.contracts.workflow.documents.review_send")}
-                          </Button>
-                        ) : null}
-                        {request.documenso_envelope_id ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={syncingId === request.id}
-                            onClick={() => void syncRequest(request.id)}
-                          >
-                            {syncingId === request.id ? (
-                              <Loader2 className="size-3.5 animate-spin" />
-                            ) : syncedId === request.id ? (
-                              <Check className="size-3.5 text-success-primary" />
-                            ) : (
-                              <RefreshCcw className="size-3.5" />
-                            )}{" "}
-                            {syncingId === request.id
-                              ? t("file_library.contracts.workflow.documents.syncing")
-                              : syncedId === request.id
-                                ? t("file_library.contracts.workflow.common.updated")
-                                : t("file_library.contracts.workflow.documents.sync")}
-                          </Button>
-                        ) : null}
-                        {request.documenso_envelope_id ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={loadingLinksFor === request.id}
-                            onClick={() => void showSigningLinks(request.id)}
-                          >
-                            {loadingLinksFor === request.id ? (
-                              <Loader2 className="size-3.5 animate-spin" />
-                            ) : (
-                              <Link2 className="size-3.5" />
-                            )}{" "}
-                            {t("file_library.contracts.workflow.documents.links")}
-                          </Button>
-                        ) : null}
-                      </div>
+                  <li key={request.id} className="relative flex items-center gap-3 px-4 py-3 hover:bg-layer-1-hover">
+                    {/* Full-row click target as a real button, so the quick-actions
+                        menu below is not nested inside another button. */}
+                    <button
+                      type="button"
+                      aria-label={request.title}
+                      onClick={() => setPeekRequestId(request.id)}
+                      className="absolute inset-0 z-0 cursor-pointer"
+                    />
+
+                    <span className="pointer-events-none z-1 grid size-8 shrink-0 place-items-center rounded-md bg-layer-2 text-accent-primary">
+                      <FileCheck2 className="size-4" />
+                    </span>
+
+                    <div className="pointer-events-none z-1 min-w-0 flex-1">
+                      <p className="truncate text-13 font-medium text-primary">{request.title}</p>
+                      <p className="mt-0.5 truncate text-11 text-tertiary">
+                        {t("file_library.contracts.workflow.common.version_number", {
+                          number: request.revision.revision,
+                        })}{" "}
+                        · {relative(request.updated_at)}
+                      </p>
                     </div>
-                    {isExpanded ? (
-                      <ContractProgressDetail
-                        request={detail?.id === request.id ? detail : request}
-                        isLoading={isDetailLoading && !detail}
-                      />
-                    ) : null}
-                  </article>
+
+                    <div className="pointer-events-none z-1 flex shrink-0 items-center gap-3">
+                      <SignerProgress signed={signedCount} total={signerCount} />
+                      <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} />
+                    </div>
+
+                    <div className="z-1 shrink-0">
+                      <CustomMenu
+                        ellipsis
+                        placement="bottom-end"
+                        ariaLabel={t("file_library.contracts.workflow.common.actions")}
+                      >
+                        {needsAuthoring ? (
+                          <CustomMenu.MenuItem onClick={() => openEditor(request)}>
+                            <span className="flex items-center gap-2">
+                              <PenLine className="size-3.5" />
+                              {t("file_library.contracts.workflow.documents.review_send")}
+                            </span>
+                          </CustomMenu.MenuItem>
+                        ) : null}
+                        <CustomMenu.MenuItem onClick={() => setPeekRequestId(request.id)}>
+                          <span className="flex items-center gap-2">
+                            <Link2 className="size-3.5" />
+                            {t("file_library.contracts.workflow.documents.open_detail")}
+                          </span>
+                        </CustomMenu.MenuItem>
+                        {request.documenso_envelope_id ? (
+                          <CustomMenu.MenuItem onClick={() => void sync(request.id)}>
+                            <span className="flex items-center gap-2">
+                              <RefreshCcw className={cn("size-3.5", syncingId === request.id && "animate-spin")} />
+                              {t("file_library.contracts.workflow.documents.sync")}
+                            </span>
+                          </CustomMenu.MenuItem>
+                        ) : null}
+                      </CustomMenu>
+                    </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
-        </section>
+        </div>
       </div>
 
-      <FilePreviewModal
-        workspaceSlug={workspaceSlug}
-        file={previewFile}
-        onClose={() => setPreviewFile(null)}
-        scope="contract"
-        readOnly
-      />
-      {authoringRequest ? (
-        <ContractAuthoringModal
+      {peekRequestId ? (
+        <ContractRequestPeek
           workspaceSlug={workspaceSlug}
-          signatureRequest={authoringRequest}
-          onClose={() => setAuthoringRequest(undefined)}
-          onSent={() => {
-            setAuthoringRequest(undefined);
-            void mutate();
+          requestId={peekRequestId}
+          onClose={() => setPeekRequestId(undefined)}
+          onMutate={() => void mutate()}
+          onOpenEditor={(request) => {
+            setPeekRequestId(undefined);
+            openEditor(request);
           }}
         />
-      ) : null}
-      {signingLinks ? (
-        <ContractSigningLinksDialog links={signingLinks} onClose={() => setSigningLinks(undefined)} />
       ) : null}
     </div>
   );
 }
 
-function ContractProgressDetail({ request, isLoading }: { request: TContractSignatureRequest; isLoading: boolean }) {
+/** Segmented bar + count, so signing progress reads at a glance from the row. */
+function SignerProgress({ signed, total }: { signed: number; total: number }) {
   const { t } = useTranslation();
-  if (isLoading)
-    return (
-      <div className="grid min-h-28 place-items-center border-t border-subtle bg-layer-1">
-        <Loader2 className="size-4 animate-spin text-tertiary" />
-      </div>
-    );
-  const remoteRecipients = request.signing_details?.recipients ?? [];
-  const participants =
-    remoteRecipients.length > 0
-      ? remoteRecipients
-      : request.signers.map((signer) => ({
-          id: signer.documenso_recipient_id,
-          name: signer.name,
-          email: signer.email,
-          role: signer.role,
-          signing_order: signer.signing_order,
-          signing_status: signer.status,
-          read_status: signer.status === "OPENED" || signer.status === "SIGNED" ? "OPENED" : "NOT_OPENED",
-          send_status: signer.status === "NOT_SENT" ? "NOT_SENT" : "SENT",
-          signed_at: null,
-          rejection_reason: null,
-        }));
+  if (total === 0) return null;
+  const complete = signed === total;
   return (
-    <div className="border-t border-subtle bg-layer-1 p-4 sm:p-5">
-      {request.signing_details?.error ? (
-        <p className="mb-3 rounded-md bg-warning-primary/10 p-3 text-10 text-warning-primary">
-          {t("file_library.contracts.workflow.documents.remote_error", { error: request.signing_details.error })}
-        </p>
-      ) : null}
-      <div className="grid gap-3 lg:grid-cols-2">
-        {participants.length === 0 ? (
-          <p className="text-11 text-tertiary">{t("file_library.contracts.workflow.documents.no_participants")}</p>
-        ) : (
-          participants.map((recipient, index) => {
-            const fields = (request.signing_details?.fields ?? []).filter(
-              (field) => field.recipient_id === recipient.id
-            );
-            const completed = ["SIGNED", "APPROVED", "COMPLETED"].includes(recipient.signing_status);
-            return (
-              <div
-                key={`${recipient.id ?? recipient.email}-${recipient.role}`}
-                className="rounded-lg border border-subtle bg-surface-1 p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-11 font-semibold text-primary">
-                      {recipient.name ||
-                        t("file_library.contracts.workflow.documents.participant_number", { number: index + 1 })}
-                    </p>
-                    <p className="mt-0.5 truncate text-9 text-tertiary">{recipient.email}</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-9 font-medium",
-                      completed ? "bg-success-primary/10 text-success-primary" : "bg-layer-2 text-secondary"
-                    )}
-                  >
-                    {completed ? <CheckCircle2 className="size-3" /> : <Clock3 className="size-3" />}
-                    {SIGNER_STATUS_LABEL_KEYS[recipient.signing_status]
-                      ? t(SIGNER_STATUS_LABEL_KEYS[recipient.signing_status])
-                      : recipient.signing_status}
-                  </span>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2 text-9 text-tertiary">
-                  <span>
-                    {t(
-                      recipient.send_status === "SENT"
-                        ? "file_library.contracts.workflow.documents.email_sent"
-                        : "file_library.contracts.workflow.signer_status.not_sent"
-                    )}
-                  </span>
-                  <span>·</span>
-                  <span>
-                    {t(
-                      recipient.read_status === "OPENED"
-                        ? "file_library.contracts.workflow.documents.document_opened"
-                        : "file_library.contracts.workflow.documents.not_opened"
-                    )}
-                  </span>
-                  {recipient.signed_at ? (
-                    <>
-                      <span>·</span>
-                      <span>
-                        {t("file_library.contracts.workflow.documents.signed_at", {
-                          date: new Date(recipient.signed_at).toLocaleString(),
-                        })}
-                      </span>
-                    </>
-                  ) : null}
-                </div>
-                {fields.length > 0 ? (
-                  <div className="mt-3 overflow-hidden rounded-md border border-subtle">
-                    <div className="bg-layer-1 px-3 py-2 text-9 font-semibold text-tertiary">
-                      {t("file_library.contracts.workflow.documents.completed_fields")}
-                    </div>
-                    <dl className="divide-y divide-subtle">
-                      {fields.map((field) => (
-                        <div
-                          key={`${field.id ?? `${recipient.id}-${field.type}-${field.page}-${field.label}`}`}
-                          className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3 px-3 py-2"
-                        >
-                          <dt className="truncate text-9 text-tertiary">{field.label || field.type}</dt>
-                          <dd className={cn("text-10 break-words text-primary", !field.value && "text-tertiary")}>
-                            {field.value || t("file_library.contracts.workflow.signer_status.pending")}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-9 text-tertiary">
-                    {t("file_library.contracts.workflow.documents.no_field_values")}
-                  </p>
-                )}
-              </div>
-            );
-          })
-        )}
+    <div className="hidden shrink-0 items-center gap-2 sm:flex">
+      <div className="flex gap-0.5" aria-hidden>
+        {Array.from({ length: Math.min(total, 6) }, (_, index) => (
+          <span
+            key={index}
+            className={cn("h-1.5 w-4 rounded-full", index < signed ? "bg-success-primary" : "bg-layer-3")}
+          />
+        ))}
       </div>
-      {request.signing_details?.synced_at ? (
-        <p className="mt-3 text-right text-9 text-tertiary">
-          {t("file_library.contracts.workflow.documents.last_sync", {
-            date: new Date(request.signing_details.synced_at).toLocaleString(),
-          })}
-        </p>
-      ) : null}
+      <span className={cn("text-11 tabular-nums", complete ? "text-success-primary" : "text-tertiary")}>
+        {t("file_library.contracts.workflow.documents.signers_completed", { completed: signed, total })}
+      </span>
     </div>
   );
 }

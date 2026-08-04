@@ -31,6 +31,7 @@ from .internal import (
     InternalWorkspaceTagsEndpoint,
 )
 from .workflow import (
+    ContractAssetPdfPreviewEndpoint,
     ContractAssetThumbnailEndpoint,
     ContractSignatureRequestDetailEndpoint,
     ContractSignatureRequestPdfEndpoint,

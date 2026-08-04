@@ -4,8 +4,9 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, Layers, Loader2, MessageSquare, RefreshCcw, Search, Sparkles, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDropzone } from "react-dropzone";
+import { Download, Layers, Loader2, MessageSquare, Plus, RefreshCcw, Search, Sparkles, X } from "lucide-react";
 import { useSearchParams } from "react-router";
 import useSWR from "swr";
 // plane imports
@@ -15,6 +16,7 @@ import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TContract, TContractFilters, TContractJob, TContractRetryOptions } from "@plane/types";
 // services
 import { contractService } from "@/services/contract.service";
+import { fileLibraryService } from "@/services/file-library.service";
 // local imports
 import { BulkActionsModal } from "../bulk-actions-modal";
 import { downloadAssets } from "../download";
@@ -45,6 +47,7 @@ export function ContractsRoot(props: Props) {
   const [isBulkActing, setIsBulkActing] = useState(false);
   const [isBulkRetryModalOpen, setIsBulkRetryModalOpen] = useState(false);
   const [isBulkActionsModalOpen, setIsBulkActionsModalOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const setFilters = (next: Partial<TContractFilters>) => setFiltersState((prev) => ({ ...prev, ...next }));
 
@@ -140,6 +143,60 @@ export function ContractsRoot(props: Props) {
     }
   };
 
+  // Dropping a PDF here uploads it and links it to the protected "Contratos"
+  // category, which is what makes the API create the Contract row and dispatch
+  // the extraction + AI pipeline. Uploading without the link would leave an
+  // orphan file that never gets analyzed.
+  const uploadContracts = useCallback(
+    async (files: File[]) => {
+      const pdfs = files.filter((file) => file.type === "application/pdf");
+      if (pdfs.length === 0) {
+        setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.upload.only_pdf") });
+        return;
+      }
+      setIsUploading(true);
+      let uploaded = 0;
+      try {
+        const categories = await fileLibraryService.getCategories(workspaceSlug);
+        const contractsCategory = categories.find((category) => category.is_default);
+        if (!contractsCategory) {
+          setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.upload.no_category") });
+          return;
+        }
+        for (const file of pdfs) {
+          const response = await fileLibraryService.uploadFile(workspaceSlug, file);
+          await fileLibraryService.addFileCategories(workspaceSlug, response.asset_id, [contractsCategory.id]);
+          uploaded += 1;
+        }
+        setToast({
+          type: TOAST_TYPE.SUCCESS,
+          title: t("file_library.contracts.upload.started", { count: uploaded }),
+        });
+      } catch (error: any) {
+        setToast({
+          type: TOAST_TYPE.ERROR,
+          title: error?.error ?? t("file_library.contracts.upload.failed"),
+        });
+      } finally {
+        setIsUploading(false);
+        void mutateContracts();
+      }
+    },
+    [mutateContracts, t, workspaceSlug]
+  );
+
+  const {
+    getRootProps,
+    getInputProps,
+    isDragActive,
+    open: openFilePicker,
+  } = useDropzone({
+    onDrop: (accepted) => void uploadContracts(accepted),
+    accept: { "application/pdf": [".pdf"] },
+    noClick: true,
+    noKeyboard: true,
+  });
+
   const handleBulk = async (action: "retry" | "reanalyze", retryOptions?: TContractRetryOptions) => {
     if (selectedIds.length === 0 || isBulkActing) return;
     setIsBulkActing(true);
@@ -164,7 +221,16 @@ export function ContractsRoot(props: Props) {
   };
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden">
+    <div {...getRootProps()} className="relative flex h-full w-full flex-col overflow-hidden">
+      <input {...getInputProps()} />
+      {isDragActive ? (
+        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-canvas/80">
+          <div className="rounded-lg border border-dashed border-accent-strong bg-surface-1 px-6 py-5 text-center">
+            <p className="text-13 font-medium text-primary">{t("file_library.contracts.upload.drop_title")}</p>
+            <p className="mt-1 text-11 text-tertiary">{t("file_library.contracts.upload.drop_description")}</p>
+          </div>
+        </div>
+      ) : null}
       <>
         {/* toolbar */}
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle px-3 py-2.5 sm:px-4">
@@ -201,6 +267,10 @@ export function ContractsRoot(props: Props) {
                 <span className="sm:hidden">{activeJobs?.length ?? 0}</span>
               </span>
             )}
+            <Button variant="secondary" size="sm" disabled={isUploading} onClick={openFilePicker}>
+              {isUploading ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+              <span className="hidden sm:inline">{t("file_library.contracts.upload.button")}</span>
+            </Button>
             <Button variant="primary" size="sm" onClick={() => setIsChatOpen(true)}>
               <MessageSquare className="size-3.5" />
               <span className="hidden sm:inline">{t("file_library.contracts.chat.button")}</span>

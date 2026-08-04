@@ -229,6 +229,15 @@ export class ContractService extends APIService {
     );
   }
 
+  /**
+   * Server-rendered PDF for any contract asset. Word sources are converted on
+   * the API side, which the browser's .docx renderer does not do reliably.
+   */
+  getContractAssetPreviewPdfUrl(workspaceSlug: string, assetId: string, version?: string): string {
+    const query = version ? `?v=${encodeURIComponent(version)}` : "";
+    return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/contract-assets/${assetId}/preview-pdf/${query}`;
+  }
+
   getContractAssetThumbnailUrl(workspaceSlug: string, assetId: string, version?: string): string {
     const query = version ? `?v=${encodeURIComponent(version)}` : "";
     return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/contract-assets/${assetId}/thumbnail/${query}`;

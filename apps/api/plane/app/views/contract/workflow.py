@@ -797,6 +797,49 @@ class ContractAssetThumbnailEndpoint(BaseAPIView):
         return response
 
 
+class ContractAssetPdfPreviewEndpoint(BaseAPIView):
+    """Serve a contract asset as PDF, converting Word sources on the way.
+
+    The browser-side .docx renderer drops most of the document's content, so
+    template previews are rendered through the same LibreOffice conversion the
+    thumbnails already use and handed to the regular PDF viewer instead.
+    """
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    def get(self, request, slug, asset_id):
+        asset = FileAsset.objects.filter(
+            id=asset_id,
+            workspace__slug=slug,
+            entity_type__in=CONTRACT_PREVIEW_ASSET_TYPES,
+            is_uploaded=True,
+            deleted_at__isnull=True,
+        ).first()
+        if not asset:
+            return Response({"error": "File not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            content = _read_asset(asset)
+            name = (asset.attributes or {}).get("name", "document")
+            mime_type = (asset.attributes or {}).get("type", "")
+            if mime_type == "application/pdf" or name.lower().endswith(".pdf"):
+                pdf_bytes = content
+            elif name.lower().endswith(".docx"):
+                pdf_bytes = convert_to_pdf(content, name)
+            else:
+                pdf_bytes = None
+        except Exception as exc:
+            log_exception(exc)
+            pdf_bytes = None
+
+        if not pdf_bytes:
+            return Response({"error": "Preview is not available"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = 'inline; filename="preview.pdf"'
+        response["Cache-Control"] = "private, max-age=60"
+        return response
+
+
 class ContractTemplateVariantsEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug, template_id):

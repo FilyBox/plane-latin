@@ -6,6 +6,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import type { TContractAuthoringField, TContractFieldChoice, TContractFieldMeta } from "@plane/types";
+import { ContractField, ContractSelect } from "./ui";
 
 type Props = {
   field: TContractAuthoringField;
@@ -13,8 +14,8 @@ type Props = {
 };
 
 const inputClass =
-  "w-full rounded-md border border-subtle bg-surface-1 px-2.5 py-2 text-11 outline-none focus:border-accent-primary";
-const labelClass = "space-y-1 text-10 font-medium text-tertiary";
+  "w-full rounded-md border border-subtle bg-surface-1 px-2.5 py-2 text-13 outline-none focus:border-accent-primary";
+const labelClass = "space-y-1 text-11 font-medium text-tertiary";
 
 const DEFAULT_META: Record<TContractAuthoringField["type"], TContractFieldMeta> = {
   SIGNATURE: { type: "signature", fontSize: 12, required: true, overflow: "auto" },
@@ -118,18 +119,17 @@ export function ContractFieldSettings({ field, onChange }: Props) {
           />
         </label>
         {isTextual ? (
-          <label className={labelClass}>
-            {t("file_library.contracts.workflow.field_settings.alignment")}
-            <select
-              className={inputClass}
+          <ContractField label={t("file_library.contracts.workflow.field_settings.alignment")}>
+            <ContractSelect
               value={meta.textAlign ?? "left"}
-              onChange={(event) => update({ textAlign: event.target.value as TContractFieldMeta["textAlign"] })}
-            >
-              <option value="left">{t("file_library.contracts.workflow.field_settings.left")}</option>
-              <option value="center">{t("file_library.contracts.workflow.field_settings.center")}</option>
-              <option value="right">{t("file_library.contracts.workflow.field_settings.right")}</option>
-            </select>
-          </label>
+              onChange={(textAlign: NonNullable<TContractFieldMeta["textAlign"]>) => update({ textAlign })}
+              options={[
+                { value: "left", label: t("file_library.contracts.workflow.field_settings.left") },
+                { value: "center", label: t("file_library.contracts.workflow.field_settings.center") },
+                { value: "right", label: t("file_library.contracts.workflow.field_settings.right") },
+              ]}
+            />
+          </ContractField>
         ) : null}
       </div>
 
@@ -176,20 +176,19 @@ export function ContractFieldSettings({ field, onChange }: Props) {
                 onChange={(event) => update({ characterLimit: Number(event.target.value) })}
               />
             </label>
-            <label className={labelClass}>
-              {t("file_library.contracts.workflow.field_settings.vertical_alignment")}
-              <select
-                className={inputClass}
+            <ContractField label={t("file_library.contracts.workflow.field_settings.vertical_alignment")}>
+              <ContractSelect
                 value={meta.verticalAlign ?? "middle"}
-                onChange={(event) =>
-                  update({ verticalAlign: event.target.value as TContractFieldMeta["verticalAlign"] })
+                onChange={(verticalAlign: NonNullable<TContractFieldMeta["verticalAlign"]>) =>
+                  update({ verticalAlign })
                 }
-              >
-                <option value="top">{t("file_library.contracts.workflow.field_settings.top")}</option>
-                <option value="middle">{t("file_library.contracts.workflow.field_settings.center")}</option>
-                <option value="bottom">{t("file_library.contracts.workflow.field_settings.bottom")}</option>
-              </select>
-            </label>
+                options={[
+                  { value: "top", label: t("file_library.contracts.workflow.field_settings.top") },
+                  { value: "middle", label: t("file_library.contracts.workflow.field_settings.center") },
+                  { value: "bottom", label: t("file_library.contracts.workflow.field_settings.bottom") },
+                ]}
+              />
+            </ContractField>
           </div>
         </>
       ) : null}
@@ -229,34 +228,32 @@ export function ContractFieldSettings({ field, onChange }: Props) {
       ) : null}
 
       {field.type === "RADIO" || field.type === "CHECKBOX" ? (
-        <label className={labelClass}>
-          {t("file_library.contracts.workflow.field_settings.direction")}
-          <select
-            className={inputClass}
+        <ContractField label={t("file_library.contracts.workflow.field_settings.direction")}>
+          <ContractSelect
             value={meta.direction ?? "vertical"}
-            onChange={(event) => update({ direction: event.target.value as "vertical" | "horizontal" })}
-          >
-            <option value="vertical">{t("file_library.contracts.workflow.field_settings.vertical")}</option>
-            <option value="horizontal">{t("file_library.contracts.workflow.field_settings.horizontal")}</option>
-          </select>
-        </label>
+            onChange={(direction: "vertical" | "horizontal") => update({ direction })}
+            options={[
+              { value: "vertical", label: t("file_library.contracts.workflow.field_settings.vertical") },
+              { value: "horizontal", label: t("file_library.contracts.workflow.field_settings.horizontal") },
+            ]}
+          />
+        </ContractField>
       ) : null}
 
       {field.type === "CHECKBOX" ? (
         <div className="grid grid-cols-2 gap-2">
-          <label className={labelClass}>
-            {t("file_library.contracts.workflow.field_settings.validation")}
-            <select
-              className={inputClass}
+          <ContractField label={t("file_library.contracts.workflow.field_settings.validation")}>
+            <ContractSelect
               value={meta.validationRule ?? ""}
-              onChange={(event) => update({ validationRule: event.target.value })}
-            >
-              <option value="">{t("file_library.contracts.workflow.field_settings.no_validation")}</option>
-              <option value="Select at least">{t("file_library.contracts.workflow.field_settings.at_least")}</option>
-              <option value="Select at most">{t("file_library.contracts.workflow.field_settings.at_most")}</option>
-              <option value="Select exactly">{t("file_library.contracts.workflow.field_settings.exactly")}</option>
-            </select>
-          </label>
+              onChange={(validationRule) => update({ validationRule })}
+              options={[
+                { value: "", label: t("file_library.contracts.workflow.field_settings.no_validation") },
+                { value: "Select at least", label: t("file_library.contracts.workflow.field_settings.at_least") },
+                { value: "Select at most", label: t("file_library.contracts.workflow.field_settings.at_most") },
+                { value: "Select exactly", label: t("file_library.contracts.workflow.field_settings.exactly") },
+              ]}
+            />
+          </ContractField>
           <label className={labelClass}>
             {t("file_library.contracts.workflow.field_settings.amount")}
             <input
@@ -273,7 +270,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
       {isChoice ? (
         <section className="space-y-2 border-t border-subtle pt-3">
           <div className="flex items-center justify-between">
-            <p className="text-11 font-semibold">{t("file_library.contracts.workflow.field_settings.options")}</p>
+            <p className="text-13 font-semibold">{t("file_library.contracts.workflow.field_settings.options")}</p>
             <button type="button" className="rounded p-1 hover:bg-layer-1-hover" onClick={addChoice}>
               <Plus className="size-3.5" />
             </button>
@@ -313,29 +310,24 @@ export function ContractFieldSettings({ field, onChange }: Props) {
             </div>
           ))}
           {field.type === "DROPDOWN" ? (
-            <label className={labelClass}>
-              {t("file_library.contracts.workflow.field_settings.default_option")}
-              <select
-                className={inputClass}
+            <ContractField label={t("file_library.contracts.workflow.field_settings.default_option")}>
+              <ContractSelect
                 value={meta.defaultValue ?? ""}
-                onChange={(event) => update({ defaultValue: event.target.value })}
-              >
-                <option value="">{t("file_library.contracts.workflow.field_settings.no_default")}</option>
-                {(meta.values ?? [])
-                  .filter((item) => item.value)
-                  .map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.value}
-                    </option>
-                  ))}
-              </select>
-            </label>
+                onChange={(defaultValue) => update({ defaultValue })}
+                options={[
+                  { value: "", label: t("file_library.contracts.workflow.field_settings.no_default") },
+                  ...(meta.values ?? [])
+                    .filter((item) => item.value)
+                    .map((item) => ({ value: item.value, label: item.value })),
+                ]}
+              />
+            </ContractField>
           ) : null}
         </section>
       ) : null}
 
       <div className="grid grid-cols-2 gap-2 border-t border-subtle pt-3">
-        <label className="flex items-center gap-2 text-11">
+        <label className="flex items-center gap-2 text-13">
           <input
             type="checkbox"
             checked={Boolean(meta.required)}
@@ -343,7 +335,7 @@ export function ContractFieldSettings({ field, onChange }: Props) {
           />
           {t("file_library.contracts.workflow.field_settings.required")}
         </label>
-        <label className="flex items-center gap-2 text-11">
+        <label className="flex items-center gap-2 text-13">
           <input
             type="checkbox"
             checked={Boolean(meta.readOnly)}

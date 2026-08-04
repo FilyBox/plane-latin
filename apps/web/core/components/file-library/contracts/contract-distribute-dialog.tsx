@@ -35,21 +35,21 @@ export function ContractDistributeDialog({
     <ModalCore isOpen handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.MD}>
       <header className="px-6 pt-6 pb-3">
         <h2 className="text-16 font-semibold">{t("file_library.contracts.workflow.distribute.title")}</h2>
-        <p className="mt-1 text-12 text-tertiary">{t("file_library.contracts.workflow.distribute.description")}</p>
+        <p className="mt-1 text-13 text-tertiary">{t("file_library.contracts.workflow.distribute.description")}</p>
       </header>
 
       <div className="px-6">
         <div className="grid grid-cols-2 rounded-md bg-layer-2 p-1">
           <button
             type="button"
-            className={`rounded px-3 py-2 text-12 ${byEmail ? "shadow-sm bg-surface-1" : "text-tertiary"}`}
+            className={`rounded px-3 py-2 text-13 ${byEmail ? "shadow-sm bg-surface-1" : "text-tertiary"}`}
             onClick={() => update({ distributionMethod: "EMAIL" })}
           >
             {t("file_library.contracts.workflow.distribute.email")}
           </button>
           <button
             type="button"
-            className={`rounded px-3 py-2 text-12 ${!byEmail ? "shadow-sm bg-surface-1" : "text-tertiary"}`}
+            className={`rounded px-3 py-2 text-13 ${!byEmail ? "shadow-sm bg-surface-1" : "text-tertiary"}`}
             onClick={() => update({ distributionMethod: "NONE" })}
           >
             {t("file_library.contracts.workflow.distribute.no_email")}
@@ -59,38 +59,38 @@ export function ContractDistributeDialog({
         <div className="mt-2 min-h-[18rem]">
           {byEmail ? (
             <fieldset disabled={isSubmitting} className="flex flex-col gap-4 pt-2">
-              <label className="space-y-1.5 text-11 font-medium">
+              <label className="space-y-1.5 text-13 font-medium">
                 {t("file_library.contracts.workflow.distribute.reply_to")}{" "}
                 <span className="font-normal text-tertiary">
                   ({t("file_library.contracts.workflow.common.optional")})
                 </span>
                 <input
-                  className="focus:border-accent-primary w-full rounded-md border border-subtle bg-surface-1 px-3 py-2 text-12 outline-none"
+                  className="focus:border-accent-primary w-full rounded-md border border-subtle bg-surface-1 px-3 py-2 text-13 outline-none"
                   type="email"
                   maxLength={254}
                   value={settings.emailReplyTo}
                   onChange={(event) => update({ emailReplyTo: event.target.value })}
                 />
               </label>
-              <label className="space-y-1.5 text-11 font-medium">
+              <label className="space-y-1.5 text-13 font-medium">
                 {t("file_library.contracts.workflow.distribute.subject")}{" "}
                 <span className="font-normal text-tertiary">
                   ({t("file_library.contracts.workflow.common.optional")})
                 </span>
                 <input
-                  className="focus:border-accent-primary w-full rounded-md border border-subtle bg-surface-1 px-3 py-2 text-12 outline-none"
+                  className="focus:border-accent-primary w-full rounded-md border border-subtle bg-surface-1 px-3 py-2 text-13 outline-none"
                   maxLength={254}
                   value={settings.subject}
                   onChange={(event) => update({ subject: event.target.value })}
                 />
               </label>
-              <label className="space-y-1.5 text-11 font-medium">
+              <label className="space-y-1.5 text-13 font-medium">
                 {t("file_library.contracts.workflow.distribute.message")}{" "}
                 <span className="font-normal text-tertiary">
                   ({t("file_library.contracts.workflow.common.optional")})
                 </span>
                 <textarea
-                  className="focus:border-accent-primary h-16 w-full resize-none rounded-md border border-subtle bg-surface-1 px-3 py-2 text-12 outline-none"
+                  className="focus:border-accent-primary h-16 w-full resize-none rounded-md border border-subtle bg-surface-1 px-3 py-2 text-13 outline-none"
                   maxLength={5000}
                   value={settings.message}
                   onChange={(event) => update({ message: event.target.value })}
@@ -98,7 +98,7 @@ export function ContractDistributeDialog({
               </label>
             </fieldset>
           ) : (
-            <div className="flex min-h-[16.5rem] flex-col items-center justify-center rounded-lg border border-subtle px-7 text-center text-12 text-tertiary">
+            <div className="flex min-h-[16.5rem] flex-col items-center justify-center rounded-lg border border-subtle px-7 text-center text-13 text-tertiary">
               <p>{t("file_library.contracts.workflow.distribute.no_email_notice")}</p>
               <p className="mt-2">{t("file_library.contracts.workflow.distribute.links_notice")}</p>
             </div>
@@ -106,7 +106,7 @@ export function ContractDistributeDialog({
         </div>
 
         {validationMessage ? (
-          <p className="mt-2 rounded-md bg-warning-primary/10 px-3 py-2 text-10 text-warning-primary">
+          <p className="mt-2 rounded-md bg-warning-primary/10 px-3 py-2 text-11 text-warning-primary">
             {validationMessage}
           </p>
         ) : null}

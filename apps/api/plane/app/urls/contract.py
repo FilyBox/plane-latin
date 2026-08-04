@@ -5,6 +5,7 @@
 from django.urls import path
 
 from plane.app.views import (
+    ContractAssetPdfPreviewEndpoint,
     ContractAssetThumbnailEndpoint,
     ContractChatDetailEndpoint,
     ContractChatMessageEndpoint,
@@ -55,6 +56,11 @@ urlpatterns = [
         "workspaces/<str:slug>/contract-templates/<uuid:template_id>/",
         ContractTemplateDetailEndpoint.as_view(),
         name="contract-template-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-assets/<uuid:asset_id>/preview-pdf/",
+        ContractAssetPdfPreviewEndpoint.as_view(),
+        name="contract-asset-preview-pdf",
     ),
     path(
         "workspaces/<str:slug>/contract-assets/<uuid:asset_id>/thumbnail/",

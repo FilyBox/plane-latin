@@ -106,6 +106,10 @@ export const coreRoutes: RouteConfigEntry[] = [
               ":workspaceSlug/file-library/contracts/documents",
               "./(all)/[workspaceSlug]/(projects)/file-library/contracts/documents/page.tsx"
             ),
+            route(
+              ":workspaceSlug/file-library/contracts/documents/:requestId/editor",
+              "./(all)/[workspaceSlug]/(projects)/file-library/contracts/documents/[requestId]/editor/page.tsx"
+            ),
           ]),
         ]),
 

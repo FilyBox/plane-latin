@@ -329,6 +329,7 @@ from .user.base import AccountEndpoint, ProfileEndpoint, UserSessionEndpoint
 from .timezone.base import TimezoneEndpoint
 
 from .contract import (
+    ContractAssetPdfPreviewEndpoint,
     ContractAssetThumbnailEndpoint,
     ContractChatDetailEndpoint,
     ContractChatMessageEndpoint,

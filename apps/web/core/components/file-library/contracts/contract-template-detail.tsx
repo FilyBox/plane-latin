@@ -2,16 +2,23 @@
  * Copyright (c) 2023-present Plane Software, Inc. and contributors
  * SPDX-License-Identifier: AGPL-3.0-only
  * See the LICENSE file for details.
+ *
+ * Template detail.
+ *
+ * The two axes that used to compete for the same control are now separated:
+ * *variants* live in the left rail (parallel presentations of the same
+ * contract) and *versions* live in the right rail (the immutable history of
+ * one variant). A preparation checklist tells the user what still stands
+ * between the uploaded Word file and a contract they can actually send.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Braces,
+  Check,
   CheckCircle2,
   CopyPlus,
-  Eye,
-  FilePenLine,
   FileText,
   Loader2,
   Maximize2,
@@ -21,20 +28,22 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate } from "react-router";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
+import { Tooltip } from "@plane/propel/tooltip";
 import type { TContractSignatureRequest, TContractTemplateVariant } from "@plane/types";
 import { AlertModalCore, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
+import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
 import { CollaboraEditorModal } from "../collabora-editor-modal";
 import { FilePreviewModal, type TPreviewFile } from "../file-preview-modal";
 import { ContractAssetPreview } from "./contract-asset-preview";
-import { ContractAuthoringModal } from "./contract-authoring-modal";
 import { ContractTemplateUseDialog } from "./contract-template-use-dialog";
 import { ContractWordEditDecisionDialog, type TContractEditDecision } from "./contract-word-edit-decision-dialog";
+import { ContractField, ContractInput, ContractPageHeader, ContractSection, RequestStatusBadge } from "./ui";
 
 type Props = { workspaceSlug: string; templateId: string };
 type UseSelection = { variant: TContractTemplateVariant; revisionId?: string };
@@ -59,7 +68,6 @@ const STATUS_LABEL_KEYS: Record<TContractSignatureRequest["status"], string> = {
 export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const {
     data: template,
     mutate: mutateTemplate,
@@ -92,11 +100,11 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   const [isStartingEdit, setIsStartingEdit] = useState(false);
   const [isFinishingEdit, setIsFinishingEdit] = useState(false);
   const [usingSelection, setUsingSelection] = useState<UseSelection>();
-  const [authoringRequest, setAuthoringRequest] = useState<TContractSignatureRequest>();
   const [variantDraft, setVariantDraft] = useState("");
   const [variantModalOpen, setVariantModalOpen] = useState(false);
   const [isCreatingVariant, setIsCreatingVariant] = useState(false);
   const [isSavingVersion, setIsSavingVersion] = useState(false);
+  const [isConfiguring, setIsConfiguring] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -127,16 +135,14 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     [editSession, isStartingEdit, t, workspaceSlug]
   );
 
-  useEffect(() => {
-    if (searchParams.get("edit") !== "1" || !selectedVariant) return;
-    void startWordEdit(selectedVariant);
-    setSearchParams({}, { replace: true });
-  }, [searchParams, selectedVariant, setSearchParams, startWordEdit]);
-
   const templateRequests = useMemo(
     () =>
-      (requests ?? []).filter((request) =>
-        template?.variants.some((variant) => variant.id === request.revision.variant_id)
+      (requests ?? []).filter(
+        (request) =>
+          // Template-configuration requests are internal plumbing, not contracts
+          // the user created — they must not show up in this list.
+          request.authoring_mode !== "TEMPLATE" &&
+          template?.variants.some((variant) => variant.id === request.revision.variant_id)
       ),
     [requests, template]
   );
@@ -173,6 +179,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     try {
       const revision = await contractService.saveTemplateRevision(workspaceSlug, selectedVariant.id);
       await Promise.all([mutateTemplate(), mutateSchema()]);
+      // Select the version that was just created so the save has a visible result.
       setSelectedVersionId(revision.id);
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.workflow.template_detail.version_saved") });
     } catch (error: any) {
@@ -185,20 +192,27 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     }
   };
 
+  /** Opens the shared field editor in template mode, then comes back here. */
   const configureFields = async () => {
-    if (!selectedVariant || !template) return;
+    if (!selectedVariant || !template || isConfiguring) return;
+    setIsConfiguring(true);
     try {
       const request = await contractService.prepareSignatureRequest(workspaceSlug, {
         variant_id: selectedVariant.id,
         title: t("file_library.contracts.workflow.template_detail.configuration_title", { name: template.name }),
         authoring_mode: "TEMPLATE",
       });
-      setAuthoringRequest(request);
+      const returnTo = `/${workspaceSlug}/file-library/contracts/templates/${template.id}`;
+      navigate(
+        `/${workspaceSlug}/file-library/contracts/documents/${request.id}/editor?returnTo=${encodeURIComponent(returnTo)}`
+      );
     } catch (error: any) {
       setToast({
         type: TOAST_TYPE.ERROR,
         title: error?.error ?? t("file_library.contracts.workflow.template_detail.configuration_failed"),
       });
+    } finally {
+      setIsConfiguring(false);
     }
   };
 
@@ -265,10 +279,10 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   const selectedAsset = selectedRevision
     ? {
         assetId: selectedRevision.pdf_asset_id,
-        name: t("file_library.contracts.workflow.template_detail.revision_pdf_name", {
+        name: `${t("file_library.contracts.workflow.template_detail.revision_pdf_name", {
           name: template?.name ?? t("file_library.contracts.workflow.common.contract"),
           number: selectedRevision.revision,
-        }),
+        })}.pdf`,
         contentType: "application/pdf" as const,
       }
     : selectedVariant
@@ -279,6 +293,13 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
         }
       : undefined;
 
+  const fieldCount = selectedRevision?.signature_blueprint.length ?? selectedVariant?.signature_blueprint.length ?? 0;
+  const recipientCount =
+    selectedRevision?.recipient_blueprint.length ?? selectedVariant?.recipient_blueprint.length ?? 0;
+  const variableCount = selectedRevision?.variable_schema?.placeholder_count ?? schema?.schema.placeholder_count ?? 0;
+  const isConfigured = fieldCount > 0 && recipientCount > 0;
+  const hasVersion = (selectedVariant?.revision_count ?? 0) > 0;
+
   if (isLoading || !template)
     return (
       <div className="grid h-full place-items-center">
@@ -287,78 +308,67 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     );
 
   return (
-    <div className="h-full overflow-y-auto bg-surface-1">
-      <div className="w-full space-y-6 px-4 py-5 sm:px-5 lg:px-6">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
+    <div className="h-full overflow-y-auto">
+      <div className="w-full space-y-5 px-4 py-5 sm:px-5 lg:px-6">
+        <ContractPageHeader
+          breadcrumb={
             <Link
               to={`/${workspaceSlug}/file-library/contracts/templates`}
-              className="mb-2 inline-flex items-center gap-1 text-10 text-tertiary hover:text-primary"
+              className="mb-2 inline-flex items-center gap-1 text-11 text-tertiary hover:text-primary"
             >
               <ArrowLeft className="size-3.5" /> {t("file_library.contracts.workflow.navigation.templates")}
             </Link>
-            <h1 className="truncate text-20 font-semibold text-primary">{template.name}</h1>
-            <p className="mt-1 text-12 text-secondary">
-              {template.description || t("file_library.contracts.workflow.template_detail.description")}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            {template.variants.length > 1 ? (
-              <label className="text-9 font-medium text-tertiary">
-                {t("file_library.contracts.workflow.common.variant")}
-                <select
-                  value={selectedVariant?.id ?? ""}
-                  onChange={(event) => setSelectedVariantId(event.target.value)}
-                  className="focus:border-accent-primary mt-1 block h-9 min-w-44 rounded-md border border-subtle bg-surface-1 px-3 text-11 font-medium text-primary outline-none"
-                >
-                  {template.variants.map((variant) => (
-                    <option key={variant.id} value={variant.id}>
-                      {variant.name} ·{" "}
-                      {t("file_library.contracts.workflow.common.version_count", {
-                        count: variant.revision_count,
-                      })}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            <Button variant="secondary" size="sm" onClick={() => setDeleteOpen(true)}>
-              <Trash2 className="size-4" /> {t("file_library.contracts.workflow.common.delete")}
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => setVariantModalOpen(true)}>
-              <CopyPlus className="size-4" /> {t("file_library.contracts.workflow.template_detail.new_variant")}
-            </Button>
-          </div>
-        </header>
+          }
+          title={template.name}
+          description={template.description || t("file_library.contracts.workflow.template_detail.description")}
+          actions={
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setDeleteOpen(true)}>
+                <Trash2 className="size-4" /> {t("file_library.contracts.workflow.common.delete")}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setVariantModalOpen(true)}>
+                <CopyPlus className="size-4" /> {t("file_library.contracts.workflow.template_detail.new_variant")}
+              </Button>
+            </>
+          }
+        />
 
-        <section className="min-w-0">
-          {selectedVariant ? (
-            <div className="min-w-0 space-y-5">
-              <section className="overflow-hidden rounded-lg border border-subtle bg-surface-1">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-subtle px-4 py-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-md bg-accent-primary/10 text-accent-primary">
-                      <FileText className="size-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h2 className="truncate text-13 font-semibold text-primary">
-                          {selectedRevision
-                            ? t("file_library.contracts.workflow.common.version_number", {
-                                number: selectedRevision.revision,
-                              })
-                            : t("file_library.contracts.workflow.common.current_document")}
-                        </h2>
-                        {!selectedRevision ? (
-                          <span className="rounded-full bg-accent-primary/10 px-2 py-0.5 text-9 font-medium text-accent-primary">
-                            {t("file_library.contracts.workflow.common.editable")}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-0.5 truncate text-10 text-tertiary">{selectedAsset?.name}</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
+        {selectedVariant ? (
+          <>
+            <PreparationChecklist
+              isConfigured={isConfigured}
+              hasVersion={hasVersion}
+              fieldCount={fieldCount}
+              recipientCount={recipientCount}
+              variableCount={variableCount}
+              fileName={selectedVariant.source_file_name}
+              isConfiguring={isConfiguring}
+              isSavingVersion={isSavingVersion}
+              onConfigure={() => void configureFields()}
+              onSaveVersion={() => void saveVersion()}
+            />
+
+            <div className="grid gap-4 xl:grid-cols-[13rem_minmax(0,1fr)]">
+              {/* variants: parallel presentations of the same contract */}
+              <VariantRail
+                variants={template.variants}
+                selectedVariantId={selectedVariant.id}
+                onSelect={setSelectedVariantId}
+                onCreate={() => setVariantModalOpen(true)}
+              />
+
+              <ContractSection
+                title={
+                  selectedRevision
+                    ? t("file_library.contracts.workflow.common.version_number", {
+                        number: selectedRevision.revision,
+                      })
+                    : t("file_library.contracts.workflow.common.current_document")
+                }
+                description={selectedAsset?.name}
+                icon={<FileText className="size-4" />}
+                actions={
+                  <>
                     <Button
                       variant="secondary"
                       size="sm"
@@ -374,43 +384,37 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                         onClick={() =>
                           setPreviewFile({
                             assetId: selectedRevision.source_asset_id,
-                            name: t("file_library.contracts.workflow.template_detail.revision_word_name", {
+                            // The extension has to be on the name: the preview
+                            // modal picks its viewer (and decides whether the
+                            // file is editable) from it, not only from the MIME.
+                            name: `${t("file_library.contracts.workflow.template_detail.revision_word_name", {
                               name: template.name,
                               number: selectedRevision.revision,
-                            }),
+                            })}.docx`,
                             contentType: DOCX_TYPE,
                           })
                         }
                       >
-                        <Eye className="size-4" /> {t("file_library.contracts.workflow.common.view_word")}
+                        {t("file_library.contracts.workflow.common.view_word")}
                       </Button>
                     ) : null}
+                    {/* Editing always targets the variant's live document —
+                        saved versions are immutable snapshots — so this stays
+                        available whichever version is being previewed. */}
                     <Button
                       variant="secondary"
                       size="sm"
                       disabled={isStartingEdit}
                       onClick={() => void startWordEdit(selectedVariant)}
                     >
-                      {isStartingEdit ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <FilePenLine className="size-4" />
-                      )}{" "}
+                      {isStartingEdit ? <Loader2 className="size-4 animate-spin" /> : null}
                       {t("file_library.contracts.workflow.common.edit_word")}
                     </Button>
-                    <Button variant="secondary" size="sm" disabled={isSavingVersion} onClick={() => void saveVersion()}>
-                      {isSavingVersion ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                      {t(
-                        isSavingVersion
-                          ? "file_library.contracts.workflow.common.saving"
-                          : "file_library.contracts.workflow.common.save_version"
-                      )}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid min-h-[620px] xl:grid-cols-[minmax(0,1fr)_18rem]">
-                  <div className="min-h-[620px] bg-layer-1 p-3 sm:p-4">
+                  </>
+                }
+              >
+                <div className="grid min-h-140 xl:grid-cols-[minmax(0,1fr)_17rem]">
+                  <div className="min-h-140 p-3 sm:p-4">
                     {selectedAsset ? (
                       <ContractAssetPreview
                         key={selectedAsset.assetId}
@@ -418,7 +422,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                         assetId={selectedAsset.assetId}
                         fileName={selectedAsset.name}
                         contentType={selectedAsset.contentType}
-                        className="shadow-sm h-[min(68vh,760px)] min-h-[580px] overflow-hidden rounded-md border border-subtle bg-surface-1"
+                        className="shadow-sm h-[min(64vh,720px)] min-h-130 overflow-hidden rounded-md border border-subtle bg-surface-1"
                       />
                     ) : (
                       <div className="grid h-full place-items-center">
@@ -427,16 +431,17 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                     )}
                   </div>
 
+                  {/* versions: the immutable history of this variant */}
                   <aside className="flex min-h-0 flex-col border-t border-subtle xl:border-t-0 xl:border-l">
                     <div className="border-b border-subtle px-3 py-3">
-                      <p className="text-11 font-semibold text-primary">
+                      <p className="text-13 font-semibold text-primary">
                         {t("file_library.contracts.workflow.template_detail.choose_version")}
                       </p>
-                      <p className="mt-0.5 text-9 text-tertiary">
+                      <p className="mt-0.5 text-11 text-tertiary">
                         {t("file_library.contracts.workflow.template_detail.choose_version_hint")}
                       </p>
                     </div>
-                    <div className="max-h-[min(68vh,760px)] space-y-2 overflow-y-auto p-2.5">
+                    <div className="max-h-[min(64vh,720px)] space-y-2 overflow-y-auto p-2.5">
                       <ContractVersionCard
                         isSelected={selectedVersionId === "CURRENT"}
                         title={t("file_library.contracts.workflow.common.current_document")}
@@ -475,7 +480,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                         />
                       ))}
                       {!isSchemaLoading && (schema?.revisions.length ?? 0) === 0 ? (
-                        <p className="rounded-md border border-dashed border-subtle p-3 text-center text-9 text-tertiary">
+                        <p className="rounded-md border border-dashed border-subtle p-3 text-center text-11 text-tertiary">
                           {t("file_library.contracts.workflow.template_detail.save_first_version")}
                         </p>
                       ) : null}
@@ -484,66 +489,70 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-subtle p-4">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-10 text-tertiary">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-11 text-tertiary">
                     <span className="flex items-center gap-1.5">
                       <Braces className="size-3.5" />
-                      {selectedRevision?.variable_schema?.placeholder_count ??
-                        schema?.schema.placeholder_count ??
-                        0}{" "}
-                      {t("file_library.contracts.workflow.common.variables")}
+                      {variableCount} {t("file_library.contracts.workflow.common.variables")}
                     </span>
                     <span>
-                      {selectedRevision?.signature_blueprint.length ?? selectedVariant.signature_blueprint.length}{" "}
-                      {t("file_library.contracts.workflow.common.fields")}
+                      {fieldCount} {t("file_library.contracts.workflow.common.fields")}
                     </span>
                     <span>
-                      {selectedRevision?.recipient_blueprint.length ?? selectedVariant.recipient_blueprint.length}{" "}
-                      {t("file_library.contracts.workflow.common.participants")}
+                      {recipientCount} {t("file_library.contracts.workflow.common.participants")}
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" size="sm" onClick={() => void configureFields()}>
-                      <Settings2 className="size-4" />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={isConfiguring}
+                      onClick={() => void configureFields()}
+                    >
+                      {isConfiguring ? <Loader2 className="size-4 animate-spin" /> : <Settings2 className="size-4" />}
                       {t("file_library.contracts.workflow.template_detail.configure_current")}
                     </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => setUsingSelection({ variant: selectedVariant, revisionId: selectedRevision?.id })}
+                    <Tooltip
+                      tooltipContent={t("file_library.contracts.workflow.template_detail.use_blocked_hint")}
+                      disabled={isConfigured}
                     >
-                      <Send className="size-4" />
-                      {selectedRevision
-                        ? t("file_library.contracts.workflow.template_detail.use_version", {
-                            number: selectedRevision.revision,
-                          })
-                        : t("file_library.contracts.workflow.template_detail.use_current")}
-                    </Button>
+                      <span>
+                        <Button
+                          variant={isConfigured ? "primary" : "secondary"}
+                          size="sm"
+                          onClick={() =>
+                            setUsingSelection({ variant: selectedVariant, revisionId: selectedRevision?.id })
+                          }
+                        >
+                          <Send className="size-4" />
+                          {selectedRevision
+                            ? t("file_library.contracts.workflow.template_detail.use_version", {
+                                number: selectedRevision.revision,
+                              })
+                            : t("file_library.contracts.workflow.template_detail.use_current")}
+                        </Button>
+                      </span>
+                    </Tooltip>
                   </div>
                 </div>
-              </section>
+              </ContractSection>
             </div>
-          ) : null}
-        </section>
+          </>
+        ) : null}
 
-        <section className="overflow-hidden rounded-lg border border-subtle">
-          <div className="flex items-center justify-between border-b border-subtle px-4 py-3">
-            <div>
-              <h2 className="text-13 font-semibold text-primary">
-                {t("file_library.contracts.workflow.template_detail.created_from_template")}
-              </h2>
-              <p className="mt-0.5 text-10 text-tertiary">
-                {t("file_library.contracts.workflow.template_detail.created_description")}
-              </p>
-            </div>
+        <ContractSection
+          title={t("file_library.contracts.workflow.template_detail.created_from_template")}
+          description={t("file_library.contracts.workflow.template_detail.created_description")}
+          actions={
             <Link
               to={`/${workspaceSlug}/file-library/contracts/documents`}
-              className="text-10 font-medium text-accent-primary hover:underline"
+              className="text-11 font-medium text-accent-primary hover:underline"
             >
               {t("file_library.contracts.workflow.common.view_all")}
             </Link>
-          </div>
+          }
+        >
           {templateRequests.length === 0 ? (
-            <div className="px-4 py-8 text-center text-11 text-tertiary">
+            <div className="px-4 py-8 text-center text-13 text-tertiary">
               {t("file_library.contracts.workflow.template_detail.no_contracts")}
             </div>
           ) : (
@@ -557,8 +566,8 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                     className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-layer-1-hover"
                   >
                     <div className="min-w-0">
-                      <p className="truncate text-11 font-medium text-primary">{request.title}</p>
-                      <p className="mt-0.5 text-9 text-tertiary">
+                      <p className="truncate text-13 font-medium text-primary">{request.title}</p>
+                      <p className="mt-0.5 text-11 text-tertiary">
                         {t("file_library.contracts.workflow.template_detail.contract_progress", {
                           version: request.revision.revision,
                           signed,
@@ -566,17 +575,13 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                         })}
                       </p>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-1 text-9 ${request.status === "COMPLETED" ? "bg-success-primary/10 text-success-primary" : "bg-layer-2 text-secondary"}`}
-                    >
-                      {t(STATUS_LABEL_KEYS[request.status])}
-                    </span>
+                    <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} />
                   </Link>
                 );
               })}
             </div>
           )}
-        </section>
+        </ContractSection>
       </div>
 
       <FilePreviewModal
@@ -605,19 +610,11 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
           onClose={() => setUsingSelection(undefined)}
           onPrepared={(request) => {
             setUsingSelection(undefined);
-            setAuthoringRequest(request);
             void mutateRequests();
-          }}
-        />
-      ) : null}
-      {authoringRequest ? (
-        <ContractAuthoringModal
-          workspaceSlug={workspaceSlug}
-          signatureRequest={authoringRequest}
-          onClose={() => setAuthoringRequest(undefined)}
-          onSent={() => {
-            void mutateRequests();
-            void mutateTemplate();
+            const returnTo = `/${workspaceSlug}/file-library/contracts/templates/${template.id}`;
+            navigate(
+              `/${workspaceSlug}/file-library/contracts/documents/${request.id}/editor?returnTo=${encodeURIComponent(returnTo)}`
+            );
           }}
         />
       ) : null}
@@ -644,21 +641,19 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
             void createVariant();
           }}
         >
-          <h3 className="text-14 font-semibold text-primary">
+          <h3 className="text-15 font-semibold text-primary">
             {t("file_library.contracts.workflow.template_detail.new_variant")}
           </h3>
-          <p className="mt-1 text-10 text-tertiary">
+          <p className="mt-1 text-11 text-tertiary">
             {t("file_library.contracts.workflow.template_detail.new_variant_description")}
           </p>
-          <label className="mt-4 block text-11 font-medium text-secondary">
-            {t("file_library.contracts.workflow.common.name")}
-            <input
+          <ContractField className="mt-4" label={t("file_library.contracts.workflow.common.name")}>
+            <ContractInput
               value={variantDraft}
               onChange={(event) => setVariantDraft(event.target.value)}
-              className="focus:border-accent-primary mt-1.5 h-9 w-full rounded-md border border-subtle bg-surface-1 px-3 text-11 outline-none"
               placeholder={t("file_library.contracts.workflow.template_detail.variant_placeholder")}
             />
-          </label>
+          </ContractField>
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="secondary" size="sm" type="button" onClick={() => setVariantModalOpen(false)}>
               {t("file_library.contracts.workflow.common.cancel")}
@@ -679,6 +674,173 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
         content={<>{t("file_library.contracts.workflow.template_detail.delete_description")}</>}
       />
     </div>
+  );
+}
+
+/**
+ * Tells the user exactly what stands between an uploaded Word file and a
+ * sendable contract. Replaces the old footer where every action looked equal.
+ */
+function PreparationChecklist({
+  isConfigured,
+  hasVersion,
+  fieldCount,
+  recipientCount,
+  variableCount,
+  fileName,
+  isConfiguring,
+  isSavingVersion,
+  onConfigure,
+  onSaveVersion,
+}: {
+  isConfigured: boolean;
+  hasVersion: boolean;
+  fieldCount: number;
+  recipientCount: number;
+  variableCount: number;
+  fileName: string;
+  isConfiguring: boolean;
+  isSavingVersion: boolean;
+  onConfigure: () => void;
+  onSaveVersion: () => void;
+}) {
+  const { t } = useTranslation();
+  const done = 1 + (isConfigured ? 1 : 0) + (hasVersion ? 1 : 0);
+
+  const steps = [
+    {
+      key: "document",
+      done: true,
+      title: t("file_library.contracts.workflow.template_detail.step_document"),
+      detail: t("file_library.contracts.workflow.template_detail.step_document_detail", {
+        name: fileName,
+        count: variableCount,
+      }),
+      action: null,
+    },
+    {
+      key: "fields",
+      done: isConfigured,
+      title: t("file_library.contracts.workflow.template_detail.step_fields"),
+      detail: isConfigured
+        ? t("file_library.contracts.workflow.template_detail.step_fields_done", {
+            fields: fieldCount,
+            recipients: recipientCount,
+          })
+        : t("file_library.contracts.workflow.template_detail.step_fields_todo"),
+      action: (
+        <Button variant="secondary" size="sm" disabled={isConfiguring} onClick={onConfigure}>
+          {isConfiguring ? <Loader2 className="size-3.5 animate-spin" /> : <Settings2 className="size-3.5" />}
+          {t("file_library.contracts.workflow.template_detail.configure_current")}
+        </Button>
+      ),
+    },
+    {
+      key: "version",
+      done: hasVersion,
+      title: t("file_library.contracts.workflow.template_detail.step_version"),
+      detail: hasVersion
+        ? t("file_library.contracts.workflow.template_detail.step_version_done")
+        : t("file_library.contracts.workflow.template_detail.step_version_todo"),
+      action: (
+        <Button variant="secondary" size="sm" disabled={isSavingVersion} onClick={onSaveVersion}>
+          {isSavingVersion ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+          {t("file_library.contracts.workflow.common.save_version")}
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <ContractSection
+      title={t("file_library.contracts.workflow.template_detail.preparation_title")}
+      description={t("file_library.contracts.workflow.template_detail.preparation_progress", {
+        done,
+        total: steps.length,
+      })}
+      bodyClassName="divide-y divide-subtle"
+    >
+      {steps.map((step) => (
+        <div key={step.key} className="flex items-center gap-3 px-4 py-3">
+          <span
+            className={cn(
+              "grid size-5 shrink-0 place-items-center rounded-full border",
+              step.done ? "border-success-primary bg-success-primary text-on-color" : "border-strong text-tertiary"
+            )}
+          >
+            {step.done ? <Check className="size-3" /> : null}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className={cn("truncate text-13 font-medium", step.done ? "text-primary" : "text-secondary")}>
+              {step.title}
+            </p>
+            <p className="truncate text-11 text-tertiary">{step.detail}</p>
+          </div>
+          {step.done ? null : step.action}
+        </div>
+      ))}
+    </ContractSection>
+  );
+}
+
+/** Variants are siblings, not history — a rail, never a dropdown. */
+function VariantRail({
+  variants,
+  selectedVariantId,
+  onSelect,
+  onCreate,
+}: {
+  variants: TContractTemplateVariant[];
+  selectedVariantId: string;
+  onSelect: (id: string) => void;
+  onCreate: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <aside className="xl:sticky xl:top-0 xl:self-start">
+      <p className="mb-2 px-1 text-11 font-semibold text-tertiary">
+        {t("file_library.contracts.workflow.common.variants")}
+      </p>
+      <ul className="space-y-1">
+        {variants.map((variant) => {
+          const isSelected = variant.id === selectedVariantId;
+          return (
+            <li key={variant.id}>
+              <button
+                type="button"
+                aria-current={isSelected ? "true" : undefined}
+                onClick={() => onSelect(variant.id)}
+                className={cn(
+                  "w-full rounded-md border px-3 py-2 text-left transition-colors",
+                  isSelected
+                    ? "border-accent-strong bg-accent-subtle-hover"
+                    : "border-transparent hover:bg-layer-1-hover"
+                )}
+              >
+                <span
+                  className={cn(
+                    "block truncate text-13 font-medium",
+                    isSelected ? "text-accent-primary" : "text-primary"
+                  )}
+                >
+                  {variant.name}
+                </span>
+                <span className="block text-11 text-tertiary">
+                  {t("file_library.contracts.workflow.common.version_count", { count: variant.revision_count })}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <button
+        type="button"
+        onClick={onCreate}
+        className="mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-13 font-medium text-accent-primary hover:bg-layer-1-hover"
+      >
+        <Plus className="size-3.5" /> {t("file_library.contracts.workflow.template_detail.new_variant")}
+      </button>
+    </aside>
   );
 }
 
@@ -704,11 +866,12 @@ function ContractVersionCard({
       type="button"
       aria-pressed={isSelected}
       onClick={onSelect}
-      className={`group flex w-full gap-3 rounded-lg border p-2 text-left transition-colors ${
+      className={cn(
+        "group flex w-full gap-3 rounded-lg border p-2 text-left transition-colors",
         isSelected
           ? "border-accent-strong bg-accent-primary/5 ring-1 ring-accent-strong"
           : "border-subtle bg-surface-1 hover:bg-layer-1-hover"
-      }`}
+      )}
     >
       <span className="shadow-sm grid h-24 w-[4.5rem] shrink-0 place-items-center overflow-hidden rounded border border-subtle bg-layer-1">
         {thumbnailFailed ? (
@@ -725,11 +888,11 @@ function ContractVersionCard({
       </span>
       <span className="min-w-0 flex-1 py-1">
         <span className="flex items-center justify-between gap-2">
-          <span className="truncate text-11 font-semibold text-primary">{title}</span>
+          <span className="truncate text-13 font-semibold text-primary">{title}</span>
           {isSelected ? <CheckCircle2 className="size-3.5 shrink-0 text-accent-primary" /> : null}
         </span>
-        <span className="mt-1 line-clamp-2 text-9 leading-4 text-tertiary">{subtitle}</span>
-        {meta ? <span className="mt-2 block text-9 leading-4 text-secondary">{meta}</span> : null}
+        <span className="mt-1 line-clamp-2 text-11 leading-4 text-tertiary">{subtitle}</span>
+        {meta ? <span className="mt-2 block text-11 leading-4 text-secondary">{meta}</span> : null}
       </span>
     </button>
   );

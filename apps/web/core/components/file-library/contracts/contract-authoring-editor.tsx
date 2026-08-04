@@ -5,7 +5,7 @@
  */
 
 import type { ComponentType, PointerEvent as ReactPointerEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -40,6 +40,7 @@ import { PDFViewer, type PDFViewerPageOverlayProps } from "@plane/extend-ui";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
+import { cn } from "@plane/utils";
 import type {
   TContractAuthoringField,
   TContractAuthoringRecipient,
@@ -54,6 +55,7 @@ import { ContractEnvelopeSettingsDialog } from "./contract-envelope-settings-dia
 import { ContractDistributeDialog } from "./contract-distribute-dialog";
 import { ContractFieldSettings, getDefaultFieldMeta } from "./contract-field-settings";
 import { ContractSigningLinksDialog } from "./contract-signing-links-dialog";
+import { ContractField, ContractInput, ContractSelect } from "./ui";
 
 type AuthoringTab = "RECIPIENTS" | "FIELDS" | "PREVIEW";
 type FieldType = TContractAuthoringField["type"];
@@ -206,11 +208,35 @@ const reindexRecipients = (recipients: TContractAuthoringRecipient[]) =>
     signingOrder: index + 1,
   }));
 
+/**
+ * Overlay state is delivered through context instead of through props on
+ * `renderPageOverlay`.
+ *
+ * `PDFViewer` memoises its page renderer on the identity of `renderPageOverlay`,
+ * `pageClassName` and the pointer handlers. Passing inline closures re-created
+ * every render invalidated that memo on every keystroke and every pointer move,
+ * which re-mounted each page's canvas — the flicker and the jump back to page 1.
+ * With a context, those callbacks stay referentially stable for the lifetime of
+ * the editor and only the overlay subtree re-renders.
+ */
+type FieldsOverlayContextValue = {
+  recipients: TContractAuthoringRecipient[];
+  selectedField?: SelectedField;
+  draggingFieldType?: FieldType;
+  isEditable: boolean;
+  onAddField: (type: FieldType, page: number, x: number, y: number) => void;
+  onChangeField: (recipientIndex: number, clientId: string, patch: Partial<TContractAuthoringField>) => void;
+  onSelectField: (selection: SelectedField) => void;
+};
+
+const FieldsOverlayContext = createContext<FieldsOverlayContextValue | null>(null);
+
 function FieldOverlay({
   field,
   recipientIndex,
   color,
   selected,
+  isEditable,
   onChange,
   onSelect,
 }: {
@@ -218,10 +244,14 @@ function FieldOverlay({
   recipientIndex: number;
   color: string;
   selected: boolean;
+  isEditable: boolean;
   onChange: (patch: Partial<TContractAuthoringField>) => void;
   onSelect: () => void;
 }) {
   const { t } = useTranslation();
+  // The drag is tracked locally and committed once on pointer-up. Updating the
+  // editor's state on every pointermove re-rendered the whole document.
+  const [draft, setDraft] = useState<Partial<TContractAuthoringField>>();
   const interactionRef = useRef<{
     mode: "move" | "resize";
     startX: number;
@@ -231,8 +261,10 @@ function FieldOverlay({
   }>();
   const definition = FIELD_DEFINITIONS[field.type];
   const Icon = definition.icon;
+  const view = draft ? { ...field, ...draft } : field;
 
   const startInteraction = (event: ReactPointerEvent<HTMLElement>, mode: "move" | "resize") => {
+    if (!isEditable) return;
     event.preventDefault();
     event.stopPropagation();
     const pageElement = event.currentTarget.closest<HTMLElement>("[data-pdf-viewer-page]");
@@ -257,14 +289,14 @@ function FieldOverlay({
     const deltaY = ((event.clientY - interaction.startY) / interaction.pageRect.height) * 100;
 
     if (interaction.mode === "move") {
-      onChange({
+      setDraft({
         positionX: Math.max(0, Math.min(100 - interaction.initial.width, interaction.initial.positionX + deltaX)),
         positionY: Math.max(0, Math.min(100 - interaction.initial.height, interaction.initial.positionY + deltaY)),
       });
       return;
     }
 
-    onChange({
+    setDraft({
       width: Math.max(6, Math.min(100 - interaction.initial.positionX, interaction.initial.width + deltaX)),
       height: Math.max(2.5, Math.min(100 - interaction.initial.positionY, interaction.initial.height + deltaY)),
     });
@@ -275,17 +307,22 @@ function FieldOverlay({
     event.preventDefault();
     event.stopPropagation();
     interactionRef.current = undefined;
+    if (draft) onChange(draft);
+    setDraft(undefined);
   };
 
   return (
     <div
       data-contract-field
-      className="shadow-sm pointer-events-auto absolute flex cursor-move touch-none items-center overflow-hidden rounded-[3px] border-2 bg-white/95 text-[10px] font-medium select-none"
+      className={cn(
+        "shadow-sm pointer-events-auto absolute flex touch-none items-center overflow-hidden rounded-[3px] border-2 bg-white/95 text-[10px] font-medium select-none",
+        isEditable && "cursor-move"
+      )}
       style={{
-        left: `${field.positionX}%`,
-        top: `${field.positionY}%`,
-        width: `${field.width}%`,
-        height: `${field.height}%`,
+        left: `${view.positionX}%`,
+        top: `${view.positionY}%`,
+        width: `${view.width}%`,
+        height: `${view.height}%`,
         borderColor: color,
         color,
         boxShadow: selected ? `0 0 0 2px white, 0 0 0 4px ${color}` : undefined,
@@ -308,38 +345,30 @@ function FieldOverlay({
                 : t(definition.labelKey)}
         </span>
       </span>
-      <button
-        type="button"
-        aria-label={t("file_library.contracts.workflow.authoring.resize_field")}
-        className="absolute right-0 bottom-0 grid size-4 cursor-nwse-resize place-items-center rounded-tl bg-white"
-        style={{ color }}
-        onPointerDown={(event) => startInteraction(event, "resize")}
-      >
-        <Grip className="size-3" />
-      </button>
+      {isEditable ? (
+        <button
+          type="button"
+          aria-label={t("file_library.contracts.workflow.authoring.resize_field")}
+          className="absolute right-0 bottom-0 grid size-4 cursor-nwse-resize place-items-center rounded-tl bg-white"
+          style={{ color }}
+          onPointerDown={(event) => startInteraction(event, "resize")}
+        >
+          <Grip className="size-3" />
+        </button>
+      ) : null}
     </div>
   );
 }
 
-function PageFieldsOverlay({
-  pageNumber,
-  recipients,
-  selectedField,
-  draggingFieldType,
-  onAddField,
-  onChangeField,
-  onSelectField,
-}: PDFViewerPageOverlayProps & {
-  recipients: TContractAuthoringRecipient[];
-  selectedField?: SelectedField;
-  draggingFieldType?: FieldType;
-  onAddField: (type: FieldType, page: number, x: number, y: number) => void;
-  onChangeField: (recipientIndex: number, clientId: string, patch: Partial<TContractAuthoringField>) => void;
-  onSelectField: (selection: SelectedField) => void;
-}) {
+function PageFieldsOverlay({ pageNumber }: { pageNumber: number }) {
+  const context = useContext(FieldsOverlayContext);
+  if (!context) return null;
+  const { recipients, selectedField, draggingFieldType, isEditable, onAddField, onChangeField, onSelectField } =
+    context;
+
   return (
     <div
-      className={`absolute inset-0 z-20 ${draggingFieldType ? "pointer-events-auto" : "pointer-events-none"}`}
+      className={cn("absolute inset-0 z-20", draggingFieldType ? "pointer-events-auto" : "pointer-events-none")}
       onDragOver={(event) => {
         if (draggingFieldType) event.preventDefault();
       }}
@@ -365,6 +394,7 @@ function PageFieldsOverlay({
               recipientIndex={recipientIndex}
               color={RECIPIENT_COLORS[recipientIndex % RECIPIENT_COLORS.length]}
               selected={selectedField?.clientId === field.clientId}
+              isEditable={isEditable}
               onChange={(patch) => onChangeField(recipientIndex, field.clientId!, patch)}
               onSelect={() => onSelectField({ recipientIndex, clientId: field.clientId! })}
             />
@@ -392,8 +422,8 @@ function ContractPrefillFields({
   return (
     <section className="rounded-xl border border-subtle bg-surface-1 p-4">
       <div className="mb-4">
-        <h2 className="text-13 font-semibold">{t("file_library.contracts.workflow.authoring.prefilled_data")}</h2>
-        <p className="mt-0.5 text-10 text-tertiary">
+        <h2 className="text-14 font-semibold">{t("file_library.contracts.workflow.authoring.prefilled_data")}</h2>
+        <p className="mt-0.5 text-11 text-tertiary">
           {t("file_library.contracts.workflow.authoring.prefilled_description")}
         </p>
       </div>
@@ -409,23 +439,21 @@ function ContractPrefillFields({
               fieldMeta: { ...meta, ...patch },
             });
           return (
-            <label key={field.clientId} className="space-y-1 text-10 font-medium text-tertiary">
+            <label key={field.clientId} className="space-y-1 text-11 font-medium text-tertiary">
               {label} ·{" "}
               {getRecipientLabel(
                 recipient,
                 t("file_library.contracts.workflow.common.recipient_number", { number: recipientIndex + 1 })
               )}
               {field.type === "TEXT" ? (
-                <input
-                  className="w-full rounded-md border border-subtle bg-transparent px-2.5 py-2 text-11"
+                <ContractInput
                   value={meta.text ?? ""}
                   placeholder={meta.placeholder}
                   onChange={(event) => updateMeta({ text: event.target.value })}
                 />
               ) : null}
               {field.type === "NUMBER" ? (
-                <input
-                  className="w-full rounded-md border border-subtle bg-transparent px-2.5 py-2 text-11"
+                <ContractInput
                   type="number"
                   value={meta.value ?? ""}
                   placeholder={meta.placeholder}
@@ -433,36 +461,32 @@ function ContractPrefillFields({
                 />
               ) : null}
               {field.type === "DROPDOWN" || field.type === "RADIO" ? (
-                <select
-                  className="w-full rounded-md border border-subtle bg-surface-1 px-2.5 py-2 text-11"
+                <ContractSelect
                   value={
                     field.type === "DROPDOWN"
                       ? (meta.defaultValue ?? "")
                       : (meta.values?.find((choice) => choice.checked)?.value ?? "")
                   }
-                  onChange={(event) => {
-                    if (field.type === "DROPDOWN") updateMeta({ defaultValue: event.target.value });
+                  onChange={(value) => {
+                    if (field.type === "DROPDOWN") updateMeta({ defaultValue: value });
                     else
                       updateMeta({
                         values: meta.values?.map((choice) => ({
                           ...choice,
-                          checked: choice.value === event.target.value,
+                          checked: choice.value === value,
                         })),
                       });
                   }}
-                >
-                  <option value="">{t("file_library.contracts.workflow.authoring.no_prefilled_value")}</option>
-                  {(meta.values ?? []).map((choice) => (
-                    <option key={choice.id ?? choice.value} value={choice.value}>
-                      {choice.value}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: "", label: t("file_library.contracts.workflow.authoring.no_prefilled_value") },
+                    ...(meta.values ?? []).map((choice) => ({ value: choice.value, label: choice.value })),
+                  ]}
+                />
               ) : null}
               {field.type === "CHECKBOX" ? (
                 <span className="flex flex-wrap gap-2 rounded-md border border-subtle p-2">
                   {(meta.values ?? []).map((choice) => (
-                    <span key={choice.id ?? choice.value} className="flex items-center gap-1 text-10 text-primary">
+                    <span key={choice.id ?? choice.value} className="flex items-center gap-1 text-11 text-primary">
                       <input
                         type="checkbox"
                         checked={Boolean(choice.checked)}
@@ -491,7 +515,100 @@ function ContractPrefillFields({
   );
 }
 
-export function ContractAuthoringModal({
+/**
+ * Autosave feedback. The editor already debounced saves silently; without this
+ * the user had no way to know whether placed fields had been persisted.
+ */
+function SaveIndicator({ isSaving, isDirty }: { isSaving: boolean; isDirty: boolean }) {
+  const { t } = useTranslation();
+  if (isSaving)
+    return (
+      <span className="flex shrink-0 items-center gap-1.5 text-11 text-tertiary">
+        <Loader2 className="size-3 animate-spin" />
+        {t("file_library.contracts.workflow.authoring.saving")}
+      </span>
+    );
+  if (isDirty)
+    return (
+      <span className="flex shrink-0 items-center gap-1.5 text-11 text-tertiary">
+        <span className="size-1.5 rounded-full bg-warning-primary" />
+        {t("file_library.contracts.workflow.authoring.unsaved")}
+      </span>
+    );
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 text-11 text-tertiary">
+      <Check className="size-3 text-success-primary" />
+      {t("file_library.contracts.workflow.authoring.saved")}
+    </span>
+  );
+}
+
+/**
+ * Per-recipient field coverage. Surfaces the "signer has no signature field"
+ * problem while the user is placing fields, instead of only at send time.
+ */
+function RecipientCoverage({
+  recipients,
+  signingRecipientIndexes,
+  activeRecipientIndex,
+  onSelectRecipient,
+}: {
+  recipients: TContractAuthoringRecipient[];
+  signingRecipientIndexes: number[];
+  activeRecipientIndex: number;
+  onSelectRecipient: (index: number) => void;
+}) {
+  const { t } = useTranslation();
+  if (signingRecipientIndexes.length === 0) return null;
+
+  return (
+    <nav aria-label={t("file_library.contracts.workflow.authoring.coverage_title")}>
+      <ul className="space-y-1.5">
+        {signingRecipientIndexes.map((recipientIndex) => {
+          const recipient = recipients[recipientIndex];
+          const label = getRecipientLabel(
+            recipient,
+            t("file_library.contracts.workflow.common.recipient_number", { number: recipientIndex + 1 })
+          );
+          const missingSignature =
+            recipient.role === "SIGNER" && !recipient.fields.some((field) => field.type === "SIGNATURE");
+          return (
+            <li key={recipientIndex}>
+              <button
+                type="button"
+                onClick={() => onSelectRecipient(recipientIndex)}
+                className={
+                  "flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors " +
+                  (activeRecipientIndex === recipientIndex
+                    ? "border-accent-strong bg-accent-primary/10"
+                    : "border-subtle hover:bg-layer-1-hover")
+                }
+              >
+                <span
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: RECIPIENT_COLORS[recipientIndex % RECIPIENT_COLORS.length] }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-13">{label}</span>
+                  <span className={"block text-11 " + (missingSignature ? "text-warning-primary" : "text-tertiary")}>
+                    {missingSignature
+                      ? t("file_library.contracts.workflow.authoring.coverage_missing_signature")
+                      : t("file_library.contracts.workflow.authoring.coverage_field_count", {
+                          count: recipient.fields.length,
+                        })}
+                  </span>
+                </span>
+                {missingSignature ? <AlertTriangle className="size-3.5 shrink-0 text-warning-primary" /> : null}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
+export function ContractAuthoringEditor({
   workspaceSlug,
   signatureRequest,
   onClose,
@@ -499,6 +616,7 @@ export function ContractAuthoringModal({
 }: {
   workspaceSlug: string;
   signatureRequest: TContractSignatureRequest;
+  /** Leaves the editor — the route pushes back to wherever the user came from. */
   onClose: () => void;
   onSent: () => void;
 }) {
@@ -855,69 +973,84 @@ export function ContractAuthoringModal({
     }
   };
 
+  // Everything the PDF viewer memoises on must keep a stable identity, so the
+  // volatile bits are read from a ref that is refreshed on every render.
+  const liveRef = useRef({ activeTab, selectedTool, addField });
+  liveRef.current = { activeTab, selectedTool, addField };
+
+  const stablePageClassName = useCallback(
+    () => (liveRef.current.selectedTool && liveRef.current.activeTab === "FIELDS" ? "cursor-crosshair" : undefined),
+    []
+  );
+  const stableRenderPageOverlay = useCallback(
+    (props: PDFViewerPageOverlayProps) => <PageFieldsOverlay pageNumber={props.pageNumber} />,
+    []
+  );
+  const stableOnPagePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>, pageNumber: number) => {
+    const { activeTab: tab, selectedTool: tool, addField: add } = liveRef.current;
+    if (tab !== "FIELDS" || !tool || (event.target as HTMLElement).closest("[data-contract-field]")) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    add(
+      tool,
+      pageNumber,
+      ((event.clientX - rect.left) / rect.width) * 100,
+      ((event.clientY - rect.top) / rect.height) * 100
+    );
+  }, []);
+
+  const overlayContextValue = useMemo<FieldsOverlayContextValue>(
+    () => ({
+      recipients,
+      selectedField: activeTab === "FIELDS" ? selectedField : undefined,
+      draggingFieldType: activeTab === "FIELDS" ? draggingFieldType : undefined,
+      isEditable: activeTab === "FIELDS",
+      onAddField: addField,
+      onChangeField: updateField,
+      onSelectField: (selection) => {
+        if (liveRef.current.activeTab === "FIELDS") setSelectedField(selection);
+      },
+    }),
+    [activeTab, addField, draggingFieldType, recipients, selectedField, updateField]
+  );
+
   const pdfCanvas = (
     <div className="relative size-full bg-layer-1">
       {pdfUrl ? (
-        <PDFViewer
-          src={pdfUrl}
-          fileName={title + ".pdf"}
-          className="h-full"
-          defaultZoom={0.75}
-          showToolbar={false}
-          showUpload={false}
-          showRotateControls={false}
-          onDocumentLoadSuccess={setPdfPageCount}
-          pageClassName={() => (selectedTool && activeTab === "FIELDS" ? "cursor-crosshair" : undefined)}
-          toolbarActions={
-            selectedTool && activeTab === "FIELDS" ? (
-              <div className="border-accent-primary/30 flex items-center gap-2 rounded-md border bg-accent-primary/10 px-2.5 py-1 text-11 text-accent-primary">
-                <Check className="size-3.5" />
-                {t("file_library.contracts.workflow.authoring.click_to_place", {
-                  field: t(FIELD_DEFINITIONS[selectedTool].labelKey),
-                })}
-                <button type="button" className="font-medium underline" onClick={() => setSelectedTool(undefined)}>
-                  {t("file_library.contracts.workflow.common.cancel")}
-                </button>
-              </div>
-            ) : undefined
-          }
-          renderPageOverlay={(props) => (
-            <PageFieldsOverlay
-              {...props}
-              recipients={recipients}
-              selectedField={activeTab === "FIELDS" ? selectedField : undefined}
-              draggingFieldType={activeTab === "FIELDS" ? draggingFieldType : undefined}
-              onAddField={addField}
-              onChangeField={activeTab === "FIELDS" ? updateField : () => undefined}
-              onSelectField={(selection) => {
-                if (activeTab === "FIELDS") setSelectedField(selection);
-              }}
-            />
-          )}
-          onPagePointerDown={(event, pageNumber) => {
-            if (
-              activeTab !== "FIELDS" ||
-              !selectedTool ||
-              (event.target as HTMLElement).closest("[data-contract-field]")
-            )
-              return;
-            const rect = event.currentTarget.getBoundingClientRect();
-            addField(
-              selectedTool,
-              pageNumber,
-              ((event.clientX - rect.left) / rect.width) * 100,
-              ((event.clientY - rect.top) / rect.height) * 100
-            );
-          }}
-        />
+        <FieldsOverlayContext.Provider value={overlayContextValue}>
+          <PDFViewer
+            src={pdfUrl}
+            fileName={title + ".pdf"}
+            className="h-full"
+            defaultZoom={0.75}
+            showToolbar={false}
+            showUpload={false}
+            showRotateControls={false}
+            onDocumentLoadSuccess={setPdfPageCount}
+            pageClassName={stablePageClassName}
+            toolbarActions={
+              selectedTool && activeTab === "FIELDS" ? (
+                <div className="flex items-center gap-2 rounded-md border border-subtle bg-layer-2 px-2.5 py-1 text-13 text-secondary">
+                  {t("file_library.contracts.workflow.authoring.click_to_place", {
+                    field: t(FIELD_DEFINITIONS[selectedTool].labelKey),
+                  })}
+                  <button type="button" className="font-medium underline" onClick={() => setSelectedTool(undefined)}>
+                    {t("file_library.contracts.workflow.common.cancel")}
+                  </button>
+                </div>
+              ) : undefined
+            }
+            renderPageOverlay={stableRenderPageOverlay}
+            onPagePointerDown={stableOnPagePointerDown}
+          />
+        </FieldsOverlayContext.Provider>
       ) : (
         <div className="flex size-full items-center justify-center">
           {pdfError ? (
             <div className="max-w-sm text-center">
-              <p className="text-13 font-medium text-danger-primary">{pdfError}</p>
+              <p className="text-14 font-medium text-danger-primary">{pdfError}</p>
               <button
                 type="button"
-                className="mt-2 text-12 text-accent-primary underline"
+                className="mt-2 text-13 text-accent-primary underline"
                 onClick={() => window.location.reload()}
               >
                 {t("file_library.contracts.workflow.common.retry")}
@@ -965,8 +1098,8 @@ export function ContractAuthoringModal({
           <FileText className="size-5" />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-12 font-medium">{title}.pdf</span>
-          <span className="block text-10 text-tertiary">
+          <span className="block truncate text-13 font-medium">{title}.pdf</span>
+          <span className="block text-11 text-tertiary">
             {t("file_library.contracts.workflow.authoring.page_count", { count: pdfPageCount })}
           </span>
         </span>
@@ -1010,7 +1143,7 @@ export function ContractAuthoringModal({
     );
 
   const documensoModal = (
-    <div className="absolute inset-0 z-20 flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface-1 text-primary">
+    <div className="flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface-1 text-primary">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-subtle bg-surface-1 px-4">
         <div className="flex min-w-0 items-center gap-4">
           <span className="grid size-8 shrink-0 place-items-center rounded-md bg-layer-1 text-accent-primary">
@@ -1025,11 +1158,12 @@ export function ContractAuthoringModal({
               markEdited();
             }}
           />
-          <span className="rounded-full bg-layer-2 px-2.5 py-1 text-10 font-medium text-secondary">
+          <span className="rounded-full bg-layer-2 px-2.5 py-1 text-11 font-medium text-secondary">
             {signatureRequest.authoring_mode === "TEMPLATE"
               ? t("file_library.contracts.workflow.common.template")
               : t("file_library.contracts.workflow.request_status.draft")}
           </span>
+          <SaveIndicator isSaving={isSaving} isDirty={editVersion !== savedVersion} />
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1048,7 +1182,7 @@ export function ContractAuthoringModal({
         <aside className="flex w-80 shrink-0 flex-col border-r border-subtle bg-surface-1 px-4 py-5">
           <div className="flex items-center justify-between px-2">
             <h1 className="text-15 font-semibold">{t("file_library.contracts.workflow.authoring.editor")}</h1>
-            <span className="rounded-full bg-layer-2 px-2.5 py-1 text-10 text-secondary">
+            <span className="rounded-full bg-layer-2 px-2.5 py-1 text-11 text-secondary">
               {t("file_library.contracts.workflow.authoring.step_progress", {
                 current: activeStepIndex + 1,
                 total: paritySteps.length,
@@ -1091,8 +1225,8 @@ export function ContractAuthoringModal({
                     {complete ? <Check className="size-4" /> : <Icon className="size-4" />}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-12 font-medium">{step.label}</span>
-                    <span className="block truncate text-10 text-tertiary">{step.description}</span>
+                    <span className="block text-13 font-medium">{step.label}</span>
+                    <span className="block truncate text-11 text-tertiary">{step.description}</span>
                   </span>
                 </button>
               );
@@ -1100,7 +1234,7 @@ export function ContractAuthoringModal({
           </nav>
           <button
             type="button"
-            className="mt-auto flex items-center gap-2 rounded-md px-3 py-2.5 text-12 text-secondary hover:bg-layer-1-hover"
+            className="mt-auto flex items-center gap-2 rounded-md px-3 py-2.5 text-13 text-secondary hover:bg-layer-1-hover"
             onClick={() => void handleClose()}
           >
             <ArrowLeft className="size-4" /> {t("file_library.contracts.workflow.authoring.back_to_contracts")}
@@ -1116,11 +1250,11 @@ export function ContractAuthoringModal({
                     <div className="flex gap-3">
                       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-primary" />
                       <div>
-                        <p className="text-11 font-semibold text-warning-primary">
+                        <p className="text-13 font-semibold text-warning-primary">
                           {t("file_library.contracts.workflow.authoring.review_warning")}
                         </p>
                         {signatureRequest.preparation_warnings.map((warning) => (
-                          <p key={warning} className="mt-1 text-10 text-warning-primary">
+                          <p key={warning} className="mt-1 text-11 text-warning-primary">
                             {warning}
                           </p>
                         ))}
@@ -1130,27 +1264,27 @@ export function ContractAuthoringModal({
                 ) : null}
                 <section className="shadow-sm rounded-xl border border-subtle bg-surface-1 p-6">
                   <h2 className="text-15 font-semibold">{t("file_library.contracts.workflow.authoring.documents")}</h2>
-                  <p className="mt-1 text-11 text-tertiary">
+                  <p className="mt-1 text-13 text-tertiary">
                     {t("file_library.contracts.workflow.authoring.documents_description")}
                   </p>
                   <div className="mt-5 rounded-lg border border-dashed border-subtle bg-layer-1/50 p-8 text-center">
                     <span className="mx-auto grid size-11 place-items-center rounded-full bg-layer-2 text-tertiary">
                       <FileText className="size-5" />
                     </span>
-                    <p className="mt-3 text-12 font-medium">{title}.pdf</p>
-                    <p className="mt-1 text-10 text-tertiary">
+                    <p className="mt-3 text-13 font-medium">{title}.pdf</p>
+                    <p className="mt-1 text-11 text-tertiary">
                       {t("file_library.contracts.workflow.authoring.generated_pdf")}
                     </p>
                   </div>
                   <div className="mt-4 flex items-center gap-3 rounded-lg border border-subtle px-4 py-3">
                     <FileText className="size-5 shrink-0 text-accent-primary" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-12 font-medium">{title}.pdf</p>
-                      <p className="text-10 text-tertiary">
+                      <p className="truncate text-13 font-medium">{title}.pdf</p>
+                      <p className="text-11 text-tertiary">
                         {t("file_library.contracts.workflow.authoring.page_count", { count: pdfPageCount })}
                       </p>
                     </div>
-                    <span className="rounded bg-layer-2 px-2 py-1 text-9 font-medium">PDF</span>
+                    <span className="rounded bg-layer-2 px-2 py-1 text-11 font-medium">PDF</span>
                   </div>
                 </section>
 
@@ -1160,7 +1294,7 @@ export function ContractAuthoringModal({
                       <h2 className="text-15 font-semibold">
                         {t("file_library.contracts.workflow.authoring.recipients")}
                       </h2>
-                      <p className="mt-1 text-11 text-tertiary">
+                      <p className="mt-1 text-13 text-tertiary">
                         {t("file_library.contracts.workflow.authoring.recipients_description")}
                       </p>
                     </div>
@@ -1202,23 +1336,19 @@ export function ContractAuthoringModal({
                     </div>
                   </div>
                   <div className="mt-5 flex items-center justify-between rounded-lg border border-subtle bg-layer-1 px-4 py-3">
-                    <span className="flex items-center gap-2 text-11">
+                    <span className="flex items-center gap-2 text-13">
                       <Users className="size-4 text-tertiary" />
                       {t("file_library.contracts.workflow.authoring.signing_order")}
                     </span>
-                    <select
-                      className="rounded-md border border-subtle bg-surface-1 px-3 py-1.5 text-11 outline-none"
+                    <ContractSelect
+                      className="w-48"
                       value={settings.signingOrder}
-                      onChange={(event) =>
-                        updateSettings({
-                          ...settings,
-                          signingOrder: event.target.value as "PARALLEL" | "SEQUENTIAL",
-                        })
-                      }
-                    >
-                      <option value="PARALLEL">{t("file_library.contracts.workflow.authoring.parallel")}</option>
-                      <option value="SEQUENTIAL">{t("file_library.contracts.workflow.authoring.sequential")}</option>
-                    </select>
+                      onChange={(signingOrder) => updateSettings({ ...settings, signingOrder })}
+                      options={[
+                        { value: "PARALLEL", label: t("file_library.contracts.workflow.authoring.parallel") },
+                        { value: "SEQUENTIAL", label: t("file_library.contracts.workflow.authoring.sequential") },
+                      ]}
+                    />
                   </div>
                   <div className="mt-4 space-y-3">
                     {recipients.map((recipient, recipientIndex) => (
@@ -1241,7 +1371,7 @@ export function ContractAuthoringModal({
                       >
                         <GripVertical className="size-4 shrink-0 cursor-grab text-tertiary" />
                         <span
-                          className="grid size-8 shrink-0 place-items-center rounded-full text-11 font-semibold text-white"
+                          className="grid size-8 shrink-0 place-items-center rounded-full text-13 font-semibold text-white"
                           style={{
                             backgroundColor: RECIPIENT_COLORS[recipientIndex % RECIPIENT_COLORS.length],
                           }}
@@ -1249,8 +1379,8 @@ export function ContractAuthoringModal({
                           {recipientIndex + 1}
                         </span>
                         {signatureRequest.authoring_mode === "TEMPLATE" ? (
-                          <input
-                            className="focus:border-accent-primary min-w-0 flex-1 rounded-md border border-subtle px-3 py-2 text-11 outline-none"
+                          <ContractInput
+                            className="min-w-0 flex-1"
                             value={recipient.placeholderLabel ?? ""}
                             placeholder={t("file_library.contracts.workflow.authoring.role_placeholder")}
                             onChange={(event) =>
@@ -1261,8 +1391,8 @@ export function ContractAuthoringModal({
                           />
                         ) : (
                           <>
-                            <input
-                              className="focus:border-accent-primary min-w-0 flex-1 rounded-md border border-subtle px-3 py-2 text-11 outline-none"
+                            <ContractInput
+                              className="min-w-0 flex-1"
                               value={recipient.email}
                               type="email"
                               placeholder={t("file_library.contracts.workflow.authoring.email_placeholder")}
@@ -1272,8 +1402,8 @@ export function ContractAuthoringModal({
                                 })
                               }
                             />
-                            <input
-                              className="focus:border-accent-primary min-w-0 flex-1 rounded-md border border-subtle px-3 py-2 text-11 outline-none"
+                            <ContractInput
+                              className="min-w-0 flex-1"
                               value={recipient.name}
                               placeholder={t("file_library.contracts.workflow.common.name")}
                               onChange={(event) =>
@@ -1284,25 +1414,25 @@ export function ContractAuthoringModal({
                             />
                           </>
                         )}
-                        <select
-                          className="w-40 shrink-0 rounded-md border border-subtle bg-surface-1 px-2 py-2 text-10 outline-none"
+                        <ContractSelect
+                          className="w-40 shrink-0"
+                          ariaLabel={t("file_library.contracts.workflow.authoring.recipient_role")}
                           value={recipient.role}
-                          onChange={(event) => {
-                            const role = event.target.value as TContractAuthoringRecipient["role"];
+                          onChange={(role: TContractAuthoringRecipient["role"]) => {
+                            // Assistants act on behalf of a later signer, which
+                            // only makes sense in a sequential envelope.
                             if (role === "ASSISTANT" && settings.signingOrder !== "SEQUENTIAL")
-                              updateSettings({
-                                ...settings,
-                                signingOrder: "SEQUENTIAL",
-                              });
+                              updateSettings({ ...settings, signingOrder: "SEQUENTIAL" });
                             updateRecipient(recipientIndex, { role });
                           }}
-                        >
-                          <option value="SIGNER">{t("file_library.contracts.workflow.roles.signer")}</option>
-                          <option value="APPROVER">{t("file_library.contracts.workflow.roles.approver")}</option>
-                          <option value="ASSISTANT">{t("file_library.contracts.workflow.roles.assistant")}</option>
-                          <option value="VIEWER">{t("file_library.contracts.workflow.roles.viewer")}</option>
-                          <option value="CC">{t("file_library.contracts.workflow.roles.cc")}</option>
-                        </select>
+                          options={[
+                            { value: "SIGNER", label: t("file_library.contracts.workflow.roles.signer") },
+                            { value: "APPROVER", label: t("file_library.contracts.workflow.roles.approver") },
+                            { value: "ASSISTANT", label: t("file_library.contracts.workflow.roles.assistant") },
+                            { value: "VIEWER", label: t("file_library.contracts.workflow.roles.viewer") },
+                            { value: "CC", label: t("file_library.contracts.workflow.roles.cc") },
+                          ]}
+                        />
                         <button
                           type="button"
                           aria-label={t("file_library.contracts.workflow.authoring.delete_recipient")}
@@ -1318,7 +1448,7 @@ export function ContractAuthoringModal({
                   </div>
                   <button
                     type="button"
-                    className="mt-3 flex items-center gap-2 px-1 py-2 text-11 font-medium text-accent-primary"
+                    className="mt-3 flex items-center gap-2 px-1 py-2 text-13 font-medium text-accent-primary"
                     onClick={() =>
                       updateRecipients((current) => [
                         ...current,
@@ -1350,29 +1480,20 @@ export function ContractAuthoringModal({
               </div>
               <aside className="flex w-80 shrink-0 flex-col border-l border-subtle bg-surface-1">
                 <div className="p-4">
-                  <label htmlFor="contract-selected-recipient" className="block text-10 font-semibold text-tertiary">
+                  <p className="mb-2 text-11 font-semibold text-tertiary">
                     {t("file_library.contracts.workflow.authoring.selected_recipient")}
-                  </label>
-                  <select
-                    id="contract-selected-recipient"
-                    className="ring-accent-primary/20 mt-2 w-full rounded-md border border-accent-strong bg-surface-1 px-3 py-2.5 text-11 ring-1 outline-none"
-                    value={activeRecipientIndex}
-                    onChange={(event) => setActiveRecipientIndex(Number(event.target.value))}
-                  >
-                    {signingRecipientIndexes.map((recipientIndex) => (
-                      <option key={recipientIndex} value={recipientIndex}>
-                        {getRecipientLabel(
-                          recipients[recipientIndex],
-                          t("file_library.contracts.workflow.common.recipient_number", { number: recipientIndex + 1 })
-                        )}
-                      </option>
-                    ))}
-                  </select>
+                  </p>
+                  <RecipientCoverage
+                    recipients={recipients}
+                    signingRecipientIndexes={signingRecipientIndexes}
+                    activeRecipientIndex={activeRecipientIndex}
+                    onSelectRecipient={setActiveRecipientIndex}
+                  />
                 </div>
                 <div className="border-t border-subtle" />
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                  <h2 className="text-12 font-semibold">{t("file_library.contracts.workflow.authoring.add_fields")}</h2>
-                  <p className="mt-1 text-10 text-tertiary">
+                  <h2 className="text-13 font-semibold">{t("file_library.contracts.workflow.authoring.add_fields")}</h2>
+                  <p className="mt-1 text-11 text-tertiary">
                     {t("file_library.contracts.workflow.authoring.add_fields_description")}
                   </p>
                   <div className="mt-4 grid grid-cols-2 gap-2">
@@ -1385,7 +1506,7 @@ export function ContractAuthoringModal({
                           draggable={signingRecipientIndexes.length > 0}
                           disabled={signingRecipientIndexes.length === 0}
                           className={
-                            "flex min-h-11 items-center gap-2 rounded-md border px-2.5 py-2 text-left text-10 disabled:opacity-40 " +
+                            "flex min-h-11 items-center gap-2 rounded-md border px-2.5 py-2 text-left text-11 disabled:opacity-40 " +
                             (selectedTool === type
                               ? "border-accent-strong bg-accent-primary/10 text-accent-primary"
                               : "border-subtle hover:border-accent-strong hover:bg-accent-primary/10")
@@ -1405,7 +1526,7 @@ export function ContractAuthoringModal({
                   </div>
                   <button
                     type="button"
-                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-subtle px-3 py-2.5 text-10 text-secondary hover:bg-layer-1-hover"
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-subtle px-3 py-2.5 text-11 text-secondary hover:bg-layer-1-hover"
                     onClick={() =>
                       setToast({
                         type: TOAST_TYPE.INFO,
@@ -1419,10 +1540,10 @@ export function ContractAuthoringModal({
                     <section className="mt-5 space-y-3 border-t border-subtle pt-5">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-12 font-semibold">
+                          <p className="text-13 font-semibold">
                             {t("file_library.contracts.workflow.authoring.field_configuration")}
                           </p>
-                          <p className="mt-0.5 text-10 text-tertiary">
+                          <p className="mt-0.5 text-11 text-tertiary">
                             {t(FIELD_DEFINITIONS[selectedFieldData.type].labelKey)} ·{" "}
                             {t("file_library.contracts.workflow.authoring.page_number", {
                               number: selectedFieldData.page,
@@ -1437,36 +1558,32 @@ export function ContractAuthoringModal({
                           <Trash2 className="size-4" />
                         </button>
                       </div>
-                      <label className="block text-10 font-medium text-tertiary">
-                        {t("file_library.contracts.workflow.authoring.assigned_to")}
-                        <select
-                          className="mt-1.5 w-full rounded-md border border-subtle bg-surface-1 px-3 py-2 text-11"
-                          value={selectedField.recipientIndex}
-                          onChange={(event) => moveSelectedFieldToRecipient(Number(event.target.value))}
-                        >
-                          {signingRecipientIndexes.map((recipientIndex) => (
-                            <option key={recipientIndex} value={recipientIndex}>
-                              {getRecipientLabel(
-                                recipients[recipientIndex],
-                                t("file_library.contracts.workflow.common.recipient_number", {
-                                  number: recipientIndex + 1,
-                                })
-                              )}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <ContractField label={t("file_library.contracts.workflow.authoring.assigned_to")}>
+                        <ContractSelect
+                          value={String(selectedField.recipientIndex)}
+                          onChange={(value) => moveSelectedFieldToRecipient(Number(value))}
+                          options={signingRecipientIndexes.map((recipientIndex) => ({
+                            value: String(recipientIndex),
+                            label: getRecipientLabel(
+                              recipients[recipientIndex],
+                              t("file_library.contracts.workflow.common.recipient_number", {
+                                number: recipientIndex + 1,
+                              })
+                            ),
+                          }))}
+                        />
+                      </ContractField>
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
-                          className="flex items-center justify-center gap-1.5 rounded-md border border-subtle px-2 py-2 text-10 hover:bg-layer-1-hover"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-subtle px-2 py-2 text-11 hover:bg-layer-1-hover"
                           onClick={() => duplicateSelectedField()}
                         >
                           <Copy className="size-3.5" /> {t("file_library.contracts.workflow.authoring.duplicate")}
                         </button>
                         <button
                           type="button"
-                          className="flex items-center justify-center gap-1.5 rounded-md border border-subtle px-2 py-2 text-10 hover:bg-layer-1-hover"
+                          className="flex items-center justify-center gap-1.5 rounded-md border border-subtle px-2 py-2 text-11 hover:bg-layer-1-hover"
                           onClick={() => duplicateSelectedField(true)}
                         >
                           <Layers className="size-3.5" /> {t("file_library.contracts.workflow.authoring.all_pages")}
@@ -1496,7 +1613,7 @@ export function ContractAuthoringModal({
           {activeTab === "PREVIEW" ? (
             <div className="flex size-full min-h-0 flex-col">
               {parityDocumentSelector}
-              <div className="border-warning-primary/30 border-b bg-warning-primary/10 px-5 py-3 text-center text-11 text-warning-primary">
+              <div className="border-warning-primary/30 border-b bg-warning-primary/10 px-5 py-3 text-center text-13 text-warning-primary">
                 <strong>{t("file_library.contracts.workflow.authoring.preview_mode")}</strong>{" "}
                 {t("file_library.contracts.workflow.authoring.preview_description")}
               </div>

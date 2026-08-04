@@ -37,7 +37,7 @@ export function ContractSigningLinksDialog({ links, onClose }: Props) {
       <header className="flex items-start justify-between px-6 pt-6 pb-3">
         <div>
           <h2 className="text-16 font-semibold">{t("file_library.contracts.workflow.signing_links.title")}</h2>
-          <p className="mt-1 text-12 text-tertiary">{t("file_library.contracts.workflow.signing_links.description")}</p>
+          <p className="mt-1 text-13 text-tertiary">{t("file_library.contracts.workflow.signing_links.description")}</p>
         </div>
         <button type="button" className="rounded p-1.5 hover:bg-layer-1-hover" onClick={onClose}>
           <X className="size-4" />
@@ -46,24 +46,24 @@ export function ContractSigningLinksDialog({ links, onClose }: Props) {
 
       <ul className="mx-6 divide-y divide-subtle overflow-hidden rounded-lg border border-subtle">
         {links.length === 0 ? (
-          <li className="py-8 text-center text-12 text-tertiary">
+          <li className="py-8 text-center text-13 text-tertiary">
             {t("file_library.contracts.workflow.signing_links.empty")}
           </li>
         ) : null}
         {links.map((link) => (
           <li key={link.id ?? link.url} className="flex items-center justify-between gap-3 px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-layer-2 text-12 font-semibold">
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-layer-2 text-13 font-semibold">
                 {(link.email || link.name).slice(0, 1).toUpperCase()}
               </span>
               <div className="min-w-0">
-                <p className="truncate text-12 text-secondary">{link.email || link.name}</p>
-                <p className="mt-0.5 text-10 text-tertiary">{link.role}</p>
+                <p className="truncate text-13 text-secondary">{link.email || link.name}</p>
+                <p className="mt-0.5 text-11 text-tertiary">{link.role}</p>
               </div>
             </div>
             <button
               type="button"
-              className="flex shrink-0 items-center gap-1 rounded-md border border-subtle px-2.5 py-1.5 text-10 hover:bg-layer-1-hover"
+              className="flex shrink-0 items-center gap-1 rounded-md border border-subtle px-2.5 py-1.5 text-11 hover:bg-layer-1-hover"
               onClick={() => void copy(link.url)}
             >
               {copiedUrl === link.url ? (

@@ -54,7 +54,10 @@ export const FileLibraryHeader = observer(function FileLibraryHeader() {
             {isAnalyzedContracts && (
               <Breadcrumbs.Item
                 component={
-                  <BreadcrumbLink label="Analizados con IA" icon={<Sparkles className="h-4 w-4 text-tertiary" />} />
+                  <BreadcrumbLink
+                    label={t("file_library.contracts.workflow.navigation.ai_analysis")}
+                    icon={<Sparkles className="h-4 w-4 text-tertiary" />}
+                  />
                 }
               />
             )}
@@ -63,7 +66,7 @@ export const FileLibraryHeader = observer(function FileLibraryHeader() {
                 component={
                   <BreadcrumbLink
                     href={isTemplateDetail ? `/${workspaceSlug}/file-library/contracts/templates` : undefined}
-                    label="Plantillas"
+                    label={t("file_library.contracts.workflow.navigation.templates")}
                     icon={<LayoutTemplate className="h-4 w-4 text-tertiary" />}
                   />
                 }
@@ -72,14 +75,20 @@ export const FileLibraryHeader = observer(function FileLibraryHeader() {
             {isTemplateDetail && (
               <Breadcrumbs.Item
                 component={
-                  <BreadcrumbLink label="Detalle de plantilla" icon={<FileText className="h-4 w-4 text-tertiary" />} />
+                  <BreadcrumbLink
+                    label={t("file_library.contracts.workflow.navigation.template_detail")}
+                    icon={<FileText className="h-4 w-4 text-tertiary" />}
+                  />
                 }
               />
             )}
             {isContractDocuments && (
               <Breadcrumbs.Item
                 component={
-                  <BreadcrumbLink label="Contratos creados" icon={<FileCheck2 className="h-4 w-4 text-tertiary" />} />
+                  <BreadcrumbLink
+                    label={t("file_library.contracts.workflow.navigation.created")}
+                    icon={<FileCheck2 className="h-4 w-4 text-tertiary" />}
+                  />
                 }
               />
             )}

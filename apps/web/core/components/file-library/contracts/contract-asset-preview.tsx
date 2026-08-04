@@ -11,6 +11,7 @@ import { DocxViewerPreview, PDFViewer } from "@plane/extend-ui";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { cn } from "@plane/utils";
+import { contractService } from "@/services/contract.service";
 import { fileLibraryService } from "@/services/file-library.service";
 
 type Props = {
@@ -37,16 +38,29 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
     { revalidateOnFocus: false }
   );
 
+  // Probe the server-side conversion before relying on it, so a Collabora
+  // outage falls back to the in-browser renderer instead of an empty frame.
+  const isWordSource = contentType !== "application/pdf";
+  const previewPdfUrl = contractService.getContractAssetPreviewPdfUrl(workspaceSlug, assetId);
+  const { data: canRenderServerPdf } = useSWR(
+    isWordSource ? `CONTRACT_ASSET_PREVIEW_PDF_${workspaceSlug}_${assetId}` : null,
+    () =>
+      fetch(previewPdfUrl, { method: "HEAD", credentials: "include" })
+        .then((response) => response.ok)
+        .catch(() => false),
+    { revalidateOnFocus: false }
+  );
+
   if (isLoading || !url) {
     if (error) {
       return (
         <div className={cn("grid place-items-center bg-layer-1", className)}>
           <div className="text-center">
             <FileWarning className="mx-auto size-7 text-tertiary" />
-            <p className="mt-2 text-11 font-medium text-primary">
+            <p className="mt-2 text-13 font-medium text-primary">
               {t("file_library.contracts.workflow.preview.load_failed")}
             </p>
-            <p className="mt-1 text-9 text-tertiary">{t("file_library.contracts.workflow.preview.check_available")}</p>
+            <p className="mt-1 text-11 text-tertiary">{t("file_library.contracts.workflow.preview.check_available")}</p>
             <Button variant="secondary" size="sm" className="mt-3" onClick={() => void mutate()}>
               <RefreshCcw className="size-3.5" /> {t("file_library.contracts.workflow.common.retry")}
             </Button>
@@ -71,6 +85,30 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
         showUpload={false}
         defaultZoom={0.75}
       />
+    );
+  }
+
+  // Word sources render through the API's LibreOffice conversion: the in-browser
+  // .docx renderer silently drops most of the document body, which made current
+  // templates look empty even though the saved thumbnail showed the real content.
+  if (canRenderServerPdf) {
+    return (
+      <PDFViewer
+        src={previewPdfUrl}
+        fileName={fileName}
+        className={className}
+        showDownload={false}
+        showUpload={false}
+        defaultZoom={0.75}
+      />
+    );
+  }
+
+  if (canRenderServerPdf === undefined) {
+    return (
+      <div className={cn("grid place-items-center bg-layer-1", className)}>
+        <Loader2 className="size-5 animate-spin text-tertiary" />
+      </div>
     );
   }
 

@@ -66,7 +66,7 @@ export function ContractWordEditDecisionDialog({
         <h2 className="text-15 font-semibold text-primary">
           {t("file_library.contracts.workflow.edit_decision.title")}
         </h2>
-        <p className="mt-1 text-11 leading-5 text-tertiary">
+        <p className="mt-1 text-13 leading-5 text-tertiary">
           {t("file_library.contracts.workflow.edit_decision.description")}
         </p>
       </header>
@@ -94,8 +94,8 @@ export function ContractWordEditDecisionDialog({
                 <Icon className="size-4" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-11 font-semibold text-primary">{t(option.titleKey)}</span>
-                <span className="mt-0.5 block text-9 leading-4 text-tertiary">{t(option.descriptionKey)}</span>
+                <span className="block text-13 font-semibold text-primary">{t(option.titleKey)}</span>
+                <span className="mt-0.5 block text-11 leading-4 text-tertiary">{t(option.descriptionKey)}</span>
               </span>
               <span
                 className={`mt-1 size-4 rounded-full border-2 ${selected ? "border-[5px] border-accent-strong" : "border-subtle"}`}
@@ -105,7 +105,7 @@ export function ContractWordEditDecisionDialog({
         })}
 
         {needsName ? (
-          <label className="block pt-2 text-10 font-medium text-secondary">
+          <label className="block pt-2 text-11 font-medium text-secondary">
             {t(
               decision === "NEW_VARIANT"
                 ? "file_library.contracts.workflow.edit_decision.variant_name"
@@ -115,7 +115,7 @@ export function ContractWordEditDecisionDialog({
               value={name}
               onChange={(event) => setName(event.target.value)}
               maxLength={255}
-              className="focus:border-accent-primary mt-1.5 h-9 w-full rounded-md border border-subtle bg-surface-1 px-3 text-11 text-primary outline-none"
+              className="focus:border-accent-primary mt-1.5 h-9 w-full rounded-md border border-subtle bg-surface-1 px-3 text-13 text-primary outline-none"
               placeholder={t(
                 decision === "NEW_VARIANT"
                   ? "file_library.contracts.workflow.edit_decision.variant_placeholder"
