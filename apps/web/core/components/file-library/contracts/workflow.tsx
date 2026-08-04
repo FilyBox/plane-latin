@@ -159,7 +159,7 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
     const uniqueTargets = [...new Map(targets.map((target) => [target.assetId, target])).values()];
     if (uniqueTargets.length === 0) return;
     try {
-      await downloadAssets(workspaceSlug, uniqueTargets, "plantillas-contratos");
+      await downloadAssets(workspaceSlug, uniqueTargets, "plantillas-contratos", "contract");
     } catch {
       setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.download_failed") });
     }

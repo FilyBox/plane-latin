@@ -45,14 +45,25 @@ def file_library_export_task(exporter_id):
         exporter.status = "processing"
         exporter.save(update_fields=["status"])
 
-        asset_ids = (exporter.filters or {}).get("asset_ids") or []
-        assets = FileAsset.objects.filter(
-            id__in=asset_ids,
-            workspace_id=exporter.workspace_id,
-            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
-            is_uploaded=True,
-            is_deleted=False,
-        )
+        export_filters = exporter.filters or {}
+        asset_ids = export_filters.get("asset_ids") or []
+        filters = {
+            "id__in": asset_ids,
+            "workspace_id": exporter.workspace_id,
+            "is_uploaded": True,
+            "is_deleted": False,
+        }
+        if export_filters.get("scope") == "contract":
+            filters["entity_type__in"] = [
+                FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+                FileAsset.EntityTypeContext.CONTRACT_TEMPLATE,
+                FileAsset.EntityTypeContext.CONTRACT_REVISION,
+                FileAsset.EntityTypeContext.CONTRACT_UNSIGNED,
+                FileAsset.EntityTypeContext.CONTRACT_SIGNED,
+            ]
+        else:
+            filters["entity_type"] = FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY
+        assets = FileAsset.objects.filter(**filters)
 
         storage = S3Storage()
         bucket = storage.aws_storage_bucket_name

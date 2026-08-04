@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FileWarning, Loader2, RefreshCcw } from "lucide-react";
 import useSWR from "swr";
 import { DocxViewerPreview, PDFViewer } from "@plane/extend-ui";
@@ -38,18 +38,27 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
     { revalidateOnFocus: false }
   );
 
-  // Probe the server-side conversion before relying on it, so a Collabora
-  // outage falls back to the in-browser renderer instead of an empty frame.
   const isWordSource = contentType !== "application/pdf";
-  const previewPdfUrl = contractService.getContractAssetPreviewPdfUrl(workspaceSlug, assetId);
-  const { data: canRenderServerPdf } = useSWR(
-    isWordSource ? `CONTRACT_ASSET_PREVIEW_PDF_${workspaceSlug}_${assetId}` : null,
-    () =>
-      fetch(previewPdfUrl, { method: "HEAD", credentials: "include" })
-        .then((response) => response.ok)
-        .catch(() => false),
+  const {
+    data: previewPdfBlob,
+    error: previewPdfError,
+    isLoading: isLoadingPreviewPdf,
+    mutate: mutatePreviewPdf,
+  } = useSWR(
+    isWordSource ? `CONTRACT_ASSET_PREVIEW_PDF_BLOB_${workspaceSlug}_${assetId}` : null,
+    () => contractService.getContractAssetPreviewPdf(workspaceSlug, assetId),
     { revalidateOnFocus: false }
   );
+  const previewPdfUrl = useMemo(() => (previewPdfBlob ? URL.createObjectURL(previewPdfBlob) : null), [previewPdfBlob]);
+
+  useEffect(
+    () => () => {
+      if (previewPdfUrl) URL.revokeObjectURL(previewPdfUrl);
+    },
+    [previewPdfUrl]
+  );
+
+  const retry = () => Promise.all([mutate(), mutatePreviewPdf()]);
 
   if (isLoading || !url) {
     if (error) {
@@ -61,7 +70,7 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
               {t("file_library.contracts.workflow.preview.load_failed")}
             </p>
             <p className="mt-1 text-11 text-tertiary">{t("file_library.contracts.workflow.preview.check_available")}</p>
-            <Button variant="secondary" size="sm" className="mt-3" onClick={() => void mutate()}>
+            <Button variant="secondary" size="sm" className="mt-3" onClick={() => void retry()}>
               <RefreshCcw className="size-3.5" /> {t("file_library.contracts.workflow.common.retry")}
             </Button>
           </div>
@@ -91,7 +100,7 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
   // Word sources render through the API's LibreOffice conversion: the in-browser
   // .docx renderer silently drops most of the document body, which made current
   // templates look empty even though the saved thumbnail showed the real content.
-  if (canRenderServerPdf) {
+  if (previewPdfUrl) {
     return (
       <PDFViewer
         src={previewPdfUrl}
@@ -104,7 +113,7 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
     );
   }
 
-  if (canRenderServerPdf === undefined) {
+  if (isLoadingPreviewPdf) {
     return (
       <div className={cn("grid place-items-center bg-layer-1", className)}>
         <Loader2 className="size-5 animate-spin text-tertiary" />
@@ -112,7 +121,7 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
     );
   }
 
-  return (
+  return previewPdfError ? (
     <DocxViewerPreview
       src={url}
       fileName={fileName}
@@ -123,5 +132,5 @@ export function ContractAssetPreview({ workspaceSlug, assetId, fileName, content
       className={className}
       defaultZoom={0.75}
     />
-  );
+  ) : null;
 }

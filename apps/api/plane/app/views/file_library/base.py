@@ -53,6 +53,10 @@ def _is_contract_scope(request):
 
 
 CONTRACT_ASSET_TYPES = [
+    # Completed contracts are promoted to the regular library so the AI
+    # pipeline can process them, while drafts and template sources stay in the
+    # dedicated contract contexts.
+    FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
     FileAsset.EntityTypeContext.CONTRACT_TEMPLATE,
     FileAsset.EntityTypeContext.CONTRACT_REVISION,
     FileAsset.EntityTypeContext.CONTRACT_UNSIGNED,
@@ -396,15 +400,17 @@ class FileLibraryExportEndpoint(FileLibraryBaseView):
         from zipstream import ZipStream
 
         asset_ids = request.query_params.getlist("asset_id")[:300]
-        assets = list(
-            FileAsset.objects.filter(
-                id__in=asset_ids,
-                workspace__slug=slug,
-                entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
-                is_uploaded=True,
-                is_deleted=False,
-            )
-        )
+        filters = {
+            "id__in": asset_ids,
+            "workspace__slug": slug,
+            "is_uploaded": True,
+            "is_deleted": False,
+        }
+        if _is_contract_scope(request):
+            filters["entity_type__in"] = CONTRACT_ASSET_TYPES
+        else:
+            filters["entity_type"] = FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY
+        assets = list(FileAsset.objects.filter(**filters))
         if not assets:
             return Response({"error": "No downloadable assets in the selection"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -459,7 +465,10 @@ class FileLibraryExportEndpoint(FileLibraryBaseView):
             provider="zip",
             status="queued",
             initiated_by=request.user,
-            filters={"asset_ids": [str(asset_id) for asset_id in asset_ids]},
+            filters={
+                "asset_ids": [str(asset_id) for asset_id in asset_ids],
+                "scope": "contract" if _is_contract_scope(request) else None,
+            },
         )
         file_library_export_task.delay(str(exporter.id))
         return Response({"export_id": str(exporter.id)}, status=status.HTTP_201_CREATED)

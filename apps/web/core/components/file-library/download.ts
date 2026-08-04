@@ -21,6 +21,8 @@ export type TDownloadTarget = {
   name: string;
 };
 
+type TDownloadScope = "music" | "contract";
+
 const triggerBlobDownload = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -43,15 +45,25 @@ const EXPORT_POLL_MAX_ATTEMPTS = 1200; // ~1 hour
  * ZIP is assembled and uploaded to S3, then downloaded via presigned URL.
  * The downloads panel tracks the whole lifecycle.
  */
-async function downloadViaBackgroundExport(workspaceSlug: string, targets: TDownloadTarget[], filename: string) {
+async function downloadViaBackgroundExport(
+  workspaceSlug: string,
+  targets: TDownloadTarget[],
+  filename: string,
+  scope?: TDownloadScope
+) {
   const downloadId = downloadManager.start(filename, targets.length);
   try {
     const { export_id } = await fileLibraryService.createBulkExport(
       workspaceSlug,
-      targets.map((target) => target.assetId)
+      targets.map((target) => target.assetId),
+      scope
     );
     for (let attempt = 0; attempt < EXPORT_POLL_MAX_ATTEMPTS; attempt++) {
+      // Polling is intentionally sequential: each response determines whether
+      // another delayed request is needed.
+      // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => setTimeout(resolve, EXPORT_POLL_MS));
+      // eslint-disable-next-line no-await-in-loop
       const { status, url } = await fileLibraryService.getExportStatus(workspaceSlug, export_id);
       if (status === "completed" && url) {
         // Presigned S3 URL — the browser downloads straight from storage
@@ -77,12 +89,17 @@ async function downloadViaBackgroundExport(workspaceSlug: string, targets: TDown
  * batches stream from the export endpoint; anything larger builds on the
  * background worker — no size limit either way.
  */
-export async function downloadAssets(workspaceSlug: string, targets: TDownloadTarget[], zipBaseName = "archivos") {
+export async function downloadAssets(
+  workspaceSlug: string,
+  targets: TDownloadTarget[],
+  zipBaseName = "archivos",
+  scope?: TDownloadScope
+) {
   if (targets.length === 0) return;
 
   if (targets.length === 1) {
     const anchor = document.createElement("a");
-    anchor.href = fileLibraryService.getFileDownloadUrl(workspaceSlug, targets[0].assetId);
+    anchor.href = fileLibraryService.getFileDownloadUrl(workspaceSlug, targets[0].assetId, scope);
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -91,7 +108,7 @@ export async function downloadAssets(workspaceSlug: string, targets: TDownloadTa
 
   if (targets.length > STREAMING_LIMIT) {
     const date = new Date().toISOString().slice(0, 10);
-    await downloadViaBackgroundExport(workspaceSlug, targets, `${zipBaseName}-${date}.zip`);
+    await downloadViaBackgroundExport(workspaceSlug, targets, `${zipBaseName}-${date}.zip`, scope);
     return;
   }
 
@@ -100,7 +117,8 @@ export async function downloadAssets(workspaceSlug: string, targets: TDownloadTa
   const downloadId = downloadManager.start(filename, targets.length);
 
   try {
-    const query = targets.map((target) => `asset_id=${encodeURIComponent(target.assetId)}`).join("&");
+    const assetQuery = targets.map((target) => `asset_id=${encodeURIComponent(target.assetId)}`).join("&");
+    const query = `${assetQuery}${scope ? `&scope=${scope}` : ""}`;
     const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/export/?${query}`, {
       credentials: "include",
     });
@@ -114,6 +132,8 @@ export async function downloadAssets(workspaceSlug: string, targets: TDownloadTa
     let receivedBytes = 0;
     let lastReported = 0;
     for (;;) {
+      // A ReadableStream must be consumed in order; parallel reads would race.
+      // eslint-disable-next-line no-await-in-loop
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value);

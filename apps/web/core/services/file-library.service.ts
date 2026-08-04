@@ -177,8 +177,12 @@ export class FileLibraryService extends APIService {
 
   // exports (unbounded ZIP builds on the background worker)
 
-  async createBulkExport(workspaceSlug: string, assetIds: string[]): Promise<{ export_id: string }> {
-    return this.post(`/api/workspaces/${workspaceSlug}/file-library/export/`, { asset_ids: assetIds })
+  async createBulkExport(
+    workspaceSlug: string,
+    assetIds: string[],
+    scope?: "music" | "contract"
+  ): Promise<{ export_id: string }> {
+    return this.post(`/api/workspaces/${workspaceSlug}/file-library/export/`, { asset_ids: assetIds, scope })
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

@@ -69,6 +69,7 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
   const [links, setLinks] = useState<TContractSigningLink[]>();
   const [isLoadingLinks, setIsLoadingLinks] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
 
   const {
     data: request,
@@ -108,13 +109,14 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
   useEffect(() => {
     let cancelled = false;
     setPdfUrl(null);
+    setPreviewFailed(false);
     if (!previewAssetId) return;
     const loadPreview = async () => {
       try {
-        const url = await fileLibraryService.getPresignedViewUrl(workspaceSlug, previewAssetId);
+        const url = await fileLibraryService.getPresignedViewUrl(workspaceSlug, previewAssetId, "contract");
         if (!cancelled) setPdfUrl(url);
       } catch {
-        if (!cancelled) setPdfUrl(null);
+        if (!cancelled) setPreviewFailed(true);
       }
     };
     void loadPreview();
@@ -187,7 +189,8 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
             name: `${request.title}${t("file_library.contracts.workflow.documents.signed_suffix")}.pdf`,
           },
         ],
-        request.title
+        request.title,
+        "contract"
       );
     } catch {
       setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.download_failed") });
@@ -235,6 +238,12 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
         icon={<AlertTriangle className="size-5" />}
         title={t("file_library.contracts.workflow.request_peek.preview_unavailable")}
       />
+    ) : previewFailed ? (
+      <ContractEmptyState
+        className="h-full"
+        icon={<AlertTriangle className="size-5" />}
+        title={t("file_library.contracts.workflow.request_peek.preview_unavailable")}
+      />
     ) : pdfUrl ? (
       <PDFViewer src={pdfUrl} fileName={`${request?.title ?? "contract"}.pdf`} className="h-full" showUpload={false} />
     ) : (
@@ -247,6 +256,12 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
     <ContractLoading className="h-full" />
   ) : (
     <div className="h-full overflow-y-auto p-4">
+      <RequestOutcomeBanner
+        workspaceSlug={workspaceSlug}
+        request={request}
+        onOpenEditor={() => onOpenEditor(request)}
+        onDownloadSigned={() => void downloadSigned()}
+      />
       <ContractSection
         title={t("file_library.contracts.workflow.request_peek.signers_title")}
         description={t("file_library.contracts.workflow.documents.signers_completed", {
@@ -418,16 +433,6 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
           </button>
         ) : null
       }
-      topContent={
-        request ? (
-          <RequestOutcomeBanner
-            workspaceSlug={workspaceSlug}
-            request={request}
-            onOpenEditor={() => onOpenEditor(request)}
-            onDownloadSigned={() => void downloadSigned()}
-          />
-        ) : null
-      }
       tabs={tabs}
       activeTab={tab}
       desktopActiveTab={tab === "document" ? "signature" : tab}
@@ -553,17 +558,19 @@ function RequestOutcomeBanner({
   const { t } = useTranslation();
 
   const shell = (tone: "default" | "success" | "danger", title: string, detail: string, actions?: React.ReactNode) => (
-    <div className="shrink-0 border-b border-subtle px-4 py-3">
-      <p
-        className={cn(
-          "text-13 font-medium",
-          tone === "success" ? "text-success-primary" : tone === "danger" ? "text-danger-primary" : "text-primary"
-        )}
-      >
-        {title}
-      </p>
-      <p className="mt-0.5 text-11 text-tertiary">{detail}</p>
-      {actions ? <div className="mt-2.5 flex flex-wrap items-center gap-2">{actions}</div> : null}
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-subtle bg-layer-1 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            "truncate text-12 font-medium",
+            tone === "success" ? "text-success-primary" : tone === "danger" ? "text-danger-primary" : "text-primary"
+          )}
+        >
+          {title}
+        </p>
+        {detail ? <p className="mt-0.5 truncate text-11 text-tertiary">{detail}</p> : null}
+      </div>
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-1.5">{actions}</div> : null}
     </div>
   );
 

@@ -49,7 +49,10 @@ function Portal({ children, container, asChild = false }: PortalProps) {
     return ReactDOM.createPortal(children, targetContainer);
   }
 
-  return ReactDOM.createPortal(<div data-radix-portal="">{children}</div>, targetContainer);
+  return ReactDOM.createPortal(
+    <div data-radix-portal="">{children}</div>,
+    targetContainer,
+  );
 }
 
 // Context for main menu to communicate with submenus
@@ -86,8 +89,10 @@ function CustomMenu(props: ICustomMenuDropdownProps) {
     useCaptureForOutsideClick = false,
   } = props;
 
-  const [referenceElement, setReferenceElement] = React.useState<HTMLButtonElement | null>(null);
-  const [popperElement, setPopperElement] = React.useState<HTMLDivElement | null>(null);
+  const [referenceElement, setReferenceElement] =
+    React.useState<HTMLButtonElement | null>(null);
+  const [popperElement, setPopperElement] =
+    React.useState<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = React.useState(false);
   // refs
   const dropdownRef = React.useRef<HTMLDivElement | null>(null);
@@ -122,19 +127,27 @@ function CustomMenu(props: ICustomMenuDropdownProps) {
   }, [isOpen, closeAllSubmenus, onMenuClose]);
 
   const selectActiveItem = () => {
-    const activeItem: HTMLElement | undefined | null = dropdownRef.current?.querySelector(
-      `[data-headlessui-state="active"] button`
-    );
+    const activeItem: HTMLElement | undefined | null =
+      dropdownRef.current?.querySelector(
+        `[data-headlessui-state="active"] button`,
+      );
     activeItem?.click();
   };
 
-  const handleKeyDown = useDropdownKeyDown(openDropdown, closeDropdown, isOpen, selectActiveItem);
+  const handleKeyDown = useDropdownKeyDown(
+    openDropdown,
+    closeDropdown,
+    isOpen,
+    selectActiveItem,
+  );
 
   const handleOnClick = () => {
     if (closeOnSelect) closeDropdown();
   };
 
-  const handleMenuButtonClick = (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
+  const handleMenuButtonClick = (
+    e: React.MouseEvent<HTMLButtonElement, MouseEvent>,
+  ) => {
     e.stopPropagation();
     e.preventDefault();
     if (isOpen) {
@@ -160,13 +173,19 @@ function CustomMenu(props: ICustomMenuDropdownProps) {
     }
   };
 
-  useOutsideClickDetector(dropdownRef, closeDropdown, useCaptureForOutsideClick);
+  useOutsideClickDetector(
+    dropdownRef,
+    closeDropdown,
+    useCaptureForOutsideClick,
+  );
 
   // Custom handler for submenu portal clicks
   React.useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      const isSubmenuClick = target.closest('[data-prevent-outside-click="true"]');
+      const isSubmenuClick = target.closest(
+        '[data-prevent-outside-click="true"]',
+      );
       const isMainMenuClick = dropdownRef.current?.contains(target);
 
       // If it's a submenu click or main menu click, don't close
@@ -181,17 +200,25 @@ function CustomMenu(props: ICustomMenuDropdownProps) {
     };
 
     if (isOpen) {
-      document.addEventListener("mousedown", handleDocumentClick, useCaptureForOutsideClick);
+      document.addEventListener(
+        "mousedown",
+        handleDocumentClick,
+        useCaptureForOutsideClick,
+      );
 
       return () => {
-        document.removeEventListener("mousedown", handleDocumentClick, useCaptureForOutsideClick);
+        document.removeEventListener(
+          "mousedown",
+          handleDocumentClick,
+          useCaptureForOutsideClick,
+        );
       };
     }
   }, [isOpen, closeDropdown, useCaptureForOutsideClick]);
 
   const menuContextValue = React.useMemo(
     () => ({ closeAllSubmenus, registerSubmenu }),
-    [closeAllSubmenus, registerSubmenu]
+    [closeAllSubmenus, registerSubmenu],
   );
 
   let menuItems = (
@@ -199,7 +226,7 @@ function CustomMenu(props: ICustomMenuDropdownProps) {
       data-prevent-outside-click={!!portalElement}
       className={cn(
         "fixed z-30 translate-y-0",
-        menuItemsClassName
+        menuItemsClassName,
       )} /** translate-y-0 is a hack to create new stacking context. Required for safari  */
       static
     >
@@ -212,13 +239,15 @@ function CustomMenu(props: ICustomMenuDropdownProps) {
             "max-h-36": maxHeight === "rg",
             "max-h-28": maxHeight === "sm",
           },
-          optionsClassName
+          optionsClassName,
         )}
         ref={setPopperElement}
         style={styles.popper}
         {...attributes.popper}
       >
-        <MenuContext.Provider value={menuContextValue}>{children}</MenuContext.Provider>
+        <MenuContext.Provider value={menuContextValue}>
+          {children}
+        </MenuContext.Provider>
       </div>
     </Menu.Items>
   );
@@ -270,12 +299,16 @@ function CustomMenu(props: ICustomMenuDropdownProps) {
                     onClick={handleMenuButtonClick}
                     disabled={disabled}
                     className={`relative grid place-items-center rounded-sm p-1 text-secondary outline-none hover:text-primary ${
-                      disabled ? "cursor-not-allowed" : "cursor-pointer hover:bg-layer-transparent-hover"
+                      disabled
+                        ? "cursor-not-allowed"
+                        : "cursor-pointer hover:bg-layer-transparent-hover"
                     } ${buttonClassName}`}
                     tabIndex={customButtonTabIndex}
                     aria-label={ariaLabel}
                   >
-                    <MoreHorizontal className={`h-3.5 w-3.5 ${verticalEllipsis ? "rotate-90" : ""}`} />
+                    <MoreHorizontal
+                      className={`h-3.5 w-3.5 ${verticalEllipsis ? "rotate-90" : ""}`}
+                    />
                   </button>
                 </Menu.Button>
               ) : (
@@ -286,7 +319,9 @@ function CustomMenu(props: ICustomMenuDropdownProps) {
                     className={`flex items-center justify-between gap-1 rounded-md px-2.5 py-1 text-11 whitespace-nowrap duration-300 ${
                       open ? "text-primary" : "text-secondary"
                     } ${noBorder ? "" : "shadow-sm border border-strong focus:outline-none"} ${
-                      disabled ? "cursor-not-allowed text-secondary" : "cursor-pointer hover:bg-layer-transparent-hover"
+                      disabled
+                        ? "cursor-not-allowed text-secondary"
+                        : "cursor-pointer hover:bg-layer-transparent-hover"
                     } ${buttonClassName}`}
                     onClick={handleMenuButtonClick}
                     tabIndex={customButtonTabIndex}
@@ -308,7 +343,9 @@ function CustomMenu(props: ICustomMenuDropdownProps) {
 }
 
 // SubMenu context for closing submenu from nested items
-const SubMenuContext = React.createContext<{ closeSubmenu: () => void } | null>(null);
+const SubMenuContext = React.createContext<{ closeSubmenu: () => void } | null>(
+  null,
+);
 
 // Hook to use submenu context
 const useSubMenu = () => React.useContext(SubMenuContext);
@@ -325,8 +362,10 @@ function SubMenu(props: ICustomSubMenuProps) {
   } = props;
 
   const [isOpen, setIsOpen] = React.useState(false);
-  const [referenceElement, setReferenceElement] = React.useState<HTMLSpanElement | null>(null);
-  const [popperElement, setPopperElement] = React.useState<HTMLDivElement | null>(null);
+  const [referenceElement, setReferenceElement] =
+    React.useState<HTMLSpanElement | null>(null);
+  const [popperElement, setPopperElement] =
+    React.useState<HTMLDivElement | null>(null);
   const submenuRef = React.useRef<HTMLDivElement | null>(null);
 
   const menuContext = React.useContext(MenuContext);
@@ -344,7 +383,13 @@ function SubMenu(props: ICustomSubMenuProps) {
       {
         name: "flip",
         options: {
-          fallbackPlacements: ["left-start", "right-end", "left-end", "top-start", "bottom-start"],
+          fallbackPlacements: [
+            "left-start",
+            "right-end",
+            "left-end",
+            "top-start",
+            "bottom-start",
+          ],
         },
       },
       {
@@ -383,14 +428,20 @@ function SubMenu(props: ICustomSubMenuProps) {
     toggleSubmenu();
   };
 
-  const subMenuContextValue = React.useMemo(() => ({ closeSubmenu }), [closeSubmenu]);
+  const subMenuContextValue = React.useMemo(
+    () => ({ closeSubmenu }),
+    [closeSubmenu],
+  );
 
   // Close submenu when clicking on other menu items
   React.useEffect(() => {
     const handleMenuItemClick = (e: Event) => {
       const target = e.target as HTMLElement;
       // Check if the click is on a menu item that's not part of this submenu
-      if (target.closest('[role="menuitem"]') && !submenuRef.current?.contains(target)) {
+      if (
+        target.closest('[role="menuitem"]') &&
+        !submenuRef.current?.contains(target)
+      ) {
         closeSubmenu();
       }
     };
@@ -414,7 +465,7 @@ function SubMenu(props: ICustomSubMenuProps) {
                   "bg-layer-transparent-hover": active && !disabled,
                   "text-placeholder": disabled,
                   "cursor-not-allowed": disabled,
-                }
+                },
               )}
               onClick={handleClick}
               disabled={disabled}
@@ -434,27 +485,37 @@ function SubMenu(props: ICustomSubMenuProps) {
             {...attributes.popper}
             className={cn(
               "shadow-md fixed z-30 min-w-[12rem] overflow-hidden rounded-md border border-strong-1 bg-surface-1 p-1 text-11 ring-1 ring-strong-1/15",
-              contentClassName
+              contentClassName,
             )}
             data-prevent-outside-click="true"
             onMouseEnter={() => {
               // Notify parent menu that we're hovering over submenu
-              const mainMenuElement = document.querySelector('[data-main-menu="true"]');
+              const mainMenuElement = document.querySelector(
+                '[data-main-menu="true"]',
+              );
               if (mainMenuElement) {
-                const mouseEnterEvent = new MouseEvent("mouseenter", { bubbles: true });
+                const mouseEnterEvent = new MouseEvent("mouseenter", {
+                  bubbles: true,
+                });
                 mainMenuElement.dispatchEvent(mouseEnterEvent);
               }
             }}
             onMouseLeave={() => {
               // Notify parent menu that we're leaving submenu
-              const mainMenuElement = document.querySelector('[data-main-menu="true"]');
+              const mainMenuElement = document.querySelector(
+                '[data-main-menu="true"]',
+              );
               if (mainMenuElement) {
-                const mouseLeaveEvent = new MouseEvent("mouseleave", { bubbles: true });
+                const mouseLeaveEvent = new MouseEvent("mouseleave", {
+                  bubbles: true,
+                });
                 mainMenuElement.dispatchEvent(mouseLeaveEvent);
               }
             }}
           >
-            <SubMenuContext.Provider value={subMenuContextValue}>{children}</SubMenuContext.Provider>
+            <SubMenuContext.Provider value={subMenuContextValue}>
+              {children}
+            </SubMenuContext.Provider>
           </div>
         </Portal>
       )}
@@ -477,7 +538,7 @@ function MenuItem(props: ICustomMenuItemProps) {
               "bg-layer-transparent-hover": active && !disabled,
               "text-placeholder": disabled,
             },
-            className
+            className,
           )}
           onClick={(e) => {
             close();
@@ -509,7 +570,7 @@ function SubMenuTrigger(props: ICustomSubMenuTriggerProps) {
               "cursor-pointer": !disabled,
               "cursor-not-allowed": disabled,
             },
-            className
+            className,
           )}
         >
           <span className="flex-1">{children}</span>
@@ -527,7 +588,7 @@ function SubMenuContent(props: ICustomSubMenuContentProps) {
     <div
       className={cn(
         "shadow-md z-[15] min-w-[12rem] overflow-hidden rounded-md border border-strong-1 bg-surface-1 p-1 text-11 ring-1 ring-strong-1/15",
-        className
+        className,
       )}
     >
       {children}

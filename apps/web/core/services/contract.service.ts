@@ -238,6 +238,15 @@ export class ContractService extends APIService {
     return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/contract-assets/${assetId}/preview-pdf/${query}`;
   }
 
+  /** Fetches the converted preview with Plane's authenticated HTTP client. */
+  async getContractAssetPreviewPdf(workspaceSlug: string, assetId: string): Promise<Blob> {
+    return this.get(
+      `/api/workspaces/${workspaceSlug}/contract-assets/${assetId}/preview-pdf/`,
+      {},
+      { responseType: "blob" }
+    ).then((response) => response.data);
+  }
+
   getContractAssetThumbnailUrl(workspaceSlug: string, assetId: string, version?: string): string {
     const query = version ? `?v=${encodeURIComponent(version)}` : "";
     return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/contract-assets/${assetId}/thumbnail/${query}`;
