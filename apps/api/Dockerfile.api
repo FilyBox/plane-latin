@@ -13,6 +13,7 @@ WORKDIR /code
 
 RUN apk add --no-cache --upgrade \
     "libpq" \
+    "libstdc++" \
     "libxslt" \
     "xmlsec" \
     "ca-certificates" \
