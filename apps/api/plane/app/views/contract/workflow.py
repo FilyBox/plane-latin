@@ -293,6 +293,101 @@ def _dispose_edit_backup(backup):
     backup.save(update_fields=["is_deleted", "deleted_at", "updated_at"])
 
 
+def _delete_signature_requests(signature_requests, *, delete_files=False, delete_analysis=False):
+    """Delete local signing records without touching shared template revisions.
+
+    Rendered DOCX/unsigned PDF assets belong exclusively to the request and are
+    always removed. The signed file-library PDF and AI data are explicit,
+    destructive options. AI data must go with a signed file so no analysis can
+    point at an object that no longer exists.
+    """
+    signature_requests = list(signature_requests)
+    if delete_files and not delete_analysis and any(item.analysis_contract_id for item in signature_requests):
+        raise ValueError("Deleting signed files also requires deleting their AI analysis")
+
+    internal_assets = []
+    signed_assets = []
+    analysis_assets = []
+    analysis_contracts = []
+    for signature_request in signature_requests:
+        internal_assets.extend(
+            [signature_request.rendered_source_asset, signature_request.rendered_pdf_asset]
+        )
+        if delete_files:
+            signed_assets.append(signature_request.signed_asset)
+        if delete_analysis and signature_request.analysis_contract:
+            analysis_contracts.append(signature_request.analysis_contract)
+            analysis_assets.append(signature_request.analysis_contract.thumbnail_asset)
+
+    # Storage deletion happens before database deletion. A failed object-store
+    # operation leaves the records intact so the user can retry safely.
+    assets_to_purge = [*internal_assets, *signed_assets, *analysis_assets]
+    unique_assets = {asset.id: asset for asset in assets_to_purge if asset is not None}
+    for asset in unique_assets.values():
+        object_name = asset.asset.name
+        if object_name and not S3Storage.for_asset(asset).delete_files([object_name]):
+            raise RuntimeError(f"Unable to delete contract file {asset.id}")
+
+    deleted_ids = [str(item.id) for item in signature_requests]
+    with transaction.atomic():
+        for analysis_contract in analysis_contracts:
+            # Hard deletion cascades through extracted text chunks/embeddings,
+            # processing jobs and contract-scoped chats immediately.
+            analysis_contract.delete(soft=False)
+        for signature_request in signature_requests:
+            signature_request.delete(soft=False)
+        for asset in unique_assets.values():
+            asset.delete(soft=False)
+
+    return {
+        "deleted": deleted_ids,
+        "files_deleted": len(unique_assets),
+        "analyses_deleted": len(analysis_contracts),
+    }
+
+
+def _delete_signature_requests_from_payload(request, slug):
+    if request.data.get("confirm") is not True:
+        return Response({"error": "Deletion must be confirmed"}, status=status.HTTP_400_BAD_REQUEST)
+    request_ids = request.data.get("request_ids")
+    if not isinstance(request_ids, list) or not request_ids or len(request_ids) > 100:
+        return Response(
+            {"error": "request_ids must contain between 1 and 100 items"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        parsed_ids = [UUID(str(request_id)) for request_id in request_ids]
+    except (TypeError, ValueError, AttributeError):
+        return Response({"error": "Invalid request id"}, status=status.HTTP_400_BAD_REQUEST)
+
+    signature_requests = list(
+        ContractSignatureRequest.objects.filter(
+            id__in=parsed_ids,
+            workspace__slug=slug,
+            authoring_mode=ContractSignatureRequest.AuthoringMode.DOCUMENT,
+        ).select_related(
+            "rendered_source_asset",
+            "rendered_pdf_asset",
+            "signed_asset",
+            "analysis_contract__thumbnail_asset",
+        )
+    )
+    found_ids = {item.id for item in signature_requests}
+    try:
+        result = _delete_signature_requests(
+            signature_requests,
+            delete_files=bool(request.data.get("delete_files")),
+            delete_analysis=bool(request.data.get("delete_analysis")),
+        )
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except RuntimeError as exc:
+        log_exception(exc)
+        return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+    result["not_found"] = [str(request_id) for request_id in parsed_ids if request_id not in found_ids]
+    return Response(result, status=status.HTTP_200_OK)
+
+
 def _revision_schema(revision):
     return revision.variable_schema or analyse_docx_variables(_read_asset(revision.source_asset))
 
@@ -1235,6 +1330,18 @@ class ContractSignatureRequestsEndpoint(BaseAPIView):
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ContractSignatureRequestSerializer(signature_request).data, status=status.HTTP_201_CREATED)
 
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def delete(self, request, slug):
+        return _delete_signature_requests_from_payload(request, slug)
+
+
+class ContractSignatureRequestsDeleteEndpoint(BaseAPIView):
+    """Action endpoint for clients/proxies that do not support DELETE bodies."""
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def post(self, request, slug):
+        return _delete_signature_requests_from_payload(request, slug)
+
 
 class ContractSignatureRequestDetailEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
@@ -1332,6 +1439,33 @@ class ContractSignatureRequestDetailEndpoint(BaseAPIView):
                     ]
                 )
         return Response(ContractSignatureRequestSerializer(signature_request).data)
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def delete(self, request, slug, request_id):
+        if request.data.get("confirm") is not True:
+            return Response({"error": "Deletion must be confirmed"}, status=status.HTTP_400_BAD_REQUEST)
+        signature_request = ContractSignatureRequest.objects.select_related(
+            "rendered_source_asset",
+            "rendered_pdf_asset",
+            "signed_asset",
+            "analysis_contract__thumbnail_asset",
+        ).get(
+            id=request_id,
+            workspace__slug=slug,
+            authoring_mode=ContractSignatureRequest.AuthoringMode.DOCUMENT,
+        )
+        try:
+            result = _delete_signature_requests(
+                [signature_request],
+                delete_files=bool(request.data.get("delete_files")),
+                delete_analysis=bool(request.data.get("delete_analysis")),
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except RuntimeError as exc:
+            log_exception(exc)
+            return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class ContractSignatureRequestPdfEndpoint(BaseAPIView):

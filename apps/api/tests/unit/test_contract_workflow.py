@@ -1,12 +1,14 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 
+from contextlib import nullcontext
 from unittest.mock import MagicMock
 
 import pytest
 
 from plane.app.views.contract.workflow import (
     _blueprint_for_layout,
+    _delete_signature_requests,
     _normalise_authoring_draft,
     _normalise_authoring_payload,
     _normalise_authoring_settings,
@@ -381,3 +383,49 @@ def test_storage_keeps_internal_minio_endpoint_when_request_is_present(monkeypat
     S3Storage(request=request, bucket_name="plane-contracts")
 
     assert endpoints == ["http://plane-minio:9000", "http://localhost:9000"]
+
+
+def test_signature_request_delete_requires_analysis_when_signed_file_is_deleted():
+    signature_request = MagicMock(analysis_contract_id="analysis-id")
+
+    with pytest.raises(ValueError, match="requires deleting their AI analysis"):
+        _delete_signature_requests([signature_request], delete_files=True, delete_analysis=False)
+
+
+def test_signature_request_delete_purges_selected_data(monkeypatch):
+    def asset(asset_id, name):
+        result = MagicMock()
+        result.id = asset_id
+        result.asset.name = name
+        return result
+
+    rendered_source = asset("source", "rendered.docx")
+    rendered_pdf = asset("unsigned", "unsigned.pdf")
+    signed_pdf = asset("signed", "signed.pdf")
+    thumbnail = asset("thumbnail", "thumbnail.png")
+    analysis_contract = MagicMock(id="analysis", thumbnail_asset=thumbnail)
+    signature_request = MagicMock(
+        id="request",
+        rendered_source_asset=rendered_source,
+        rendered_pdf_asset=rendered_pdf,
+        signed_asset=signed_pdf,
+        analysis_contract=analysis_contract,
+        analysis_contract_id="analysis",
+    )
+    storage = MagicMock()
+    storage.delete_files.return_value = True
+    monkeypatch.setattr("plane.app.views.contract.workflow.S3Storage.for_asset", lambda _asset: storage)
+    monkeypatch.setattr("plane.app.views.contract.workflow.transaction.atomic", nullcontext)
+
+    result = _delete_signature_requests([signature_request], delete_files=True, delete_analysis=True)
+
+    assert result == {
+        "deleted": ["request"],
+        "files_deleted": 4,
+        "analyses_deleted": 1,
+    }
+    assert storage.delete_files.call_count == 4
+    analysis_contract.delete.assert_called_once_with(soft=False)
+    signature_request.delete.assert_called_once_with(soft=False)
+    for deleted_asset in (rendered_source, rendered_pdf, signed_pdf, thumbnail):
+        deleted_asset.delete.assert_called_once_with(soft=False)

@@ -36,6 +36,7 @@ from .workflow import (
     ContractSignatureRequestDetailEndpoint,
     ContractSignatureRequestPdfEndpoint,
     ContractSignatureRequestsEndpoint,
+    ContractSignatureRequestsDeleteEndpoint,
     ContractSignatureRequestSendEndpoint,
     ContractSignatureRequestLinksEndpoint,
     ContractSignatureRequestSyncEndpoint,

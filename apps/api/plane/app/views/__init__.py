@@ -341,6 +341,7 @@ from .contract import (
     ContractSignatureRequestDetailEndpoint,
     ContractSignatureRequestPdfEndpoint,
     ContractSignatureRequestsEndpoint,
+    ContractSignatureRequestsDeleteEndpoint,
     ContractSignatureRequestSendEndpoint,
     ContractSignatureRequestLinksEndpoint,
     ContractSignatureRequestSyncEndpoint,

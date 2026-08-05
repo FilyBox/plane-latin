@@ -17,6 +17,7 @@ from plane.app.views import (
     ContractSignatureRequestDetailEndpoint,
     ContractSignatureRequestPdfEndpoint,
     ContractSignatureRequestsEndpoint,
+    ContractSignatureRequestsDeleteEndpoint,
     ContractSignatureRequestSendEndpoint,
     ContractSignatureRequestLinksEndpoint,
     ContractSignatureRequestSyncEndpoint,
@@ -96,6 +97,11 @@ urlpatterns = [
         "workspaces/<str:slug>/contract-signature-requests/",
         ContractSignatureRequestsEndpoint.as_view(),
         name="contract-signature-requests",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/delete/",
+        ContractSignatureRequestsDeleteEndpoint.as_view(),
+        name="contract-signature-requests-delete",
     ),
     path(
         "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/",

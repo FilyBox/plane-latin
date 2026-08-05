@@ -19,6 +19,7 @@ import {
   RefreshCcw,
   Search,
   Send,
+  Trash2,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 import useSWR from "swr";
@@ -30,6 +31,7 @@ import { CustomMenu } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
 import { downloadAssets } from "../download";
+import { ContractDeleteDialog } from "./contract-delete-dialog";
 import { ContractRequestPeek } from "./contract-request-peek";
 import {
   ContractBulkActionsBar,
@@ -123,6 +125,8 @@ export function ContractDocuments({ workspaceSlug }: Props) {
   const [syncingId, setSyncingId] = useState<string>();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isBulkSyncing, setIsBulkSyncing] = useState(false);
+  const [deletingRequests, setDeletingRequests] = useState<TContractSignatureRequest[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const {
     data: requests,
@@ -281,6 +285,30 @@ export function ContractDocuments({ workspaceSlug }: Props) {
     }
   };
 
+  const deleteRequests = async (options: { deleteFiles: boolean; deleteAnalysis: boolean }) => {
+    if (deletingRequests.length === 0) return;
+    setIsDeleting(true);
+    const requestIds = deletingRequests.map((request) => request.id);
+    try {
+      const result = await contractService.deleteSignatureRequests(workspaceSlug, requestIds, options);
+      setDeletingRequests([]);
+      setSelectedIds((current) => current.filter((id) => !result.deleted.includes(id)));
+      if (peekRequestId && result.deleted.includes(peekRequestId)) setPeekRequestId(undefined);
+      await mutate();
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: t("file_library.contracts.workflow.documents.delete_success", { count: result.deleted.length }),
+      });
+    } catch (error: any) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: error?.error ?? t("file_library.contracts.workflow.documents.delete_failed"),
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden">
       {/* filters replace the old KPI card row — same numbers, but actionable */}
@@ -364,6 +392,16 @@ export function ContractDocuments({ workspaceSlug }: Props) {
             <RefreshCcw className="size-3.5" />
           )}
           {t("file_library.contracts.workflow.documents.sync_selected")}
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() =>
+            setDeletingRequests(ordered.filter((request) => selectedIds.includes(request.id)))
+          }
+        >
+          <Trash2 className="size-3.5 text-danger-primary" />
+          {t("file_library.contracts.workflow.documents.delete_selected")}
         </Button>
       </ContractBulkActionsBar>
 
@@ -575,6 +613,12 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                             {t("file_library.download")}
                           </span>
                         </CustomMenu.MenuItem>
+                        <CustomMenu.MenuItem onClick={() => setDeletingRequests([request])}>
+                          <span className="flex items-center gap-2 text-danger-primary">
+                            <Trash2 className="size-3.5" />
+                            {t("file_library.contracts.workflow.documents.delete")}
+                          </span>
+                        </CustomMenu.MenuItem>
                       </CustomMenu>
                     </div>
                   </li>
@@ -597,6 +641,13 @@ export function ContractDocuments({ workspaceSlug }: Props) {
           }}
         />
       ) : null}
+      <ContractDeleteDialog
+        key={deletingRequests.map((request) => request.id).join(":") || "closed"}
+        requests={deletingRequests}
+        isSubmitting={isDeleting}
+        onClose={() => setDeletingRequests([])}
+        onConfirm={deleteRequests}
+      />
     </div>
   );
 }

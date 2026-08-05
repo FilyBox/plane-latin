@@ -327,6 +327,19 @@ export class ContractService extends APIService {
     return this.get(`/api/workspaces/${workspaceSlug}/contract-signature-requests/`).then((response) => response.data);
   }
 
+  async deleteSignatureRequests(
+    workspaceSlug: string,
+    requestIds: string[],
+    options: { deleteFiles: boolean; deleteAnalysis: boolean }
+  ): Promise<{ deleted: string[]; not_found: string[]; files_deleted: number; analyses_deleted: number }> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/delete/`, {
+      request_ids: requestIds,
+      delete_files: options.deleteFiles,
+      delete_analysis: options.deleteAnalysis,
+      confirm: true,
+    }).then((response) => response.data);
+  }
+
   async getSignatureRequest(workspaceSlug: string, requestId: string): Promise<TContractSignatureRequest> {
     return this.get(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/`).then(
       (response) => response.data
