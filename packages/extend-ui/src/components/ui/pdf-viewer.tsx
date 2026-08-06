@@ -103,6 +103,8 @@ export type PDFViewerHandle = {
 export type PDFViewerProps = {
   className?: string;
   defaultZoom?: number;
+  /** Disable the PDF selection engine for canvas-style authoring overlays. */
+  enableTextSelection?: boolean;
   fileName?: string;
   showDownload?: boolean;
   showToolbar?: boolean;
@@ -1585,6 +1587,7 @@ type PDFViewerInnerProps = {
   documentId: string;
   document: PdfDocumentObject | null;
   defaultZoom: number;
+  enableTextSelection: boolean;
   className?: string;
   fileName?: string;
   showDownload: boolean;
@@ -1609,6 +1612,7 @@ function PDFViewerInner({
   documentId,
   document: pdfDocument,
   defaultZoom,
+  enableTextSelection,
   className,
   fileName,
   showDownload,
@@ -1956,7 +1960,13 @@ function PDFViewerInner({
               highlightColor="rgba(253, 224, 71, 0.45)"
               activeHighlightColor="rgba(249, 115, 22, 0.55)"
             />
-            <PDFViewerTextSelectionLayer documentId={documentId} pageIndex={page.pageIndex} scale={currentZoomLevel} />
+            {enableTextSelection ? (
+              <PDFViewerTextSelectionLayer
+                documentId={documentId}
+                pageIndex={page.pageIndex}
+                scale={currentZoomLevel}
+              />
+            ) : null}
             {renderPageOverlay?.({
               pageNumber,
               pageWidth: page.width,
@@ -1971,6 +1981,7 @@ function PDFViewerInner({
     [
       basePageRotations,
       currentZoomLevel,
+      enableTextSelection,
       onPagePointerCancel,
       onPagePointerDown,
       onPagePointerMove,
@@ -2148,8 +2159,8 @@ function PDFViewerInner({
             className="relative h-full max-h-full min-h-0 min-w-0 flex-1"
           >
             <PDFViewerViewportBridge viewportElementRef={viewportElementRef} />
-            <PDFViewerSelectionCopyShortcut documentId={documentId} />
-            <PDFViewerSelectionReleaseGuard documentId={documentId} />
+            {enableTextSelection ? <PDFViewerSelectionCopyShortcut documentId={documentId} /> : null}
+            {enableTextSelection ? <PDFViewerSelectionReleaseGuard documentId={documentId} /> : null}
             <GlobalPointerProvider documentId={documentId}>
               <PDFViewerScroller
                 basePageRotations={basePageRotations}
@@ -2158,7 +2169,7 @@ function PDFViewerInner({
                 renderPage={renderPage}
               />
             </GlobalPointerProvider>
-            <CopyToClipboard />
+            {enableTextSelection ? <CopyToClipboard /> : null}
           </PDFViewerScrollAreaViewport>
         </div>
       </div>
@@ -2248,6 +2259,7 @@ export const PDFViewer = React.forwardRef<PDFViewerHandle, PDFViewerProps>(funct
   {
     className,
     defaultZoom = DEFAULT_ZOOM,
+    enableTextSelection = true,
     fileName,
     showDownload = true,
     showRotateControls = true,
@@ -2308,9 +2320,13 @@ export const PDFViewer = React.forwardRef<PDFViewerHandle, PDFViewerProps>(funct
       extraRings: 0,
     }),
     createPluginRegistration(InteractionManagerPluginPackage),
-    createPluginRegistration(SelectionPluginPackage, {
-      marquee: { enabled: false },
-    }),
+    ...(enableTextSelection
+      ? [
+          createPluginRegistration(SelectionPluginPackage, {
+            marquee: { enabled: false },
+          }),
+        ]
+      : []),
     createPluginRegistration(SearchPluginPackage, {
       showAllResults: true,
     }),
@@ -2369,6 +2385,7 @@ export const PDFViewer = React.forwardRef<PDFViewerHandle, PDFViewerProps>(funct
         viewerRef={ref}
         pdfFile={pdfFile}
         defaultZoom={defaultZoom}
+        enableTextSelection={enableTextSelection}
         className={className}
         fileName={fileName}
         showDownload={showDownload}

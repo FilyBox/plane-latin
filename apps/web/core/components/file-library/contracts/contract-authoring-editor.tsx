@@ -641,7 +641,7 @@ export function ContractAuthoringEditor({
   const { t } = useTranslation();
   const { data: currentUser } = useUser();
   const [pdfUrl, setPdfUrl] = useState<string>();
-  const [pdfError, setPdfError] = useState<string>();
+  const [pdfLoadFailed, setPdfLoadFailed] = useState(false);
   const [pdfPageCount, setPdfPageCount] = useState(1);
   const [recipients, setRecipients] = useState<TContractAuthoringRecipient[]>(() =>
     recipientsForRequest(signatureRequest)
@@ -686,7 +686,7 @@ export function ContractAuthoringEditor({
 
   useEffect(() => {
     let cancelled = false;
-    setPdfError(undefined);
+    setPdfLoadFailed(false);
     void contractService
       .getSignatureRequestPdf(workspaceSlug, signatureRequest.id)
       .then(({ url }) => {
@@ -694,12 +694,12 @@ export function ContractAuthoringEditor({
         return undefined;
       })
       .catch(() => {
-        if (!cancelled) setPdfError(t("file_library.contracts.workflow.authoring.pdf_load_failed"));
+        if (!cancelled) setPdfLoadFailed(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [signatureRequest.id, t, workspaceSlug]);
+  }, [signatureRequest.id, workspaceSlug]);
 
   const updateRecipients = useCallback(
     (updater: (current: TContractAuthoringRecipient[]) => TContractAuthoringRecipient[]) => {
@@ -1067,15 +1067,18 @@ export function ContractAuthoringEditor({
           showToolbar={false}
           showUpload={false}
           showRotateControls={false}
+          enableTextSelection={false}
           onDocumentLoadSuccess={setPdfPageCount}
           renderPageOverlay={stableRenderPageOverlay}
           onPagePointerDown={stableOnPagePointerDown}
         />
       ) : (
         <div className="flex size-full items-center justify-center">
-          {pdfError ? (
+          {pdfLoadFailed ? (
             <div className="max-w-sm text-center">
-              <p className="text-14 font-medium text-danger-primary">{pdfError}</p>
+              <p className="text-14 font-medium text-danger-primary">
+                {t("file_library.contracts.workflow.authoring.pdf_load_failed")}
+              </p>
               <button
                 type="button"
                 className="mt-2 text-13 text-accent-primary underline"
