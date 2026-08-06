@@ -5,7 +5,7 @@
  */
 
 import type { ComponentType, PointerEvent as ReactPointerEvent } from "react";
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -213,18 +213,7 @@ const reindexRecipients = (recipients: TContractAuthoringRecipient[]) =>
     signingOrder: index + 1,
   }));
 
-/**
- * Overlay state is delivered through context instead of through props on
- * `renderPageOverlay`.
- *
- * `PDFViewer` memoises its page renderer on the identity of `renderPageOverlay`,
- * `pageClassName` and the pointer handlers. Passing inline closures re-created
- * every render invalidated that memo on every keystroke and every pointer move,
- * which re-mounted each page's canvas — the flicker and the jump back to page 1.
- * With a context, those callbacks stay referentially stable for the lifetime of
- * the editor and only the overlay subtree re-renders.
- */
-type FieldsOverlayContextValue = {
+type FieldsOverlaySnapshot = {
   recipients: TContractAuthoringRecipient[];
   selectedField?: SelectedField;
   draggingFieldType?: FieldType;
@@ -234,7 +223,33 @@ type FieldsOverlayContextValue = {
   onSelectField: (selection: SelectedField) => void;
 };
 
-const FieldsOverlayContext = createContext<FieldsOverlayContextValue | null>(null);
+type FieldsOverlayStore = {
+  getSnapshot: () => FieldsOverlaySnapshot;
+  setSnapshot: (snapshot: FieldsOverlaySnapshot) => void;
+  subscribe: (listener: () => void) => () => void;
+};
+
+/**
+ * Keep editor state outside the PDF engine's React tree. Each page overlay
+ * subscribes directly, so selecting or moving a field cannot invalidate the
+ * embedded document and return it to its loading state.
+ */
+const createFieldsOverlayStore = (initialSnapshot: FieldsOverlaySnapshot): FieldsOverlayStore => {
+  let snapshot = initialSnapshot;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => snapshot,
+    setSnapshot: (nextSnapshot) => {
+      if (snapshot === nextSnapshot) return;
+      snapshot = nextSnapshot;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+};
 
 function FieldOverlay({
   field,
@@ -365,11 +380,9 @@ function FieldOverlay({
   );
 }
 
-function PageFieldsOverlay({ pageNumber }: { pageNumber: number }) {
-  const context = useContext(FieldsOverlayContext);
-  if (!context) return null;
+function PageFieldsOverlay({ pageNumber, store }: { pageNumber: number; store: FieldsOverlayStore }) {
   const { recipients, selectedField, draggingFieldType, isEditable, onAddField, onChangeField, onSelectField } =
-    context;
+    useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 
   return (
     <div
@@ -1005,14 +1018,6 @@ export function ContractAuthoringEditor({
   const liveRef = useRef({ activeTab, selectedTool, addField });
   liveRef.current = { activeTab, selectedTool, addField };
 
-  const stablePageClassName = useCallback(
-    () => (liveRef.current.selectedTool && liveRef.current.activeTab === "FIELDS" ? "cursor-crosshair" : undefined),
-    []
-  );
-  const stableRenderPageOverlay = useCallback(
-    (props: PDFViewerPageOverlayProps) => <PageFieldsOverlay pageNumber={props.pageNumber} />,
-    []
-  );
   const stableOnPagePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>, pageNumber: number) => {
     const { activeTab: tab, selectedTool: tool, addField: add } = liveRef.current;
     if (tab !== "FIELDS" || !tool || (event.target as HTMLElement).closest("[data-contract-field]")) return;
@@ -1025,7 +1030,7 @@ export function ContractAuthoringEditor({
     );
   }, []);
 
-  const overlayContextValue = useMemo<FieldsOverlayContextValue>(
+  const overlaySnapshot = useMemo<FieldsOverlaySnapshot>(
     () => ({
       recipients,
       selectedField: activeTab === "FIELDS" ? selectedField : undefined,
@@ -1039,25 +1044,33 @@ export function ContractAuthoringEditor({
     }),
     [activeTab, addField, draggingFieldType, recipients, selectedField, updateField]
   );
+  const [overlayStore] = useState(() => createFieldsOverlayStore(overlaySnapshot));
+  useEffect(() => overlayStore.setSnapshot(overlaySnapshot), [overlaySnapshot, overlayStore]);
+  const stableRenderPageOverlay = useCallback(
+    (props: PDFViewerPageOverlayProps) => <PageFieldsOverlay pageNumber={props.pageNumber} store={overlayStore} />,
+    [overlayStore]
+  );
 
   const pdfCanvas = (
-    <div className="relative size-full bg-layer-1">
+    <div
+      className={cn(
+        "relative size-full bg-layer-1",
+        selectedTool && activeTab === "FIELDS" && "[&_[data-pdf-viewer-page]]:cursor-crosshair"
+      )}
+    >
       {pdfUrl ? (
-        <FieldsOverlayContext.Provider value={overlayContextValue}>
-          <StablePDFViewer
-            src={pdfUrl}
-            fileName={title + ".pdf"}
-            className="h-full"
-            defaultZoom={0.75}
-            showToolbar={false}
-            showUpload={false}
-            showRotateControls={false}
-            onDocumentLoadSuccess={setPdfPageCount}
-            pageClassName={stablePageClassName}
-            renderPageOverlay={stableRenderPageOverlay}
-            onPagePointerDown={stableOnPagePointerDown}
-          />
-        </FieldsOverlayContext.Provider>
+        <StablePDFViewer
+          src={pdfUrl}
+          fileName={title + ".pdf"}
+          className="h-full"
+          defaultZoom={0.75}
+          showToolbar={false}
+          showUpload={false}
+          showRotateControls={false}
+          onDocumentLoadSuccess={setPdfPageCount}
+          renderPageOverlay={stableRenderPageOverlay}
+          onPagePointerDown={stableOnPagePointerDown}
+        />
       ) : (
         <div className="flex size-full items-center justify-center">
           {pdfError ? (
