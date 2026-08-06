@@ -634,8 +634,8 @@ def _normalise_authoring_draft(recipients):
     creating and distributing a Documenso envelope.
     """
 
-    if not isinstance(recipients, list) or not recipients:
-        raise ValueError("At least one recipient is required")
+    if not isinstance(recipients, list):
+        raise ValueError("Recipients must be a list")
     if len(recipients) > 50:
         raise ValueError("A contract cannot have more than 50 recipients")
 

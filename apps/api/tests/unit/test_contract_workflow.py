@@ -124,6 +124,10 @@ def test_authoring_draft_allows_incomplete_recipients_and_clamps_fields():
     }
 
 
+def test_authoring_draft_allows_removing_every_recipient():
+    assert _normalise_authoring_draft([]) == []
+
+
 def test_advanced_field_meta_and_assistant_are_preserved():
     result = _normalise_authoring_payload(
         [

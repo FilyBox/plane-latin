@@ -5,7 +5,7 @@
  */
 
 import type { ComponentType, PointerEvent as ReactPointerEvent } from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -140,6 +140,8 @@ const makeClientId = () =>
     ? crypto.randomUUID()
     : `field-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const StablePDFViewer = memo(PDFViewer);
+
 const createField = (type: FieldType, page = 1, x = 10, y = 10): TContractAuthoringField => {
   const definition = FIELD_DEFINITIONS[type];
   return {
@@ -155,6 +157,7 @@ const createField = (type: FieldType, page = 1, x = 10, y = 10): TContractAuthor
 };
 
 const emptyRecipient = (order: number): TContractAuthoringRecipient => ({
+  clientId: makeClientId(),
   name: "",
   email: "",
   role: "SIGNER",
@@ -184,10 +187,12 @@ const recipientsFromBlueprint = (blueprint: TContractSignatureRequest["fields"])
 };
 
 const recipientsForRequest = (signatureRequest: TContractSignatureRequest): TContractAuthoringRecipient[] => {
-  if (signatureRequest.recipients.length === 0) return recipientsFromBlueprint(signatureRequest.fields);
+  if (signatureRequest.recipients.length === 0)
+    return signatureRequest.fields.length > 0 ? recipientsFromBlueprint(signatureRequest.fields) : [];
 
   return signatureRequest.recipients.map((recipient, recipientIndex) => ({
     ...recipient,
+    clientId: makeClientId(),
     signingOrder: recipientIndex + 1,
     fields: recipient.fields.map((field) => ({
       ...field,
@@ -653,6 +658,10 @@ export function ContractAuthoringEditor({
   const [editVersion, setEditVersion] = useState(0);
   const [savedVersion, setSavedVersion] = useState(0);
   const latestVersionRef = useRef(0);
+  const savedVersionRef = useRef(0);
+  const savePromiseRef = useRef<Promise<void> | null>(null);
+  const latestDraftRef = useRef({ recipients, settings, title });
+  latestDraftRef.current = { recipients, settings, title };
 
   const markEdited = useCallback(() => {
     setEditVersion((current) => {
@@ -778,30 +787,53 @@ export function ContractAuthoringEditor({
   }, [removeSelectedField, selectedField]);
 
   const saveDraft = useCallback(
-    async (version = latestVersionRef.current, showConfirmation = false) => {
-      if (version === savedVersion) return;
+    async (showConfirmation = false): Promise<boolean> => {
+      if (savePromiseRef.current) {
+        try {
+          await savePromiseRef.current;
+        } catch {
+          // A newer edit may still be valid, so continue with the latest snapshot.
+        }
+      }
+      if (latestVersionRef.current === savedVersionRef.current) return true;
+
+      const version = latestVersionRef.current;
+      const snapshot = latestDraftRef.current;
       setIsSaving(true);
+      const request = contractService
+        .saveSignatureRequest(
+          workspaceSlug,
+          signatureRequest.id,
+          snapshot.recipients,
+          snapshot.settings,
+          snapshot.title
+        )
+        .then(() => undefined);
+      savePromiseRef.current = request;
       try {
-        await contractService.saveSignatureRequest(workspaceSlug, signatureRequest.id, recipients, settings, title);
-        if (latestVersionRef.current === version) setSavedVersion(version);
+        await request;
+        savedVersionRef.current = version;
+        setSavedVersion(version);
         if (showConfirmation)
           setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.workflow.authoring.draft_saved") });
+        return true;
       } catch (error: any) {
         setToast({
           type: TOAST_TYPE.ERROR,
           title: error?.error ?? t("file_library.contracts.workflow.authoring.draft_save_failed"),
         });
-        throw error;
+        return false;
       } finally {
+        if (savePromiseRef.current === request) savePromiseRef.current = null;
         setIsSaving(false);
       }
     },
-    [recipients, savedVersion, settings, signatureRequest.id, title, t, workspaceSlug]
+    [signatureRequest.id, t, workspaceSlug]
   );
 
   useEffect(() => {
     if (editVersion === savedVersion || editVersion === 0) return;
-    const timer = window.setTimeout(() => void saveDraft(editVersion), 1200);
+    const timer = window.setTimeout(() => void saveDraft(), 1200);
     return () => window.clearTimeout(timer);
   }, [editVersion, saveDraft, savedVersion]);
 
@@ -849,7 +881,7 @@ export function ContractAuthoringEditor({
     if (validationMessage) return;
     setIsSending(true);
     try {
-      await contractService.saveSignatureRequest(workspaceSlug, signatureRequest.id, recipients, settings, title);
+      if (!(await saveDraft())) return;
       await contractService.sendSignatureRequest(workspaceSlug, signatureRequest.id, recipients, settings);
       onSent();
       if (settings.distributionMethod === "NONE") {
@@ -880,11 +912,7 @@ export function ContractAuthoringEditor({
 
   const handleClose = async () => {
     if (editVersion !== savedVersion) {
-      try {
-        await saveDraft(editVersion);
-      } catch {
-        return;
-      }
+      if (!(await saveDraft())) return;
     }
     onClose();
   };
@@ -955,8 +983,7 @@ export function ContractAuthoringEditor({
   const handleTemplateSave = async () => {
     setIsSaving(true);
     try {
-      await contractService.saveSignatureRequest(workspaceSlug, signatureRequest.id, recipients, settings, title);
-      setSavedVersion(latestVersionRef.current);
+      if (!(await saveDraft())) return;
       setToast({
         type: TOAST_TYPE.SUCCESS,
         title: t("file_library.contracts.workflow.authoring.template_saved"),
@@ -1017,7 +1044,7 @@ export function ContractAuthoringEditor({
     <div className="relative size-full bg-layer-1">
       {pdfUrl ? (
         <FieldsOverlayContext.Provider value={overlayContextValue}>
-          <PDFViewer
+          <StablePDFViewer
             src={pdfUrl}
             fileName={title + ".pdf"}
             className="h-full"
@@ -1027,18 +1054,6 @@ export function ContractAuthoringEditor({
             showRotateControls={false}
             onDocumentLoadSuccess={setPdfPageCount}
             pageClassName={stablePageClassName}
-            toolbarActions={
-              selectedTool && activeTab === "FIELDS" ? (
-                <div className="flex items-center gap-2 rounded-md border border-subtle bg-layer-2 px-2.5 py-1 text-13 text-secondary">
-                  {t("file_library.contracts.workflow.authoring.click_to_place", {
-                    field: t(FIELD_DEFINITIONS[selectedTool].labelKey),
-                  })}
-                  <button type="button" className="font-medium underline" onClick={() => setSelectedTool(undefined)}>
-                    {t("file_library.contracts.workflow.common.cancel")}
-                  </button>
-                </div>
-              ) : undefined
-            }
             renderPageOverlay={stableRenderPageOverlay}
             onPagePointerDown={stableOnPagePointerDown}
           />
@@ -1353,7 +1368,7 @@ export function ContractAuthoringEditor({
                   <div className="mt-4 space-y-3">
                     {recipients.map((recipient, recipientIndex) => (
                       <div
-                        key={`${recipient.signingOrder}-${recipient.email}-${recipient.placeholderLabel ?? "recipient"}`}
+                        key={recipient.clientId}
                         draggable
                         className="flex items-center gap-2 rounded-lg border border-subtle bg-surface-1 p-3"
                         onDragStart={() => setDragRecipientIndex(recipientIndex)}

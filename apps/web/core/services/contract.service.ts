@@ -46,6 +46,7 @@ export class ContractService extends APIService {
     (filters?.tags ?? []).forEach((value) => params.append("tag", value));
     if (filters?.fecha_fin_efectiva_after) params.set("fecha_fin_efectiva_after", filters.fecha_fin_efectiva_after);
     if (filters?.fecha_fin_efectiva_before) params.set("fecha_fin_efectiva_before", filters.fecha_fin_efectiva_before);
+    if (filters?.order) params.set("order", filters.order);
     const query = params.toString();
     return this.get(`/api/workspaces/${workspaceSlug}/contracts/${query ? `?${query}` : ""}`)
       .then((response) => response?.data)

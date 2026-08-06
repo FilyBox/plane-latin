@@ -6,7 +6,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Download, Layers, Loader2, MessageSquare, Plus, RefreshCcw, Search, Sparkles } from "lucide-react";
+import {
+  ArrowUpDown,
+  Download,
+  Layers,
+  Loader2,
+  MessageSquare,
+  Plus,
+  RefreshCcw,
+  Search,
+  Sparkles,
+} from "lucide-react";
 import { useSearchParams } from "react-router";
 import useSWR from "swr";
 // plane imports
@@ -38,7 +48,7 @@ export function ContractsRoot(props: Props) {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   // states
-  const [filters, setFiltersState] = useState<TContractFilters>({});
+  const [filters, setFiltersState] = useState<TContractFilters>({ order: "-created_at" });
   const [searchInput, setSearchInput] = useState("");
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -248,6 +258,20 @@ export function ContractsRoot(props: Props) {
               />
             </div>
             <ContractFiltersDropdown workspaceSlug={workspaceSlug} filters={filters} onChange={setFilters} />
+            <label className="relative flex items-center">
+              <ArrowUpDown className="pointer-events-none absolute left-2 size-3.5 text-tertiary" />
+              <select
+                aria-label={t("file_library.order.label")}
+                value={filters.order ?? "-created_at"}
+                onChange={(event) => setFilters({ order: event.target.value as TContractFilters["order"] })}
+                className="h-8 rounded-sm border border-subtle bg-surface-1 pr-7 pl-7 text-12 text-secondary hover:bg-layer-1-hover"
+              >
+                <option value="-created_at">{t("file_library.order.newest")}</option>
+                <option value="-updated_at">{t("file_library.order.modified")}</option>
+                <option value="titulo">{t("file_library.order.name_asc")}</option>
+                <option value="-titulo">{t("file_library.order.name_desc")}</option>
+              </select>
+            </label>
             {/* contextual download: every contract matching the current filters */}
             <button
               type="button"
@@ -290,7 +314,7 @@ export function ContractsRoot(props: Props) {
           workspaceSlug={workspaceSlug}
           filters={filters}
           onChange={setFilters}
-          onClearAll={() => setFiltersState({})}
+          onClearAll={() => setFiltersState({ order: "-created_at" })}
         />
 
         {/* bulk actions bar */}

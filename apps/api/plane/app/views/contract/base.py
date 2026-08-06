@@ -92,6 +92,15 @@ def create_and_dispatch_job(workspace, contract, task_type, user=None, metadata=
     return job
 
 
+def _get_contract_ordering(value):
+    return {
+        "-created_at": ("-created_at",),
+        "-updated_at": ("-updated_at", "-created_at"),
+        "titulo": ("titulo", "-created_at"),
+        "-titulo": ("-titulo", "-created_at"),
+    }.get(value, ("-created_at",))
+
+
 class ContractsEndpoint(FileLibraryBaseView):
     serializer_class = ContractSerializer
     model = Contract
@@ -139,7 +148,8 @@ class ContractsEndpoint(FileLibraryBaseView):
         if fin_before:
             contracts = contracts.filter(fecha_fin_efectiva__lte=fin_before)
 
-        serializer = ContractSerializer(contracts.order_by("-created_at"), many=True)
+        ordering = _get_contract_ordering(request.query_params.get("order"))
+        serializer = ContractSerializer(contracts.order_by(*ordering), many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 

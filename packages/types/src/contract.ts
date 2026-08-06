@@ -173,6 +173,7 @@ export type TContractFilters = {
   tags?: string[];
   fecha_fin_efectiva_after?: string;
   fecha_fin_efectiva_before?: string;
+  order?: "-created_at" | "-updated_at" | "titulo" | "-titulo";
 };
 
 export type TContractFieldType =
@@ -233,6 +234,8 @@ export type TContractAuthoringField = {
 };
 
 export type TContractAuthoringRecipient = {
+  /** Client-only stable key; ignored by the API integration. */
+  clientId?: string;
   name: string;
   email: string;
   role: "SIGNER" | "APPROVER" | "CC" | "VIEWER" | "ASSISTANT";
