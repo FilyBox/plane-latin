@@ -1,6 +1,7 @@
 # Copyright (c) 2023-present Plane Software, Inc. and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 
+import json
 from contextlib import nullcontext
 from unittest.mock import MagicMock
 
@@ -19,7 +20,32 @@ from plane.app.views.contract.workflow import (
     _signing_links_from_envelope,
 )
 from plane.db.models import ContractSigner
+from plane.integrations.documenso import DocumensoClient
 from plane.settings.storage import S3Storage
+
+
+def test_new_plane_envelopes_require_signer_identity_evidence(settings, monkeypatch):
+    settings.DOCUMENSO_INTERNAL_URL = "http://contracts.local"
+    settings.DOCUMENSO_API_TOKEN = "test-token"
+
+    create_response = MagicMock(ok=True)
+    create_response.json.return_value = {"id": "envelope-1"}
+    envelope_response = MagicMock(ok=True)
+    envelope_response.json.return_value = {"id": "envelope-1", "recipients": []}
+    post = MagicMock(return_value=create_response)
+    get = MagicMock(return_value=envelope_response)
+    monkeypatch.setattr("plane.integrations.documenso.requests.post", post)
+    monkeypatch.setattr("plane.integrations.documenso.requests.get", get)
+
+    DocumensoClient().create_envelope(
+        title="Contract",
+        external_id="plane-contract-1",
+        pdf_bytes=b"%PDF-1.7",
+        recipients=[],
+    )
+
+    payload = json.loads(post.call_args.kwargs["data"]["payload"])
+    assert payload["meta"]["identityVerificationRequired"] is True
 
 
 def test_normalise_authoring_payload_clamps_coordinates():

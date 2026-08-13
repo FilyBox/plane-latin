@@ -67,6 +67,10 @@ class DocumensoClient:
             )
             if key in settings
         }
+        # Plane contract signers must provide official-identification evidence.
+        # The explicit envelope flag keeps pre-existing/in-flight envelopes
+        # compatible when the CRM migration is deployed.
+        meta["identityVerificationRequired"] = True
         if settings.get("emailReplyTo"):
             meta["emailReplyTo"] = settings["emailReplyTo"]
         payload = {
