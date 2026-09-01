@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Dừng",
+        "copy_answer": "Sao chép câu trả lời",
+        "retry_answer": "Tạo lại câu trả lời",
+        "not_saved": "Không thể lưu câu trả lời vào lịch sử trò chuyện",
+        "preview_document": "Xem trước tài liệu",
+        "suggestions": {
+          "by_artist": "Liệt kê hợp đồng của một nghệ sĩ",
+          "expiring": "Những hợp đồng nào hết hạn trong năm nay?",
+          "contains": "Tìm hợp đồng có nhắc đến một người",
+          "summary": "Tóm tắt hợp đồng này",
+          "obligations": "Hợp đồng quy định những nghĩa vụ nào?"
+        },
+        "tools": {
+          "steps": "Các bước của tác nhân ({count})",
+          "searching": "Đang tìm trong hợp đồng: {terms}",
+          "found": "Kết quả: {shown} trên {count}",
+          "reading": "Đang đọc nội dung hợp đồng: {query}",
+          "fragments": "Đoạn liên quan: {count}",
+          "looking_for": "Đang tìm: {keywords}",
+          "excerpts_found": "Tài liệu có kết quả khớp: {count}",
+          "resolving_names": "Đang kiểm tra cách viết của các tên…",
+          "names_matched": "Tên tìm được: {names}",
+          "no_names": "Không có tên nào khớp",
+          "details": "Bản ghi đã đọc: {count}",
+          "summarizing": "Đang phân tích tài liệu ({count})…",
+          "summaries_of": "Tóm tắt theo tài liệu ({count})",
+          "preparing_documents": "Đang chuẩn bị tài liệu…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

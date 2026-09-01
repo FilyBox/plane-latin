@@ -261,12 +261,20 @@ class ContractChatMessage(BaseModel):
     content = models.TextField()
     # [{contract_id, title, file_name, asset_id, similarity}] for assistant turns
     sources = models.JSONField(null=True, blank=True)
+    # assistant-ui UIMessage parts (text + tool calls with their results) so a
+    # reopened chat replays the agent's document cards, not just plain text.
+    # Null on turns written before the agent runtime landed.
+    parts = models.JSONField(null=True, blank=True)
+    # Explicit order within the chat. The client persists the whole transcript
+    # on each settled turn, so rows are rewritten together and cannot be
+    # ordered by created_at alone.
+    position = models.PositiveIntegerField(default=0)
 
     class Meta:
         verbose_name = "Contract Chat Message"
         verbose_name_plural = "Contract Chat Messages"
         db_table = "contract_chat_messages"
-        ordering = ("created_at",)
+        ordering = ("position", "created_at")
 
     def __str__(self):
         return f"{self.role}: {str(self.content)[:40]}"

@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Opriți",
+        "copy_answer": "Copiați răspunsul",
+        "retry_answer": "Regenerați răspunsul",
+        "not_saved": "Răspunsul nu a putut fi salvat în istoricul conversației",
+        "preview_document": "Previzualizați documentul",
+        "suggestions": {
+          "by_artist": "Afișați contractele unui artist",
+          "expiring": "Ce contracte expiră anul acesta?",
+          "contains": "Găsiți contractele care menționează o persoană",
+          "summary": "Rezumați acest contract",
+          "obligations": "Ce obligații stabilește?"
+        },
+        "tools": {
+          "steps": "Pașii agentului ({count})",
+          "searching": "Se caută în contracte: {terms}",
+          "found": "Rezultate: {shown} din {count}",
+          "reading": "Se citește textul contractelor: {query}",
+          "fragments": "Fragmente relevante: {count}",
+          "looking_for": "Se caută: {keywords}",
+          "excerpts_found": "Documente cu potriviri: {count}",
+          "resolving_names": "Se verifică modul în care sunt scrise numele…",
+          "names_matched": "Nume găsite: {names}",
+          "no_names": "Niciun nume corespunzător",
+          "details": "Fișe consultate: {count}",
+          "summarizing": "Se analizează documentele ({count})…",
+          "summaries_of": "Rezumate pe document ({count})",
+          "preparing_documents": "Se pregătesc documentele…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

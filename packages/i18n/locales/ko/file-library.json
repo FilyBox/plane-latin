@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "중지",
+        "copy_answer": "답변 복사",
+        "retry_answer": "답변 다시 생성",
+        "not_saved": "답변을 채팅 기록에 저장하지 못했습니다.",
+        "preview_document": "문서 미리 보기",
+        "suggestions": {
+          "by_artist": "아티스트의 계약서를 나열합니다",
+          "expiring": "올해 만료되는 계약서는 무엇입니까?",
+          "contains": "특정 인물이 언급된 계약서를 찾습니다",
+          "summary": "이 계약서를 요약합니다",
+          "obligations": "어떤 의무를 규정합니까?"
+        },
+        "tools": {
+          "steps": "에이전트 단계 ({count})",
+          "searching": "계약서를 검색하는 중: {terms}",
+          "found": "결과: {count}개 중 {shown}개",
+          "reading": "계약서 본문을 읽는 중: {query}",
+          "fragments": "관련 발췌: {count}",
+          "looking_for": "검색 중: {keywords}",
+          "excerpts_found": "일치하는 문서: {count}",
+          "resolving_names": "이름 표기를 확인하는 중…",
+          "names_matched": "찾은 이름: {names}",
+          "no_names": "일치하는 이름이 없습니다",
+          "details": "읽은 레코드: {count}",
+          "summarizing": "문서를 분석하는 중 ({count})…",
+          "summaries_of": "문서별 요약 ({count})",
+          "preparing_documents": "문서를 준비하는 중…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

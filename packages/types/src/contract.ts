@@ -155,7 +155,23 @@ export type TContractChatMessage = {
   role: "USER" | "ASSISTANT";
   content: string;
   sources: TContractChatSource[] | null;
+  /** assistant-ui UIMessage parts (text + tool calls), null on pre-agent turns */
+  parts: unknown[] | null;
   created_at: string;
+};
+
+/** One document card produced by the agent's `show_documents` tool */
+export type TContractAgentDocument = {
+  contract_id: string;
+  title?: string | null;
+  file_name?: string | null;
+  asset_id?: string | null;
+  fecha_inicio?: string | null;
+  fecha_fin?: string | null;
+  estatus_contrato?: string | null;
+  tipo_contrato?: string | null;
+  /** Why the agent cited it — rendered as anchors inside the card */
+  highlights?: (string | null)[];
 };
 
 export type TContractFilters = {

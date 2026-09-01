@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
 from plane.db.models import Workspace, WorkspaceFeature
+from plane.utils.exception_logger import log_exception
 from plane.utils.worker_client import WorkerTriggerError, get_assistant_models, stream_assistant_chat
 
 
@@ -36,7 +37,8 @@ class AssistantModelsEndpoint(BaseAPIView):
         try:
             return Response(get_assistant_models(), status=status.HTTP_200_OK)
         except WorkerTriggerError as e:
-            return Response({"error": str(e)[:300]}, status=status.HTTP_502_BAD_GATEWAY)
+            log_exception(e)
+            return Response({"error": e.public_message}, status=status.HTTP_502_BAD_GATEWAY)
 
 
 class AssistantMusicImportEndpoint(BaseAPIView):
@@ -202,7 +204,8 @@ class AssistantChatEndpoint(BaseAPIView):
         try:
             upstream = stream_assistant_chat(payload)
         except WorkerTriggerError as e:
-            return Response({"error": str(e)[:300]}, status=status.HTTP_502_BAD_GATEWAY)
+            log_exception(e)
+            return Response({"error": e.public_message}, status=status.HTTP_502_BAD_GATEWAY)
 
         response = StreamingHttpResponse(
             upstream.iter_content(chunk_size=None),

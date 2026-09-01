@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Остановить",
+        "copy_answer": "Скопировать ответ",
+        "retry_answer": "Сгенерировать ответ заново",
+        "not_saved": "Не удалось сохранить ответ в истории чата",
+        "preview_document": "Предварительный просмотр документа",
+        "suggestions": {
+          "by_artist": "Показать договоры артиста",
+          "expiring": "Какие договоры истекают в этом году?",
+          "contains": "Найти договоры, в которых упоминается человек",
+          "summary": "Кратко изложить этот договор",
+          "obligations": "Какие обязательства он устанавливает?"
+        },
+        "tools": {
+          "steps": "Шаги агента ({count})",
+          "searching": "Поиск по договорам: {terms}",
+          "found": "Результаты: {shown} из {count}",
+          "reading": "Чтение текста договоров: {query}",
+          "fragments": "Подходящие фрагменты: {count}",
+          "looking_for": "Идёт поиск: {keywords}",
+          "excerpts_found": "Документы с совпадениями: {count}",
+          "resolving_names": "Проверяется написание имён…",
+          "names_matched": "Найденные имена: {names}",
+          "no_names": "Подходящих имён нет",
+          "details": "Прочитано записей: {count}",
+          "summarizing": "Анализ документов ({count})…",
+          "summaries_of": "Сводки по документам ({count})",
+          "preparing_documents": "Подготовка документов…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

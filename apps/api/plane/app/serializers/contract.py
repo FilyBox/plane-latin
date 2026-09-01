@@ -121,7 +121,7 @@ class ContractChatSerializer(BaseSerializer):
 class ContractChatMessageSerializer(BaseSerializer):
     class Meta:
         model = ContractChatMessage
-        fields = ["id", "chat_id", "role", "content", "sources", "created_at"]
+        fields = ["id", "chat_id", "role", "content", "sources", "parts", "created_at"]
         read_only_fields = fields
 
 

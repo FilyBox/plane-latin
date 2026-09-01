@@ -818,7 +818,9 @@ class ContractTemplatesEndpoint(BaseAPIView):
                 )
         except Exception as exc:
             log_exception(exc)
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Something went wrong please try again later"}, status=status.HTTP_400_BAD_REQUEST
+            )
         return Response(ContractTemplateSerializer(template).data, status=status.HTTP_201_CREATED)
 
 
@@ -970,7 +972,9 @@ class ContractTemplateVariantsEndpoint(BaseAPIView):
             )
         except Exception as exc:
             log_exception(exc)
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Something went wrong please try again later"}, status=status.HTTP_400_BAD_REQUEST
+            )
         return Response(ContractTemplateSerializer(template).data, status=status.HTTP_201_CREATED)
 
 
@@ -1021,7 +1025,9 @@ class ContractTemplateVariantRevisionsEndpoint(BaseAPIView):
             )
         except Exception as exc:
             log_exception(exc)
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Something went wrong please try again later"}, status=status.HTTP_400_BAD_REQUEST
+            )
         return Response(
             ContractTemplateRevisionSerializer(revision).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
@@ -1049,7 +1055,9 @@ class ContractTemplateVariantEditSessionEndpoint(BaseAPIView):
             backup.save(update_fields=["entity_identifier", "updated_at"])
         except Exception as exc:
             log_exception(exc)
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Something went wrong please try again later"}, status=status.HTTP_400_BAD_REQUEST
+            )
         return Response({"backup_asset_id": backup.id}, status=status.HTTP_201_CREATED)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
@@ -1110,7 +1118,9 @@ class ContractTemplateVariantEditSessionEndpoint(BaseAPIView):
             _dispose_edit_backup(backup)
         except Exception as exc:
             log_exception(exc)
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Something went wrong please try again later"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         template = ContractTemplate.objects.prefetch_related(
             "variants__source_asset", "variants__revisions__source_asset", "variants__revisions__pdf_asset"
@@ -1327,7 +1337,9 @@ class ContractSignatureRequestsEndpoint(BaseAPIView):
                 )
         except Exception as exc:
             log_exception(exc)
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Something went wrong please try again later"}, status=status.HTTP_400_BAD_REQUEST
+            )
         return Response(ContractSignatureRequestSerializer(signature_request).data, status=status.HTTP_201_CREATED)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
@@ -1356,11 +1368,12 @@ class ContractSignatureRequestDetailEndpoint(BaseAPIView):
                 envelope = DocumensoClient().get_envelope(signature_request.documenso_envelope_id)
                 _attach_envelope_progress(signature_request, envelope)
             except DocumensoError as exc:
+                log_exception(exc)
                 signature_request._signing_details = {
                     "status": signature_request.status,
                     "recipients": [],
                     "fields": [],
-                    "error": str(exc),
+                    "error": exc.public_message,
                 }
         return Response(ContractSignatureRequestSerializer(signature_request).data)
 
@@ -1569,9 +1582,14 @@ class ContractSignatureRequestSendEndpoint(BaseAPIView):
             signature_request.save(update_fields=["status", "sent_at", "error", "updated_at"])
             signature_request.signers.update(status=ContractSigner.Status.SENT)
         except (ValueError, DocumensoError, RuntimeError) as exc:
-            signature_request.error = {"message": str(exc)}
+            if isinstance(exc, (DocumensoError, RuntimeError)):
+                log_exception(exc)
+                display_message = getattr(exc, "public_message", "Something went wrong please try again later")
+            else:
+                display_message = str(exc)
+            signature_request.error = {"message": display_message}
             signature_request.save(update_fields=["error", "updated_at"])
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": display_message}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ContractSignatureRequestSerializer(signature_request).data)
 
 
@@ -1584,7 +1602,8 @@ class ContractSignatureRequestLinksEndpoint(BaseAPIView):
         try:
             envelope = DocumensoClient().get_envelope(signature_request.documenso_envelope_id)
         except DocumensoError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            log_exception(exc)
+            return Response({"error": exc.public_message}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"links": _signing_links_from_envelope(envelope)})
 
 
@@ -1714,5 +1733,6 @@ class ContractSignatureRequestSyncEndpoint(BaseAPIView):
                 signature_request.status = remote_status
                 signature_request.save(update_fields=["status", "updated_at"])
         except DocumensoError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+            log_exception(exc)
+            return Response({"error": exc.public_message}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(ContractSignatureRequestSerializer(signature_request).data)

@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Anhalten",
+        "copy_answer": "Antwort kopieren",
+        "retry_answer": "Antwort neu erzeugen",
+        "not_saved": "Die Antwort konnte nicht im Chatverlauf gespeichert werden",
+        "preview_document": "Dokument in der Vorschau anzeigen",
+        "suggestions": {
+          "by_artist": "Verträge eines Künstlers auflisten",
+          "expiring": "Welche Verträge laufen dieses Jahr aus?",
+          "contains": "Verträge finden, die eine Person nennen",
+          "summary": "Diesen Vertrag zusammenfassen",
+          "obligations": "Welche Pflichten legt er fest?"
+        },
+        "tools": {
+          "steps": "Schritte des Agenten ({count})",
+          "searching": "Verträge werden durchsucht: {terms}",
+          "found": "Ergebnisse: {shown} von {count}",
+          "reading": "Vertragstext wird gelesen: {query}",
+          "fragments": "Relevante Textstellen: {count}",
+          "looking_for": "Gesucht wird: {keywords}",
+          "excerpts_found": "Dokumente mit Treffern: {count}",
+          "resolving_names": "Schreibweise der Namen wird geprüft…",
+          "names_matched": "Gefundene Namen: {names}",
+          "no_names": "Keine passenden Namen",
+          "details": "Gelesene Datensätze: {count}",
+          "summarizing": "Dokumente werden analysiert ({count})…",
+          "summaries_of": "Zusammenfassungen pro Dokument ({count})",
+          "preparing_documents": "Dokumente werden vorbereitet…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

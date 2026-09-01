@@ -13,16 +13,22 @@ from .base import (
     ContractsEndpoint,
 )
 from .chat import (
+    ContractAgentChatEndpoint,
     ContractChatDetailEndpoint,
     ContractChatMessageEndpoint,
     ContractChatModelsEndpoint,
     ContractChatsEndpoint,
+    ContractChatTurnEndpoint,
 )
 from .internal import (
     InternalAssetPresignedUrlEndpoint,
     InternalChunkSearchEndpoint,
     InternalContractChunksEndpoint,
     InternalContractDataEndpoint,
+    InternalContractDetailsEndpoint,
+    InternalContractExcerptsEndpoint,
+    InternalContractFacetsEndpoint,
+    InternalContractSearchEndpoint,
     InternalContractTextEndpoint,
     InternalContractThumbnailEndpoint,
     InternalJobProgressEndpoint,

@@ -7,10 +7,12 @@ from django.urls import path
 from plane.app.views import (
     ContractAssetPdfPreviewEndpoint,
     ContractAssetThumbnailEndpoint,
+    ContractAgentChatEndpoint,
     ContractChatDetailEndpoint,
     ContractChatMessageEndpoint,
     ContractChatModelsEndpoint,
     ContractChatsEndpoint,
+    ContractChatTurnEndpoint,
     ContractDetailEndpoint,
     ContractJobsEndpoint,
     ContractQueryEndpoint,
@@ -36,6 +38,10 @@ from plane.app.views import (
     DocumensoWebhookEndpoint,
     InternalAssetPresignedUrlEndpoint,
     InternalChunkSearchEndpoint,
+    InternalContractDetailsEndpoint,
+    InternalContractExcerptsEndpoint,
+    InternalContractFacetsEndpoint,
+    InternalContractSearchEndpoint,
     InternalContractChunksEndpoint,
     InternalContractDataEndpoint,
     InternalContractTextEndpoint,
@@ -169,6 +175,16 @@ urlpatterns = [
         name="contract-chat-messages",
     ),
     path(
+        "workspaces/<str:slug>/contracts/chats/<uuid:chat_id>/turns/",
+        ContractChatTurnEndpoint.as_view(),
+        name="contract-chat-turns",
+    ),
+    path(
+        "workspaces/<str:slug>/contracts/agent/chat/",
+        ContractAgentChatEndpoint.as_view(),
+        name="contract-agent-chat",
+    ),
+    path(
         "workspaces/<str:slug>/contracts/<uuid:contract_id>/",
         ContractDetailEndpoint.as_view(),
         name="contract-detail",
@@ -233,6 +249,26 @@ urlpatterns = [
         "internal/workspaces/<uuid:workspace_id>/chunks/search/",
         InternalChunkSearchEndpoint.as_view(),
         name="internal-chunk-search",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/contracts/search/",
+        InternalContractSearchEndpoint.as_view(),
+        name="internal-contract-search",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/contracts/details/",
+        InternalContractDetailsEndpoint.as_view(),
+        name="internal-contract-details",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/contracts/excerpts/",
+        InternalContractExcerptsEndpoint.as_view(),
+        name="internal-contract-excerpts",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/contracts/facets/",
+        InternalContractFacetsEndpoint.as_view(),
+        name="internal-contract-facets",
     ),
     path(
         "internal/workspaces/<uuid:workspace_id>/file-tags/",

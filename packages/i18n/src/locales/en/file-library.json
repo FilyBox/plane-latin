@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Stop",
+        "copy_answer": "Copy answer",
+        "retry_answer": "Regenerate answer",
+        "not_saved": "The answer could not be saved to the chat history",
+        "preview_document": "Preview document",
+        "suggestions": {
+          "by_artist": "List the contracts of an artist",
+          "expiring": "Which contracts expire this year?",
+          "contains": "Find contracts that mention a person",
+          "summary": "Summarize this contract",
+          "obligations": "What obligations does it establish?"
+        },
+        "tools": {
+          "steps": "Agent steps ({count})",
+          "searching": "Searching contracts: {terms}",
+          "found": "Results: {shown} of {count}",
+          "reading": "Reading contract text: {query}",
+          "fragments": "Relevant fragments: {count}",
+          "looking_for": "Looking for: {keywords}",
+          "excerpts_found": "Documents with matches: {count}",
+          "resolving_names": "Checking how the names are stored…",
+          "names_matched": "Names found: {names}",
+          "no_names": "No matching names",
+          "details": "Records read: {count}",
+          "summarizing": "Analyzing documents ({count})…",
+          "summaries_of": "Per-document summaries ({count})",
+          "preparing_documents": "Preparing documents…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

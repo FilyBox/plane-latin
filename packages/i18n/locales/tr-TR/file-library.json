@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Durdurun",
+        "copy_answer": "Yanıtı kopyalayın",
+        "retry_answer": "Yanıtı yeniden oluşturun",
+        "not_saved": "Yanıt sohbet geçmişine kaydedilemedi",
+        "preview_document": "Belgeyi önizleyin",
+        "suggestions": {
+          "by_artist": "Bir sanatçının sözleşmelerini listeleyin",
+          "expiring": "Bu yıl hangi sözleşmeler sona eriyor?",
+          "contains": "Bir kişiden söz eden sözleşmeleri bulun",
+          "summary": "Bu sözleşmeyi özetleyin",
+          "obligations": "Hangi yükümlülükleri belirliyor?"
+        },
+        "tools": {
+          "steps": "Aracı adımları ({count})",
+          "searching": "Sözleşmelerde aranıyor: {terms}",
+          "found": "Sonuçlar: {count} içinden {shown}",
+          "reading": "Sözleşme metni okunuyor: {query}",
+          "fragments": "İlgili bölümler: {count}",
+          "looking_for": "Aranan: {keywords}",
+          "excerpts_found": "Eşleşme bulunan belgeler: {count}",
+          "resolving_names": "Adların nasıl yazıldığı denetleniyor…",
+          "names_matched": "Bulunan adlar: {names}",
+          "no_names": "Eşleşen ad yok",
+          "details": "Okunan kayıtlar: {count}",
+          "summarizing": "Belgeler çözümleniyor ({count})…",
+          "summaries_of": "Belge başına özetler ({count})",
+          "preparing_documents": "Belgeler hazırlanıyor…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

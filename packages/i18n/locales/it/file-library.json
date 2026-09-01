@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Interrompi",
+        "copy_answer": "Copia la risposta",
+        "retry_answer": "Rigenera la risposta",
+        "not_saved": "Non è stato possibile salvare la risposta nella cronologia della chat",
+        "preview_document": "Anteprima del documento",
+        "suggestions": {
+          "by_artist": "Elenchi i contratti di un artista",
+          "expiring": "Quali contratti scadono quest'anno?",
+          "contains": "Trovi i contratti che menzionano una persona",
+          "summary": "Riassuma questo contratto",
+          "obligations": "Quali obblighi stabilisce?"
+        },
+        "tools": {
+          "steps": "Passaggi dell'agente ({count})",
+          "searching": "Ricerca nei contratti: {terms}",
+          "found": "Risultati: {shown} di {count}",
+          "reading": "Lettura del testo dei contratti: {query}",
+          "fragments": "Frammenti rilevanti: {count}",
+          "looking_for": "Ricerca di: {keywords}",
+          "excerpts_found": "Documenti con corrispondenze: {count}",
+          "resolving_names": "Verifica di come sono scritti i nomi…",
+          "names_matched": "Nomi trovati: {names}",
+          "no_names": "Nessun nome corrispondente",
+          "details": "Schede consultate: {count}",
+          "summarizing": "Analisi dei documenti ({count})…",
+          "summaries_of": "Riepiloghi per documento ({count})",
+          "preparing_documents": "Preparazione dei documenti…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

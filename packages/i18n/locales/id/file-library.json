@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Hentikan",
+        "copy_answer": "Salin jawaban",
+        "retry_answer": "Buat ulang jawaban",
+        "not_saved": "Jawaban tidak dapat disimpan ke riwayat obrolan",
+        "preview_document": "Pratinjau dokumen",
+        "suggestions": {
+          "by_artist": "Tampilkan kontrak milik seorang artis",
+          "expiring": "Kontrak mana yang berakhir tahun ini?",
+          "contains": "Cari kontrak yang menyebut seseorang",
+          "summary": "Ringkas kontrak ini",
+          "obligations": "Kewajiban apa saja yang ditetapkan?"
+        },
+        "tools": {
+          "steps": "Langkah agen ({count})",
+          "searching": "Mencari di kontrak: {terms}",
+          "found": "Hasil: {shown} dari {count}",
+          "reading": "Membaca teks kontrak: {query}",
+          "fragments": "Cuplikan relevan: {count}",
+          "looking_for": "Mencari: {keywords}",
+          "excerpts_found": "Dokumen yang cocok: {count}",
+          "resolving_names": "Memeriksa cara penulisan nama…",
+          "names_matched": "Nama yang ditemukan: {names}",
+          "no_names": "Tidak ada nama yang cocok",
+          "details": "Data yang dibaca: {count}",
+          "summarizing": "Menganalisis dokumen ({count})…",
+          "summaries_of": "Ringkasan per dokumen ({count})",
+          "preparing_documents": "Menyiapkan dokumen…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

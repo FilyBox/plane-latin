@@ -11,9 +11,18 @@ secret (same pattern as LIVE_SERVER_SECRET_KEY for apps/live).
 import requests
 from django.conf import settings
 
+# Generic, infra-free message safe to hand to any authenticated caller.
+# WorkerTriggerError's own message (str(e)) carries the real detail — base
+# URL, raw connection error, the Worker's response body — for server logs
+# only; callers must log the exception and use `.public_message`, never
+# str(e), when building the HTTP response.
+_GENERIC_WORKER_ERROR = "The AI service is temporarily unavailable. Please try again shortly."
+
 
 class WorkerTriggerError(Exception):
-    pass
+    def __init__(self, message, public_message=_GENERIC_WORKER_ERROR):
+        super().__init__(message)
+        self.public_message = public_message
 
 
 def _post(path, payload, timeout=30):
@@ -85,6 +94,11 @@ def get_chat_models():
     return _get("/models")
 
 
+def get_contracts_agent_models():
+    """Same list, with the tool-capable default the contracts agent runs on."""
+    return _get("/contracts/models")
+
+
 def get_assistant_models():
     """Same list, but the default follows the worker's ASSISTANT_AI_PROVIDER."""
     return _get("/assistant/models")
@@ -107,6 +121,41 @@ def chat_with_contracts(workspace_id, mode, query, history, contract_id=None, mo
         },
         timeout=90,
     )
+
+
+def _stream(path, payload, timeout):
+    """Opens a streaming POST against the Worker and returns the raw `requests`
+    response (SSE body) so the caller can pipe it through a
+    StreamingHttpResponse without buffering.
+    """
+    base_url = settings.CF_WORKER_TRIGGER_URL
+    secret = settings.CF_WORKER_TRIGGER_SECRET
+    if not base_url or not secret:
+        raise WorkerTriggerError("CF_WORKER_TRIGGER_URL / CF_WORKER_TRIGGER_SECRET are not configured")
+
+    try:
+        response = requests.post(
+            f"{base_url.rstrip('/')}{path}",
+            json=payload,
+            headers={"X-Trigger-Secret": secret},
+            stream=True,
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        raise WorkerTriggerError(f"Worker unreachable at {base_url}: {exc}") from exc
+    if response.status_code >= 400:
+        detail = response.text[:500]
+        response.close()
+        raise WorkerTriggerError(f"Agent stream failed ({response.status_code}): {detail}")
+    return response
+
+
+def stream_contracts_agent(payload, timeout=180):
+    """Streams one turn of the contracts agent (tool-calling over the
+    workspace's contracts). Longer timeout than the assistant: a run may fan
+    out sub-agent summaries over several documents.
+    """
+    return _stream("/contracts/agent", payload, timeout)
 
 
 def stream_assistant_chat(payload, timeout=120):

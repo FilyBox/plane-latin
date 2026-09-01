@@ -8,6 +8,7 @@
 import { handleMusicAiMap, type AiMapRequest } from "./ai-map";
 import { handleAssistantChat, listAssistantModels, type AssistantChatRequest } from "./assistant";
 import { handleChat, type ChatRequest } from "./chat";
+import { handleContractsAgent, listContractsAgentModels, type ContractsAgentRequest } from "./contracts-agent";
 import { listChatModels } from "./lib/ai";
 import { WorkerConfigurationError } from "./lib/internal-api";
 import { ContractPipelineWorkflow, type PipelineParams } from "./workflows/contract-pipeline";
@@ -49,6 +50,11 @@ export default {
       return Response.json(listAssistantModels(env));
     }
 
+    // Tool-capable models for the contracts agent
+    if (url.pathname === "/contracts/models" && request.method === "GET") {
+      return Response.json(listContractsAgentModels(env));
+    }
+
     if (request.method !== "POST") {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
@@ -81,6 +87,14 @@ export default {
         });
         console.log(JSON.stringify({ message: "query instance created", id: instance.id, job: params.job_id }));
         return Response.json({ workflow_instance_id: instance.id });
+      }
+
+      if (url.pathname === "/contracts/agent") {
+        const body = await request.json<ContractsAgentRequest>();
+        if (!body.workspace_id || !Array.isArray(body.messages) || body.messages.length === 0) {
+          return Response.json({ error: "workspace_id and messages are required" }, { status: 400 });
+        }
+        return handleContractsAgent(env, body);
       }
 
       if (url.pathname === "/assistant/chat") {

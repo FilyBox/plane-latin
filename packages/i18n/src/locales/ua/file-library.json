@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Зупинити",
+        "copy_answer": "Скопіювати відповідь",
+        "retry_answer": "Згенерувати відповідь заново",
+        "not_saved": "Не вдалося зберегти відповідь в історії чату",
+        "preview_document": "Попередній перегляд документа",
+        "suggestions": {
+          "by_artist": "Показати договори артиста",
+          "expiring": "Які договори завершуються цього року?",
+          "contains": "Знайти договори, у яких згадано людину",
+          "summary": "Стисло викласти цей договір",
+          "obligations": "Які обов'язки він встановлює?"
+        },
+        "tools": {
+          "steps": "Кроки агента ({count})",
+          "searching": "Пошук у договорах: {terms}",
+          "found": "Результати: {shown} з {count}",
+          "reading": "Читання тексту договорів: {query}",
+          "fragments": "Відповідні фрагменти: {count}",
+          "looking_for": "Триває пошук: {keywords}",
+          "excerpts_found": "Документи зі збігами: {count}",
+          "resolving_names": "Перевіряється написання імен…",
+          "names_matched": "Знайдені імена: {names}",
+          "no_names": "Відповідних імен немає",
+          "details": "Прочитано записів: {count}",
+          "summarizing": "Аналіз документів ({count})…",
+          "summaries_of": "Зведення за документами ({count})",
+          "preparing_documents": "Підготовка документів…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

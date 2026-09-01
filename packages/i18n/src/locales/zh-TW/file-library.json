@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "停止",
+        "copy_answer": "複製回答",
+        "retry_answer": "重新產生回答",
+        "not_saved": "無法將回答儲存至聊天記錄中。",
+        "preview_document": "預覽文件",
+        "suggestions": {
+          "by_artist": "列出某位藝人的合約",
+          "expiring": "今年有哪些合約到期？",
+          "contains": "尋找提到某個人的合約",
+          "summary": "總結這份合約",
+          "obligations": "它規定了哪些義務？"
+        },
+        "tools": {
+          "steps": "智慧代理步驟（{count}）",
+          "searching": "正在搜尋合約：{terms}",
+          "found": "結果：共 {count} 筆，顯示 {shown} 筆",
+          "reading": "正在讀取合約內文：{query}",
+          "fragments": "相關片段：{count}",
+          "looking_for": "正在尋找：{keywords}",
+          "excerpts_found": "符合的文件：{count}",
+          "resolving_names": "正在核對名稱的寫法……",
+          "names_matched": "找到的名稱：{names}",
+          "no_names": "沒有符合的名稱",
+          "details": "已讀取的記錄：{count}",
+          "summarizing": "正在分析文件（{count}）……",
+          "summaries_of": "依文件彙總（{count}）",
+          "preparing_documents": "正在準備文件……"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

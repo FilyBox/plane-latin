@@ -183,6 +183,24 @@ export class ContractService extends APIService {
       });
   }
 
+  /** URL the assistant-ui transport streams agent turns from */
+  getAgentChatUrl(workspaceSlug: string): string {
+    return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/contracts/agent/chat/`;
+  }
+
+  /** Replaces the stored transcript with the client thread (UI messages + their parts) */
+  async saveChatTurn(
+    workspaceSlug: string,
+    chatId: string,
+    messages: { id?: string; role: "user" | "assistant"; parts: unknown[] }[]
+  ): Promise<{ messages: TContractChatMessage[] }> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contracts/chats/${chatId}/turns/`, { messages })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
   async deleteChat(workspaceSlug: string, chatId: string): Promise<void> {
     return this.delete(`/api/workspaces/${workspaceSlug}/contracts/chats/${chatId}/`)
       .then((response) => response?.data)

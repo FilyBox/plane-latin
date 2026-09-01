@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "停止",
+        "copy_answer": "回答をコピー",
+        "retry_answer": "回答を再生成",
+        "not_saved": "回答をチャット履歴に保存できませんでした。",
+        "preview_document": "ドキュメントをプレビュー",
+        "suggestions": {
+          "by_artist": "アーティストの契約書を一覧表示する",
+          "expiring": "今年満了する契約書はどれですか。",
+          "contains": "特定の人物に言及している契約書を探す",
+          "summary": "この契約書を要約する",
+          "obligations": "どのような義務を定めていますか。"
+        },
+        "tools": {
+          "steps": "エージェントのステップ（{count}）",
+          "searching": "契約書を検索しています：{terms}",
+          "found": "結果：{count}件中{shown}件",
+          "reading": "契約書の本文を読み込んでいます：{query}",
+          "fragments": "関連する抜粋：{count}",
+          "looking_for": "検索中：{keywords}",
+          "excerpts_found": "一致したドキュメント：{count}",
+          "resolving_names": "名前の表記を確認しています……",
+          "names_matched": "見つかった名前：{names}",
+          "no_names": "一致する名前はありません",
+          "details": "読み込んだレコード：{count}",
+          "summarizing": "ドキュメントを分析しています（{count}）……",
+          "summaries_of": "ドキュメントごとの要約（{count}）",
+          "preparing_documents": "ドキュメントを準備しています……"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

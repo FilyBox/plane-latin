@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO
 
-from django.db import connection, transaction
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Count, Exists, OuterRef, Q
 from django.http import HttpResponse
 from django.utils import timezone
@@ -41,6 +41,7 @@ from plane.db.models import (
     Workspace,
     WorkspaceFeature,
 )
+from plane.utils.exception_logger import log_exception
 from plane.utils.workspace_feature import is_workspace_feature_enabled
 
 from ..base import BaseAPIView
@@ -244,13 +245,23 @@ def _mapped_many(row, mapping, key):
 
 
 def _import_error_message(exc):
-    message = str(exc)
-    if "music_tracks.parent_track_id" in message and "does not exist" in message:
-        return (
-            "The music catalog database is not ready. Apply migration "
-            "db.0136_musictrack_parent_track and restart the API before importing."
-        )
-    return message
+    # Row-parsing helpers below raise ValueError/KeyError with a deliberate,
+    # human-authored message ("Track title is empty", "Duplicate track: X") —
+    # that IS the intended per-row feedback for this feature and is safe to
+    # show as-is. A DB-layer failure (IntegrityError/DatabaseError) is not:
+    # its message can include real constraint, column and table names, so it
+    # gets a generic message instead of the raw driver text — except the one
+    # known case worth a specific, actionable message.
+    if isinstance(exc, DatabaseError):
+        message = str(exc)
+        if "music_tracks.parent_track_id" in message and "does not exist" in message:
+            return (
+                "The music catalog database is not ready. Apply migration "
+                "db.0136_musictrack_parent_track and restart the API before importing."
+            )
+        log_exception(exc)
+        return "This row could not be saved due to a database error. Please try again or contact support."
+    return str(exc)
 
 
 def _jsonable_import_value(value):
@@ -1211,7 +1222,8 @@ class MusicImportAIMapEndpoint(MusicBaseView):
         try:
             data = ai_map_music_columns(_column_samples(headers, rows), IMPORT_FIELDS, MULTI_COLUMN_FIELDS)
         except WorkerTriggerError as exc:
-            return Response({"error": str(exc)[:300]}, status=status.HTTP_502_BAD_GATEWAY)
+            log_exception(exc)
+            return Response({"error": exc.public_message}, status=status.HTTP_502_BAD_GATEWAY)
 
         # Only real fields mapped to real columns survive
         header_set = set(headers)

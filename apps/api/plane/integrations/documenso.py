@@ -16,11 +16,19 @@ import requests
 from django.conf import settings
 
 
+# Generic, infra-free message safe to persist onto a signature request and
+# serve back to the client. The exception's own message — including, in the
+# non-JSON fallback below, up to 1000 raw characters of Documenso's response
+# body — is for server-side logs only.
+_GENERIC_DOCUMENSO_ERROR = "The signing service is temporarily unavailable. Please try again shortly."
+
+
 class DocumensoError(RuntimeError):
-    def __init__(self, message, status_code=None, payload=None):
+    def __init__(self, message, status_code=None, payload=None, public_message=_GENERIC_DOCUMENSO_ERROR):
         super().__init__(message)
         self.status_code = status_code
         self.payload = payload
+        self.public_message = public_message
 
 
 class DocumensoClient:

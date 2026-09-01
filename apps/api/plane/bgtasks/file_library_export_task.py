@@ -111,7 +111,12 @@ def file_library_export_task(exporter_id):
         exporter.status = "completed"
         exporter.save(update_fields=["key", "url", "status"])
     except Exception as e:
-        exporter.status = "failed"
-        exporter.reason = str(e)[:500]
-        exporter.save(update_fields=["status", "reason"])
+        # `reason` is served back to any workspace member polling export
+        # status (FileLibraryExportStatusEndpoint) — an unbounded exception
+        # here can be a raw storage/S3 error carrying the bucket name or
+        # other infra detail, so only a generic message is persisted for
+        # display; the real exception goes to the log.
         log_exception(e)
+        exporter.status = "failed"
+        exporter.reason = "The export could not be completed. Please try again."
+        exporter.save(update_fields=["status", "reason"])

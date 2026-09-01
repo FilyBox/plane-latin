@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "停止",
+        "copy_answer": "复制回答",
+        "retry_answer": "重新生成回答",
+        "not_saved": "无法将回答保存到聊天记录中。",
+        "preview_document": "预览文档",
+        "suggestions": {
+          "by_artist": "列出某位艺人的合同",
+          "expiring": "今年有哪些合同到期？",
+          "contains": "查找提到某个人的合同",
+          "summary": "总结这份合同",
+          "obligations": "它规定了哪些义务？"
+        },
+        "tools": {
+          "steps": "智能体步骤（{count}）",
+          "searching": "正在搜索合同：{terms}",
+          "found": "结果：共 {count} 条，显示 {shown} 条",
+          "reading": "正在读取合同正文：{query}",
+          "fragments": "相关片段：{count}",
+          "looking_for": "正在查找：{keywords}",
+          "excerpts_found": "匹配的文档：{count}",
+          "resolving_names": "正在核对名称的写法……",
+          "names_matched": "找到的名称：{names}",
+          "no_names": "没有匹配的名称",
+          "details": "已读取的记录：{count}",
+          "summarizing": "正在分析文档（{count}）……",
+          "summaries_of": "按文档汇总（{count}）",
+          "preparing_documents": "正在准备文档……"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

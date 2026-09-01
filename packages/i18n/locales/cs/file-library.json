@@ -250,7 +250,35 @@
         "empty_general_description": "Answers are grounded on the vectorized content of every analyzed contract, and each reply shows the documents it used.",
         "empty_contract_title": "Ask about this contract",
         "empty_contract_description": "The full extracted text of this contract is the context for every answer.",
-        "power_k_search": "Search contracts with AI"
+        "power_k_search": "Search contracts with AI",
+        "stop": "Zastavit",
+        "copy_answer": "Kopírovat odpověď",
+        "retry_answer": "Vygenerovat odpověď znovu",
+        "not_saved": "Odpověď se nepodařilo uložit do historie chatu",
+        "preview_document": "Náhled dokumentu",
+        "suggestions": {
+          "by_artist": "Zobrazte smlouvy vybraného umělce",
+          "expiring": "Které smlouvy letos končí?",
+          "contains": "Najděte smlouvy, které zmiňují určitou osobu",
+          "summary": "Shrňte tuto smlouvu",
+          "obligations": "Jaké povinnosti stanovuje?"
+        },
+        "tools": {
+          "steps": "Kroky agenta ({count})",
+          "searching": "Prohledávání smluv: {terms}",
+          "found": "Výsledky: {shown} z {count}",
+          "reading": "Čtení textu smluv: {query}",
+          "fragments": "Relevantní úryvky: {count}",
+          "looking_for": "Hledané výrazy: {keywords}",
+          "excerpts_found": "Dokumenty se shodou: {count}",
+          "resolving_names": "Ověřování zápisu jmen…",
+          "names_matched": "Nalezená jména: {names}",
+          "no_names": "Žádná odpovídající jména",
+          "details": "Načtené záznamy: {count}",
+          "summarizing": "Analýza dokumentů ({count})…",
+          "summaries_of": "Shrnutí podle dokumentu ({count})",
+          "preparing_documents": "Příprava dokumentů…"
+        }
       },
       "process": {
         "pipeline_state": "Pipeline state",

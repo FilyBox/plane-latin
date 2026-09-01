@@ -9,12 +9,17 @@ through these endpoints so Django stays the single owner of the schema.
 """
 
 # Python imports
+import re
+import unicodedata
 import uuid
 from datetime import date
 
 from dateutil.relativedelta import relativedelta
 
 # Django imports
+from django.core.exceptions import ValidationError
+from django.db.models import Func, Q, TextField, Value
+from django.db.models.functions import Coalesce, Concat
 from django.utils import timezone
 
 # Third party imports
@@ -460,3 +465,394 @@ class InternalQueryResultEndpoint(InternalBaseView):
         if query.result and query.status == ContractProcessingJob.Status.COMPLETED:
             send_contract_query_email.delay(str(query.id))
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Agent tool surface
+#
+# The contracts agent (Cloudflare Worker) answers questions like "contracts of
+# artist X not finished in August 2017 that carry person Y's INE". Pure vector
+# RAG cannot express that, so these endpoints expose the structured columns
+# and a keyword-window reader over the extracted text.
+#
+# Every endpoint takes workspace_id in the path and filters by it, so a tool
+# call can never reach another workspace's contracts.
+# ---------------------------------------------------------------------------
+
+# Result caps: tool output travels back into the model's context, so rows are
+# compact by default and the caller pages instead of asking for everything.
+SEARCH_DEFAULT_LIMIT = 25
+SEARCH_MAX_LIMIT = 100
+SUMMARY_PREVIEW_CHARS = 240
+EXCERPT_WINDOW_CHARS = 400
+EXCERPT_MAX_PER_CONTRACT = 6
+
+# Free-text columns an unqualified `names` term is matched against
+NAME_SEARCH_FIELDS = (
+    "titulo",
+    "nombre_grupo",
+    "artistas",
+    "involucrados",
+    "testigos",
+    "resumen_general",
+)
+
+DATE_FIELD_CHOICES = {
+    "inicio": "fecha_inicio",
+    "fin": "fecha_fin",
+    "fin_efectiva": "fecha_fin_efectiva",
+    "creacion": "created_at__date",
+}
+
+
+def _strip_accents(value):
+    """Accent-insensitive folding so "3ball monterrey" matches "3Ball Monterrey"."""
+    return "".join(
+        char for char in unicodedata.normalize("NFD", str(value)) if unicodedata.category(char) != "Mn"
+    ).lower()
+
+
+def _as_int(value):
+    """Tool arguments come from a model, so a malformed number degrades to
+    "no filter" instead of a 500 that the agent cannot recover from."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _asset_name(contract):
+    return (contract.file_asset.attributes or {}).get("name") if contract.file_asset_id else None
+
+
+def _contract_row(contract, include_summary=True):
+    """Compact projection of a contract - never the extracted text."""
+    row = {
+        "contract_id": str(contract.id),
+        "titulo": contract.titulo,
+        "file_name": _asset_name(contract),
+        "asset_id": str(contract.file_asset_id) if contract.file_asset_id else None,
+        "nombre_grupo": contract.nombre_grupo,
+        "artistas": contract.artistas,
+        "involucrados": contract.involucrados,
+        "testigos": contract.testigos,
+        "es_notariado": contract.es_notariado,
+        "fecha_inicio": contract.fecha_inicio.isoformat() if contract.fecha_inicio else None,
+        "fecha_fin": contract.fecha_fin.isoformat() if contract.fecha_fin else None,
+        "fecha_fin_efectiva": contract.fecha_fin_efectiva.isoformat() if contract.fecha_fin_efectiva else None,
+        "estatus_contrato": contract.estatus_contrato,
+        "tipo_contrato": contract.tipo_contrato,
+        "processing_status": contract.processing_status,
+        "has_text": bool(contract.extracted_text),
+    }
+    if include_summary and contract.resumen_general:
+        row["resumen"] = contract.resumen_general[:SUMMARY_PREVIEW_CHARS]
+    return row
+
+
+class Squash(Func):
+    """Lowercases and strips every non-alphanumeric character.
+
+    This is what makes "3ball" find "3 Ball Monterrey": users and the model
+    both write group names with arbitrary spacing and casing, and plain
+    ILIKE only matches the exact spacing that happens to be stored.
+    """
+
+    function = "REGEXP_REPLACE"
+    template = "LOWER(REGEXP_REPLACE(%(expressions)s, '[^a-zA-Z0-9]', '', 'g'))"
+    output_field = TextField()
+
+
+def _squash(value):
+    return re.sub(r"[^a-z0-9]", "", str(value).lower())
+
+
+def _apply_contract_filters(contracts, data):
+    """Shared filter builder for the search endpoint. Unknown keys are ignored
+    so a hallucinated filter degrades to a broader search, never a 500.
+    """
+    # `names` is the alias-tolerant entry point: every term is OR-matched
+    # across the free-text columns, and the terms AND together.
+    names = data.get("names") or []
+    if isinstance(names, str):
+        names = [names]
+    terms = [str(name).strip() for name in names if str(name).strip()]
+    if terms:
+        # One squashed haystack over every name-bearing column, so a term
+        # matches regardless of how the stored value is spaced or accented.
+        contracts = contracts.annotate(
+            squashed_names=Squash(
+                Concat(
+                    *[Coalesce(field, Value("")) for field in NAME_SEARCH_FIELDS],
+                    Value(" "),
+                    output_field=TextField(),
+                )
+            )
+        )
+    for term in terms:
+        term_filter = Q(squashed_names__contains=_squash(term))
+        for field in NAME_SEARCH_FIELDS:
+            term_filter |= Q(**{f"{field}__icontains": term})
+        term_filter |= Q(file_asset__attributes__name__icontains=term)
+        contracts = contracts.filter(term_filter)
+
+    for key, field in (
+        ("artist", "artistas"),
+        ("group", "nombre_grupo"),
+        ("title", "titulo"),
+        ("summary_contains", "resumen_general"),
+    ):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            contracts = contracts.filter(**{f"{field}__icontains": value.strip()})
+
+    person = data.get("person")
+    if isinstance(person, str) and person.strip():
+        contracts = contracts.filter(
+            Q(involucrados__icontains=person.strip()) | Q(testigos__icontains=person.strip())
+        )
+
+    file_name = data.get("file_name")
+    if isinstance(file_name, str) and file_name.strip():
+        contracts = contracts.filter(file_asset__attributes__name__icontains=file_name.strip())
+
+    # Date windows. `date_field` picks which column the range applies to, so
+    # the agent can ask for "signed in 2017" vs "expiring in 2017".
+    field = DATE_FIELD_CHOICES.get(str(data.get("date_field") or "fin").lower(), "fecha_fin")
+    year = _as_int(data.get("year"))
+    if year:
+        contracts = contracts.filter(**{f"{field}__year": year})
+    month = _as_int(data.get("month"))
+    if month and 1 <= month <= 12:
+        contracts = contracts.filter(**{f"{field}__month": month})
+    date_from = _parse_date(data.get("date_from"))
+    if date_from:
+        contracts = contracts.filter(**{f"{field}__gte": date_from})
+    date_to = _parse_date(data.get("date_to"))
+    if date_to:
+        contracts = contracts.filter(**{f"{field}__lte": date_to})
+
+    for key, column in (
+        ("estatus", "estatus_contrato"),
+        ("tipo", "tipo_contrato"),
+        ("processing_status", "processing_status"),
+    ):
+        values = data.get(key)
+        if isinstance(values, str):
+            values = [values]
+        if values:
+            contracts = contracts.filter(**{f"{column}__in": [str(value) for value in values]})
+
+    if data.get("es_notariado") is not None:
+        contracts = contracts.filter(es_notariado=bool(data["es_notariado"]))
+    if data.get("has_text") is not None:
+        contracts = (
+            contracts.exclude(extracted_text__isnull=True).exclude(extracted_text="")
+            if data["has_text"]
+            else contracts.filter(Q(extracted_text__isnull=True) | Q(extracted_text=""))
+        )
+
+    tags = data.get("tags") or []
+    if isinstance(tags, str):
+        tags = [tags]
+    tag_names = [str(tag).strip() for tag in tags if str(tag).strip()]
+    if tag_names:
+        tag_filter = Q()
+        for name in tag_names:
+            tag_filter |= Q(file_asset__tag_links__tag__name__iexact=name)
+        contracts = contracts.filter(tag_filter).distinct()
+
+    return contracts
+
+
+class InternalContractSearchEndpoint(InternalBaseView):
+    """Structured search over the workspace's contract metadata.
+
+    This is what lifts the chat past plain RAG: the agent composes filters
+    (artist, person, dates, status, tags) instead of hoping the answer sits in
+    the top-k embedding neighbours, and gets back compact rows it can page
+    through without flooding its context.
+    """
+
+    def post(self, request, workspace_id):
+        data = request.data if isinstance(request.data, dict) else {}
+        contracts = Contract.objects.filter(workspace_id=workspace_id).select_related("file_asset")
+        contracts = _apply_contract_filters(contracts, data)
+
+        allowed_order = {
+            "-created_at",
+            "created_at",
+            "titulo",
+            "-titulo",
+            "fecha_inicio",
+            "-fecha_inicio",
+            "fecha_fin",
+            "-fecha_fin",
+            "fecha_fin_efectiva",
+            "-fecha_fin_efectiva",
+        }
+        order = str(data.get("order") or "-created_at")
+        contracts = contracts.order_by(order if order in allowed_order else "-created_at")
+
+        total = contracts.count()
+        offset = max(0, _as_int(data.get("offset")) or 0)
+        limit = min(max(1, _as_int(data.get("limit")) or SEARCH_DEFAULT_LIMIT), SEARCH_MAX_LIMIT)
+        page = contracts[offset : offset + limit]
+        include_summary = data.get("include_summary", True)
+
+        return Response(
+            {
+                "total": total,
+                "offset": offset,
+                "returned": len(page),
+                "has_more": offset + limit < total,
+                "results": [_contract_row(contract, include_summary=include_summary) for contract in page],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class InternalContractDetailsEndpoint(InternalBaseView):
+    """Full AI-extracted record for a handful of contracts (no raw text)."""
+
+    def post(self, request, workspace_id):
+        contract_ids = request.data.get("contract_ids") or []
+        if isinstance(contract_ids, str):
+            contract_ids = [contract_ids]
+        contract_ids = [str(value) for value in contract_ids][:20]
+        if not contract_ids:
+            return Response({"error": "contract_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            contracts = list(
+                Contract.objects.filter(workspace_id=workspace_id, id__in=contract_ids).select_related("file_asset")
+            )
+        except (ValueError, ValidationError):
+            return Response({"error": "contract_ids must be uuids"}, status=status.HTTP_400_BAD_REQUEST)
+
+        results = []
+        for contract in contracts:
+            row = _contract_row(contract, include_summary=False)
+            row.update(
+                {
+                    "resumen_general": contract.resumen_general,
+                    "es_posible_expandirlo": contract.es_posible_expandirlo,
+                    "tiempo_extension_posible": contract.tiempo_extension_posible,
+                    "expansion_time_description": contract.expansion_time_description,
+                    "periodo_coleccion": contract.periodo_coleccion,
+                    "collection_period_description": contract.collection_period_description,
+                    "collection_period_duration": contract.collection_period_duration,
+                    "periodo_retencion": contract.periodo_retencion,
+                    "retention_period_description": contract.retention_period_description,
+                    "retention_period_duration": contract.retention_period_duration,
+                    "text_length": len(contract.extracted_text or ""),
+                }
+            )
+            results.append(row)
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+
+class InternalContractExcerptsEndpoint(InternalBaseView):
+    """Keyword windows over a contract's extracted text.
+
+    Lets the agent verify a detail ("does it carry person X's INE?") by reading
+    only the neighbourhood of each hit instead of pulling a 60k-character
+    document into the conversation.
+    """
+
+    def post(self, request, workspace_id):
+        contract_ids = request.data.get("contract_ids") or []
+        if isinstance(contract_ids, str):
+            contract_ids = [contract_ids]
+        contract_ids = [str(value) for value in contract_ids][:10]
+        keywords = request.data.get("keywords") or []
+        if isinstance(keywords, str):
+            keywords = [keywords]
+        keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()][:10]
+        if not contract_ids or not keywords:
+            return Response({"error": "contract_ids and keywords are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        window = min(max(80, _as_int(request.data.get("window")) or EXCERPT_WINDOW_CHARS), 1200)
+        per_keyword = min(max(1, _as_int(request.data.get("max_per_contract")) or 3), EXCERPT_MAX_PER_CONTRACT)
+
+        try:
+            contracts = list(
+                Contract.objects.filter(workspace_id=workspace_id, id__in=contract_ids).select_related("file_asset")
+            )
+        except (ValueError, ValidationError):
+            return Response({"error": "contract_ids must be uuids"}, status=status.HTTP_400_BAD_REQUEST)
+
+        results = []
+        for contract in contracts:
+            text = contract.extracted_text or ""
+            folded = _strip_accents(text)
+            excerpts = []
+            matched = []
+            for keyword in keywords:
+                needle = _strip_accents(keyword)
+                if not needle:
+                    continue
+                start = folded.find(needle)
+                hits = 0
+                while start != -1 and hits < per_keyword and len(excerpts) < EXCERPT_MAX_PER_CONTRACT:
+                    left = max(0, start - window // 2)
+                    right = min(len(text), start + len(needle) + window // 2)
+                    excerpts.append({"keyword": keyword, "text": text[left:right].strip()})
+                    hits += 1
+                    start = folded.find(needle, start + len(needle))
+                if hits:
+                    matched.append(keyword)
+            results.append(
+                {
+                    "contract_id": str(contract.id),
+                    "titulo": contract.titulo,
+                    "file_name": _asset_name(contract),
+                    "asset_id": str(contract.file_asset_id) if contract.file_asset_id else None,
+                    "matched_keywords": matched,
+                    "excerpts": excerpts,
+                }
+            )
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+
+class InternalContractFacetsEndpoint(InternalBaseView):
+    """Distinct values the agent can filter on.
+
+    Users write "3ball", "3 Ball MTY" or "3ballMTY" for the same group; the
+    agent reads the real stored spellings from here before searching, instead
+    of guessing at the filter string.
+    """
+
+    def get(self, request, workspace_id):
+        contracts = Contract.objects.filter(workspace_id=workspace_id)
+
+        def split_names(values):
+            seen = {}
+            for value in values:
+                for name in str(value or "").split(", "):
+                    name = name.strip()
+                    if name:
+                        seen[_strip_accents(name)] = name
+            return sorted(seen.values())[:300]
+
+        years = sorted(
+            {value.year for value in contracts.values_list("fecha_inicio", flat=True) if value is not None}
+            | {value.year for value in contracts.values_list("fecha_fin", flat=True) if value is not None}
+        )
+        return Response(
+            {
+                "total_contracts": contracts.count(),
+                "artistas": split_names(contracts.values_list("artistas", flat=True)),
+                "grupos": split_names(contracts.values_list("nombre_grupo", flat=True)),
+                "involucrados": split_names(contracts.values_list("involucrados", flat=True)),
+                "tags": list(
+                    FileTag.objects.filter(workspace_id=workspace_id)
+                    .order_by("name")
+                    .values_list("name", flat=True)[:300]
+                ),
+                "estatus": sorted({value for value in contracts.values_list("estatus_contrato", flat=True) if value}),
+                "tipos": sorted({value for value in contracts.values_list("tipo_contrato", flat=True) if value}),
+                "years": years,
+            },
+            status=status.HTTP_200_OK,
+        )
