@@ -26,6 +26,7 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   useMessage,
+  useThread,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { motion } from "framer-motion";
@@ -62,54 +63,28 @@ function useIsMessageRunning(): boolean {
   return useMessage((message) => message.status?.type === "running");
 }
 
-/** Pulsing dot-matrix, the shared "work in progress" indicator. */
-export function DotMatrix({ className = "size-3.5" }: { className?: string }) {
-  return (
-    <span className={`grid shrink-0 grid-cols-2 gap-px ${className}`} role="status" aria-label="…">
-      {[0, 150, 300, 450].map((delay) => (
-        <span
-          key={delay}
-          className="animate-pulse rounded-full bg-accent-primary"
-          style={{ animationDelay: `${delay}ms`, animationDuration: "900ms" }}
-        />
-      ))}
-    </span>
-  );
-}
-
 /**
- * Consecutive tool calls collapse into one block.
+ * Consecutive tool calls, stacked as a visible trace.
  *
- * Open while the message runs, folded once it settles: an agent turn takes a
- * dozen steps and tens of seconds, and hiding that behind a collapsed summary
- * left the user watching a spinner with no idea what was happening. Afterwards
- * the answer is what matters, so the trail gets out of the way — `key` on the
- * running flag lets the browser re-apply `open` when the run ends.
+ * This used to be a `<details>` collapsed by default, which is why a turn
+ * looked like nothing was happening: every bit of progress the stream carried
+ * was folded away behind a summary line. The trace is the feedback, so it
+ * stays open — the individual rows (see agent-tools) are one line each and
+ * carry their own expand affordance for the payload.
  */
-function ToolGroup({ startIndex, endIndex, children }: PropsWithChildren<{ startIndex: number; endIndex: number }>) {
-  const { t } = useTranslation();
-  const isRunning = useIsMessageRunning();
-  const count = endIndex - startIndex + 1;
+function ToolGroup({ children }: PropsWithChildren<{ startIndex: number; endIndex: number }>) {
   return (
-    <motion.details
-      {...messageMotion}
-      key={isRunning ? "running" : "done"}
-      open={isRunning}
-      className="my-1.5 min-w-0 rounded-md border border-subtle bg-layer-1"
-    >
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-11 font-medium text-secondary [&::-webkit-details-marker]:hidden">
-        {isRunning ? <DotMatrix className="size-3" /> : <Wrench className="size-3 shrink-0 text-tertiary" />}
-        {t("file_library.contracts.chat.tools.steps", { count })}
-      </summary>
-      <div className="min-w-0 overflow-x-auto border-t border-subtle px-2.5 py-1">{children}</div>
-    </motion.details>
+    <motion.div {...messageMotion} className="my-1.5 min-w-0 space-y-0.5 border-l-2 border-subtle pl-2.5">
+      {children}
+    </motion.div>
   );
 }
 
 /**
  * The model's own thinking, when the provider streams it (DeepSeek reasoner,
  * Gemini thinking). assistant-ui hides reasoning parts unless a component is
- * supplied — this is that component.
+ * supplied — this is that component. Open while running so the user can watch
+ * the plan form, folded afterwards so it does not bury the answer.
  */
 function ReasoningPart({ text }: { text: string }) {
   const { t } = useTranslation();
@@ -122,7 +97,11 @@ function ReasoningPart({ text }: { text: string }) {
       className="my-1.5 min-w-0 rounded-md border border-dashed border-subtle bg-layer-1/60"
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-11 font-medium text-tertiary [&::-webkit-details-marker]:hidden">
-        {isRunning ? <DotMatrix className="size-3" /> : <Brain className="size-3 shrink-0" />}
+        {isRunning ? (
+          <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent-primary" aria-hidden />
+        ) : (
+          <Brain className="size-3 shrink-0" />
+        )}
         {t("file_library.contracts.chat.reasoning")}
       </summary>
       <p className="min-w-0 border-t border-subtle px-2.5 py-1.5 text-11 leading-snug break-words whitespace-pre-wrap text-tertiary">
@@ -201,6 +180,37 @@ function AssistantMessage() {
   );
 }
 
+/**
+ * "Thinking" only until the first part arrives.
+ *
+ * Once the agent emits reasoning or its first tool call, that trace is the
+ * status — leaving a generic spinner underneath it just repeats what the
+ * trace already says, and hid the fact that work was visible at all.
+ */
+function AssistantTyping() {
+  const { t } = useTranslation();
+  const waiting = useThread((thread) => {
+    if (!thread.isRunning) return false;
+    const last = thread.messages.at(-1);
+    return last?.role === "assistant" && last.content.length === 0;
+  });
+  if (!waiting) return null;
+  return (
+    <motion.div {...messageMotion} className="flex items-center gap-2 px-4 py-2 text-12 text-tertiary">
+      <span className="grid size-3.5 shrink-0 grid-cols-2 gap-px" aria-hidden>
+        {[0, 150, 300, 450].map((delay) => (
+          <span
+            key={delay}
+            className="animate-pulse rounded-full bg-accent-primary"
+            style={{ animationDelay: `${delay}ms`, animationDuration: "900ms" }}
+          />
+        ))}
+      </span>
+      <span className="animate-pulse">{t("file_library.contracts.chat.thinking")}</span>
+    </motion.div>
+  );
+}
+
 type Props = {
   emptyTitle: string;
   emptyDescription: string;
@@ -246,20 +256,7 @@ export function ContractChatThread(props: Props) {
           </motion.div>
         </ThreadPrimitive.Empty>
         <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
-        <ThreadPrimitive.If running>
-          <motion.div {...messageMotion} className="flex items-center gap-2 px-4 py-2 text-12 text-tertiary">
-            <span className="grid size-3.5 shrink-0 grid-cols-2 gap-px" aria-hidden>
-              {[0, 150, 300, 450].map((delay) => (
-                <span
-                  key={delay}
-                  className="animate-pulse rounded-full bg-accent-primary"
-                  style={{ animationDelay: `${delay}ms`, animationDuration: "900ms" }}
-                />
-              ))}
-            </span>
-            <span className="animate-pulse">{t("file_library.contracts.chat.thinking")}</span>
-          </motion.div>
-        </ThreadPrimitive.If>
+        <AssistantTyping />
       </ThreadPrimitive.Viewport>
 
       <div className="shrink-0 border-t border-subtle p-2.5">

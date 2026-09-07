@@ -124,7 +124,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "crum.CurrentRequestUserMiddleware",
-    "django.middleware.gzip.GZipMiddleware",
+    # Subclass that leaves SSE alone; gzip buffers the agent stream otherwise.
+    # Subclass that leaves SSE alone; gzip buffers the agent stream otherwise.
+    "plane.middleware.gzip.StreamingSafeGZipMiddleware",
     "plane.middleware.request_body_size.RequestBodySizeLimitMiddleware",
     "plane.middleware.logger.APITokenLogMiddleware",
     "plane.middleware.logger.RequestLoggerMiddleware",
