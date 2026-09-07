@@ -189,7 +189,16 @@ export type TContractFilters = {
   tags?: string[];
   fecha_fin_efectiva_after?: string;
   fecha_fin_efectiva_before?: string;
-  order?: "-created_at" | "-updated_at" | "titulo" | "-titulo";
+  order?:
+    | "-created_at"
+    | "-updated_at"
+    | "titulo"
+    | "-titulo"
+    /** AI-extracted dates; undated contracts always sort last */
+    | "fecha_inicio"
+    | "-fecha_inicio"
+    | "fecha_fin"
+    | "-fecha_fin";
 };
 
 export type TContractFieldType =

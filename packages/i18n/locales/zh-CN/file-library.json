@@ -835,6 +835,12 @@
         "no_category": "The Contratos category could not be found in this workspace.",
         "only_pdf": "Only PDF files can be uploaded as contracts.",
         "started": "{count, plural, one {# contract uploaded, analysis started} other {# contracts uploaded, analysis started}}"
+      },
+      "order": {
+        "start_newest": "开始日期，最新优先",
+        "start_oldest": "开始日期，最早优先",
+        "end_soonest": "最快到期",
+        "end_latest": "最晚到期"
       }
     },
     "collabora": {

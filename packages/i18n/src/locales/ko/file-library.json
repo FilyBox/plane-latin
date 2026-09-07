@@ -835,6 +835,12 @@
         "no_category": "The Contratos category could not be found in this workspace.",
         "only_pdf": "Only PDF files can be uploaded as contracts.",
         "started": "{count, plural, one {# contract uploaded, analysis started} other {# contracts uploaded, analysis started}}"
+      },
+      "order": {
+        "start_newest": "시작일 최신순",
+        "start_oldest": "시작일 오래된순",
+        "end_soonest": "종료 임박순",
+        "end_latest": "종료 늦은순"
       }
     },
     "collabora": {

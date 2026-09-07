@@ -3,7 +3,7 @@
 # See the LICENSE file for details.
 
 # Django imports
-from django.db.models import Q
+from django.db.models import F, Q
 
 # Third party imports
 from rest_framework import status
@@ -92,12 +92,27 @@ def create_and_dispatch_job(workspace, contract, task_type, user=None, metadata=
     return job
 
 
+def _by_date(field, descending):
+    """Order on a nullable AI-extracted date, undated contracts last.
+
+    Postgres sorts NULLs first on DESC, so a plain "-fecha_fin" would open the
+    list with every contract the pipeline could not date — the opposite of
+    what someone sorting by expiry wants to see.
+    """
+    expression = F(field).desc(nulls_last=True) if descending else F(field).asc(nulls_last=True)
+    return (expression, "-created_at")
+
+
 def _get_contract_ordering(value):
     return {
         "-created_at": ("-created_at",),
         "-updated_at": ("-updated_at", "-created_at"),
         "titulo": ("titulo", "-created_at"),
         "-titulo": ("-titulo", "-created_at"),
+        "fecha_inicio": _by_date("fecha_inicio", False),
+        "-fecha_inicio": _by_date("fecha_inicio", True),
+        "fecha_fin": _by_date("fecha_fin", False),
+        "-fecha_fin": _by_date("fecha_fin", True),
     }.get(value, ("-created_at",))
 
 

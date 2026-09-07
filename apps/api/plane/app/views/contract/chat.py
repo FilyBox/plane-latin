@@ -22,6 +22,7 @@ from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers import ContractChatMessageSerializer, ContractChatSerializer
 from plane.db.models import Contract, ContractChat, ContractChatMessage, Workspace
 from plane.utils.exception_logger import log_exception
+from plane.utils.streaming import proxy_stream
 from plane.utils.worker_client import (
     WorkerTriggerError,
     chat_with_contracts,
@@ -281,7 +282,7 @@ class ContractAgentChatEndpoint(FileLibraryBaseView):
             return Response({"error": e.public_message}, status=status.HTTP_502_BAD_GATEWAY)
 
         response = StreamingHttpResponse(
-            upstream.iter_content(chunk_size=None),
+            proxy_stream(request, upstream),
             content_type=upstream.headers.get("Content-Type", "text/event-stream"),
             status=upstream.status_code,
         )

@@ -270,6 +270,10 @@ export function ContractsRoot(props: Props) {
                 <option value="-updated_at">{t("file_library.order.modified")}</option>
                 <option value="titulo">{t("file_library.order.name_asc")}</option>
                 <option value="-titulo">{t("file_library.order.name_desc")}</option>
+                <option value="-fecha_inicio">{t("file_library.contracts.order.start_newest")}</option>
+                <option value="fecha_inicio">{t("file_library.contracts.order.start_oldest")}</option>
+                <option value="fecha_fin">{t("file_library.contracts.order.end_soonest")}</option>
+                <option value="-fecha_fin">{t("file_library.contracts.order.end_latest")}</option>
               </select>
             </label>
             {/* contextual download: every contract matching the current filters */}

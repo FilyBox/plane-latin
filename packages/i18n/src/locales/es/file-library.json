@@ -835,6 +835,12 @@
         "no_category": "No se encontró la categoría Contratos en este espacio de trabajo.",
         "only_pdf": "Solo se pueden subir archivos PDF como contratos.",
         "started": "{count, plural, one {# contrato subido, análisis iniciado} other {# contratos subidos, análisis iniciado}}"
+      },
+      "order": {
+        "start_newest": "Inicio más reciente",
+        "start_oldest": "Inicio más antiguo",
+        "end_soonest": "Vencen antes",
+        "end_latest": "Vencen después"
       }
     },
     "collabora": {
