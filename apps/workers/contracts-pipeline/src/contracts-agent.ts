@@ -120,20 +120,37 @@ function modelLists(env: Env) {
   return { deepseek, gemini };
 }
 
+/**
+ * The model a turn runs on when the client did not pick one.
+ *
+ * CHAT_DEFAULT_MODEL wins when it names a declared model — it used to be
+ * ignored here, so the only way to choose a default was ASSISTANT_AI_PROVIDER
+ * plus the order of the provider's model list, which silently changed the
+ * default whenever that list was reordered. The provider preference remains
+ * the fallback when no explicit default is configured.
+ */
+function defaultModelId(env: Env): string | null {
+  const lists = modelLists(env);
+  const declared = [...lists.deepseek, ...lists.gemini];
+  const configured = env.CHAT_DEFAULT_MODEL?.trim();
+  if (configured && declared.includes(configured)) return configured;
+
+  const provider = (env.ASSISTANT_AI_PROVIDER || "gemini").toLowerCase();
+  const preferred = provider === "deepseek" ? lists.deepseek[0] : lists.gemini[0];
+  return preferred ?? declared[0] ?? null;
+}
+
 function pickModel(env: Env, requested?: string | null): { model: LanguageModel; id: string } {
   const gemini = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY });
   const deepseek = createDeepSeek({ apiKey: env.DEEPSEEK_API_KEY });
   const lists = modelLists(env);
 
-  if (requested) {
-    if (lists.deepseek.includes(requested)) return { model: deepseek(requested), id: requested };
-    if (lists.gemini.includes(requested)) return { model: gemini(requested), id: requested };
-  }
-  const provider = (env.ASSISTANT_AI_PROVIDER || "gemini").toLowerCase();
-  if (provider === "deepseek" && lists.deepseek.length > 0) {
-    return { model: deepseek(lists.deepseek[0]), id: lists.deepseek[0] };
-  }
-  if (lists.gemini.length > 0) return { model: gemini(lists.gemini[0]), id: lists.gemini[0] };
+  const id =
+    (requested && [...lists.deepseek, ...lists.gemini].includes(requested) ? requested : null) ?? defaultModelId(env);
+  if (id && lists.deepseek.includes(id)) return { model: deepseek(id), id };
+  if (id && lists.gemini.includes(id)) return { model: gemini(id), id };
+  // No declared models at all: fall back to the provider SDK default so the
+  // failure surfaces as an API error rather than an undefined model id.
   return { model: deepseek(lists.deepseek[0]), id: lists.deepseek[0] };
 }
 
@@ -152,9 +169,9 @@ function pickWorkerModel(env: Env): LanguageModel {
 
 export function listContractsAgentModels(env: Env): ReturnType<typeof listChatModels> {
   const { models, default_model } = listChatModels(env);
-  const provider = (env.ASSISTANT_AI_PROVIDER || "gemini").toLowerCase();
-  const preferred = models.find((model) => model.provider === provider);
-  return { models, default_model: preferred?.id ?? default_model };
+  // Same resolution the run uses, so the picker's pre-selection and the model
+  // a turn actually runs on can never disagree.
+  return { models, default_model: defaultModelId(env) ?? default_model };
 }
 
 type ContractRow = {
