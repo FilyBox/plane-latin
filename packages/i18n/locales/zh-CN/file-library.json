@@ -278,7 +278,8 @@
           "summarizing": "正在分析文档（{count}）……",
           "summaries_of": "按文档汇总（{count}）",
           "preparing_documents": "正在准备文档……"
-        }
+        },
+        "reasoning": "推理过程"
       },
       "process": {
         "pipeline_state": "Pipeline state",

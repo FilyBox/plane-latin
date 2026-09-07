@@ -278,7 +278,8 @@
           "summarizing": "Menganalisis dokumen ({count})…",
           "summaries_of": "Ringkasan per dokumen ({count})",
           "preparing_documents": "Menyiapkan dokumen…"
-        }
+        },
+        "reasoning": "Penalaran"
       },
       "process": {
         "pipeline_state": "Pipeline state",

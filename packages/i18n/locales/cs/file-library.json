@@ -278,7 +278,8 @@
           "summarizing": "Analýza dokumentů ({count})…",
           "summaries_of": "Shrnutí podle dokumentu ({count})",
           "preparing_documents": "Příprava dokumentů…"
-        }
+        },
+        "reasoning": "Uvažování"
       },
       "process": {
         "pipeline_state": "Pipeline state",

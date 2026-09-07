@@ -278,7 +278,8 @@
           "summarizing": "Belgeler çözümleniyor ({count})…",
           "summaries_of": "Belge başına özetler ({count})",
           "preparing_documents": "Belgeler hazırlanıyor…"
-        }
+        },
+        "reasoning": "Akıl yürütme"
       },
       "process": {
         "pipeline_state": "Pipeline state",

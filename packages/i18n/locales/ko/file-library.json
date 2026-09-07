@@ -278,7 +278,8 @@
           "summarizing": "문서를 분석하는 중 ({count})…",
           "summaries_of": "문서별 요약 ({count})",
           "preparing_documents": "문서를 준비하는 중…"
-        }
+        },
+        "reasoning": "추론 과정"
       },
       "process": {
         "pipeline_state": "Pipeline state",

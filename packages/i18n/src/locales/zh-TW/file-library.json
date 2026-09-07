@@ -278,7 +278,8 @@
           "summarizing": "正在分析文件（{count}）……",
           "summaries_of": "依文件彙總（{count}）",
           "preparing_documents": "正在準備文件……"
-        }
+        },
+        "reasoning": "推理過程"
       },
       "process": {
         "pipeline_state": "Pipeline state",

@@ -278,7 +278,8 @@
           "summarizing": "ドキュメントを分析しています（{count}）……",
           "summaries_of": "ドキュメントごとの要約（{count}）",
           "preparing_documents": "ドキュメントを準備しています……"
-        }
+        },
+        "reasoning": "思考プロセス"
       },
       "process": {
         "pipeline_state": "Pipeline state",

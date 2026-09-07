@@ -278,7 +278,8 @@
           "summarizing": "Analizando documentos ({count})…",
           "summaries_of": "Resúmenes por documento ({count})",
           "preparing_documents": "Preparando documentos…"
-        }
+        },
+        "reasoning": "Razonamiento"
       },
       "process": {
         "pipeline_state": "Estado del pipeline",

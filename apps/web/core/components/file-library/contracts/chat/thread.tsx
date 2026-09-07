@@ -12,6 +12,10 @@
  *   Every level of the message column is now `min-w-0` with wrapping text, and
  *   wide blocks (pre/table) scroll inside their own container instead of
  *   stretching the thread.
+ *
+ * A run takes many steps and tens of seconds, so the work has to be visible
+ * while it happens: the tool trail and the model's reasoning both expand
+ * automatically while the message is running and fold away once it settles.
  */
 
 import type { PropsWithChildren, ReactNode } from "react";
@@ -21,10 +25,11 @@ import {
   ErrorPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useMessage,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { motion } from "framer-motion";
-import { AlertTriangle, ArrowUp, Bot, Copy, RefreshCw, Sparkles, Square, Wrench } from "lucide-react";
+import { AlertTriangle, ArrowUp, Bot, Brain, Copy, RefreshCw, Sparkles, Square, Wrench } from "lucide-react";
 import remarkGfm from "remark-gfm";
 // plane imports
 import { useTranslation } from "@plane/i18n";
@@ -52,22 +57,78 @@ function MarkdownText() {
   );
 }
 
+/** True while THIS message is the one being generated. */
+function useIsMessageRunning(): boolean {
+  return useMessage((message) => message.status?.type === "running");
+}
+
+/** Pulsing dot-matrix, the shared "work in progress" indicator. */
+export function DotMatrix({ className = "size-3.5" }: { className?: string }) {
+  return (
+    <span className={`grid shrink-0 grid-cols-2 gap-px ${className}`} role="status" aria-label="…">
+      {[0, 150, 300, 450].map((delay) => (
+        <span
+          key={delay}
+          className="animate-pulse rounded-full bg-accent-primary"
+          style={{ animationDelay: `${delay}ms`, animationDuration: "900ms" }}
+        />
+      ))}
+    </span>
+  );
+}
+
 /**
- * Consecutive tool calls collapse into one block. Collapsed by default: the
- * agent may take a dozen steps to answer and the user wants the answer, with
- * the trail available on demand.
+ * Consecutive tool calls collapse into one block.
+ *
+ * Open while the message runs, folded once it settles: an agent turn takes a
+ * dozen steps and tens of seconds, and hiding that behind a collapsed summary
+ * left the user watching a spinner with no idea what was happening. Afterwards
+ * the answer is what matters, so the trail gets out of the way — `key` on the
+ * running flag lets the browser re-apply `open` when the run ends.
  */
 function ToolGroup({ startIndex, endIndex, children }: PropsWithChildren<{ startIndex: number; endIndex: number }>) {
   const { t } = useTranslation();
+  const isRunning = useIsMessageRunning();
   const count = endIndex - startIndex + 1;
   return (
-    <motion.details {...messageMotion} className="my-1.5 min-w-0 rounded-md border border-subtle bg-layer-1">
+    <motion.details
+      {...messageMotion}
+      key={isRunning ? "running" : "done"}
+      open={isRunning}
+      className="my-1.5 min-w-0 rounded-md border border-subtle bg-layer-1"
+    >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-11 font-medium text-secondary [&::-webkit-details-marker]:hidden">
-        <Wrench className="size-3 shrink-0 text-tertiary" />
+        {isRunning ? <DotMatrix className="size-3" /> : <Wrench className="size-3 shrink-0 text-tertiary" />}
         {t("file_library.contracts.chat.tools.steps", { count })}
       </summary>
       <div className="min-w-0 overflow-x-auto border-t border-subtle px-2.5 py-1">{children}</div>
     </motion.details>
+  );
+}
+
+/**
+ * The model's own thinking, when the provider streams it (DeepSeek reasoner,
+ * Gemini thinking). assistant-ui hides reasoning parts unless a component is
+ * supplied — this is that component.
+ */
+function ReasoningPart({ text }: { text: string }) {
+  const { t } = useTranslation();
+  const isRunning = useIsMessageRunning();
+  if (!text?.trim()) return null;
+  return (
+    <details
+      key={isRunning ? "running" : "done"}
+      open={isRunning}
+      className="my-1.5 min-w-0 rounded-md border border-dashed border-subtle bg-layer-1/60"
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-11 font-medium text-tertiary [&::-webkit-details-marker]:hidden">
+        {isRunning ? <DotMatrix className="size-3" /> : <Brain className="size-3 shrink-0" />}
+        {t("file_library.contracts.chat.reasoning")}
+      </summary>
+      <p className="min-w-0 border-t border-subtle px-2.5 py-1.5 text-11 leading-snug break-words whitespace-pre-wrap text-tertiary">
+        {text}
+      </p>
+    </details>
   );
 }
 
@@ -81,7 +142,12 @@ function ToolFallback({ toolName }: { toolName: string }) {
   );
 }
 
-const PARTS_COMPONENTS = { Text: MarkdownText, ToolGroup, tools: { Fallback: ToolFallback } };
+const PARTS_COMPONENTS = {
+  Text: MarkdownText,
+  Reasoning: ReasoningPart,
+  ToolGroup,
+  tools: { Fallback: ToolFallback },
+};
 
 function UserMessage() {
   return (

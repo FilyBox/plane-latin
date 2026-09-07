@@ -278,7 +278,8 @@
           "summarizing": "Se analizează documentele ({count})…",
           "summaries_of": "Rezumate pe document ({count})",
           "preparing_documents": "Se pregătesc documentele…"
-        }
+        },
+        "reasoning": "Raționament"
       },
       "process": {
         "pipeline_state": "Pipeline state",

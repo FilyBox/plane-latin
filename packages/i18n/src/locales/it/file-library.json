@@ -278,7 +278,8 @@
           "summarizing": "Analisi dei documenti ({count})…",
           "summaries_of": "Riepiloghi per documento ({count})",
           "preparing_documents": "Preparazione dei documenti…"
-        }
+        },
+        "reasoning": "Ragionamento"
       },
       "process": {
         "pipeline_state": "Pipeline state",

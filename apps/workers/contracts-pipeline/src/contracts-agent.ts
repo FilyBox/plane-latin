@@ -526,8 +526,65 @@ function buildTools(env: Env, body: ContractsAgentRequest) {
   return tools;
 }
 
+/**
+ * Categorises a stream failure into something the user can act on.
+ *
+ * The AI SDK masks errors to "An error occurred." by default, which is safe
+ * but tells the user nothing — and a rate-limited provider is worth retrying
+ * while a misconfigured one is not. This keeps that distinction without
+ * echoing provider or infrastructure detail back to the browser.
+ */
+function publicStreamError(error: unknown): string {
+  const detail = String(error instanceof Error ? error.message : error);
+  if (/429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(detail)) {
+    return "El servicio de IA está saturado ahora mismo. Espera unos segundos y reintenta, o cambia de modelo en el selector.";
+  }
+  if (/503|overloaded|UNAVAILABLE|502|504/i.test(detail)) {
+    return "El modelo no está disponible en este momento. Reintenta o elige otro modelo en el selector.";
+  }
+  if (/timeout|timed out|aborted|ETIMEDOUT/i.test(detail)) {
+    return "La consulta tardó demasiado. Prueba a acotarla (por artista, por año) o reintenta.";
+  }
+  if (/context|too many tokens|maximum context|token limit/i.test(detail)) {
+    return "La conversación creció demasiado para el modelo. Abre un chat nuevo o acota la pregunta.";
+  }
+  return "No se pudo completar la respuesta. Reintenta; si persiste, prueba con otro modelo.";
+}
+
+/**
+ * Turns a throwing tool into one that reports the failure as data.
+ *
+ * A tool that throws ends up as an opaque "An error occurred." in the stream
+ * and usually derails the rest of the run. Returning the failure instead lets
+ * the model say what did not work, or try a different route, and keeps the
+ * turn alive. The message stays generic — tool failures are internal-API
+ * failures and their detail belongs in the Worker log, not the transcript.
+ */
+function resilient(tools: ToolSet): ToolSet {
+  const guarded: ToolSet = {};
+  for (const [name, definition] of Object.entries(tools)) {
+    const execute = definition.execute as ((input: unknown, options: unknown) => Promise<unknown>) | undefined;
+    if (!execute) {
+      guarded[name] = definition;
+      continue;
+    }
+    const wrapped = async (input: unknown, options: unknown) => {
+      try {
+        return await execute(input, options);
+      } catch (error) {
+        console.error(JSON.stringify({ message: "contracts agent tool failed", tool: name, error: String(error) }));
+        return {
+          error: `La herramienta ${name} falló. No asumas un resultado vacío: díselo al usuario o intenta otra vía.`,
+        };
+      }
+    };
+    guarded[name] = { ...definition, execute: wrapped as typeof definition.execute };
+  }
+  return guarded;
+}
+
 export async function handleContractsAgent(env: Env, body: ContractsAgentRequest): Promise<Response> {
-  const tools = buildTools(env, body);
+  const tools = resilient(buildTools(env, body));
   const { model, id } = pickModel(env, body.model);
 
   const system = [
@@ -547,6 +604,9 @@ export async function handleContractsAgent(env: Env, body: ContractsAgentRequest
     messages: await convertToModelMessages(body.messages, { ignoreIncompleteToolCalls: true }),
     tools,
     stopWhen: stepCountIs(LIMITS.steps),
+    // A complex turn is long enough to catch a provider hiccup; retry the
+    // step before giving the whole run up.
+    maxRetries: 3,
     onError: ({ error }) => {
       console.error(JSON.stringify({ message: "contracts agent stream error", model: id, error: String(error) }));
     },
@@ -554,6 +614,9 @@ export async function handleContractsAgent(env: Env, body: ContractsAgentRequest
 
   return createUIMessageStreamResponse({
     stream: result.toUIMessageStream({
+      // Default masking turns every failure into "An error occurred.", which
+      // is what made a failed turn unreadable. Full detail stays in the log.
+      onError: publicStreamError,
       messageMetadata: ({ part }) => {
         if (part.type === "finish") return { usage: part.totalUsage };
         if (part.type === "finish-step") return { modelId: part.response.modelId || id };

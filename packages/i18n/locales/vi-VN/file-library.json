@@ -278,7 +278,8 @@
           "summarizing": "Đang phân tích tài liệu ({count})…",
           "summaries_of": "Tóm tắt theo tài liệu ({count})",
           "preparing_documents": "Đang chuẩn bị tài liệu…"
-        }
+        },
+        "reasoning": "Lập luận"
       },
       "process": {
         "pipeline_state": "Pipeline state",

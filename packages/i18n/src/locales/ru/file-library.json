@@ -278,7 +278,8 @@
           "summarizing": "Анализ документов ({count})…",
           "summaries_of": "Сводки по документам ({count})",
           "preparing_documents": "Подготовка документов…"
-        }
+        },
+        "reasoning": "Ход рассуждений"
       },
       "process": {
         "pipeline_state": "Pipeline state",
