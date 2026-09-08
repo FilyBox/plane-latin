@@ -12,11 +12,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle2, Loader2, Save, X } from "lucide-react";
+import { Braces, Loader2, X } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
+import { cn } from "@plane/utils";
 // services
 import { fileLibraryService } from "@/services/file-library.service";
+// local imports
+import { ContractVariablesPanel } from "./contracts/contract-variables-panel";
 
 type Props = {
   workspaceSlug: string;
@@ -41,14 +44,13 @@ export function CollaboraEditorModal(props: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [session, setSession] = useState<{ editor_url: string; access_token: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [showVariables, setShowVariables] = useState(false);
   const saveTimerRef = useRef<number | undefined>(undefined);
   const closeTimerRef = useRef<number | undefined>(undefined);
 
   const isOpen = assetId !== null;
 
   const save = useCallback(() => {
-    setSaveState("saving");
     iframeRef.current?.contentWindow?.postMessage(
       JSON.stringify({
         MessageId: "Action_Save",
@@ -58,7 +60,6 @@ export function CollaboraEditorModal(props: Props) {
       "*"
     );
     window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => setSaveState("saved"), 900);
   }, []);
 
   const saveAndClose = useCallback(() => {
@@ -85,7 +86,6 @@ export function CollaboraEditorModal(props: Props) {
     let cancelled = false;
     setSession(null);
     setError(null);
-    setSaveState("idle");
     (async () => {
       try {
         const data = await fileLibraryService.getCollaboraSession(workspaceSlug, assetId);
@@ -112,7 +112,6 @@ export function CollaboraEditorModal(props: Props) {
       }
       if (message?.MessageId === "Action_Save_Resp") {
         window.clearTimeout(saveTimerRef.current);
-        setSaveState("saved");
       }
     };
     window.addEventListener("message", handleMessage);
@@ -168,30 +167,19 @@ export function CollaboraEditorModal(props: Props) {
               ) : null}
             </div>
             <div className="flex items-center gap-1">
+              {/* The reserved placeholders are invisible from inside Word, so
+                  the reference travels with the editor. */}
               <button
                 type="button"
-                onClick={save}
-                disabled={!session || saveState === "saving"}
-                className="flex min-w-24 items-center justify-center gap-1.5 rounded-sm px-2 py-1.5 text-12 hover:bg-layer-1-hover disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => setShowVariables((value) => !value)}
+                aria-pressed={showVariables}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-12 hover:bg-layer-1-hover",
+                  showVariables ? "bg-layer-1 text-accent-primary" : "text-secondary"
+                )}
               >
-                {saveState === "saving" ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : saveState === "saved" ? (
-                  <CheckCircle2 className="size-4 text-success-primary" />
-                ) : (
-                  <Save className="size-4" />
-                )}
-                {t(
-                  saveState === "saving"
-                    ? "file_library.contracts.workflow.common.saving"
-                    : saveState === "saved"
-                      ? deferredCommit
-                        ? "file_library.contracts.workflow.collabora.draft_saved"
-                        : "file_library.contracts.workflow.common.saved"
-                      : deferredCommit
-                        ? "file_library.contracts.workflow.collabora.save_draft"
-                        : "file_library.contracts.workflow.common.save"
-                )}
+                <Braces className="size-4" />
+                {t("file_library.contracts.workflow.variables.title")}
               </button>
               <button
                 type="button"
@@ -205,39 +193,46 @@ export function CollaboraEditorModal(props: Props) {
             </div>
           </div>
 
-          <div className="relative min-h-0 flex-1">
-            {error ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-tertiary">
-                <p className="text-14">{error}</p>
-              </div>
-            ) : !session ? (
-              <div className="flex h-full items-center justify-center text-tertiary">
-                <Loader2 className="size-6 animate-spin" />
-              </div>
-            ) : (
-              <>
-                {/* Hidden form: submitting it loads the editor into the iframe */}
-                <form
-                  ref={formRef}
-                  action={session.editor_url}
-                  method="post"
-                  target="collabora-frame"
-                  className="hidden"
-                >
-                  <input type="hidden" name="access_token" value={session.access_token} />
-                </form>
-                {/* Collabora runs its own scripts and posts forms back to the WOPI
+          <div className="flex min-h-0 flex-1">
+            <div className="relative min-h-0 flex-1">
+              {error ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2 text-tertiary">
+                  <p className="text-14">{error}</p>
+                </div>
+              ) : !session ? (
+                <div className="flex h-full items-center justify-center text-tertiary">
+                  <Loader2 className="size-6 animate-spin" />
+                </div>
+              ) : (
+                <>
+                  {/* Hidden form: submitting it loads the editor into the iframe */}
+                  <form
+                    ref={formRef}
+                    action={session.editor_url}
+                    method="post"
+                    target="collabora-frame"
+                    className="hidden"
+                  >
+                    <input type="hidden" name="access_token" value={session.access_token} />
+                  </form>
+                  {/* Collabora runs its own scripts and posts forms back to the WOPI
                 host, so it needs scripts + same-origin + forms; downloads and
                 popups cover export and print. */}
-                <iframe
-                  ref={iframeRef}
-                  name="collabora-frame"
-                  title={fileName}
-                  className="size-full border-0"
-                  allow="clipboard-read; clipboard-write; fullscreen"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-popups-to-escape-sandbox"
-                />
-              </>
+                  <iframe
+                    ref={iframeRef}
+                    name="collabora-frame"
+                    title={fileName}
+                    className="size-full border-0"
+                    allow="clipboard-read; clipboard-write; fullscreen"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-popups-to-escape-sandbox"
+                  />
+                </>
+              )}
+            </div>
+            {showVariables && (
+              <div className="hidden w-80 shrink-0 border-l border-subtle md:block">
+                <ContractVariablesPanel />
+              </div>
             )}
           </div>
         </motion.div>

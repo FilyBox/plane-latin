@@ -825,6 +825,60 @@
           "validation_variable": "Completa {name}.",
           "version_variables": "Variables de esta versión",
           "version_variables_description": "Revisa qué datos se solicitarán antes de preparar el contrato."
+        },
+        "collabora": {
+          "deferred_commit_hint": "Los cambios quedan como borrador; al cerrar eliges cómo guardarlos."
+        },
+        "variables": {
+          "title": "Variables",
+          "subtitle": "Marcadores reservados. Copia uno y pégalo en el documento.",
+          "copy": "Copiar marcador",
+          "groups": {
+            "recipients": "Firmantes",
+            "recipients_hint": "Rellenan la lista de destinatarios. El número elige al firmante.",
+            "signing": "Campos de firma",
+            "signing_hint": "Se convierten en campos que el firmante completa en el PDF.",
+            "fields": "Otros campos del firmante",
+            "fields_hint": "Datos adicionales que cada firmante rellena al firmar.",
+            "free": "Variables libres",
+            "free_hint": "Cualquier otra. Las rellenas tú en un formulario antes de enviar."
+          },
+          "items": {
+            "recipient_name": "Nombre del firmante 1.",
+            "recipient_email": "Correo del firmante 1.",
+            "signature": "Recuadro de firma del firmante 1.",
+            "initials": "Recuadro de iniciales del firmante 1.",
+            "sign_date": "Fecha en que firmó, se rellena sola.",
+            "field_name": "Campo de nombre que escribe el firmante.",
+            "field_email": "Campo de correo que escribe el firmante.",
+            "field_date": "Campo de fecha que elige el firmante.",
+            "field_text": "Campo de texto libre.",
+            "field_number": "Campo numérico.",
+            "field_checkbox": "Casilla de verificación.",
+            "field_radio": "Opción de elección única.",
+            "field_dropdown": "Lista desplegable.",
+            "free_text": "Texto que rellenas desde el formulario.",
+            "free_date": "Empieza por «Fecha» y se trata como fecha.",
+            "free_number": "Empieza por «Numero» y se trata como número."
+          },
+          "examples": {
+            "recipient_name": "Cambia el número por cada firmante: {{NombreFirmante1}}, {{NombreFirmante2}}. Puedes repetir el mismo tantas veces como necesites.",
+            "recipient_email": "Uno por firmante: {{CorreoFirmante1}}, {{CorreoFirmante2}}.",
+            "signature": "Uno por firmante: {{FirmaFirmante1}}, {{FirmaFirmante2}}. Cada vez que lo repitas añade otro recuadro de firma para ese firmante.",
+            "initials": "{{InicialesFirmante1}} en cada página que quieras rubricar: repítelo tantas veces como haga falta.",
+            "sign_date": "{{FechaFirmaFirmante1}}. Sin número, {{FechaFirma}} equivale al firmante 1.",
+            "field_name": "{{CampoNombreFirmante1}}, {{CampoNombreFirmante2}}.",
+            "field_email": "{{CampoCorreoFirmante1}}, {{CampoCorreoFirmante2}}.",
+            "field_date": "{{CampoFechaFirmante1}}, {{CampoFechaFirmante2}}.",
+            "field_text": "{{TextoFirmante1}}. Repítelo por cada texto que deba rellenar.",
+            "field_number": "{{NumeroFirmante1}}, {{NumeroFirmante2}}.",
+            "field_checkbox": "{{CasillaFirmante1}}. Uno por cada casilla que haya que marcar.",
+            "field_radio": "{{RadioFirmante1}}. Repítelo por cada opción del grupo.",
+            "field_dropdown": "{{ListaFirmante1}} o {{DesplegableFirmante1}}.",
+            "free_text": "Ponle el nombre que quieras: {{NombreDelProyecto}}. El formulario lo pide una vez y sustituye todas sus apariciones.",
+            "free_date": "{{FechaDeInicio}}, {{FechaDeEntrega}}: el formulario muestra un selector de fecha.",
+            "free_number": "{{NumeroDeSerie}}, {{NumeroDeCuenta}}: el formulario valida que sea un número."
+          }
         }
       },
       "upload": {

@@ -825,6 +825,60 @@
           "validation_variable": "Complete {name}.",
           "version_variables": "Variables in this version",
           "version_variables_description": "Review what will be requested before preparing the contract."
+        },
+        "collabora": {
+          "deferred_commit_hint": "變更會保存為草稿；關閉時您可以選擇儲存方式。"
+        },
+        "variables": {
+          "title": "變數",
+          "subtitle": "Reserved placeholders. Copy one and paste it into the document.",
+          "copy": "Copy placeholder",
+          "groups": {
+            "recipients": "Signers",
+            "recipients_hint": "Fill the recipient list. The number selects the signer.",
+            "signing": "Signing fields",
+            "signing_hint": "Become interactive fields the signer completes in the PDF.",
+            "fields": "Other signer fields",
+            "fields_hint": "Extra data each signer fills in while signing.",
+            "free": "Free variables",
+            "free_hint": "Anything else. You fill these in a form before sending."
+          },
+          "items": {
+            "recipient_name": "Name of signer 1.",
+            "recipient_email": "Email of signer 1.",
+            "signature": "Signature box for signer 1.",
+            "initials": "Initials box for signer 1.",
+            "sign_date": "Date the signer signed, filled automatically.",
+            "field_name": "Name field the signer types in.",
+            "field_email": "Email field the signer types in.",
+            "field_date": "Date field the signer picks.",
+            "field_text": "Free text field.",
+            "field_number": "Numeric field.",
+            "field_checkbox": "Checkbox.",
+            "field_radio": "Single-choice option.",
+            "field_dropdown": "Dropdown list.",
+            "free_text": "Text you fill in from the form.",
+            "free_date": "Starts with \"Fecha\" and is treated as a date.",
+            "free_number": "Starts with \"Numero\" and is treated as a number."
+          },
+          "examples": {
+            "recipient_name": "Change the number for each signer: {{NombreFirmante1}}, {{NombreFirmante2}}. Repeat the same one as often as you need.",
+            "recipient_email": "One per signer: {{CorreoFirmante1}}, {{CorreoFirmante2}}.",
+            "signature": "One per signer: {{FirmaFirmante1}}, {{FirmaFirmante2}}. Each occurrence adds another signature box for that signer.",
+            "initials": "{{InicialesFirmante1}} on every page you want initialled — repeat it as many times as needed.",
+            "sign_date": "{{FechaFirmaFirmante1}}. Without the number, {{FechaFirma}} means signer 1.",
+            "field_name": "{{CampoNombreFirmante1}}, {{CampoNombreFirmante2}}.",
+            "field_email": "{{CampoCorreoFirmante1}}, {{CampoCorreoFirmante2}}.",
+            "field_date": "{{CampoFechaFirmante1}}, {{CampoFechaFirmante2}}.",
+            "field_text": "{{TextoFirmante1}}. Repeat it for each text the signer must fill.",
+            "field_number": "{{NumeroFirmante1}}, {{NumeroFirmante2}}.",
+            "field_checkbox": "{{CasillaFirmante1}}. One per box to tick.",
+            "field_radio": "{{RadioFirmante1}}. Repeat it for each option in the group.",
+            "field_dropdown": "{{ListaFirmante1}} or {{DesplegableFirmante1}}.",
+            "free_text": "Name it whatever you like: {{NombreDelProyecto}}. The form asks for it once and replaces every occurrence.",
+            "free_date": "{{FechaDeInicio}}, {{FechaDeEntrega}} — the form shows a date picker.",
+            "free_number": "{{NumeroDeSerie}}, {{NumeroDeCuenta}} — the form validates a number."
+          }
         }
       },
       "upload": {
