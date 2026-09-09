@@ -47,6 +47,7 @@ export const getSidebarNavigationItemIcon = (key: string, className: string = ""
       return <FileText className={cn("size-4 flex-shrink-0", className)} />;
     case "assistant":
       return <Sparkles className={cn("size-4 flex-shrink-0", className)} />;
+    case "expenses":
     case "payments":
       return <Wallet className={cn("size-4 flex-shrink-0", className)} />;
     case "music-catalog":

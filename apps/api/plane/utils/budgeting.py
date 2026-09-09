@@ -6,6 +6,7 @@
 from calendar import monthrange
 from datetime import date
 from decimal import Decimal
+from plane.utils.expense_recurrence import expense_dates
 
 CENTS = Decimal("0.01")
 FORECAST_FIELDS = ("salary", "benefits", "bonuses", "expenses", "income")
@@ -222,11 +223,13 @@ def scenario_forecast(
             variable_line["values"][(year, month)] += variable.amount * occurrences
         lines.append(variable_line)
 
+    expenses = list(expenses)
+    actual_dates = {(str(getattr(item, "series_id", "")), item.expense_date) for item in expenses}
     for expense_index, expense in enumerate(expenses):
-        if not (scenario.period_start <= expense.expense_date <= scenario.period_end):
+        if getattr(expense, "deleted_at", None) or getattr(expense, "status", None) == "CANCELLED":
             continue
         expense_id = _identifier(expense, f"expense-{expense_index}")
-        label = expense.description or expense.vendor or expense.reference or "Expense"
+        label = getattr(expense, "concept", "") or expense.description or expense.vendor or expense.reference or "Expense"
         expense_line = _line(
             f"expense:{expense_id}",
             label,
@@ -236,7 +239,16 @@ def scenario_forecast(
             "EXPENSE",
             scenario_months,
         )
-        expense_line["values"][(expense.expense_date.year, expense.expense_date.month)] = expense.amount
+        recurrence = getattr(expense, "recurrence", "ONE_TIME")
+        if getattr(expense, "recurrence_paused", False):
+            recurrence = "ONE_TIME"
+        end = min(scenario.period_end, getattr(expense, "recurrence_end", None) or scenario.period_end)
+        for occurrence in expense_dates(expense.expense_date, recurrence, end):
+            if not (scenario.period_start <= occurrence <= end):
+                continue
+            if occurrence != expense.expense_date and (expense_id, occurrence) in actual_dates:
+                continue
+            expense_line["values"][(occurrence.year, occurrence.month)] += expense.amount
         lines.append(expense_line)
 
     override_map = {

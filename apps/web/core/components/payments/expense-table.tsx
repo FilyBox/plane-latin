@@ -4,247 +4,399 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, FileText, Image as ImageIcon, Pencil, Trash2 } from "lucide-react";
-// plane imports
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Pencil, Repeat, Trash2 } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
-import type { TExpense, TExpenseStatus } from "@plane/types";
+import { Tooltip } from "@plane/propel/tooltip";
+import type { TExpense } from "@plane/types";
 import { cn } from "@plane/utils";
-// local imports
+import { useIntersectionObserver } from "@/hooks/use-intersection-observer";
+import { expenseTotals } from "@/lib/expense-ledger";
+import { documentIcon } from "./document-kind";
 import { formatMoney } from "./shared";
 
-const STATUS_STYLES: Record<TExpenseStatus, string> = {
-  PAID: "bg-success-primary/10 text-success-primary",
-  PENDING: "bg-warning-primary/10 text-warning-primary",
-  CANCELLED: "bg-layer-2 text-tertiary",
-};
-
-const STATUS_KEYS: Record<TExpenseStatus, string> = {
-  PAID: "payments.status.paid",
-  PENDING: "payments.status.pending",
-  CANCELLED: "payments.status.cancelled",
-};
-
-const PAGE_SIZES = [10, 25, 50, 100];
-
-const isImage = (type: string) => (type ?? "").startsWith("image/");
-
-/** One slot in the pager: a clickable page, or a gap ("…"). Each carries its
- *  own React key so rendering never has to fall back on the array index. */
-type PageSlot = { key: string; page: number | null };
-
-/** Compact page-number list with ellipses: 1 … 4 5 [6] 7 8 … 20 */
-const pageWindow = (current: number, total: number): PageSlot[] => {
-  if (total <= 7) {
-    return Array.from({ length: total }, (_, i) => ({ key: `p${i + 1}`, page: i + 1 }));
-  }
-  const pages = new Set<number>([1, total, current, current - 1, current + 1]);
-  const sorted = [...pages].filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
-  const out: PageSlot[] = [];
-  let previous = 0;
-  for (const page of sorted) {
-    // Each gap sits after a distinct page number, so that number keys it
-    // uniquely — no dependence on the loop index.
-    if (page - previous > 1) out.push({ key: `gap-after-${previous}`, page: null });
-    out.push({ key: `p${page}`, page });
-    previous = page;
-  }
-  return out;
-};
+/** Rows rendered per batch. The ledger is already in memory, so "loading more"
+ * is only about how much of it the browser is asked to lay out at once —
+ * the same intersection-observer flow the work item spreadsheet uses. */
+const PAGE_SIZE = 60;
+const COLUMN_COUNT = 10;
 
 type Props = {
   expenses: TExpense[];
+  group?: string;
   onEdit: (expense: TExpense) => void;
   onDelete: (expense: TExpense) => void;
-  /** The viewer pages through the whole expense, so it needs which one was clicked */
   onPreview: (expense: TExpense, index: number) => void;
+  onQuickEdit: (expense: TExpense, patch: Partial<TExpense>) => Promise<void>;
 };
 
-export function ExpenseTable(props: Props) {
-  const { expenses, onEdit, onDelete, onPreview } = props;
+function QuickCell({
+  value,
+  label,
+  onSave,
+  type = "text",
+  children,
+}: {
+  value: string;
+  label: string;
+  type?: string;
+  onSave: (value: string) => Promise<void>;
+  /** Display for the resting state. Defaults to the raw value. */
+  children?: React.ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (busy) return;
+    if (draft === value) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await onSave(draft);
+      setEditing(false);
+    } catch {
+      /* Parent reports the error; keep the draft. */
+    } finally {
+      setBusy(false);
+    }
+  };
+  return editing ? (
+    <input
+      aria-label={label}
+      autoFocus
+      type={type}
+      step={type === "number" ? "0.01" : undefined}
+      min={type === "number" ? "0" : undefined}
+      value={draft}
+      disabled={busy}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => void save()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setEditing(false);
+        }
+      }}
+      className="border-accent-primary h-7 w-full min-w-24 rounded-sm border bg-surface-1 px-2 outline-none"
+    />
+  ) : (
+    <button
+      type="button"
+      title={label}
+      onClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+      className="focus-visible:ring-accent-primary flex h-7 w-full items-center truncate rounded-sm px-1 text-left hover:bg-layer-2 focus-visible:ring-2"
+    >
+      {children ?? (value || "—")}
+    </button>
+  );
+}
+
+/** A single chip plus "+N" for the rest — what keeps a row one line tall no
+ * matter how many tags or receipts hang off it. */
+function OverflowRow({
+  items,
+  extraLabel,
+  onOverflowClick,
+}: {
+  items: { node: React.ReactNode; title: string }[];
+  extraLabel: string;
+  onOverflowClick?: () => void;
+}) {
+  if (items.length === 0) return <span className="text-tertiary">—</span>;
+  const [first, ...rest] = items;
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      {first.node}
+      {rest.length > 0 && (
+        <Tooltip tooltipContent={rest.map((item) => item.title).join(", ")}>
+          <button
+            type="button"
+            onClick={onOverflowClick}
+            aria-label={extraLabel}
+            className="shrink-0 rounded-sm border border-subtle bg-layer-2 px-1.5 py-0.5 text-10 text-secondary hover:bg-layer-1-hover"
+          >
+            +{rest.length}
+          </button>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
+export function ExpenseTable({ expenses, group = "none", onEdit, onDelete, onPreview, onQuickEdit }: Props) {
   const { t } = useTranslation();
-  const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
-  const [page, setPage] = useState(1);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [sentinel, setSentinel] = useState<HTMLTableSectionElement | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  const total = expenses.length;
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  // A new filter or ordering is a new list; start it from the top again.
+  useEffect(() => setVisibleCount(PAGE_SIZE), [expenses, group]);
 
-  // Filters change the list under our feet: clamp the page so it never points
-  // past the end (deleting the last row of page 5, say, drops us to page 4).
-  useEffect(() => {
-    setPage((current) => Math.min(current, pageCount));
-  }, [pageCount]);
+  const canLoadMore = visibleCount < expenses.length;
+  useIntersectionObserver(
+    scrollRef,
+    canLoadMore ? sentinel : null,
+    () => setVisibleCount((current) => current + PAGE_SIZE),
+    "100% 0% 100% 0%"
+  );
 
-  const pageRows = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return expenses.slice(start, start + pageSize);
-  }, [expenses, page, pageSize]);
+  const groups = useMemo(() => {
+    const result = new Map<string, TExpense[]>();
+    for (const expense of expenses.slice(0, visibleCount)) {
+      const key =
+        group === "category"
+          ? expense.category_name || "—"
+          : group === "status"
+            ? t(`payments.status.${expense.status.toLowerCase()}`)
+            : group === "tag"
+              ? expense.tags?.[0] || "—"
+              : "";
+      result.set(key, [...(result.get(key) ?? []), expense]);
+    }
+    return [...result];
+  }, [expenses, visibleCount, group, t]);
 
-  if (expenses.length === 0) {
-    return (
-      <div className="rounded-md border border-subtle px-4 py-8 text-center text-13 text-tertiary">
-        {t("payments.empty.expenses")}
-      </div>
-    );
-  }
+  // Totals always cover every filtered expense, not just the rendered window.
+  const totals = expenseTotals(expenses);
 
-  const from = (page - 1) * pageSize + 1;
-  const to = Math.min(page * pageSize, total);
+  const th =
+    "h-10 border-b border-r border-subtle bg-layer-2 px-3 text-left text-11 font-medium text-tertiary whitespace-nowrap";
+  const td = "h-11 border-b border-r border-subtle px-3 text-11 text-secondary";
 
   return (
-    <div className="space-y-2">
-      {/* The table scrolls inside its own box so the page never scrolls sideways */}
-      <div className="overflow-x-auto rounded-md border border-subtle">
-        <table className="w-full min-w-[720px] text-13">
-          <thead className="border-b border-subtle text-11 text-tertiary uppercase">
-            <tr>
-              <th className="px-3 py-2 text-left font-medium">{t("payments.fields.date")}</th>
-              <th className="px-3 py-2 text-left font-medium">{t("payments.fields.vendor")}</th>
-              <th className="px-3 py-2 text-left font-medium">{t("payments.fields.category")}</th>
-              <th className="px-3 py-2 text-left font-medium">{t("payments.fields.reference")}</th>
-              <th className="px-3 py-2 text-left font-medium">{t("payments.fields.status")}</th>
-              <th className="px-3 py-2 text-left font-medium">{t("payments.fields.documents")}</th>
-              {/* Money is right-aligned so the decimal points line up down the column */}
-              <th className="px-3 py-2 text-right font-medium">{t("payments.fields.amount")}</th>
-              <th className="w-20 px-3 py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.map((expense) => (
-              <tr key={expense.id} className="border-b border-subtle last:border-0 hover:bg-layer-1-hover">
-                <td className="px-3 py-2 whitespace-nowrap text-secondary">{expense.expense_date}</td>
-                <td className="max-w-48 truncate px-3 py-2">{expense.vendor || "—"}</td>
-                <td className="px-3 py-2 text-secondary">{expense.category_name ?? "—"}</td>
-                <td className="px-3 py-2 text-secondary">{expense.reference || "—"}</td>
-                <td className="px-3 py-2">
-                  <span className={cn("rounded-full px-2 py-0.5 text-11", STATUS_STYLES[expense.status])}>
-                    {t(STATUS_KEYS[expense.status])}
-                  </span>
-                </td>
-                {/* One chip per document — click opens the PDF/image viewer */}
-                <td className="px-3 py-2">
-                  {expense.documents.length === 0 ? (
-                    <span className="text-tertiary">—</span>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-1">
-                      {expense.documents.map((document, index) => (
-                        <button
-                          key={document.asset_id}
-                          type="button"
-                          onClick={() => onPreview(expense, index)}
-                          title={document.name}
-                          className="flex max-w-32 items-center gap-1 rounded-full bg-layer-2 px-2 py-0.5 text-11 text-secondary hover:bg-layer-1-hover hover:text-primary"
-                        >
-                          {isImage(document.type) ? (
-                            <ImageIcon className="size-3 shrink-0" />
-                          ) : (
-                            <FileText className="size-3 shrink-0" />
-                          )}
-                          <span className="truncate">{document.name}</span>
-                        </button>
-                      ))}
+    <div className="shadow-sm min-h-0 flex-1 overflow-auto rounded-lg border border-subtle bg-layer-1" ref={scrollRef}>
+      <table className="h-full w-max min-w-full border-separate border-spacing-0 text-11">
+        <thead className="sticky top-0 z-3 bg-layer-2">
+          <tr>
+            <th className={cn(th, "sticky left-0 z-4 min-w-56")}>{t("payments.sheet.concept")}</th>
+            <th className={cn(th, "min-w-28")}>{t("payments.fields.date")}</th>
+            <th className={cn(th, "min-w-32")}>{t("payments.fields.vendor")}</th>
+            <th className={cn(th, "min-w-40")}>{t("payments.fields.description")}</th>
+            <th className={cn(th, "min-w-32")}>{t("payments.fields.category")}</th>
+            <th className={cn(th, "min-w-36")}>{t("payments.ledger.tags")}</th>
+            <th className={cn(th, "min-w-32")}>{t("payments.fields.reference")}</th>
+            <th className={cn(th, "min-w-28")}>{t("payments.fields.status")}</th>
+            <th className={cn(th, "min-w-40")}>{t("payments.fields.documents")}</th>
+            <th className={cn(th, "sticky right-0 z-4 min-w-44 border-l text-right")}>
+              {t("payments.fields.amount")}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map(([key, rows]) => (
+            <Fragment key={key}>
+              {key && (
+                <tr>
+                  <td colSpan={COLUMN_COUNT} className="h-9 border-b border-subtle bg-layer-2 px-3 text-11 font-medium">
+                    <span className="sticky left-3">
+                      {key} · {rows.length}
+                    </span>
+                  </td>
+                </tr>
+              )}
+              {rows.map((expense) => (
+                <tr key={expense.id} className="group hover:bg-layer-1-hover">
+                  <td
+                    className={cn(td, "sticky left-0 z-2 max-w-64 bg-layer-1 group-hover:bg-layer-1-hover")}
+                  >
+                    <div className="flex items-center gap-1">
+                      <QuickCell
+                        value={expense.concept || expense.vendor || expense.description}
+                        label={t("payments.sheet.concept")}
+                        onSave={(concept) => onQuickEdit(expense, { concept })}
+                      >
+                        <span className="truncate font-medium text-primary">
+                          {expense.concept || expense.vendor || expense.description || "—"}
+                        </span>
+                      </QuickCell>
+                      {(expense.recurrence !== "ONE_TIME" || expense.series) && (
+                        <Repeat className="size-3.5 shrink-0 text-tertiary" aria-label={t("payments.ledger.recurring")} />
+                      )}
                     </div>
-                  )}
-                </td>
-                <td
-                  className={cn(
-                    "px-3 py-2 text-right font-medium whitespace-nowrap tabular-nums",
-                    expense.status === "CANCELLED" && "text-tertiary line-through"
-                  )}
-                >
-                  {formatMoney(expense.amount, expense.currency)}
-                </td>
-                <td className="px-3 py-2">
-                  <div className="flex items-center justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onEdit(expense)}
-                      title={t("payments.edit_expense")}
-                      className="rounded-sm p-1 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+                  </td>
+                  <td className={td}>
+                    <QuickCell
+                      value={expense.expense_date}
+                      type="date"
+                      label={t("payments.fields.date")}
+                      onSave={(expense_date) => onQuickEdit(expense, { expense_date })}
+                    />
+                  </td>
+                  <td className={cn(td, "max-w-40")}>
+                    <QuickCell
+                      value={expense.vendor}
+                      label={t("payments.fields.vendor")}
+                      onSave={(vendor) => onQuickEdit(expense, { vendor })}
+                    />
+                  </td>
+                  <td className={cn(td, "max-w-56")}>
+                    <QuickCell
+                      value={expense.description}
+                      label={t("payments.fields.description")}
+                      onSave={(description) => onQuickEdit(expense, { description })}
+                    />
+                  </td>
+                  <td className={cn(td, "max-w-40 truncate")}>{expense.category_name || "—"}</td>
+                  <td className={cn(td, "max-w-44")}>
+                    <QuickCell
+                      value={(expense.tags ?? []).join(", ")}
+                      label={t("payments.ledger.tags")}
+                      onSave={(tags) =>
+                        onQuickEdit(expense, {
+                          tags: tags
+                            .split(",")
+                            .map((tag) => tag.trim())
+                            .filter(Boolean),
+                        })
+                      }
                     >
-                      <Pencil className="size-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDelete(expense)}
-                      title={t("payments.actions.delete")}
-                      className="rounded-sm p-1 text-tertiary hover:bg-layer-1-hover hover:text-danger-primary"
+                      <OverflowRow
+                        extraLabel={t("payments.ledger.tags")}
+                        items={(expense.tags ?? []).map((tag) => ({
+                          title: tag,
+                          node: (
+                            <span className="flex min-w-0 items-center gap-1.5 rounded-sm border border-subtle bg-layer-2 px-1.5 py-0.5 text-10 text-secondary">
+                              <span className="size-1.5 shrink-0 rounded-full bg-accent-primary" />
+                              <span className="truncate">{tag}</span>
+                            </span>
+                          ),
+                        }))}
+                      />
+                    </QuickCell>
+                  </td>
+                  <td className={cn(td, "max-w-40")}>
+                    <QuickCell
+                      value={expense.reference}
+                      label={t("payments.fields.reference")}
+                      onSave={(reference) => onQuickEdit(expense, { reference })}
+                    />
+                  </td>
+                  <td className={td}>
+                    <select
+                      aria-label={t("payments.fields.status")}
+                      value={expense.status}
+                      className="h-7 rounded-sm border border-subtle bg-layer-1 px-1 text-11"
+                      onChange={(event) =>
+                        void onQuickEdit(expense, {
+                          status: event.target.value as TExpense["status"],
+                          paid_at: event.target.value === "PAID" ? expense.paid_at || expense.expense_date : null,
+                        }).catch(() => undefined)
+                      }
                     >
-                      <Trash2 className="size-4" />
-                    </button>
-                  </div>
+                      {(["PENDING", "PAID", "CANCELLED"] as const).map((status) => (
+                        <option key={status} value={status}>
+                          {t(`payments.status.${status.toLowerCase()}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className={cn(td, "max-w-44")}>
+                    <OverflowRow
+                      extraLabel={t("payments.fields.documents")}
+                      onOverflowClick={() => onPreview(expense, 1)}
+                      items={expense.documents.map((doc, index) => ({
+                        title: doc.name,
+                        node: (
+                          <button
+                            type="button"
+                            onClick={() => onPreview(expense, index)}
+                            title={doc.name}
+                            className="flex min-w-0 max-w-32 items-center gap-1.5 rounded-sm border border-subtle bg-layer-1 py-0.5 pr-2 pl-1 hover:bg-layer-2"
+                          >
+                            <span className="size-4 shrink-0">{documentIcon(doc.name, 16)}</span>
+                            <span className="truncate">{doc.name}</span>
+                          </button>
+                        ),
+                      }))}
+                    />
+                  </td>
+                  <td className={cn(td, "sticky right-0 z-2 border-l bg-layer-1 group-hover:bg-layer-1-hover")}>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onEdit(expense)}
+                        className={cn(
+                          "font-semibold whitespace-nowrap tabular-nums",
+                          expense.status === "CANCELLED" ? "text-tertiary line-through" : "text-primary"
+                        )}
+                      >
+                        {formatMoney(expense.amount, expense.currency)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onEdit(expense)}
+                        aria-label={t("payments.edit_expense")}
+                        className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-layer-2 focus:opacity-100"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(expense)}
+                        aria-label={t("payments.actions.delete")}
+                        className="rounded p-1 opacity-0 group-hover:opacity-100 hover:text-danger-primary focus:opacity-100"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </Fragment>
+          ))}
+          {/* Absorbs the leftover height so the totals row stays welded to the
+              bottom edge even when the ledger holds a single expense. */}
+          <tr aria-hidden="true" className="h-full">
+            <td colSpan={COLUMN_COUNT} />
+          </tr>
+        </tbody>
+        {canLoadMore && (
+          <tbody ref={setSentinel}>
+            {Array.from({ length: 3 }).map((_, index) => (
+              <tr key={index} className="animate-pulse">
+                <td colSpan={COLUMN_COUNT} className="h-11 border-b border-subtle px-3">
+                  <span className="block h-3 w-40 rounded bg-layer-2" />
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
-      </div>
-
-      {/* Pagination bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-11 text-tertiary">
-        <div className="flex items-center gap-2">
-          <span>{t("payments.pagination.per_page")}</span>
-          <select
-            className="focus:border-accent-primary h-7 rounded-sm border border-subtle bg-layer-1 px-1.5 text-11 outline-none"
-            value={pageSize}
-            onChange={(event) => {
-              setPageSize(Number(event.target.value));
-              setPage(1);
-            }}
-          >
-            {PAGE_SIZES.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-          <span className="tabular-nums">
-            {from}–{to} {t("payments.pagination.of")} {total}
-          </span>
-        </div>
-
-        {pageCount > 1 && (
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              disabled={page === 1}
-              className="flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover disabled:opacity-40"
-              aria-label={t("payments.pagination.previous")}
-            >
-              <ChevronLeft className="size-4" />
-            </button>
-            {pageWindow(page, pageCount).map((slot) =>
-              slot.page === null ? (
-                <span key={slot.key} className="px-1.5">
-                  …
-                </span>
-              ) : (
-                <button
-                  key={slot.key}
-                  type="button"
-                  onClick={() => setPage(slot.page as number)}
-                  className={cn(
-                    "min-w-7 rounded-sm px-2 py-1 tabular-nums hover:bg-layer-1-hover",
-                    slot.page === page ? "bg-accent-primary/10 font-medium text-accent-primary" : ""
-                  )}
-                >
-                  {slot.page}
-                </button>
-              )
-            )}
-            <button
-              type="button"
-              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-              disabled={page === pageCount}
-              className="flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover disabled:opacity-40"
-              aria-label={t("payments.pagination.next")}
-            >
-              <ChevronRight className="size-4" />
-            </button>
-          </div>
         )}
-      </div>
+        <tfoot className="sticky bottom-0 z-3 bg-layer-2">
+          {totals.map((total, index) => (
+            <tr key={total.currency}>
+              <td className="sticky left-0 z-4 h-11 border-t border-r border-subtle bg-layer-2 px-3 font-semibold text-primary">
+                {t("payments.ledger.total")} · {total.currency}
+              </td>
+              <td colSpan={COLUMN_COUNT - 2} className="border-t border-r border-subtle px-3 text-10 text-tertiary">
+                <span className="sticky left-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+                  {index === 0 && (
+                    <span className="font-medium text-secondary">
+                      {expenses.length} {t("payments.expenses").toLowerCase()}
+                    </span>
+                  )}
+                  <span>
+                    {t("payments.ledger.paid")}: {formatMoney(total.paid, total.currency)}
+                  </span>
+                  <span>
+                    {t("payments.ledger.pending")}: {formatMoney(total.pending, total.currency)}
+                  </span>
+                  {index === 0 && <span className="hidden lg:inline">{t("payments.ledger.totals_help")}</span>}
+                </span>
+              </td>
+              <td className="sticky right-0 z-4 h-11 border-t border-l border-subtle bg-layer-2 px-3 text-right font-semibold text-primary tabular-nums">
+                {formatMoney(total.total, total.currency)}
+              </td>
+            </tr>
+          ))}
+        </tfoot>
+      </table>
     </div>
   );
 }

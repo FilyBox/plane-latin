@@ -23,6 +23,18 @@ import type {
 import { APIService } from "@/services/api.service";
 import { exportBudgetForecast } from "@/lib/budget-export";
 
+export type TExpenseImport = {
+  id: string;
+  asset_id: string;
+  name: string;
+  status: "QUEUED" | "RUNNING" | "READY" | "FAILED" | "IMPORTED";
+  stage: string;
+  error: string;
+  data: Partial<TExpense> & { warnings?: string[] };
+  expense_id: string | null;
+  created_at: string;
+};
+
 export class FinanceService extends APIService {
   constructor() {
     super(API_BASE_URL);
@@ -362,6 +374,33 @@ export class FinanceService extends APIService {
   async deleteExpense(workspaceSlug: string, expenseId: string): Promise<void> {
     return this.delete(`/api/workspaces/${workspaceSlug}/expenses/${expenseId}/`)
       .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async generateExpenses(slug: string): Promise<void> {
+    await this.post(`/api/workspaces/${slug}/expenses/generate/`, {});
+  }
+  async getExpenseImports(slug: string): Promise<TExpenseImport[]> {
+    return this.get(`/api/workspaces/${slug}/expense-imports/`).then((response) => response.data);
+  }
+  async startExpenseImports(slug: string, asset_ids: string[]): Promise<TExpenseImport[]> {
+    return this.post(`/api/workspaces/${slug}/expense-imports/`, { asset_ids })
+      .then((response) => response.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+  async retryExpenseImport(slug: string, id: string): Promise<void> {
+    await this.post(`/api/workspaces/${slug}/expense-imports/${id}/`, { action: "retry" });
+  }
+  async discardExpenseImport(slug: string, id: string): Promise<void> {
+    await this.delete(`/api/workspaces/${slug}/expense-imports/${id}/`);
+  }
+  async confirmExpenseImport(slug: string, id: string, expense: Partial<TExpense>): Promise<TExpense> {
+    return this.post(`/api/workspaces/${slug}/expense-imports/${id}/`, { expense })
+      .then((response) => response.data)
       .catch((error) => {
         throw error?.response?.data;
       });

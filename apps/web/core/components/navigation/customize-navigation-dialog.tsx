@@ -80,7 +80,7 @@ export const CustomizeNavigationDialog = observer(function CustomizeNavigationDi
   const filteredPersonalItems = PERSONAL_ITEMS;
 
   // Filter workspace items by permissions and feature flags, then get pinned/unpinned items
-  const workspaceItems = useMemo(() => {
+  const workspaceItems = (() => {
     const slug = workspaceSlug?.toString() || "";
     const items = WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS.filter((item) => {
       // Permission check
@@ -89,7 +89,7 @@ export const CustomizeNavigationDialog = observer(function CustomizeNavigationDi
       if ((item.key === "file-library" || item.key === "contracts") && !isWorkspaceFeatureEnabled(slug, "file_library"))
         return false;
       // "payments" is likewise gated by its own per-workspace feature flag
-      if (item.key === "payments" && !isWorkspaceFeatureEnabled(slug, "payments")) return false;
+      if (["payments", "expenses"].includes(item.key) && !isWorkspaceFeatureEnabled(slug, "payments")) return false;
       if (item.key === "music-catalog" && !isWorkspaceFeatureEnabled(slug, "music_catalog")) return false;
       if (
         item.key === "assistant" &&
@@ -113,7 +113,7 @@ export const CustomizeNavigationDialog = observer(function CustomizeNavigationDi
     });
 
     return items.sort((a, b) => a.sortOrder - b.sortOrder);
-  }, [workspaceSlug, allowPermissions, workspacePreferences, isWorkspaceFeatureEnabled]);
+  })();
 
   // Handle checkbox toggle
   const handleWorkspaceItemToggle = useCallback(

@@ -76,11 +76,13 @@ def _scenario_forecast_data(scenario):
     variables = BudgetScenarioVariable.objects.filter(scenario=scenario).select_related(
         "variable__office"
     )
-    expenses = Expense.objects.filter(
+    expenses = Expense.all_objects.filter(
         workspace_id=scenario.workspace_id,
-        expense_date__gte=scenario.period_start,
         expense_date__lte=scenario.period_end,
-    ).exclude(status=Expense.Status.CANCELLED).select_related("category")
+    ).filter(
+        Q(expense_date__gte=scenario.period_start)
+        | (Q(series__isnull=True) & ~Q(recurrence="ONE_TIME"))
+    ).filter(Q(deleted_at__isnull=True) | Q(series__isnull=False)).select_related("category")
     overrides = BudgetCellOverride.objects.filter(scenario=scenario)
     return scenario_forecast(scenario, employees, variables, expenses, overrides)
 
@@ -701,14 +703,14 @@ class ExpenseEndpoint(FinanceBaseView):
         search = request.query_params.get("search")
         if search:
             expenses = expenses.filter(
-                Q(vendor__icontains=search) | Q(description__icontains=search) | Q(reference__icontains=search)
+                Q(concept__icontains=search) | Q(vendor__icontains=search) | Q(description__icontains=search) | Q(reference__icontains=search)
             )
         return Response(ExpenseSerializer(expenses, many=True).data, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         workspace = Workspace.objects.get(slug=slug)
-        serializer = ExpenseSerializer(data=request.data)
+        serializer = ExpenseSerializer(data=request.data, context={"workspace_id": workspace.id})
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         serializer.save(workspace_id=workspace.id)

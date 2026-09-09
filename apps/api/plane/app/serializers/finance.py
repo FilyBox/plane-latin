@@ -244,11 +244,18 @@ class ExpenseSerializer(BaseSerializer):
     # Denormalized for the table so it doesn't need a second round-trip
     category_name = serializers.CharField(source="category.name", read_only=True, default=None)
     documents = serializers.SerializerMethodField()
+    tags = serializers.ListField(child=serializers.CharField(max_length=50), max_length=20, required=False)
 
     class Meta:
         model = Expense
         fields = [
             "id",
+            "concept",
+            "tags",
+            "recurrence",
+            "recurrence_end",
+            "recurrence_paused",
+            "series",
             "category",
             "category_name",
             "project",
@@ -265,7 +272,33 @@ class ExpenseSerializer(BaseSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["workspace_id", "created_at", "updated_at"]
+        read_only_fields = ["workspace_id", "created_at", "updated_at", "series"]
+
+    def validate(self, data):
+        workspace_id = self.context.get("workspace_id") or getattr(self.instance, "workspace_id", None)
+        for field in ("category", "project"):
+            related = data.get(field)
+            if related and related.workspace_id != workspace_id:
+                raise serializers.ValidationError({field: "Must belong to this workspace"})
+        start = data.get("expense_date", getattr(self.instance, "expense_date", None))
+        end = data.get("recurrence_end", getattr(self.instance, "recurrence_end", None))
+        if start and end and end < start:
+            raise serializers.ValidationError({"recurrence_end": "Must be on or after the first expense"})
+        if self.instance and self.instance.series_id and data.get("recurrence", "ONE_TIME") != "ONE_TIME":
+            raise serializers.ValidationError({"recurrence": "Edit the original expense to change the series"})
+        if self.instance and "recurrence" in data and data["recurrence"] != self.instance.recurrence:
+            if Expense.all_objects.filter(series=self.instance).exists():
+                raise serializers.ValidationError({"recurrence": "Pause this series and create a new one to change its frequency"})
+        if self.instance and self.instance.recurrence != "ONE_TIME" and start != self.instance.expense_date:
+            raise serializers.ValidationError({"expense_date": "The first date of a series cannot be changed"})
+        if "tags" in data:
+            data["tags"] = list(dict.fromkeys(tag.strip() for tag in data["tags"] if tag.strip()))
+        currency = data.get("currency")
+        if currency and (len(currency) != 3 or not currency.isalpha()):
+            raise serializers.ValidationError({"currency": "Use a three-letter currency code"})
+        if currency:
+            data["currency"] = currency.upper()
+        return data
 
     def get_documents(self, obj):
         """Enough for the row's chips and the preview modal (which needs the

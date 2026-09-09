@@ -5,13 +5,13 @@
 
 import { useMemo, useState } from "react";
 import {
-  ArrowLeft,
   BriefcaseBusiness,
   CalendarDays,
   Download,
   Edit3,
   FileSpreadsheet,
   Library,
+  MoreHorizontal,
   Plus,
   ReceiptText,
   Settings2,
@@ -23,6 +23,7 @@ import {
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
+import { Menu } from "@plane/propel/menu";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type {
   TBudgetScenario,
@@ -56,12 +57,11 @@ type ResourceSection = "people" | "variables" | "expenses";
 type Props = {
   workspaceSlug: string;
   scenario: TBudgetScenario;
-  onBack: () => void;
   onChanged: (scenario: TBudgetScenario) => void;
   onDeleted: () => void;
 };
 
-export function BudgetScenarioDetail({ workspaceSlug, scenario, onBack, onChanged, onDeleted }: Props) {
+export function BudgetScenarioDetail({ workspaceSlug, scenario, onChanged, onDeleted }: Props) {
   const { t } = useTranslation();
   const [panel, setPanel] = useState<Panel | null>(null);
   const [sheetRefreshToken, setSheetRefreshToken] = useState(0);
@@ -121,77 +121,64 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onBack, onChange
         content={t("payments.scenarios.delete_description")}
       />
 
-      <div className="border-b border-subtle bg-surface-1 px-3 py-3 sm:px-5 sm:py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <button
-              type="button"
-              onClick={onBack}
-              className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-sm border border-subtle bg-layer-1 text-secondary hover:bg-layer-1-hover hover:text-primary"
-              title={t("payments.scenarios.back")}
-            >
-              <ArrowLeft className="size-4" />
-            </button>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-18 font-semibold text-primary">{scenario.name}</h1>
-                <span className="rounded-full bg-layer-2 px-2 py-0.5 text-10 font-medium text-secondary">
-                  {t(`payments.scenarios.status.${scenario.status.toLowerCase()}`)}
-                </span>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-11 text-tertiary">
-                <span className="flex items-center gap-1.5">
-                  <CalendarDays className="size-3" /> {scenario.period_start} / {scenario.period_end}
-                </span>
-                <span>{scenario.currency}</span>
-                <span>{scenario.fiscal_year}</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <Button variant="primary" size="xl" onClick={() => setPanel("compose")}>
-              <Plus className="size-4" />
+      <BudgetSpreadsheet
+        workspaceSlug={workspaceSlug}
+        scenario={scenario}
+        refreshToken={sheetRefreshToken}
+        onCompose={() => setPanel("compose")}
+        meta={
+          <span className="hidden items-center gap-1.5 text-11 whitespace-nowrap text-tertiary md:flex">
+            <CalendarDays className="size-3" />
+            {scenario.period_start} / {scenario.period_end} · {scenario.currency}
+          </span>
+        }
+        actions={
+          <>
+            <Button variant="primary" size="sm" onClick={() => setPanel("compose")}>
+              <Plus className="size-3.5" />
               {t("payments.composer.open")}
             </Button>
-            <Button variant="secondary" size="xl" onClick={() => setPanel("resources")}>
-              <Library className="size-4" />
+            <Button variant="secondary" size="sm" onClick={() => setPanel("resources")}>
+              <Library className="size-3.5" />
               {t("payments.composer.resources")}
             </Button>
-            <div className="flex items-center rounded-md border border-subtle bg-layer-1">
-              <button
-                type="button"
-                disabled={isExporting}
-                onClick={() => void handleExport("xlsx")}
-                className="flex h-8 items-center gap-1.5 border-r border-subtle px-2.5 text-11 text-secondary hover:bg-layer-1-hover disabled:opacity-50"
-              >
-                <FileSpreadsheet className="size-3.5" /> XLSX
-              </button>
-              <button
-                type="button"
-                disabled={isExporting}
-                onClick={() => void handleExport("csv")}
-                className="flex h-8 items-center gap-1.5 px-2.5 text-11 text-secondary hover:bg-layer-1-hover disabled:opacity-50"
-              >
-                <Download className="size-3.5" /> CSV
-              </button>
-            </div>
-            <Button variant="secondary" size="xl" onClick={() => setIsEditOpen(true)}>
-              <Settings2 className="size-4" />
-              {t("payments.scenarios.settings")}
-            </Button>
-            <button
-              type="button"
-              onClick={() => setIsDeleteOpen(true)}
-              className="flex size-8 items-center justify-center rounded-md border border-strong bg-layer-2 text-tertiary shadow-raised-100 hover:bg-danger-primary/10 hover:text-danger-primary"
-              title={t("payments.actions.delete")}
+            <Menu
+              customButton={
+                <span className="flex size-8 items-center justify-center rounded-md border border-subtle text-secondary hover:bg-layer-1-hover">
+                  <MoreHorizontal className="size-4" />
+                </span>
+              }
+              optionsClassName="w-56"
+              ariaLabel={t("payments.ledger.more_actions")}
             >
-              <Trash2 className="size-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <BudgetSpreadsheet workspaceSlug={workspaceSlug} scenario={scenario} refreshToken={sheetRefreshToken} />
+              <Menu.MenuItem onClick={() => setIsEditOpen(true)}>
+                <span className="flex items-center gap-2 text-12">
+                  <Settings2 className="size-3.5" />
+                  {t("payments.scenarios.settings")}
+                </span>
+              </Menu.MenuItem>
+              <Menu.MenuItem disabled={isExporting} onClick={() => void handleExport("xlsx")}>
+                <span className="flex items-center gap-2 text-12">
+                  <FileSpreadsheet className="size-3.5" />
+                  {t("payments.sheet.export_xlsx")}
+                </span>
+              </Menu.MenuItem>
+              <Menu.MenuItem disabled={isExporting} onClick={() => void handleExport("csv")}>
+                <span className="flex items-center gap-2 text-12">
+                  <Download className="size-3.5" />
+                  {t("payments.sheet.export_csv")}
+                </span>
+              </Menu.MenuItem>
+              <Menu.MenuItem onClick={() => setIsDeleteOpen(true)}>
+                <span className="flex items-center gap-2 text-12 text-danger-primary">
+                  <Trash2 className="size-3.5" />
+                  {t("payments.actions.delete")}
+                </span>
+              </Menu.MenuItem>
+            </Menu>
+          </>
+        }
+      />
 
       {panel && (
         <BudgetPeekPanel

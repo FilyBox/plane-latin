@@ -62,7 +62,7 @@ export const CURRENCIES = ["MXN", "USD", "EUR"];
 export const getApiErrorMessage = (error: unknown): string | undefined => {
   if (!error || typeof error !== "object") return typeof error === "string" ? error : undefined;
   const data = error as Record<string, unknown>;
-  for (const key of ["error", "detail", "name", "fiscal_year", "period_start", "period_end", "effective_from"]) {
+  for (const key of ["error", "detail", "amount", "concept", "currency", "expense_date", "recurrence_end", "recurrence", "tags", "category", "project", "name", "fiscal_year", "period_start", "period_end", "effective_from"]) {
     const value = data[key];
     if (typeof value === "string" && value) return value;
     if (Array.isArray(value) && typeof value[0] === "string") return value[0];

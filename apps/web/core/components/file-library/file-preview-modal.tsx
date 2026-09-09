@@ -14,6 +14,8 @@ import { CsvViewer, DocxViewerPreview, PDFViewer, XlsxViewerPreview } from "@pla
 import { useTranslation } from "@plane/i18n";
 import { EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
+// components
+import { XmlViewer } from "@/components/common/xml-viewer";
 // hooks
 import { useFileLibrary } from "@/hooks/store/use-file-library";
 // services
@@ -33,7 +35,7 @@ export type TPreviewFile = {
   contentType: string;
 };
 
-type ViewerKind = "image" | "pdf" | "xlsx" | "docx" | "csv" | "none";
+type ViewerKind = "image" | "pdf" | "xlsx" | "docx" | "csv" | "xml" | "none";
 
 const ext = (name: string) => name.slice(name.lastIndexOf(".") + 1).toLowerCase();
 
@@ -43,6 +45,7 @@ function viewerKind(file: TPreviewFile): ViewerKind {
   if (type.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"].includes(e))
     return "image";
   if (type === "application/pdf" || e === "pdf") return "pdf";
+  if (type.includes("xml") || e === "xml") return "xml";
   if (type.includes("spreadsheetml") || type.includes("ms-excel") || ["xlsx", "xls"].includes(e)) return "xlsx";
   if (type.includes("wordprocessingml") || type.includes("msword") || ["docx", "doc"].includes(e)) return "docx";
   if (type === "text/csv" || type === "text/tab-separated-values" || ["csv", "tsv"].includes(e)) return "csv";
@@ -100,7 +103,8 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
           : await getPresignedViewUrl(workspaceSlug, file.assetId);
         if (cancelled) return;
         setUrl(presigned);
-        if (viewerKind(file) === "csv") {
+        const fetchedKind = viewerKind(file);
+        if (fetchedKind === "csv" || fetchedKind === "xml") {
           const res = await fetch(presigned);
           const text = await res.text();
           if (!cancelled) setCsvData(text);
@@ -124,7 +128,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
 
   const renderBody = () => {
     if (!file) return null;
-    if (isLoading || (kind === "csv" && csvData === null && !error)) {
+    if (isLoading || ((kind === "csv" || kind === "xml") && csvData === null && !error)) {
       return (
         <div className="flex h-full items-center justify-center">
           <Loader2 className="size-6 animate-spin text-tertiary" />
@@ -171,6 +175,8 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
         );
       case "csv":
         return <CsvViewer data={csvData ?? ""} showActions={false} className="h-full" />;
+      case "xml":
+        return <XmlViewer data={csvData ?? ""} className="h-full" />;
       default:
         return (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-tertiary">

@@ -98,7 +98,7 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
         // feature flag rather than a role; hide them entirely (from sidebar and
         // pin dialog alike) when the module is off for this workspace.
         .filter((item) => (item.key !== "file-library" && item.key !== "contracts") || isFileLibraryEnabled)
-        .filter((item) => item.key !== "payments" || isPaymentsEnabled)
+        .filter((item) => !["payments", "expenses"].includes(item.key) || isPaymentsEnabled)
         .filter((item) => item.key !== "music-catalog" || isMusicCatalogEnabled)
         .filter((item) => item.key !== "assistant" || isFileLibraryEnabled || isMusicCatalogEnabled)
         .map((item) => {

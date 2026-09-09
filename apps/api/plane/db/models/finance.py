@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+import uuid
+
 from django.db import models
 from django.db.models import Q
 
@@ -334,10 +336,17 @@ class Expense(BaseModel):
     reference = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     paid_at = models.DateField(null=True, blank=True)
+    concept = models.CharField(max_length=255, blank=True)
+    tags = models.JSONField(default=list, blank=True)
+    recurrence = models.CharField(max_length=20, choices=FinancialVariable.Recurrence.choices, default="ONE_TIME")
+    recurrence_end = models.DateField(null=True, blank=True)
+    recurrence_paused = models.BooleanField(default=False)
+    series = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="occurrences")
 
     class Meta:
         constraints = [
             models.CheckConstraint(check=Q(amount__gte=0), name="expense_amount_not_negative"),
+            models.UniqueConstraint(fields=["series", "expense_date"], name="unique_expense_occurrence"),
         ]
         verbose_name = "Expense"
         verbose_name_plural = "Expenses"
@@ -350,6 +359,22 @@ class Expense(BaseModel):
 
     def __str__(self):
         return f"{self.vendor or self.reference or 'expense'}: {self.amount} {self.currency}"
+
+
+class ExpenseImport(BaseModel):
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE)
+    asset = models.ForeignKey("db.FileAsset", on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, default="QUEUED")
+    stage = models.CharField(max_length=255, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    attempt = models.UUIDField(default=uuid.uuid4)
+    expense = models.ForeignKey("db.Expense", on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        db_table = "expense_imports"
+        ordering = ("-created_at",)
+        constraints = [models.UniqueConstraint(fields=["workspace", "asset"], name="unique_expense_import_asset")]
 
 
 class ExpenseDocument(BaseModel):

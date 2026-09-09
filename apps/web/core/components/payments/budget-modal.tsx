@@ -11,9 +11,10 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TBudget, TExpenseCategory } from "@plane/types";
-import { AlertModalCore, EModalPosition, EModalWidth, Input, ModalCore } from "@plane/ui";
+import { AlertModalCore, Input } from "@plane/ui";
 // services
 import { financeService } from "@/services/finance.service";
+import { PaymentsSidePanel } from "./side-panel";
 // local imports
 import { CURRENCIES } from "./shared";
 
@@ -136,11 +137,20 @@ export function BudgetModal(props: Props) {
         content={t("payments.delete_budget_description")}
       />
 
-      <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.XL}>
-        <div className="p-4">
-          <h3 className="text-15 mb-4 font-medium">{t(isEditing ? "payments.edit_budget" : "payments.new_budget")}</h3>
-
-          <div className="grid grid-cols-2 gap-3">
+      <PaymentsSidePanel
+        isOpen={isOpen}
+        onClose={onClose}
+        width="lg"
+        title={t(isEditing ? "payments.edit_budget" : "payments.new_budget")}
+      >
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSubmit();
+          }}
+        >
+          <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-3 overflow-y-auto px-5 py-4">
             <div className="col-span-2">
               <label className={LABEL}>{t("payments.fields.category")}</label>
               <select className={FIELD} value={category} onChange={(event) => setCategory(event.target.value)}>
@@ -195,7 +205,7 @@ export function BudgetModal(props: Props) {
             </div>
           </div>
 
-          <div className="mt-5 flex items-center justify-between gap-2">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-subtle bg-surface-1 px-5 py-3">
             {isEditing ? (
               <button
                 type="button"
@@ -209,13 +219,13 @@ export function BudgetModal(props: Props) {
               <span />
             )}
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={onClose}>
+              <Button type="button" variant="secondary" size="sm" onClick={onClose}>
                 {t("payments.actions.cancel")}
               </Button>
               <Button
+                type="submit"
                 variant="primary"
                 size="sm"
-                onClick={() => void handleSubmit()}
                 loading={isSubmitting}
                 disabled={!category || !amount.trim() || isPeriodInverted}
               >
@@ -223,8 +233,8 @@ export function BudgetModal(props: Props) {
               </Button>
             </div>
           </div>
-        </div>
-      </ModalCore>
+        </form>
+      </PaymentsSidePanel>
     </>
   );
 }
