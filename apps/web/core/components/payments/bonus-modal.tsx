@@ -8,8 +8,9 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TBudgetScenario, TBudgetScenarioEmployee } from "@plane/types";
-import { EModalPosition, EModalWidth, Input, ModalCore } from "@plane/ui";
+import { Input } from "@plane/ui";
 import { financeService } from "@/services/finance.service";
+import { PaymentsSidePanel } from "./side-panel";
 
 const FIELD =
   "h-9 w-full rounded-sm border border-subtle bg-layer-1 px-2.5 text-13 outline-none focus:border-accent-primary";
@@ -68,13 +69,21 @@ export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, 
   };
 
   return (
-    <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.LG}>
-      <div className="p-5">
-        <h2 className="text-16 font-semibold text-primary">{t("payments.bonuses.create")}</h2>
-        <p className="mt-1 text-12 text-tertiary">
-          {assignment?.employee_name} / {assignment?.office_name}
-        </p>
-        <div className="mt-5 space-y-4">
+    <PaymentsSidePanel
+      isOpen={isOpen}
+      onClose={onClose}
+      width="lg"
+      title={t("payments.bonuses.create")}
+      description={`${assignment?.employee_name ?? ""} / ${assignment?.office_name ?? ""}`}
+    >
+      <form
+        className="flex min-h-0 flex-1 flex-col"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSubmit();
+        }}
+      >
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
           <div>
             <label className={LABEL}>{t("payments.fields.name")}</label>
             <Input value={name} onChange={(event) => setName(event.target.value)} />
@@ -140,21 +149,21 @@ export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, 
             </div>
           </div>
         </div>
-        <div className="mt-6 flex justify-end gap-2">
-          <Button variant="secondary" size="sm" onClick={onClose}>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-subtle bg-surface-1 px-5 py-3">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             {t("payments.actions.cancel")}
           </Button>
           <Button
+            type="submit"
             variant="primary"
             size="sm"
             loading={isSubmitting}
             disabled={!name.trim() || !value || effectiveTo < effectiveFrom}
-            onClick={() => void handleSubmit()}
           >
             {t("payments.actions.save")}
           </Button>
         </div>
-      </div>
-    </ModalCore>
+      </form>
+    </PaymentsSidePanel>
   );
 }

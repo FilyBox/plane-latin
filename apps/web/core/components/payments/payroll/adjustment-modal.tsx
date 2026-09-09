@@ -10,9 +10,10 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TAdjustment, TAdjustmentKind, TOffice } from "@plane/types";
-import { EModalPosition, EModalWidth, Input, ModalCore } from "@plane/ui";
+import { Input } from "@plane/ui";
 // services
 import { payrollService } from "@/services/payroll.service";
+import { PaymentsSidePanel } from "../side-panel";
 // local imports
 import { ADJUSTMENT_KINDS, CURRENCIES, FIELD, LABEL, todayIso } from "./shared";
 
@@ -75,101 +76,111 @@ export function AdjustmentModal(props: Props) {
   };
 
   return (
-    <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.XL}>
-      <div className="p-4">
-        <h3 className="text-15 mb-4 font-medium">{t("payroll.employees.new_adjustment")}</h3>
+    <PaymentsSidePanel
+      isOpen={isOpen}
+      onClose={onClose}
+      width="lg"
+      title={t("payroll.employees.new_adjustment")}
+    >
+      <form
+        className="flex min-h-0 flex-1 flex-col"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSubmit();
+        }}
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className={LABEL}>{t("payroll.fields.kind")}</label>
+              <div className="flex gap-1.5">
+                {ADJUSTMENT_KINDS.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setKind(item)}
+                    className={`h-8 flex-1 rounded-sm border text-12 ${
+                      kind === item
+                        ? "border-accent-primary text-accent-primary"
+                        : "border-subtle text-secondary hover:bg-layer-1-hover"
+                    }`}
+                  >
+                    {t(`payroll.kinds.${item.toLowerCase()}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <label className={LABEL}>{t("payroll.fields.kind")}</label>
-            <div className="flex gap-1.5">
-              {ADJUSTMENT_KINDS.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setKind(item)}
-                  className={`h-8 flex-1 rounded-sm border text-12 ${
-                    kind === item
-                      ? "border-accent-primary text-accent-primary"
-                      : "border-subtle text-secondary hover:bg-layer-1-hover"
-                  }`}
-                >
-                  {t(`payroll.kinds.${item.toLowerCase()}`)}
-                </button>
-              ))}
+            <div>
+              <label className={LABEL}>{t("payroll.fields.amount")}</label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="0.00"
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className={LABEL}>{t("payroll.fields.currency")}</label>
+              <select className={FIELD} value={currency} onChange={(event) => setCurrency(event.target.value)}>
+                {CURRENCIES.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={LABEL}>{t("payroll.fields.office")}</label>
+              <select className={FIELD} value={office} onChange={(event) => setOffice(event.target.value)}>
+                <option value="">—</option>
+                {offices.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={LABEL}>{t("payroll.fields.date")}</label>
+              <input
+                type="date"
+                className={FIELD}
+                value={effectiveDate}
+                onChange={(event) => setEffectiveDate(event.target.value)}
+              />
+            </div>
+
+            <div className="col-span-2">
+              <label className={LABEL}>{t("payroll.fields.description")}</label>
+              <textarea
+                className={FIELD}
+                rows={2}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
             </div>
           </div>
-
-          <div>
-            <label className={LABEL}>{t("payroll.fields.amount")}</label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder="0.00"
-              className="w-full"
-            />
-          </div>
-          <div>
-            <label className={LABEL}>{t("payroll.fields.currency")}</label>
-            <select className={FIELD} value={currency} onChange={(event) => setCurrency(event.target.value)}>
-              {CURRENCIES.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className={LABEL}>{t("payroll.fields.office")}</label>
-            <select className={FIELD} value={office} onChange={(event) => setOffice(event.target.value)}>
-              <option value="">—</option>
-              {offices.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL}>{t("payroll.fields.date")}</label>
-            <input
-              type="date"
-              className={FIELD}
-              value={effectiveDate}
-              onChange={(event) => setEffectiveDate(event.target.value)}
-            />
-          </div>
-
-          <div className="col-span-2">
-            <label className={LABEL}>{t("payroll.fields.description")}</label>
-            <textarea
-              className={FIELD}
-              rows={2}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
         </div>
-
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" size="sm" onClick={onClose}>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-subtle bg-surface-1 px-5 py-3">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             {t("payroll.actions.cancel")}
           </Button>
           <Button
+            type="submit"
             variant="primary"
             size="sm"
-            onClick={() => void handleSubmit()}
             loading={isSubmitting}
             disabled={!amount.trim()}
           >
             {t("payroll.actions.save")}
           </Button>
         </div>
-      </div>
-    </ModalCore>
+      </form>
+    </PaymentsSidePanel>
   );
 }

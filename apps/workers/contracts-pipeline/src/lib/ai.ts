@@ -1,3 +1,5 @@
+type AIEnvironment = Pick<Env, "AI_PROVIDER" | "CHAT_DEFAULT_MODEL" | "DEEPSEEK_API_KEY" | "DEEPSEEK_MODEL" | "DEEPSEEK_MODEL_LIST" | "EMBEDDING_DIMENSIONS" | "GEMINI_MODEL_FALLBACK_LIST" | "GOOGLE_GENERATIVE_AI_API_KEY" | "OPENAI_API_KEY" | "OPENAI_EMBEDDING_MODEL">;
+
 /**
  * AI provider layer — raw fetch against the providers' REST endpoints (no
  * Node SDKs; the Workers runtime is a V8 isolate). Base provider and models
@@ -22,7 +24,7 @@ export type StructuredJsonResult = { text: string; model: string };
 const isRetryableGeminiError = (status: number, body: string): boolean =>
   status === 429 || status === 503 || /UNAVAILABLE|overloaded|RESOURCE_EXHAUSTED/i.test(body);
 
-async function callGemini(env: Env, model: string, req: StructuredJsonRequest): Promise<string> {
+async function callGemini(env: AIEnvironment, model: string, req: StructuredJsonRequest): Promise<string> {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GOOGLE_GENERATIVE_AI_API_KEY}`,
     {
@@ -51,7 +53,7 @@ async function callGemini(env: Env, model: string, req: StructuredJsonRequest): 
   return text;
 }
 
-async function callDeepseek(env: Env, req: StructuredJsonRequest): Promise<string> {
+async function callDeepseek(env: AIEnvironment, req: StructuredJsonRequest): Promise<string> {
   // DeepSeek JSON mode: response_format json_object, single object only, and
   // the word "json" must appear in the prompt (https://api-docs.deepseek.com/guides/json_mode)
   const keysHint =
@@ -84,7 +86,7 @@ async function callDeepseek(env: Env, req: StructuredJsonRequest): Promise<strin
 }
 
 /** Walks the Gemini fallback chain; throws (with the last error) if all fail. */
-async function geminiChainStructuredJson(env: Env, req: StructuredJsonRequest): Promise<StructuredJsonResult> {
+async function geminiChainStructuredJson(env: AIEnvironment, req: StructuredJsonRequest): Promise<StructuredJsonResult> {
   const models = (env.GEMINI_MODEL_FALLBACK_LIST || "")
     .split(",")
     .map((m) => m.trim())
@@ -109,7 +111,7 @@ async function geminiChainStructuredJson(env: Env, req: StructuredJsonRequest): 
  * the raw JSON text + model used. Each provider falls back to the other as a
  * last resort, so a provider outage doesn't fail the pipeline.
  */
-export async function generateStructuredJson(env: Env, req: StructuredJsonRequest): Promise<StructuredJsonResult> {
+export async function generateStructuredJson(env: AIEnvironment, req: StructuredJsonRequest): Promise<StructuredJsonResult> {
   const provider = (env.AI_PROVIDER || "deepseek").toLowerCase();
 
   if (provider === "deepseek") {
@@ -142,7 +144,7 @@ export async function generateStructuredJson(env: Env, req: StructuredJsonReques
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
 async function callGeminiChat(
-  env: Env,
+  env: AIEnvironment,
   model: string,
   system: string,
   history: ChatMessage[],
@@ -182,7 +184,7 @@ async function callGeminiChat(
 }
 
 async function callDeepseekChat(
-  env: Env,
+  env: AIEnvironment,
   model: string,
   system: string,
   history: ChatMessage[],
@@ -211,13 +213,13 @@ async function callDeepseekChat(
 
 export type ChatModelOption = { id: string; provider: "gemini" | "deepseek" };
 
-const geminiModels = (env: Env): string[] =>
+const geminiModels = (env: AIEnvironment): string[] =>
   (env.GEMINI_MODEL_FALLBACK_LIST || "")
     .split(",")
     .map((m) => m.trim())
     .filter(Boolean);
 
-const deepseekModels = (env: Env): string[] => {
+const deepseekModels = (env: AIEnvironment): string[] => {
   const list = (env.DEEPSEEK_MODEL_LIST || env.DEEPSEEK_MODEL || "deepseek-chat")
     .split(",")
     .map((m) => m.trim())
@@ -226,7 +228,7 @@ const deepseekModels = (env: Env): string[] => {
 };
 
 /** Selectable chat models, entirely env-driven (never hardcoded in the UI). */
-export function listChatModels(env: Env): { models: ChatModelOption[]; default_model: string } {
+export function listChatModels(env: AIEnvironment): { models: ChatModelOption[]; default_model: string } {
   const models: ChatModelOption[] = [
     ...deepseekModels(env).map((id) => ({ id, provider: "deepseek" as const })),
     ...geminiModels(env).map((id) => ({ id, provider: "gemini" as const })),
@@ -244,7 +246,7 @@ export function listChatModels(env: Env): { models: ChatModelOption[]; default_m
  * provider chain takes over.
  */
 export async function generateText(
-  env: Env,
+  env: AIEnvironment,
   system: string,
   history: ChatMessage[],
   query: string,
@@ -309,7 +311,7 @@ export async function generateText(
 }
 
 /** OpenAI embeddings (text-embedding-3-small @ 1536 dims by default). */
-export async function generateEmbeddings(env: Env, texts: string[]): Promise<number[][]> {
+export async function generateEmbeddings(env: AIEnvironment, texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
   const response = await fetch("https://api.openai.com/v1/embeddings", {
     method: "POST",

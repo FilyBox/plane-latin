@@ -1,3 +1,5 @@
+type TextractEnvironment = Pick<Env, "AWS_ACCESS_KEY_ID" | "AWS_REGION" | "AWS_SECRET_ACCESS_KEY">;
+
 /**
  * AWS Textract client over aws4fetch (SigV4 signing built for Workers — no
  * Node SDK needed). Uses the ASYNC StartDocumentTextDetection flow reading
@@ -16,7 +18,7 @@ export type TextractError = Error & { retryable?: boolean };
 
 const RETRYABLE_ERRORS = /Throttling|ProvisionedThroughputExceeded|LimitExceeded|InternalServer|ServiceUnavailable/i;
 
-function awsClient(env: Env): AwsClient {
+function awsClient(env: TextractEnvironment): AwsClient {
   return new AwsClient({
     accessKeyId: env.AWS_ACCESS_KEY_ID,
     secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
@@ -25,7 +27,7 @@ function awsClient(env: Env): AwsClient {
   });
 }
 
-async function textractCall<T>(env: Env, target: string, body: Record<string, unknown>): Promise<T> {
+async function textractCall<T>(env: TextractEnvironment, target: string, body: Record<string, unknown>): Promise<T> {
   const response = await awsClient(env).fetch(`https://textract.${env.AWS_REGION}.amazonaws.com/`, {
     method: "POST",
     headers: {
@@ -50,7 +52,7 @@ async function textractCall<T>(env: Env, target: string, body: Record<string, un
 }
 
 /** Starts an async text-detection job reading directly from S3 (no download). */
-export async function startTextDetection(env: Env, bucket: string, key: string): Promise<string> {
+export async function startTextDetection(env: TextractEnvironment, bucket: string, key: string): Promise<string> {
   const result = await textractCall<{ JobId?: string }>(env, "StartDocumentTextDetection", {
     DocumentLocation: { S3Object: { Bucket: bucket, Name: key } },
   });
@@ -67,7 +69,7 @@ type GetDetectionResponse = {
 };
 
 /** One page of results — used for cheap status polling (MaxResults=1). */
-export async function getTextDetectionStatus(env: Env, jobId: string): Promise<{ status: string; message?: string }> {
+export async function getTextDetectionStatus(env: TextractEnvironment, jobId: string): Promise<{ status: string; message?: string }> {
   const result = await textractCall<GetDetectionResponse>(env, "GetDocumentTextDetection", {
     JobId: jobId,
     MaxResults: 1,
@@ -76,7 +78,7 @@ export async function getTextDetectionStatus(env: Env, jobId: string): Promise<{
 }
 
 /** Collects every result page (NextToken pagination) and joins LINE blocks. */
-export async function collectTextDetectionText(env: Env, jobId: string): Promise<string> {
+export async function collectTextDetectionText(env: TextractEnvironment, jobId: string): Promise<string> {
   const lines: string[] = [];
   let nextToken: string | undefined;
   do {

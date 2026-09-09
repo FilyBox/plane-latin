@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "plane-expenses-pipeline",
+  "main": "src/expenses/index.ts",
+  "compatibility_date": "2026-09-09",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "workflows": [
+    {
+      "name": "expense-pipeline",
+      "binding": "EXPENSE_PIPELINE",
+      "class_name": "ExpensePipelineWorkflow"
+    }
+  ],
+  "vars": {
+    "DEEPSEEK_MODEL": "deepseek-v4-flash",
+    "CHAT_DEFAULT_MODEL": "deepseek-v4-flash",
+    "EMBEDDING_DIMENSIONS": "1536"
+  }
+}

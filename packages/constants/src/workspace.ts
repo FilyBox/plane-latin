@@ -250,6 +250,13 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS: Record<string, IWorkspa
     access: [EUserWorkspaceRoles.ADMIN],
     highlight: (pathname: string, url: string) => pathname.includes(url),
   },
+  expenses: {
+    key: "expenses",
+    labelTranslationKey: "payments.expenses",
+    href: `/expenses/`,
+    access: [EUserWorkspaceRoles.ADMIN],
+    highlight: (pathname: string, url: string) => pathname.includes(url),
+  },
   "music-catalog": {
     key: "music-catalog",
     labelTranslationKey: "sidebar.music_catalog",
@@ -274,6 +281,7 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebar
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["file-library"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["contracts"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["payments"],
+  WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["expenses"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["music-catalog"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["assistant"],
 ];

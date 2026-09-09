@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Building2, Check, Loader2, Pencil, Plus, Trash2, Users, Variable } from "lucide-react";
 import useSWR, { useSWRConfig } from "swr";
 import { useTranslation } from "@plane/i18n";
@@ -87,6 +87,9 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
   >(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hideInapplicable, setHideInapplicable] = useState(true);
+  // Rows own the per-employee salary fetch; they report back the salaries that
+  // would land in this budget so the header can offer to take them all at once.
+  const [addableByEmployee, setAddableByEmployee] = useState<Record<string, EmployeeSelection[]>>({});
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [variableSearch, setVariableSearch] = useState("");
   const debouncedEmployeeSearch = useDebounce(employeeSearch.trim(), 300);
@@ -124,11 +127,28 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
     (assignedVariables ?? []).map((assignment) => [assignment.variable, assignment])
   );
   const selectedCount = Object.keys(employeeSelections).length + variableSelections.size;
+  // Salaries still running inside the budget window that nobody has picked yet.
+  const addableSalaries = Object.values(addableByEmployee)
+    .flat()
+    .filter((selection) => !assignedSalaryIds.has(selection.salary) && !employeeSelections[selection.salary]);
 
   useEffect(() => {
     setEmployeeSelections({});
     setVariableSelections(new Set());
+    setAddableByEmployee({});
   }, [scenario.id]);
+
+  const reportAddable = useCallback(
+    (employeeId: string, selections: EmployeeSelection[]) =>
+      setAddableByEmployee((current) => {
+        const previous = current[employeeId];
+        const isSame =
+          previous?.length === selections.length &&
+          previous.every((item, index) => item.salary === selections[index]?.salary);
+        return isSame ? current : { ...current, [employeeId]: selections };
+      }),
+    []
+  );
 
   const handleSubmit = async () => {
     if (selectedCount === 0) return;
@@ -290,6 +310,16 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
       />
 
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        <ol className="space-y-2 rounded-lg bg-layer-2 p-3 text-12 text-secondary">
+          {(["step_people", "step_select", "step_add"] as const).map((step, index) => (
+            <li key={step} className="flex gap-2">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-accent-primary text-10 font-semibold text-on-color">
+                {index + 1}
+              </span>
+              <span>{t(`payments.composer.${step}`)}</span>
+            </li>
+          ))}
+        </ol>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-subtle bg-layer-1 px-3 py-2.5">
           <div>
             <p className="text-11 font-medium text-primary">{t("payments.composer.period_filter")}</p>
@@ -406,7 +436,22 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
               </h3>
               <p className="mt-1 text-11 text-tertiary">{t("payments.composer.people_help")}</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {addableSalaries.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  onClick={() =>
+                    setEmployeeSelections((current) => ({
+                      ...current,
+                      ...Object.fromEntries(addableSalaries.map((selection) => [selection.salary, selection])),
+                    }))
+                  }
+                >
+                  <Check className="size-3.5" />
+                  {t("payments.composer.select_active", { count: addableSalaries.length })}
+                </Button>
+              )}
               <Button variant="secondary" size="lg" onClick={() => setIsOfficesOpen(true)}>
                 <Building2 className="size-3.5" /> {t("payroll.offices.title")}
               </Button>
@@ -447,6 +492,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
                 onEditSalary={(salary) => setSalaryTarget({ employee, salary })}
                 onAddOffice={() => setIsOfficesOpen(true)}
                 hideInapplicable={hideInapplicable}
+                onAddableChange={reportAddable}
               />
             ))}
             {(employees?.length ?? 0) === 0 && (
@@ -606,6 +652,7 @@ type EmployeeRowProps = {
   onEditSalary: (salary: TSalary) => void;
   onAddOffice: () => void;
   hideInapplicable: boolean;
+  onAddableChange: (employeeId: string, selections: EmployeeSelection[]) => void;
 };
 
 function EmployeeComposerRow(props: EmployeeRowProps) {
@@ -622,6 +669,7 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
     onEditSalary,
     onAddOffice,
     hideInapplicable,
+    onAddableChange,
   } = props;
   const { t } = useTranslation();
   const { data: salaries, isLoading } = useSWR<TSalary[]>(
@@ -654,6 +702,17 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
       salary.effective_to ?? scenario.period_end
     ),
   });
+
+  // The row is the only place that knows this employee's salaries; hand the
+  // eligible ones upward so the section header can offer them in bulk.
+  useEffect(() => {
+    onAddableChange(
+      employee.id,
+      (salaries ?? []).filter((salary) => salaryAvailability(salary).isEligible).map(selectionForSalary)
+    );
+    // `salaryAvailability` and `selectionForSalary` are pure over these inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salaries, employee, scenario.period_start, scenario.period_end, onAddableChange]);
 
   if (hideInapplicable && !isLoading && (salaries?.length ?? 0) > 0 && visibleSalaries.length === 0) return null;
 

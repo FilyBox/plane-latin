@@ -10,9 +10,10 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TEmployee } from "@plane/types";
-import { EModalPosition, EModalWidth, Input, ModalCore } from "@plane/ui";
+import { Input } from "@plane/ui";
 // services
 import { payrollService } from "@/services/payroll.service";
+import { PaymentsSidePanel } from "../side-panel";
 // local imports
 import { FIELD, LABEL, todayIso } from "./shared";
 
@@ -98,123 +99,131 @@ export function EmployeeModal(props: Props) {
   };
 
   return (
-    <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.XXL}>
-      <div className="p-4">
-        <h3 className="text-16 font-semibold text-primary">
-          {t(employee ? "payroll.employees.edit" : "payroll.employees.new")}
-        </h3>
-        <p className="mt-1 mb-5 text-12 text-tertiary">{t("payroll.employees.form_help")}</p>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <label className={LABEL}>{t("payroll.fields.full_name")}</label>
-            <Input
-              value={form.full_name}
-              onChange={(event) => set("full_name", event.target.value)}
-              className="w-full"
-            />
-          </div>
-          <div>
-            <label className={LABEL}>
-              {t("payroll.fields.position")}{" "}
-              <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
-            </label>
-            <Input value={form.position} onChange={(event) => set("position", event.target.value)} className="w-full" />
-          </div>
-          <div>
-            <label className={LABEL}>
-              {t("payroll.fields.national_id")}{" "}
-              <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
-            </label>
-            <Input
-              value={form.national_id}
-              onChange={(event) => set("national_id", event.target.value)}
-              className="w-full"
-            />
-            <p className="mt-1 text-10 text-tertiary">{t("payroll.employees.national_id_help")}</p>
-          </div>
-          <div>
-            <label className={LABEL}>
-              {t("payroll.fields.email")} <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
-            </label>
-            <Input
-              type="email"
-              value={form.email}
-              onChange={(event) => set("email", event.target.value)}
-              className="w-full"
-            />
-          </div>
-          <div>
-            <label className={LABEL}>{t("payroll.fields.hire_date")}</label>
-            <input
-              type="date"
-              className={FIELD}
-              value={form.hire_date}
-              onChange={(event) => set("hire_date", event.target.value)}
-            />
-          </div>
-          {employee && (
-            <div className="rounded-md border border-subtle bg-layer-1 p-3 sm:col-span-2">
-              <label
-                aria-label={t("payroll.employees.left_company")}
-                className="flex cursor-pointer items-start gap-2 text-12 text-secondary"
-              >
-                <input
-                  type="checkbox"
-                  checked={hasTerminationDate}
-                  onChange={(event) => {
-                    setHasTerminationDate(event.target.checked);
-                    if (!event.target.checked) set("termination_date", "");
-                  }}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="font-medium text-primary">{t("payroll.employees.left_company")}</span>
-                  <span className="mt-0.5 block text-10 text-tertiary">{t("payroll.employees.termination_help")}</span>
-                </span>
-              </label>
-              {hasTerminationDate && (
-                <div className="mt-3 max-w-xs">
-                  <label className={LABEL}>{t("payroll.fields.termination_date")}</label>
-                  <input
-                    type="date"
-                    min={form.hire_date}
-                    className={FIELD}
-                    value={form.termination_date}
-                    onChange={(event) => set("termination_date", event.target.value)}
-                  />
-                </div>
-              )}
+    <PaymentsSidePanel
+      isOpen={isOpen}
+      onClose={onClose}
+      width="xl"
+      title={t(employee ? "payroll.employees.edit" : "payroll.employees.new")}
+      description={t("payroll.employees.form_help")}
+    >
+      <form
+        className="flex min-h-0 flex-1 flex-col"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSubmit();
+        }}
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className={LABEL}>{t("payroll.fields.full_name")}</label>
+              <Input
+                value={form.full_name}
+                onChange={(event) => set("full_name", event.target.value)}
+                className="w-full"
+              />
             </div>
-          )}
-          <div className="sm:col-span-2">
-            <label className={LABEL}>
-              {t("payroll.fields.notes")} <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
-            </label>
-            <textarea
-              className={FIELD}
-              rows={2}
-              value={form.notes}
-              onChange={(event) => set("notes", event.target.value)}
-            />
+            <div>
+              <label className={LABEL}>
+                {t("payroll.fields.position")}{" "}
+                <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
+              </label>
+              <Input value={form.position} onChange={(event) => set("position", event.target.value)} className="w-full" />
+            </div>
+            <div>
+              <label className={LABEL}>
+                {t("payroll.fields.national_id")}{" "}
+                <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
+              </label>
+              <Input
+                value={form.national_id}
+                onChange={(event) => set("national_id", event.target.value)}
+                className="w-full"
+              />
+              <p className="mt-1 text-10 text-tertiary">{t("payroll.employees.national_id_help")}</p>
+            </div>
+            <div>
+              <label className={LABEL}>
+                {t("payroll.fields.email")} <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
+              </label>
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(event) => set("email", event.target.value)}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className={LABEL}>{t("payroll.fields.hire_date")}</label>
+              <input
+                type="date"
+                className={FIELD}
+                value={form.hire_date}
+                onChange={(event) => set("hire_date", event.target.value)}
+              />
+            </div>
+            {employee && (
+              <div className="rounded-md border border-subtle bg-layer-1 p-3 sm:col-span-2">
+                <label
+                  aria-label={t("payroll.employees.left_company")}
+                  className="flex cursor-pointer items-start gap-2 text-12 text-secondary"
+                >
+                  <input
+                    type="checkbox"
+                    checked={hasTerminationDate}
+                    onChange={(event) => {
+                      setHasTerminationDate(event.target.checked);
+                      if (!event.target.checked) set("termination_date", "");
+                    }}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium text-primary">{t("payroll.employees.left_company")}</span>
+                    <span className="mt-0.5 block text-10 text-tertiary">{t("payroll.employees.termination_help")}</span>
+                  </span>
+                </label>
+                {hasTerminationDate && (
+                  <div className="mt-3 max-w-xs">
+                    <label className={LABEL}>{t("payroll.fields.termination_date")}</label>
+                    <input
+                      type="date"
+                      min={form.hire_date}
+                      className={FIELD}
+                      value={form.termination_date}
+                      onChange={(event) => set("termination_date", event.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="sm:col-span-2">
+              <label className={LABEL}>
+                {t("payroll.fields.notes")} <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
+              </label>
+              <textarea
+                className={FIELD}
+                rows={2}
+                value={form.notes}
+                onChange={(event) => set("notes", event.target.value)}
+              />
+            </div>
           </div>
         </div>
-
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" size="sm" onClick={onClose}>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-subtle bg-surface-1 px-5 py-3">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             {t("payroll.actions.cancel")}
           </Button>
           <Button
+            type="submit"
             variant="primary"
             size="sm"
-            onClick={() => void handleSubmit()}
             loading={isSubmitting}
             disabled={!form.full_name.trim() || !form.hire_date}
           >
             {t("payroll.actions.save")}
           </Button>
         </div>
-      </div>
-    </ModalCore>
+      </form>
+    </PaymentsSidePanel>
   );
 }

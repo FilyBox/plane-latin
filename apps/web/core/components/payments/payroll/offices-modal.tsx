@@ -9,11 +9,13 @@ import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
+import { EmptyStateCompact } from "@plane/propel/empty-state";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TOffice } from "@plane/types";
-import { AlertModalCore, EModalPosition, EModalWidth, Input, ModalCore } from "@plane/ui";
+import { AlertModalCore, Input } from "@plane/ui";
 // services
 import { payrollService } from "@/services/payroll.service";
+import { PaymentsSidePanel } from "../side-panel";
 // local imports
 import { FIELD, LABEL } from "./shared";
 
@@ -114,12 +116,23 @@ export function OfficesModal(props: Props) {
         }
       />
 
-      <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.XL}>
-        <div className="p-4">
-          <h3 className="text-16 font-semibold text-primary">{t("payroll.offices.manage")}</h3>
-          <p className="mt-1 mb-5 text-12 text-tertiary">{t("payroll.offices.form_help")}</p>
-
-          <div className="mb-4 grid grid-cols-1 gap-3 rounded-lg border border-subtle bg-layer-1 p-3 sm:grid-cols-[minmax(0,1fr)_9rem_auto] sm:items-start">
+      <PaymentsSidePanel
+        isOpen={isOpen}
+        onClose={onClose}
+        width="lg"
+        title={t("payroll.offices.manage")}
+        description={t("payroll.offices.form_help")}
+      >
+        {/* Add/edit sits above the list and submits on Enter, so entities can be
+            entered one after another without reaching for the mouse. */}
+        <form
+          className="shrink-0 border-b border-subtle px-5 py-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSave();
+          }}
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_auto] sm:items-start">
             <div className="flex-1">
               <label className={LABEL}>{t("payroll.fields.name")}</label>
               <Input value={name} onChange={(event) => setName(event.target.value)} className="w-full" />
@@ -136,27 +149,24 @@ export function OfficesModal(props: Props) {
               <p className="mt-1 text-9 text-tertiary">{t("payroll.offices.aguinaldo_help")}</p>
             </div>
             <div className="flex gap-2 sm:pt-[1.4rem]">
-              <Button
-                variant="primary"
-                size="xl"
-                onClick={() => void handleSave()}
-                disabled={!name.trim() || isSubmitting}
-              >
+              <Button type="submit" variant="primary" size="xl" disabled={!name.trim() || isSubmitting}>
                 {editingOffice ? <Check className="size-4" /> : <Plus className="size-4" />}
                 {t(editingOffice ? "payroll.actions.save" : "payroll.offices.new")}
               </Button>
               {editingOffice && (
-                <Button variant="secondary" size="xl" onClick={resetForm}>
+                <Button type="button" variant="secondary" size="xl" onClick={resetForm}>
                   <X className="size-4" />
                 </Button>
               )}
             </div>
           </div>
+        </form>
 
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
           {offices.length === 0 ? (
-            <p className="py-4 text-center text-13 text-tertiary">{t("payroll.offices.empty")}</p>
+            <EmptyStateCompact assetKey="members" title={t("payroll.offices.empty")} />
           ) : (
-            <ul className="max-h-72 divide-y divide-subtle overflow-y-auto">
+            <ul className="divide-y divide-subtle">
               {offices.map((office) => (
                 <li key={office.id} className="flex items-center justify-between gap-2 py-2">
                   <div className="min-w-0">
@@ -192,14 +202,14 @@ export function OfficesModal(props: Props) {
               ))}
             </ul>
           )}
-
-          <div className="mt-5 flex justify-end">
-            <Button variant="secondary" size="sm" onClick={onClose}>
-              {t("payroll.actions.close")}
-            </Button>
-          </div>
         </div>
-      </ModalCore>
+
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-subtle bg-surface-1 px-5 py-3">
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            {t("payroll.actions.close")}
+          </Button>
+        </div>
+      </PaymentsSidePanel>
     </>
   );
 }

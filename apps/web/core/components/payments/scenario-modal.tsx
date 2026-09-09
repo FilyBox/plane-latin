@@ -8,8 +8,9 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TBudgetScenario, TBudgetScenarioStatus } from "@plane/types";
-import { EModalPosition, EModalWidth, Input, ModalCore, TextArea } from "@plane/ui";
+import { Input, TextArea } from "@plane/ui";
 import { financeService } from "@/services/finance.service";
+import { PaymentsSidePanel } from "./side-panel";
 import { CURRENCIES, getApiErrorMessage } from "./shared";
 
 const FIELD =
@@ -96,16 +97,20 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
   };
 
   return (
-    <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.LG}>
-      <div className="p-5">
-        <div className="mb-5">
-          <h2 className="text-16 font-semibold text-primary">
-            {t(scenario ? "payments.scenarios.edit" : "payments.scenarios.create")}
-          </h2>
-          <p className="mt-1 text-12 text-tertiary">{t("payments.scenarios.form_description")}</p>
-        </div>
-
-        <div className="space-y-4">
+    <PaymentsSidePanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t(scenario ? "payments.scenarios.edit" : "payments.scenarios.create")}
+      description={t("payments.scenarios.form_description")}
+    >
+      <form
+        className="flex min-h-0 flex-1 flex-col"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSubmit();
+        }}
+      >
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
           <div>
             <label className={LABEL}>{t("payments.scenarios.name")}</label>
             <Input
@@ -184,21 +189,21 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
           {periodError && <p className="text-11 text-danger-primary">{periodError}</p>}
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
-          <Button variant="secondary" size="sm" onClick={onClose}>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-subtle bg-surface-1 px-5 py-3">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             {t("payments.actions.cancel")}
           </Button>
           <Button
+            type="submit"
             variant="primary"
             size="sm"
             loading={isSubmitting}
             disabled={!name.trim() || Boolean(periodError)}
-            onClick={() => void handleSubmit()}
           >
             {t("payments.actions.save")}
           </Button>
         </div>
-      </div>
-    </ModalCore>
+      </form>
+    </PaymentsSidePanel>
   );
 }

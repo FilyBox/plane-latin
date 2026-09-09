@@ -9,11 +9,14 @@ import { Plus, Trash2 } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
+import { EmptyStateCompact } from "@plane/propel/empty-state";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TExpenseCategory } from "@plane/types";
-import { AlertModalCore, EModalPosition, EModalWidth, Input, ModalCore } from "@plane/ui";
+import { AlertModalCore, Input } from "@plane/ui";
 // services
 import { financeService } from "@/services/finance.service";
+// local imports
+import { PaymentsSidePanel } from "./side-panel";
 
 type Props = {
   workspaceSlug: string;
@@ -75,38 +78,44 @@ export function CategoriesModal(props: Props) {
         content={t("payments.delete_category_description")}
       />
 
-      <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.XL}>
-        <div className="p-4">
-          <h3 className="text-15 mb-4 font-medium">{t("payments.manage_categories")}</h3>
+      <PaymentsSidePanel
+        isOpen={isOpen}
+        onClose={onClose}
+        width="md"
+        title={t("payments.manage_categories")}
+        description={t("payments.ledger.categories_help")}
+      >
+        {/* The name field is a form of its own: Enter files the category and
+            leaves the cursor in place, ready for the next one. */}
+        <form
+          className="flex shrink-0 items-center gap-2 border-b border-subtle px-5 py-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleCreate();
+          }}
+        >
+          <Input
+            value={newName}
+            autoFocus
+            onChange={(event) => setNewName(event.target.value)}
+            placeholder={t("payments.fields.name")}
+            className="w-full"
+          />
+          <Button variant="primary" size="sm" type="submit" disabled={!newName.trim() || isSubmitting}>
+            <Plus className="size-4" />
+            {t("payments.ledger.add_category")}
+          </Button>
+        </form>
 
-          <div className="mb-3 flex items-center gap-2">
-            <Input
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void handleCreate();
-              }}
-              placeholder={t("payments.fields.name")}
-              className="w-full"
-            />
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => void handleCreate()}
-              disabled={!newName.trim() || isSubmitting}
-            >
-              <Plus className="size-4" />
-            </Button>
-          </div>
-
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
           {categories.length === 0 ? (
-            <p className="py-4 text-center text-13 text-tertiary">{t("payments.empty.categories")}</p>
+            <EmptyStateCompact assetKey="label" title={t("payments.empty.categories")} />
           ) : (
-            <ul className="max-h-72 divide-y divide-subtle overflow-y-auto">
+            <ul className="divide-y divide-subtle">
               {categories.map((category) => (
                 <li key={category.id} className="flex items-center justify-between gap-2 py-2">
                   <div className="min-w-0">
-                    <p className="truncate text-13">{category.name}</p>
+                    <p className="truncate text-13 text-primary">{category.name}</p>
                     <p className="text-11 text-tertiary">
                       {t("payments.expense_count", { count: category.expense_count })}
                     </p>
@@ -123,14 +132,8 @@ export function CategoriesModal(props: Props) {
               ))}
             </ul>
           )}
-
-          <div className="mt-5 flex justify-end">
-            <Button variant="secondary" size="sm" onClick={onClose}>
-              {t("close")}
-            </Button>
-          </div>
         </div>
-      </ModalCore>
+      </PaymentsSidePanel>
     </>
   );
 }

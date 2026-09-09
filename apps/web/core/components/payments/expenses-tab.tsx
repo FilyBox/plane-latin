@@ -4,203 +4,174 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Search, Tags, Wallet } from "lucide-react";
-import useSWR from "swr";
-// plane imports
+import { useMemo, useState } from "react";
+import { Download, Loader2, MoreHorizontal, Plus, RefreshCw, Search, Tags } from "lucide-react";
+import useSWR, { useSWRConfig } from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
+import { EmptyStateCompact } from "@plane/propel/empty-state";
+import { Menu } from "@plane/propel/menu";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type {
-  TBudget,
-  TBudgetSummary,
-  TBudgetSummaryRow,
-  TExpense,
-  TExpenseCategory,
-  TExpenseStatus,
-} from "@plane/types";
+import type { TExpense, TExpenseCategory } from "@plane/types";
 import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
-// services
 import { financeService } from "@/services/finance.service";
-// local imports
-import { BudgetModal } from "./budget-modal";
+import { expenseCsv, expenseTotals } from "@/lib/expense-ledger";
 import { CategoriesModal } from "./categories-modal";
 import { DocumentViewer } from "./document-viewer";
+import {
+  AppliedExpenseFilters,
+  countExpenseFilters,
+  EMPTY_EXPENSE_FILTERS,
+  ExpenseDisplayMenu,
+  ExpenseFiltersDropdown,
+  type TExpenseFilters,
+} from "./expense-filters";
 import { ExpenseTable } from "./expense-table";
 import { ExpenseModal } from "./expense-modal";
-import { currentQuarter } from "./shared";
-import { BudgetSummary } from "./summary";
+import { ExpenseImports } from "./expense-imports";
+import { getApiErrorMessage } from "./shared";
 
-const STATUSES: TExpenseStatus[] = ["PENDING", "PAID", "CANCELLED"];
-const FIELD = "h-8 rounded-sm border border-subtle bg-layer-1 px-2 text-12 outline-none focus:border-accent-primary";
-
-type Props = {
-  workspaceSlug: string;
-  onChanged?: () => void;
-};
-
-export function ExpensesTab(props: Props) {
-  const { workspaceSlug, onChanged } = props;
+export function ExpensesTab({ workspaceSlug, onChanged }: { workspaceSlug: string; onChanged?: () => void }) {
   const { t } = useTranslation();
-  // The window every number on this page is reported for
-  const [period, setPeriod] = useState(currentQuarter());
-  const [searchInput, setSearchInput] = useState("");
+  const { mutate: mutateGlobal } = useSWRConfig();
+  const [tab, setTab] = useState("ledger");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<TExpenseStatus[]>([]);
-  // modals
-  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
-  const [editingExpense, setEditingExpense] = useState<TExpense | null>(null);
-  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
-  // Which budget the modal is editing; null = creating a new one
-  const [editingBudget, setEditingBudget] = useState<TBudget | null>(null);
-  // Prefills the bucket when creating straight from a card that has no budget
-  const [budgetDefaults, setBudgetDefaults] = useState<{ category?: string; currency?: string }>({});
-  const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<TExpense | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // Typing must not fire a request per keystroke
-  useEffect(() => {
-    const handle = setTimeout(() => setSearch(searchInput.trim()), 350);
-    return () => clearTimeout(handle);
-  }, [searchInput]);
-
+  const [filters, setFilters] = useState<TExpenseFilters>(EMPTY_EXPENSE_FILTERS);
+  const [group, setGroup] = useState("none");
+  const [sort, setSort] = useState("date_desc");
+  const [editing, setEditing] = useState<TExpense | null | undefined>(undefined);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [deleting, setDeleting] = useState<TExpense | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [viewing, setViewing] = useState<{ expense: TExpense; index: number } | null>(null);
   const { data: categories, mutate: mutateCategories } = useSWR<TExpenseCategory[]>(
     `PAYMENT_CATEGORIES_${workspaceSlug}`,
-    () => financeService.getCategories(workspaceSlug),
-    { revalidateOnFocus: false }
+    () => financeService.getCategories(workspaceSlug)
   );
-
-  const { data: summary, mutate: mutateSummary } = useSWR<TBudgetSummary>(
-    `PAYMENT_SUMMARY_${workspaceSlug}_${period.from}_${period.to}`,
-    () => financeService.getSummary(workspaceSlug, period.from, period.to),
-    { revalidateOnFocus: false }
-  );
-
-  // The summary aggregates by (category, currency) and carries no budget id, so
-  // editing from a card needs the budget rows to resolve which one was clicked.
-  const { data: budgets, mutate: mutateBudgets } = useSWR<TBudget[]>(
-    `PAYMENT_BUDGETS_${workspaceSlug}`,
-    () => financeService.getBudgets(workspaceSlug),
-    { revalidateOnFocus: false }
-  );
-
-  /** Opens the modal on the budget behind a summary card. A card with no budget
-   * ("No budget") opens the create form with its bucket prefilled.
-   */
-  const openBudgetFor = (row: TBudgetSummaryRow) => {
-    const matches = (budgets ?? []).filter(
-      (item) =>
-        item.category === row.category_id &&
-        item.currency === row.currency &&
-        item.period_start <= period.to &&
-        item.period_end >= period.from
-    );
-    const target = matches.sort((a, b) => b.period_start.localeCompare(a.period_start))[0] ?? null;
-    setEditingBudget(target);
-    setBudgetDefaults(target ? {} : { category: row.category_id ?? undefined, currency: row.currency });
-    setIsBudgetModalOpen(true);
-  };
-
-  const closeBudgetModal = () => {
-    setIsBudgetModalOpen(false);
-    setEditingBudget(null);
-    setBudgetDefaults({});
-  };
-
-  const filters = useMemo(
-    () => ({ from: period.from, to: period.to, search: search || undefined, statuses: statusFilter }),
-    [period.from, period.to, search, statusFilter]
-  );
-
   const {
     data: expenses,
-    mutate: mutateExpenses,
+    error,
     isLoading,
-  } = useSWR<TExpense[]>(
-    `PAYMENT_EXPENSES_${workspaceSlug}_${JSON.stringify(filters)}`,
-    () => financeService.getExpenses(workspaceSlug, filters),
-    { revalidateOnFocus: false }
-  );
-
-  // An expense changes both the ledger and the totals it rolls into
+    mutate,
+  } = useSWR<TExpense[]>(`PAYMENT_EXPENSES_${workspaceSlug}_ALL`, () => financeService.getExpenses(workspaceSlug));
   const refresh = () => {
-    void mutateExpenses();
-    void mutateSummary();
+    void mutate();
+    void mutateGlobal(
+      (key) =>
+        typeof key === "string" &&
+        (key.startsWith(`BUDGET_FORECAST_${workspaceSlug}_`) || key.startsWith(`PAYMENT_SUMMARY_${workspaceSlug}_`))
+    );
     onChanged?.();
   };
-
-  const toggleStatus = (status: TExpenseStatus) =>
-    setStatusFilter((current) =>
-      current.includes(status) ? current.filter((item) => item !== status) : [...current, status]
-    );
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setIsDeleting(true);
+  const reportError = (error: unknown) =>
+    setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
+  const rows = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return (expenses ?? [])
+      .filter(
+        (expense) =>
+          (!query ||
+            [expense.concept, expense.vendor, expense.reference, expense.description, ...(expense.tags ?? [])]
+              .join(" ")
+              .toLocaleLowerCase()
+              .includes(query)) &&
+          (!filters.from || expense.expense_date >= filters.from) &&
+          (!filters.to || expense.expense_date <= filters.to) &&
+          (!filters.categories.length ||
+            filters.categories.includes(expense.category ?? "none") ||
+            (!expense.category && filters.categories.includes("none"))) &&
+          (!filters.currencies.length || filters.currencies.includes(expense.currency)) &&
+          (!filters.tags.length || (expense.tags ?? []).some((tag) => filters.tags.includes(tag))) &&
+          (!filters.recurring || expense.recurrence !== "ONE_TIME" || expense.series) &&
+          (!filters.statuses.length || filters.statuses.includes(expense.status))
+      )
+      .sort((a, b) =>
+        sort === "amount_desc"
+          ? a.currency.localeCompare(b.currency) || Number(b.amount) - Number(a.amount)
+          : sort === "concept_asc"
+            ? (a.concept || a.vendor).localeCompare(b.concept || b.vendor)
+            : sort === "date_asc"
+              ? a.expense_date.localeCompare(b.expense_date)
+              : b.expense_date.localeCompare(a.expense_date)
+      );
+  }, [expenses, search, filters, sort]);
+  const isNarrowed = countExpenseFilters(filters) > 0 || search.trim().length > 0;
+  const tags = [...new Set((expenses ?? []).flatMap((expense) => expense.tags ?? []))].sort();
+  const currencies = [...new Set((expenses ?? []).map((expense) => expense.currency))].sort();
+  const quickEdit = async (expense: TExpense, patch: Partial<TExpense>) => {
     try {
-      await financeService.deleteExpense(workspaceSlug, deleteTarget.id);
-      setToast({ type: TOAST_TYPE.SUCCESS, title: t("payments.toasts.deleted") });
-      setDeleteTarget(null);
+      await financeService.updateExpense(workspaceSlug, expense.id, patch);
       refresh();
-    } catch {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error") });
-    } finally {
-      setIsDeleting(false);
+    } catch (error) {
+      reportError(error);
+      throw error;
     }
   };
-
-  // The viewer opens on one document but pages through all of the expense's, so
-  // it needs the whole set plus the index that was clicked
-  const [viewing, setViewing] = useState<{ expense: TExpense; index: number } | null>(null);
-
+  const generate = () => {
+    setBusy(true);
+    void financeService
+      .generateExpenses(workspaceSlug)
+      .then(refresh)
+      .catch(reportError)
+      .finally(() => setBusy(false));
+  };
+  const exportRows = () => {
+    const headers = [
+      t("payments.sheet.concept"),
+      t("payments.fields.date"),
+      t("payments.fields.vendor"),
+      t("payments.fields.description"),
+      t("payments.fields.category"),
+      t("payments.ledger.tags"),
+      t("payments.fields.reference"),
+      t("payments.fields.status"),
+      t("payments.fields.documents"),
+      t("payments.fields.amount"),
+      t("payments.fields.currency"),
+    ];
+    const data = rows.map((row) => [
+      row.concept,
+      row.expense_date,
+      row.vendor,
+      row.description,
+      row.category_name || "",
+      (row.tags ?? []).join("; "),
+      row.reference,
+      t(`payments.status.${row.status.toLowerCase()}`),
+      row.documents.map((doc) => doc.name).join("; "),
+      row.amount,
+      row.currency,
+    ]);
+    for (const total of expenseTotals(rows))
+      data.push([t("payments.ledger.total"), "", "", "", "", "", "", "", "", total.total, total.currency]);
+    const url = URL.createObjectURL(new Blob([expenseCsv([headers, ...data])], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "gastos.csv";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col bg-surface-1">
       <ExpenseModal
         workspaceSlug={workspaceSlug}
-        isOpen={isExpenseModalOpen}
+        isOpen={editing !== undefined}
         categories={categories ?? []}
-        expense={editingExpense}
-        onClose={() => {
-          setIsExpenseModalOpen(false);
-          setEditingExpense(null);
-        }}
+        expense={editing ?? null}
+        onClose={() => setEditing(undefined)}
         onSaved={refresh}
-      />
-      <BudgetModal
-        workspaceSlug={workspaceSlug}
-        isOpen={isBudgetModalOpen}
-        categories={categories ?? []}
-        defaultPeriod={period}
-        budget={editingBudget}
-        defaultCategory={budgetDefaults.category}
-        defaultCurrency={budgetDefaults.currency}
-        onClose={closeBudgetModal}
-        onSaved={() => {
-          // A budget changes both the card and the row list behind it
-          void mutateSummary();
-          void mutateBudgets();
-          onChanged?.();
-        }}
+        onPreview={(index) => editing && setViewing({ expense: editing, index })}
       />
       <CategoriesModal
         workspaceSlug={workspaceSlug}
-        isOpen={isCategoriesModalOpen}
+        isOpen={categoriesOpen}
         categories={categories ?? []}
-        onClose={() => setIsCategoriesModalOpen(false)}
+        onClose={() => setCategoriesOpen(false)}
         onChanged={() => {
           void mutateCategories();
           refresh();
         }}
-      />
-      <AlertModalCore
-        isOpen={deleteTarget !== null}
-        handleClose={() => setDeleteTarget(null)}
-        handleSubmit={() => void handleDelete()}
-        isSubmitting={isDeleting}
-        title={t("payments.delete_expense_title")}
-        content={t("payments.delete_expense_description")}
       />
       <DocumentViewer
         workspaceSlug={workspaceSlug}
@@ -209,106 +180,164 @@ export function ExpensesTab(props: Props) {
         initialIndex={viewing?.index ?? null}
         onClose={() => setViewing(null)}
       />
-
-      {/* toolbar: the reporting window plus the three ways in */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-subtle px-2 py-1.5 sm:px-4">
-        <div className="flex items-center gap-1.5">
-          <span className="text-11 text-tertiary uppercase">{t("payments.filters.from")}</span>
-          <input
-            type="date"
-            className={FIELD}
-            value={period.from}
-            onChange={(event) => setPeriod((current) => ({ ...current, from: event.target.value }))}
-          />
-          <span className="text-11 text-tertiary uppercase">{t("payments.filters.to")}</span>
-          <input
-            type="date"
-            className={FIELD}
-            value={period.to}
-            onChange={(event) => setPeriod((current) => ({ ...current, to: event.target.value }))}
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <div className="relative">
-            <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-tertiary" />
-            <input
-              className={cn(FIELD, "w-40 pl-7")}
-              placeholder={t("payments.filters.search")}
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-            />
-          </div>
-
-          {STATUSES.map((status) => (
+      <AlertModalCore
+        isOpen={deleting !== null}
+        handleClose={() => !busy && setDeleting(null)}
+        isSubmitting={busy}
+        title={t("payments.delete_expense_title")}
+        content={t("payments.delete_expense_description")}
+        handleSubmit={() => {
+          if (!deleting || busy) return;
+          setBusy(true);
+          void financeService
+            .deleteExpense(workspaceSlug, deleting.id)
+            .then(() => {
+              setDeleting(null);
+              refresh();
+            })
+            .catch(reportError)
+            .finally(() => setBusy(false));
+        }}
+      />
+      {/* One toolbar: the tab switch, the narrowing controls and the actions all
+          share a line, leaving the height for the ledger itself. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle px-4 py-2 sm:px-5">
+        <nav className="flex shrink-0 items-center gap-0.5 rounded-md bg-layer-2 p-0.5" aria-label={t("payments.expenses")}>
+          {["ledger", "ai"].map((key) => (
             <button
-              key={status}
               type="button"
-              onClick={() => toggleStatus(status)}
+              key={key}
+              onClick={() => setTab(key)}
+              aria-pressed={tab === key}
               className={cn(
-                "h-8 rounded-sm border border-subtle px-2 text-12 hover:bg-layer-1-hover",
-                statusFilter.includes(status) && "border-accent-primary text-accent-primary"
+                "rounded-sm px-2.5 py-1 text-12 whitespace-nowrap",
+                tab === key ? "bg-surface-1 font-medium text-primary shadow-raised-100" : "text-tertiary hover:text-primary"
               )}
             >
-              {t(`payments.status.${status.toLowerCase()}`)}
+              {t(`payments.ledger.${key}`)}
             </button>
           ))}
-
-          <button
-            type="button"
-            onClick={() => setIsCategoriesModalOpen(true)}
-            className="flex h-8 items-center gap-1 rounded-sm border border-subtle px-2 text-12 hover:bg-layer-1-hover"
-          >
-            <Tags className="size-3.5" />
-            <span className="hidden lg:inline">{t("payments.categories")}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setEditingBudget(null);
-              setBudgetDefaults({});
-              setIsBudgetModalOpen(true);
-            }}
-            disabled={(categories?.length ?? 0) === 0}
-            title={t("payments.new_budget")}
-            className="flex h-8 items-center gap-1 rounded-sm border border-subtle px-2 text-12 hover:bg-layer-1-hover disabled:opacity-50"
-          >
-            <Wallet className="size-3.5" />
-            <span className="hidden lg:inline">{t("payments.new_budget")}</span>
-          </button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              setEditingExpense(null);
-              setIsExpenseModalOpen(true);
-            }}
-          >
-            <Plus className="size-3.5" />
-            {t("payments.new_expense")}
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex-1 space-y-4 overflow-y-auto p-2 sm:p-4">
-        <BudgetSummary rows={summary?.results ?? []} onSelect={openBudgetFor} />
-
-        {isLoading ? (
-          <div className="flex justify-center py-10">
-            <Loader2 className="size-5 animate-spin text-tertiary" />
-          </div>
-        ) : (
-          <ExpenseTable
-            expenses={expenses ?? []}
-            onEdit={(expense) => {
-              setEditingExpense(expense);
-              setIsExpenseModalOpen(true);
-            }}
-            onDelete={setDeleteTarget}
-            onPreview={(expense, index) => setViewing({ expense, index })}
-          />
+        </nav>
+        {tab === "ledger" && (
+          <>
+            <div className="relative">
+              <Search className="absolute top-2 left-2 size-4 text-tertiary" />
+              <input
+                aria-label={t("payments.filters.search")}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t("payments.filters.search")}
+                className="h-8 w-full max-w-52 rounded-sm border border-subtle bg-layer-1 pr-2 pl-8 text-12 text-primary outline-none focus:border-accent-primary"
+              />
+            </div>
+            <ExpenseFiltersDropdown
+              filters={filters}
+              categories={categories ?? []}
+              currencies={currencies}
+              tags={tags}
+              onChange={setFilters}
+            />
+            <ExpenseDisplayMenu group={group} sort={sort} onGroupChange={setGroup} onSortChange={setSort} />
+            <div className="ml-auto flex items-center gap-2">
+              <Menu
+                customButton={
+                  <span className="flex size-8 items-center justify-center rounded-sm border border-subtle text-secondary hover:bg-layer-1-hover">
+                    <MoreHorizontal className="size-4" />
+                  </span>
+                }
+                optionsClassName="w-56"
+                ariaLabel={t("payments.ledger.more_actions")}
+              >
+                <Menu.MenuItem onClick={() => setCategoriesOpen(true)}>
+                  <span className="flex items-center gap-2 text-12">
+                    <Tags className="size-3.5" />
+                    {t("payments.manage_categories")}
+                  </span>
+                </Menu.MenuItem>
+                <Menu.MenuItem onClick={generate} disabled={busy}>
+                  <span className="flex items-center gap-2 text-12">
+                    <RefreshCw className={cn("size-3.5", busy && "animate-spin")} />
+                    {t("payments.ledger.generate")}
+                  </span>
+                </Menu.MenuItem>
+                <Menu.MenuItem onClick={exportRows} disabled={!rows.length}>
+                  <span className="flex items-center gap-2 text-12">
+                    <Download className="size-3.5" />
+                    {t("payments.ledger.export")}
+                  </span>
+                </Menu.MenuItem>
+              </Menu>
+              <Button variant="primary" size="sm" onClick={() => setEditing(null)}>
+                <Plus className="size-3.5" />
+                {t("payments.new_expense")}
+              </Button>
+            </div>
+          </>
         )}
       </div>
+      {tab === "ai" ? (
+        <ExpenseImports workspaceSlug={workspaceSlug} categories={categories ?? []} onChanged={refresh} />
+      ) : (
+        <>
+          <AppliedExpenseFilters filters={filters} categories={categories ?? []} onChange={setFilters} />
+          <div className="flex min-h-0 flex-1 flex-col px-4 pt-2 pb-4 sm:px-5">
+            {isLoading ? (
+              <Loader2 className="m-auto size-5 animate-spin text-tertiary" />
+            ) : error ? (
+              <EmptyStateCompact
+                title={t("payments.ledger.failed")}
+                // `actions` renders its row full-width, which leaves the button
+                // hanging on the left of a centred empty state.
+                customButton={
+                  <div className="flex justify-center">
+                    <Button variant="secondary" size="base" onClick={() => void mutate()}>
+                      {t("payments.ledger.retry")}
+                    </Button>
+                  </div>
+                }
+              />
+            ) : rows.length === 0 ? (
+              <EmptyStateCompact
+                assetKey={isNarrowed ? "search" : "worklog"}
+                title={t(isNarrowed ? "payments.ledger.no_results" : "payments.ledger.empty_title")}
+                description={t(
+                  isNarrowed ? "payments.ledger.no_results_description" : "payments.ledger.empty_description"
+                )}
+                customButton={
+                  <div className="flex justify-center">
+                    {isNarrowed ? (
+                      <Button
+                        variant="secondary"
+                        size="base"
+                        onClick={() => {
+                          setFilters(EMPTY_EXPENSE_FILTERS);
+                          setSearch("");
+                        }}
+                      >
+                        {t("payments.ledger.clear")}
+                      </Button>
+                    ) : (
+                      <Button variant="primary" size="base" onClick={() => setEditing(null)}>
+                        <Plus className="size-4" />
+                        {t("payments.new_expense")}
+                      </Button>
+                    )}
+                  </div>
+                }
+              />
+            ) : (
+              <ExpenseTable
+                expenses={rows}
+                group={group}
+                onEdit={setEditing}
+                onDelete={setDeleting}
+                onPreview={(expense, index) => setViewing({ expense, index })}
+                onQuickEdit={quickEdit}
+              />
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

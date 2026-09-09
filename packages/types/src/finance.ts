@@ -174,6 +174,12 @@ export type TExpenseDocument = {
 };
 
 export type TExpense = {
+  concept: string;
+  tags: string[];
+  recurrence: "ONE_TIME" | "DAILY" | "WEEKLY" | "BIWEEKLY" | "MONTHLY" | "QUARTERLY" | "ANNUAL";
+  recurrence_end: string | null;
+  recurrence_paused: boolean;
+  series: string | null;
   id: string;
   category: string | null;
   category_name: string | null;

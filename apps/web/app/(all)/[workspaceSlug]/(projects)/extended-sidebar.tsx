@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useRef } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 // plane imports
@@ -33,7 +33,7 @@ export const ExtendedAppSidebar = observer(function ExtendedAppSidebar() {
   // derived values
   const currentWorkspaceNavigationPreferences = workspacePreferences.items;
 
-  const sortedNavigationItems = useMemo(() => {
+  const sortedNavigationItems = (() => {
     const slug = workspaceSlug.toString();
 
     return WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS.filter((item) => {
@@ -45,7 +45,7 @@ export const ExtendedAppSidebar = observer(function ExtendedAppSidebar() {
       // sidebar-menu-items.tsx and customize-navigation-dialog.tsx).
       if ((item.key === "file-library" || item.key === "contracts") && !isWorkspaceFeatureEnabled(slug, "file_library"))
         return false;
-      if (item.key === "payments" && !isWorkspaceFeatureEnabled(slug, "payments")) return false;
+      if (["payments", "expenses"].includes(item.key) && !isWorkspaceFeatureEnabled(slug, "payments")) return false;
       if (item.key === "music-catalog" && !isWorkspaceFeatureEnabled(slug, "music_catalog")) return false;
       if (
         item.key === "assistant" &&
@@ -71,7 +71,7 @@ export const ExtendedAppSidebar = observer(function ExtendedAppSidebar() {
         // Then sort by sort_order within each group
         return a.sort_order - b.sort_order;
       });
-  }, [workspaceSlug, currentWorkspaceNavigationPreferences, allowPermissions, isWorkspaceFeatureEnabled]);
+  })();
 
   const sortedNavigationItemsKeys = sortedNavigationItems.map((item) => item.key);
 

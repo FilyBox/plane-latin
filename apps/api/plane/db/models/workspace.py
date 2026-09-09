@@ -431,6 +431,7 @@ class WorkspaceUserPreference(BaseModel):
         FILE_LIBRARY = "file-library", "File Library"
         CONTRACTS = "contracts", "Contracts"
         PAYMENTS = "payments", "Payments"
+        EXPENSES = "expenses", "Expenses"
         MUSIC_CATALOG = "music-catalog", "Music Catalog"
         ASSISTANT = "assistant", "Assistant"
 

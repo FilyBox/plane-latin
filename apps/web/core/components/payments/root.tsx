@@ -62,7 +62,6 @@ export function PaymentsRoot({ workspaceSlug }: Props) {
     <BudgetScenarioDetail
       workspaceSlug={workspaceSlug}
       scenario={scenario}
-      onBack={closeScenario}
       onChanged={setSelectedScenario}
       onDeleted={closeScenario}
     />

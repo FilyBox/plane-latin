@@ -10,9 +10,10 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TOffice, TPeriodicity, TSalary } from "@plane/types";
-import { EModalPosition, EModalWidth, Input, ModalCore } from "@plane/ui";
+import { Input } from "@plane/ui";
 // services
 import { payrollService } from "@/services/payroll.service";
+import { PaymentsSidePanel } from "../side-panel";
 // local imports
 import { CURRENCIES, FIELD, LABEL, PERIODICITIES, todayIso } from "./shared";
 
@@ -79,105 +80,113 @@ export function SalaryModal(props: Props) {
   };
 
   return (
-    <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.XL}>
-      <div className="p-4">
-        <h3 className="text-15 mb-4 font-medium">
-          {t(salary ? "payroll.employees.edit_salary" : "payroll.employees.new_salary")}
-        </h3>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <label className={LABEL}>{t("payroll.fields.office")}</label>
-            <select
-              className={FIELD}
-              value={office}
-              disabled={Boolean(salary)}
-              onChange={(event) => setOffice(event.target.value)}
-            >
-              {offices.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL}>{t("payroll.fields.amount")}</label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder="0.00"
-              className="w-full"
-            />
-          </div>
-          <div>
-            <label className={LABEL}>{t("payroll.fields.currency")}</label>
-            <select className={FIELD} value={currency} onChange={(event) => setCurrency(event.target.value)}>
-              {CURRENCIES.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL}>{t("payroll.fields.periodicity")}</label>
-            <select
-              className={FIELD}
-              value={periodicity}
-              onChange={(event) => setPeriodicity(event.target.value as TPeriodicity)}
-            >
-              {PERIODICITIES.map((item) => (
-                <option key={item} value={item}>
-                  {t(`payroll.periodicity.${item.toLowerCase()}`)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL}>{t("payroll.fields.effective_from")}</label>
-            <input
-              type="date"
-              className={FIELD}
-              value={effectiveFrom}
-              onChange={(event) => setEffectiveFrom(event.target.value)}
-            />
-          </div>
-          {salary && (
+    <PaymentsSidePanel
+      isOpen={isOpen}
+      onClose={onClose}
+      width="lg"
+      title={t(salary ? "payroll.employees.edit_salary" : "payroll.employees.new_salary")}
+    >
+      <form
+        className="flex min-h-0 flex-1 flex-col"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSubmit();
+        }}
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className={LABEL}>{t("payroll.fields.office")}</label>
+              <select
+                className={FIELD}
+                value={office}
+                disabled={Boolean(salary)}
+                onChange={(event) => setOffice(event.target.value)}
+              >
+                {offices.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
-              <label className={LABEL}>
-                {t("payroll.fields.effective_to")} ({t("payroll.optional")})
-              </label>
+              <label className={LABEL}>{t("payroll.fields.amount")}</label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="0.00"
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className={LABEL}>{t("payroll.fields.currency")}</label>
+              <select className={FIELD} value={currency} onChange={(event) => setCurrency(event.target.value)}>
+                {CURRENCIES.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={LABEL}>{t("payroll.fields.periodicity")}</label>
+              <select
+                className={FIELD}
+                value={periodicity}
+                onChange={(event) => setPeriodicity(event.target.value as TPeriodicity)}
+              >
+                {PERIODICITIES.map((item) => (
+                  <option key={item} value={item}>
+                    {t(`payroll.periodicity.${item.toLowerCase()}`)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={LABEL}>{t("payroll.fields.effective_from")}</label>
               <input
                 type="date"
                 className={FIELD}
-                min={effectiveFrom}
-                value={effectiveTo}
-                onChange={(event) => setEffectiveTo(event.target.value)}
+                value={effectiveFrom}
+                onChange={(event) => setEffectiveFrom(event.target.value)}
               />
-              <p className="mt-1 text-10 text-tertiary">{t("payroll.employees.open_ended_salary_help")}</p>
             </div>
-          )}
+            {salary && (
+              <div>
+                <label className={LABEL}>
+                  {t("payroll.fields.effective_to")} ({t("payroll.optional")})
+                </label>
+                <input
+                  type="date"
+                  className={FIELD}
+                  min={effectiveFrom}
+                  value={effectiveTo}
+                  onChange={(event) => setEffectiveTo(event.target.value)}
+                />
+                <p className="mt-1 text-10 text-tertiary">{t("payroll.employees.open_ended_salary_help")}</p>
+              </div>
+            )}
+          </div>
         </div>
-
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" size="sm" onClick={onClose}>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-subtle bg-surface-1 px-5 py-3">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             {t("payroll.actions.cancel")}
           </Button>
           <Button
+            type="submit"
             variant="primary"
             size="sm"
-            onClick={() => void handleSubmit()}
             loading={isSubmitting}
             disabled={!office || !amount.trim()}
           >
             {t("payroll.actions.save")}
           </Button>
         </div>
-      </div>
-    </ModalCore>
+      </form>
+    </PaymentsSidePanel>
   );
 }

@@ -53,7 +53,7 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
         onSaved={() => void mutate()}
       />
 
-      <div className="mx-auto max-w-[1180px] px-4 py-8 sm:px-8 sm:py-10">
+      <div className="mx-auto max-w-[1180px] px-4 py-6 sm:px-8 sm:py-8">
         <section className="relative overflow-hidden rounded-xl border border-subtle bg-layer-1 px-5 py-6 sm:px-8">
           <div className="absolute -top-16 -right-10 size-48 rounded-full bg-accent-primary/10 blur-3xl" />
           <div className="relative flex flex-col justify-between gap-5 sm:flex-row sm:items-end">

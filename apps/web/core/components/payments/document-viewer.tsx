@@ -7,23 +7,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Loader2, X } from "lucide-react";
 // plane imports
-import { PDFViewer } from "@plane/extend-ui";
+import { CsvViewer, DocxViewerPreview, PDFViewer, XlsxViewerPreview } from "@plane/extend-ui";
 import { useTranslation } from "@plane/i18n";
 import type { TExpenseDocument } from "@plane/types";
 import { EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
+// components
+import { XmlViewer } from "@/components/common/xml-viewer";
 // services
 import { financeService } from "@/services/finance.service";
-
-type ViewerKind = "pdf" | "image" | "none";
-
-const viewerKind = (document: TExpenseDocument): ViewerKind => {
-  const type = (document.type ?? "").toLowerCase();
-  const extension = document.name.slice(document.name.lastIndexOf(".") + 1).toLowerCase();
-  if (type === "application/pdf" || extension === "pdf") return "pdf";
-  if (type.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp"].includes(extension))
-    return "image";
-  return "none";
-};
+// local imports
+import { documentViewerKind } from "./document-kind";
 
 type Props = {
   workspaceSlug: string;
@@ -40,11 +33,18 @@ export function DocumentViewer(props: Props) {
   const { t } = useTranslation();
   const [index, setIndex] = useState(0);
   const [url, setUrl] = useState<string | null>(null);
+  // csv and xml are rendered from their text, not from the URL
+  const [text, setText] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasFailed, setHasFailed] = useState(false);
+  const [isDark, setIsDark] = useState(() =>
+    typeof document !== "undefined" ? document.documentElement.dataset.theme === "dark" : false
+  );
 
   const isOpen = initialIndex !== null && expenseId !== null;
   const current = documents[index];
+  const kind = current ? documentViewerKind(current.name, current.type) : "none";
+  const needsText = kind === "csv" || kind === "xml";
 
   useEffect(() => {
     if (initialIndex !== null) setIndex(initialIndex);
@@ -59,11 +59,19 @@ export function DocumentViewer(props: Props) {
     setIsLoading(true);
     setHasFailed(false);
     setUrl(null);
+    setText(null);
 
     const resolve = async () => {
       try {
         const resolved = await financeService.getDocumentViewUrl(workspaceSlug, expenseId, current.asset_id);
-        if (!cancelled) setUrl(resolved);
+        if (cancelled) return;
+        setUrl(resolved);
+        const resolvedKind = documentViewerKind(current.name, current.type);
+        if (resolvedKind === "csv" || resolvedKind === "xml") {
+          const response = await fetch(resolved);
+          const body = await response.text();
+          if (!cancelled) setText(body);
+        }
       } catch {
         if (!cancelled) setHasFailed(true);
       } finally {
@@ -93,11 +101,10 @@ export function DocumentViewer(props: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isOpen, documents.length, go]);
 
-  const kind = current ? viewerKind(current) : "none";
-
   const body = () => {
     if (hasFailed) return <p className="text-13 text-tertiary">{t("payments.toasts.error")}</p>;
-    if (isLoading || !url) return <Loader2 className="size-5 animate-spin text-tertiary" />;
+    if (isLoading || !url || (needsText && text === null))
+      return <Loader2 className="size-5 animate-spin text-tertiary" />;
     switch (kind) {
       case "pdf":
         return <PDFViewer src={url} fileName={current.name} className="h-full" showUpload={false} />;
@@ -107,6 +114,32 @@ export function DocumentViewer(props: Props) {
             <img src={url} alt={current.name} className="max-h-full max-w-full object-contain" />
           </div>
         );
+      case "xlsx":
+        return (
+          <XlsxViewerPreview
+            src={url}
+            fileName={current.name}
+            isDark={isDark}
+            onIsDarkChange={setIsDark}
+            showUpload={false}
+            className="h-full"
+          />
+        );
+      case "docx":
+        return (
+          <DocxViewerPreview
+            src={url}
+            fileName={current.name}
+            isDark={isDark}
+            onIsDarkChange={setIsDark}
+            showUpload={false}
+            className="h-full"
+          />
+        );
+      case "csv":
+        return <CsvViewer data={text ?? ""} showActions={false} className="h-full" />;
+      case "xml":
+        return <XmlViewer data={text ?? ""} className="h-full" />;
       default:
         // Anything the browser can't render inline (a .zip receipt, say) still
         // has to be reachable — offer the download instead of a dead panel.
