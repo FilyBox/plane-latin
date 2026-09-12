@@ -45,7 +45,8 @@
       "all": "Todos",
       "search": "Buscar",
       "from": "Desde",
-      "to": "Hasta"
+      "to": "Hasta",
+      "label": "Filtros"
     },
     "actions": {
       "save": "Guardar",
@@ -69,10 +70,10 @@
       "form_description": "Asigna un nombre claro al plan y define el periodo que cubre.",
       "errors": {
         "end_before_start": "La fecha final no puede ser anterior a la fecha inicial.",
-        "year_outside_period": "El ano fiscal {year} debe estar dentro del rango de fechas seleccionado.",
+        "year_outside_period": "El año fiscal {year} debe estar dentro del rango de fechas seleccionado.",
         "period_too_long": "Un presupuesto puede cubrir como maximo 12 meses."
       },
-      "fiscal_year": "Ano fiscal",
+      "fiscal_year": "Año fiscal",
       "status_label": "Estado",
       "status": {
         "draft": "Borrador",
@@ -80,10 +81,10 @@
         "archived": "Archivado"
       },
       "search": "Buscar presupuestos",
-      "all_years": "Todos los anos",
+      "all_years": "Todos los años",
       "empty_title": "No se encontraron presupuestos",
       "empty_description": "Crea un presupuesto anual con nombre para planear empleados, prestaciones y variables operativas.",
-      "no_description": "Sin descripcion.",
+      "no_description": "Sin descripción.",
       "back": "Volver a presupuestos",
       "settings": "Configuracion",
       "delete_title": "Eliminar presupuesto",
@@ -115,7 +116,10 @@
       "add_to_budget": "Agregar al presupuesto",
       "no_team_title": "Aun no hay costos de equipo",
       "no_team_description": "Agrega empleados y selecciona el salario que aplica en este escenario.",
-      "no_position": "Sin puesto"
+      "no_position": "Sin puesto",
+      "change_status": "Cambiar estado",
+      "year_desc": "Año más reciente",
+      "year_asc": "Año más antiguo"
     },
     "composer": {
       "open": "Agregar al presupuesto",
@@ -169,8 +173,8 @@
       "concept": "Concepto",
       "entity": "Entidad",
       "total": "Total anual",
-      "automatic": "Calculo automatico",
-      "restore": "Restaurar calculo automatico",
+      "automatic": "Cálculo automático",
+      "restore": "Restaurar cálculo automático",
       "invalid_amount": "Ingresa un monto valido mayor o igual a cero",
       "rows": "filas",
       "empty_title": "El presupuesto aun esta vacio",
@@ -190,7 +194,9 @@
         "count": "Conteo"
       },
       "export_xlsx": "Exportar a XLSX",
-      "export_csv": "Exportar a CSV"
+      "export_csv": "Exportar a CSV",
+      "hide_category": "Ocultar categoría",
+      "sort_by_category": "Ordenar por categoría"
     },
     "variables": {
       "title": "Variables financieras",
@@ -331,7 +337,26 @@
       "no_results_description": "Ningún gasto coincide con la búsqueda o los filtros activos.",
       "categories_help": "Las categorías agrupan tus gastos en los reportes y en los presupuestos.",
       "add_category": "Agregar",
-      "pending_upload": "Sin subir"
+      "pending_upload": "Sin subir",
+      "create_tag": "Crear"
+    },
+    "flow": {
+      "planned": "Planeado",
+      "actual": "Real",
+      "actual_help": "Gastos registrados contra este presupuesto. No modifican el plan.",
+      "available": "Disponible",
+      "budget": "Presupuesto",
+      "no_budget": "Sin presupuesto",
+      "link_existing": "Ligar a un presupuesto",
+      "open_expense": "Abrir el gasto",
+      "source": "Origen",
+      "period": "Vigencia",
+      "breakdown": "Desglose mensual",
+      "comments_for": "Comentarios de",
+      "queue": "Análisis por IA",
+      "queue_help": "Sube recibos, facturas o XML. Al terminar el análisis se crea el gasto con el archivo adjunto.",
+      "remove_row": "Se quitará este renglón del presupuesto. El recurso que lo origina se conserva.",
+      "remove_employee": "Se quitará esta persona del presupuesto. Su registro y su salario se conservan."
     }
   }
 }

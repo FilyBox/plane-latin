@@ -44,7 +44,7 @@ def materialize_expenses(workspace_id=None):
                     series=root, expense_date=occurrence,
                     defaults={
                         "workspace_id": root.workspace_id, "category_id": root.category_id,
-                        "project_id": root.project_id, "concept": root.concept,
+                        "project_id": root.project_id, "scenario_id": root.scenario_id, "concept": root.concept,
                         "amount": root.amount, "currency": root.currency, "vendor": root.vendor,
                         "description": root.description, "tags": root.tags, "status": "PENDING",
                     },

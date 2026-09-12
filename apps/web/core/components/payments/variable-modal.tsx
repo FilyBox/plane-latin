@@ -32,10 +32,12 @@ type Props = {
   variable?: TFinancialVariable | null;
   isOpen: boolean;
   onClose: () => void;
+  /** Set when this opened from another panel, so it stacks over it. */
+  nested?: boolean;
   onSaved: (variable: TFinancialVariable) => void;
 };
 
-export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpen, onClose, onSaved }: Props) {
+export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpen, onClose, nested, onSaved }: Props) {
   const { t } = useTranslation();
   const year = new Date().getFullYear();
   const [name, setName] = useState("");
@@ -94,6 +96,7 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
     <PaymentsSidePanel
       isOpen={isOpen}
       onClose={onClose}
+      nested={nested}
       title={t(variable ? "payments.variables.edit" : "payments.variables.create")}
       description={t("payments.variables.form_description")}
     >
@@ -108,7 +111,13 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className={LABEL}>{t("payments.fields.name")}</label>
-              <Input value={name} autoFocus onChange={(event) => setName(event.target.value)} />
+              <Input
+                value={name}
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+                onChange={(event) => setName(event.target.value)}
+                className="w-full"
+              />
             </div>
             <div>
               <label className={LABEL}>{t("payments.variables.entity")}</label>
@@ -152,6 +161,7 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
                 step="0.01"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
+                className="w-full"
               />
             </div>
             <div>

@@ -25,10 +25,12 @@ type Props = {
   employees: TEmployee[];
   isOpen: boolean;
   onClose: () => void;
+  /** Set when this opened from another panel, so it stacks over it. */
+  nested?: boolean;
   onSaved: () => void;
 };
 
-export function ScenarioEmployeeModal({ workspaceSlug, scenario, employees, isOpen, onClose, onSaved }: Props) {
+export function ScenarioEmployeeModal({ workspaceSlug, scenario, employees, isOpen, onClose, nested, onSaved }: Props) {
   const { t } = useTranslation();
   const [employeeId, setEmployeeId] = useState("");
   const [salaryId, setSalaryId] = useState("");
@@ -90,6 +92,7 @@ export function ScenarioEmployeeModal({ workspaceSlug, scenario, employees, isOp
     <PaymentsSidePanel
       isOpen={isOpen}
       onClose={onClose}
+      nested={nested}
       width="lg"
       title={t("payments.scenarios.add_employee")}
       description={t("payments.scenarios.select_salary_help")}

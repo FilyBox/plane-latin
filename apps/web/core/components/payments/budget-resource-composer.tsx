@@ -42,6 +42,8 @@ type EmployeeSelection = {
 
 type SalaryTarget = { employee: TEmployee; salary: TSalary | null };
 
+type ComposerTab = "people" | "variables" | "included";
+
 type Props = {
   workspaceSlug: string;
   scenario: TBudgetScenario;
@@ -87,6 +89,9 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
   >(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hideInapplicable, setHideInapplicable] = useState(true);
+  // One list at a time. The panel used to stack "what's in", "people" and
+  // "concepts" in a single scroll, which buried the section you came for.
+  const [tab, setTab] = useState<ComposerTab>("people");
   // Rows own the per-employee salary fetch; they report back the salaries that
   // would land in this budget so the header can offer to take them all at once.
   const [addableByEmployee, setAddableByEmployee] = useState<Record<string, EmployeeSelection[]>>({});
@@ -127,6 +132,22 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
     (assignedVariables ?? []).map((assignment) => [assignment.variable, assignment])
   );
   const selectedCount = Object.keys(employeeSelections).length + variableSelections.size;
+  const includedCount = (assignments?.length ?? 0) + (assignedVariables?.length ?? 0);
+  // Without this the toggle looks broken whenever everything already fits the
+  // period: the number says whether it has anything to hide.
+  const outsidePeriodCount = (variables ?? []).filter(
+    (variable) =>
+      !assignedVariableIds.has(variable.id) &&
+      !(
+        variable.effective_from <= scenario.period_end &&
+        (!variable.effective_to || variable.effective_to >= scenario.period_start)
+      )
+  ).length;
+  const TABS: { key: ComposerTab; labelKey: string; count: number }[] = [
+    { key: "people", labelKey: "payments.composer.people", count: Object.keys(employeeSelections).length },
+    { key: "variables", labelKey: "payments.composer.variables", count: variableSelections.size },
+    { key: "included", labelKey: "payments.composer.included_title", count: includedCount },
+  ];
   // Salaries still running inside the budget window that nobody has picked yet.
   const addableSalaries = Object.values(addableByEmployee)
     .flat()
@@ -221,7 +242,9 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
   return (
     <div className="flex h-full min-h-0 flex-col">
       <EmployeeModal
+        nested
         workspaceSlug={workspaceSlug}
+        offices={offices ?? []}
         isOpen={editingEmployee !== undefined}
         employee={editingEmployee ?? null}
         onClose={() => setEditingEmployee(undefined)}
@@ -231,6 +254,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         }}
       />
       <SalaryModal
+        nested
         workspaceSlug={workspaceSlug}
         employeeId={salaryTarget?.employee.id ?? ""}
         salary={salaryTarget?.salary ?? null}
@@ -252,6 +276,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         }}
       />
       <OfficesModal
+        nested
         workspaceSlug={workspaceSlug}
         offices={offices ?? []}
         isOpen={isOfficesOpen}
@@ -262,6 +287,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         }}
       />
       <FinancialVariableModal
+        nested
         workspaceSlug={workspaceSlug}
         offices={offices ?? []}
         variable={editingVariable ?? null}
@@ -274,6 +300,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         }}
       />
       <BudgetBonusModal
+        nested
         workspaceSlug={workspaceSlug}
         scenario={scenario}
         assignment={bonusTarget}
@@ -309,44 +336,61 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         }
       />
 
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
-        <ol className="space-y-2 rounded-lg bg-layer-2 p-3 text-12 text-secondary">
-          {(["step_people", "step_select", "step_add"] as const).map((step, index) => (
-            <li key={step} className="flex gap-2">
-              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-accent-primary text-10 font-semibold text-on-color">
-                {index + 1}
-              </span>
-              <span>{t(`payments.composer.${step}`)}</span>
-            </li>
-          ))}
-        </ol>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-subtle bg-layer-1 px-3 py-2.5">
-          <div>
-            <p className="text-11 font-medium text-primary">{t("payments.composer.period_filter")}</p>
-            <p className="mt-0.5 text-9 text-tertiary">
-              {t(
-                hideInapplicable ? "payments.composer.period_filter_help" : "payments.composer.period_filter_all_help",
-                {
-                  from: scenario.period_start,
-                  to: scenario.period_end,
-                }
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle px-5 py-2.5">
+        <nav
+          className="flex items-center gap-0.5 rounded-md bg-layer-2 p-0.5"
+          aria-label={t("payments.composer.title")}
+        >
+          {TABS.map(({ key, labelKey, count }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              aria-pressed={tab === key}
+              className={cn(
+                "flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-12 whitespace-nowrap",
+                tab === key
+                  ? "bg-surface-1 font-medium text-primary shadow-raised-100"
+                  : "text-tertiary hover:text-primary"
               )}
-            </p>
-          </div>
+            >
+              {t(labelKey)}
+              {count > 0 && <span className="text-11 text-tertiary">{count}</span>}
+            </button>
+          ))}
+        </nav>
+        <label
+          className="flex items-center gap-2 text-11 text-tertiary"
+          title={t(
+            hideInapplicable ? "payments.composer.period_filter_help" : "payments.composer.period_filter_all_help",
+            { from: scenario.period_start, to: scenario.period_end }
+          )}
+        >
+          {t("payments.composer.period_filter")}
+          {hideInapplicable && outsidePeriodCount > 0 && (
+            <span className="rounded-full bg-layer-2 px-1.5 text-10 text-secondary">{outsidePeriodCount}</span>
+          )}
           <ToggleSwitch
             value={hideInapplicable}
             onChange={() => setHideInapplicable((current) => !current)}
             label={t("payments.composer.period_filter")}
             size="sm"
           />
-        </div>
-        {((assignments?.length ?? 0) > 0 || (assignedVariables?.length ?? 0) > 0) && (
+        </label>
+      </div>
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        {tab === "included" && (
           <section>
             <div>
               <h3 className="text-13 font-semibold text-primary">{t("payments.composer.included_title")}</h3>
               <p className="mt-1 text-11 text-tertiary">{t("payments.composer.included_help")}</p>
             </div>
-            <div className="mt-3 divide-y divide-subtle overflow-hidden rounded-lg border border-subtle">
+            <div
+              className={cn(
+                "mt-3 divide-y divide-subtle overflow-hidden rounded-lg",
+                includedCount > 0 && "border border-subtle"
+              )}
+            >
               {(assignments ?? []).map((assignment) => (
                 <div key={assignment.id} className="px-3 py-2.5">
                   <div className="flex flex-wrap items-center gap-3">
@@ -426,201 +470,238 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
                 </div>
               ))}
             </div>
+            {includedCount === 0 && (
+              <p className="mt-3 rounded-lg border border-dashed border-subtle px-4 py-8 text-center text-11 text-tertiary">
+                {t("payments.sheet.empty_description")}
+              </p>
+            )}
           </section>
         )}
-        <section>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="flex items-center gap-2 text-13 font-semibold text-primary">
-                <Users className="size-4" /> {t("payments.composer.people")}
-              </h3>
-              <p className="mt-1 text-11 text-tertiary">{t("payments.composer.people_help")}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {addableSalaries.length > 0 && (
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  onClick={() =>
-                    setEmployeeSelections((current) => ({
-                      ...current,
-                      ...Object.fromEntries(addableSalaries.map((selection) => [selection.salary, selection])),
-                    }))
-                  }
-                >
-                  <Check className="size-3.5" />
-                  {t("payments.composer.select_active", { count: addableSalaries.length })}
-                </Button>
-              )}
-              <Button variant="secondary" size="lg" onClick={() => setIsOfficesOpen(true)}>
-                <Building2 className="size-3.5" /> {t("payroll.offices.title")}
-              </Button>
-              <Button variant="secondary" size="lg" onClick={() => setEditingEmployee(null)}>
-                <Plus className="size-3.5" /> {t("payroll.employees.new")}
-              </Button>
-            </div>
-          </div>
-
-          <ResourceSearch
-            value={employeeSearch}
-            onChange={setEmployeeSearch}
-            placeholder={t("payments.composer.search_people")}
-            clearLabel={t("payments.composer.clear_search")}
-            className="mt-3"
-          />
-
-          <div className="mt-3 space-y-2">
-            {(employees ?? []).map((employee) => (
-              <EmployeeComposerRow
-                key={employee.id}
-                workspaceSlug={workspaceSlug}
-                scenario={scenario}
-                employee={employee}
-                offices={offices ?? []}
-                assignedSalaryIds={assignedSalaryIds}
-                selections={employeeSelections}
-                onChange={(salaryId, selection) =>
-                  setEmployeeSelections((current) => {
-                    const next = { ...current };
-                    if (selection) next[salaryId] = selection;
-                    else delete next[salaryId];
-                    return next;
-                  })
-                }
-                onEdit={() => setEditingEmployee(employee)}
-                onAddSalary={() => setSalaryTarget({ employee, salary: null })}
-                onEditSalary={(salary) => setSalaryTarget({ employee, salary })}
-                onAddOffice={() => setIsOfficesOpen(true)}
-                hideInapplicable={hideInapplicable}
-                onAddableChange={reportAddable}
-              />
-            ))}
-            {(employees?.length ?? 0) === 0 && (
-              <EmptyComposerState
-                icon={Users}
-                title={t(employeeSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_people")}
-                action={t(employeeSearch.trim() ? "payments.composer.clear_search" : "payroll.employees.new")}
-                onAction={() => (employeeSearch.trim() ? setEmployeeSearch("") : setEditingEmployee(null))}
-              />
-            )}
-          </div>
-        </section>
-
-        <section>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="flex items-center gap-2 text-13 font-semibold text-primary">
-                <Variable className="size-4" /> {t("payments.composer.variables")}
-              </h3>
-              <p className="mt-1 text-11 text-tertiary">{t("payments.composer.variables_help")}</p>
-            </div>
-            <Button
-              variant="secondary"
-              size="lg"
-              onClick={() => (offices?.length ? setEditingVariable(null) : setIsOfficesOpen(true))}
-            >
-              <Plus className="size-3.5" />
-              {t(offices?.length ? "payments.variables.create" : "payroll.offices.new")}
-            </Button>
-          </div>
-
-          <ResourceSearch
-            value={variableSearch}
-            onChange={setVariableSearch}
-            placeholder={t("payments.composer.search_variables")}
-            clearLabel={t("payments.composer.clear_search")}
-            className="mt-3"
-          />
-
-          <div className="mt-3 space-y-2">
-            {(variables ?? []).map((variable) => {
-              const isAssigned = assignedVariableIds.has(variable.id);
-              const isSelected = variableSelections.has(variable.id);
-              const isEligible =
-                variable.effective_from <= scenario.period_end &&
-                (!variable.effective_to || variable.effective_to >= scenario.period_start);
-              if (hideInapplicable && !isEligible && !isAssigned) return null;
-              return (
-                <div
-                  key={variable.id}
-                  className={cn(
-                    "flex flex-wrap items-center gap-3 rounded-lg border border-subtle p-3",
-                    isSelected && "border-accent-primary bg-accent-primary/5",
-                    isAssigned && "bg-layer-2/60",
-                    !isEligible && !isAssigned && "opacity-60"
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isSelected || isAssigned}
-                    disabled={!isEligible && !isAssigned}
-                    onChange={(event) => {
-                      const assignedVariable = assignedVariableById.get(variable.id);
-                      if (!event.target.checked && assignedVariable) {
-                        setRemoveTarget({ type: "variable", assignment: assignedVariable });
-                        return;
-                      }
-                      setVariableSelections((current) => {
-                        const next = new Set(current);
-                        if (event.target.checked) next.add(variable.id);
-                        else next.delete(variable.id);
-                        return next;
-                      });
-                    }}
-                    className="accent-accent-primary size-4"
-                    aria-label={variable.name}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-12 font-medium text-primary">{variable.name}</p>
-                    <p className="mt-0.5 truncate text-10 text-tertiary">
-                      {variable.office_name} / {t(`payments.variables.recurrence.${variable.recurrence.toLowerCase()}`)}
-                    </p>
-                  </div>
-                  <p className="text-11 font-semibold text-primary">
-                    {formatMoney(variable.amount, variable.currency)}
-                  </p>
-                  <YearBadge from={variable.effective_from} to={variable.effective_to} />
-                  {isAssigned && (
-                    <span className="flex items-center gap-1 text-10 text-success-primary">
-                      <Check className="size-3" /> {t("payments.composer.in_budget")}
-                    </span>
-                  )}
-                  {!isEligible && !isAssigned && (
-                    <span className="text-10 text-tertiary">{t("payments.composer.outside_period")}</span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setEditingVariable(variable)}
-                    className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
-                    aria-label={t("payments.actions.edit")}
+        {tab === "people" && (
+          <section>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-13 font-semibold text-primary">
+                  <Users className="size-4" /> {t("payments.composer.people")}
+                </h3>
+                <p className="mt-1 text-11 text-tertiary">{t("payments.composer.people_help")}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {addableSalaries.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={() =>
+                      setEmployeeSelections((current) => ({
+                        ...current,
+                        ...Object.fromEntries(addableSalaries.map((selection) => [selection.salary, selection])),
+                      }))
+                    }
                   >
-                    <Pencil className="size-3.5" />
-                  </button>
-                </div>
-              );
-            })}
-            {(variables?.length ?? 0) === 0 && (
-              <EmptyComposerState
-                icon={Variable}
-                title={t(
-                  variableSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_variables"
+                    <Check className="size-3.5" />
+                    {t("payments.composer.select_active", { count: addableSalaries.length })}
+                  </Button>
                 )}
-                action={t(
-                  variableSearch.trim()
-                    ? "payments.composer.clear_search"
-                    : offices?.length
-                      ? "payments.variables.create"
-                      : "payroll.offices.new"
-                )}
-                onAction={() => {
-                  if (variableSearch.trim()) setVariableSearch("");
-                  else if (offices?.length) setEditingVariable(null);
-                  else setIsOfficesOpen(true);
-                }}
-              />
-            )}
-          </div>
-        </section>
+                <Button variant="secondary" size="lg" onClick={() => setIsOfficesOpen(true)}>
+                  <Building2 className="size-3.5" /> {t("payroll.offices.title")}
+                </Button>
+                <Button variant="secondary" size="lg" onClick={() => setEditingEmployee(null)}>
+                  <Plus className="size-3.5" /> {t("payroll.employees.new")}
+                </Button>
+              </div>
+            </div>
+
+            <ResourceSearch
+              value={employeeSearch}
+              onChange={setEmployeeSearch}
+              placeholder={t("payments.composer.search_people")}
+              clearLabel={t("payments.composer.clear_search")}
+              className="mt-3"
+            />
+
+            <div className="mt-3 space-y-2">
+              {(employees ?? []).map((employee) => (
+                <EmployeeComposerRow
+                  key={employee.id}
+                  workspaceSlug={workspaceSlug}
+                  scenario={scenario}
+                  employee={employee}
+                  offices={offices ?? []}
+                  assignedSalaryIds={assignedSalaryIds}
+                  selections={employeeSelections}
+                  onChange={(salaryId, selection) =>
+                    setEmployeeSelections((current) => {
+                      const next = { ...current };
+                      if (selection) next[salaryId] = selection;
+                      else delete next[salaryId];
+                      return next;
+                    })
+                  }
+                  onEdit={() => setEditingEmployee(employee)}
+                  onAddSalary={() => setSalaryTarget({ employee, salary: null })}
+                  onEditSalary={(salary) => setSalaryTarget({ employee, salary })}
+                  onAddOffice={() => setIsOfficesOpen(true)}
+                  hideInapplicable={hideInapplicable}
+                  onAddableChange={reportAddable}
+                />
+              ))}
+              {(employees?.length ?? 0) === 0 && (
+                <EmptyComposerState
+                  icon={Users}
+                  title={t(
+                    employeeSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_people"
+                  )}
+                  action={t(employeeSearch.trim() ? "payments.composer.clear_search" : "payroll.employees.new")}
+                  onAction={() => (employeeSearch.trim() ? setEmployeeSearch("") : setEditingEmployee(null))}
+                />
+              )}
+            </div>
+          </section>
+        )}
+        {tab === "variables" && (
+          <section>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-13 font-semibold text-primary">
+                  <Variable className="size-4" /> {t("payments.composer.variables")}
+                </h3>
+                <p className="mt-1 text-11 text-tertiary">{t("payments.composer.variables_help")}</p>
+              </div>
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => (offices?.length ? setEditingVariable(null) : setIsOfficesOpen(true))}
+              >
+                <Plus className="size-3.5" />
+                {t(offices?.length ? "payments.variables.create" : "payroll.offices.new")}
+              </Button>
+            </div>
+
+            <ResourceSearch
+              value={variableSearch}
+              onChange={setVariableSearch}
+              placeholder={t("payments.composer.search_variables")}
+              clearLabel={t("payments.composer.clear_search")}
+              className="mt-3"
+            />
+
+            <div className="mt-3 space-y-2">
+              {(variables ?? []).map((variable) => {
+                const isAssigned = assignedVariableIds.has(variable.id);
+                const isSelected = variableSelections.has(variable.id);
+                const isEligible =
+                  variable.effective_from <= scenario.period_end &&
+                  (!variable.effective_to || variable.effective_to >= scenario.period_start);
+                if (hideInapplicable && !isEligible && !isAssigned) return null;
+                return (
+                  <div
+                    key={variable.id}
+                    className={cn(
+                      "rounded-lg border border-subtle p-3",
+                      isSelected && "border-accent-primary bg-accent-primary/5",
+                      isAssigned && "bg-layer-2/60"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Variable className="size-4 text-tertiary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-12 font-medium text-primary">{variable.name}</p>
+                        <p className="mt-0.5 truncate text-10 text-tertiary">
+                          {variable.office_name} / {t(`payments.variables.kind.${variable.kind.toLowerCase()}`)}
+                        </p>
+                      </div>
+                      {isAssigned && (
+                        <span className="flex items-center gap-1 text-10 text-success-primary">
+                          <Check className="size-3" /> {t("payments.composer.in_budget")}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setEditingVariable(variable)}
+                        className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+                        aria-label={t("payments.actions.edit")}
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="mt-3 space-y-2 border-t border-subtle pt-3">
+                      <div
+                        className={cn(
+                          "rounded-lg border border-subtle bg-layer-1 p-3",
+                          isSelected && "border-accent-primary bg-accent-primary/5",
+                          (isAssigned || !isEligible) && "bg-layer-2/60"
+                        )}
+                      >
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={isSelected || isAssigned}
+                            disabled={!isEligible && !isAssigned}
+                            onChange={(event) => {
+                              const assignedVariable = assignedVariableById.get(variable.id);
+                              if (!event.target.checked && assignedVariable) {
+                                setRemoveTarget({ type: "variable", assignment: assignedVariable });
+                                return;
+                              }
+                              setVariableSelections((current) => {
+                                const next = new Set(current);
+                                if (event.target.checked) next.add(variable.id);
+                                else next.delete(variable.id);
+                                return next;
+                              });
+                            }}
+                            className="accent-accent-primary size-4"
+                            aria-label={variable.name}
+                          />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-11 font-medium text-primary">
+                                {t(`payments.variables.recurrence.${variable.recurrence.toLowerCase()}`)}
+                              </span>
+                              <span className="text-11 font-semibold text-primary">
+                                {formatMoney(variable.amount, variable.currency)}
+                              </span>
+                              <YearBadge from={variable.effective_from} to={variable.effective_to} />
+                            </div>
+                            <p className="mt-1 text-9 text-tertiary">
+                              {variable.effective_from} / {variable.effective_to ?? t("payments.ledger.no_end")}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {!isEligible && !isAssigned && (
+                              <span className="text-9 text-tertiary">{t("payments.composer.outside_period")}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {(variables?.length ?? 0) === 0 && (
+                <EmptyComposerState
+                  icon={Variable}
+                  title={t(
+                    variableSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_variables"
+                  )}
+                  action={t(
+                    variableSearch.trim()
+                      ? "payments.composer.clear_search"
+                      : offices?.length
+                        ? "payments.variables.create"
+                        : "payroll.offices.new"
+                  )}
+                  onAction={() => {
+                    if (variableSearch.trim()) setVariableSearch("");
+                    else if (offices?.length) setEditingVariable(null);
+                    else setIsOfficesOpen(true);
+                  }}
+                />
+              )}
+            </div>
+          </section>
+        )}
       </div>
 
       <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-subtle bg-surface-1 px-5 py-3">

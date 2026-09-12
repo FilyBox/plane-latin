@@ -52,7 +52,11 @@ export type TCommentsOperations = {
   createComment: (data: Partial<TIssueComment>) => Promise<Partial<TIssueComment> | undefined>;
   updateComment: (commentId: string, data: Partial<TIssueComment>) => Promise<void>;
   removeComment: (commentId: string) => Promise<void>;
-  uploadCommentAsset: (blockId: string, file: File, commentId?: string) => Promise<TFileSignedURLResponse>;
+  uploadCommentAsset: (
+    blockId: string,
+    file: File,
+    commentId?: string
+  ) => Promise<Pick<TFileSignedURLResponse, "asset_id">>;
   duplicateCommentAsset: (assetId: string, commentId?: string) => Promise<{ asset_id: string }>;
   addCommentReaction: (commentId: string, reactionEmoji: string) => Promise<void>;
   deleteCommentReaction: (commentId: string, reactionEmoji: string) => Promise<void>;

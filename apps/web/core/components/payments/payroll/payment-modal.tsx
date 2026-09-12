@@ -23,11 +23,13 @@ type Props = {
   employees: TEmployee[];
   offices: TOffice[];
   onClose: () => void;
+  /** Set when this opened from another panel, so it stacks over it. */
+  nested?: boolean;
   onSaved: () => void;
 };
 
 export function PayrollPaymentModal(props: Props) {
-  const { workspaceSlug, isOpen, employees, offices, onClose, onSaved } = props;
+  const { workspaceSlug, isOpen, employees, offices, onClose, nested, onSaved } = props;
   const { t } = useTranslation();
   const [employee, setEmployee] = useState("");
   const [office, setOffice] = useState("");
@@ -84,12 +86,7 @@ export function PayrollPaymentModal(props: Props) {
   const isPeriodInverted = Boolean(periodStart && periodEnd && periodEnd < periodStart);
 
   return (
-    <PaymentsSidePanel
-      isOpen={isOpen}
-      onClose={onClose}
-      width="xl"
-      title={t("payroll.payments.new")}
-    >
+    <PaymentsSidePanel isOpen={isOpen} onClose={onClose} nested={nested} width="xl" title={t("payroll.payments.new")}>
       <form
         className="flex min-h-0 flex-1 flex-col"
         onSubmit={(event) => {

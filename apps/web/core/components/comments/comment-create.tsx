@@ -20,6 +20,7 @@ import { useWorkspace } from "@/hooks/store/use-workspace";
 import { FileService } from "@/services/file.service";
 
 type TCommentCreate = {
+  assetsAlreadyUploaded?: boolean;
   entityId: string;
   workspaceSlug: string;
   activityOperations: TCommentsOperations;
@@ -34,6 +35,7 @@ const fileService = new FileService();
 export const CommentCreate = observer(function CommentCreate(props: TCommentCreate) {
   const {
     workspaceSlug,
+    assetsAlreadyUploaded = false,
     entityId,
     activityOperations,
     showToolbarInitially = false,
@@ -65,7 +67,7 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
     try {
       const comment = await activityOperations.createComment(formData);
       if (comment?.id) onSubmitCallback?.(comment.id);
-      if (uploadedAssetIds.length > 0) {
+      if (!assetsAlreadyUploaded && uploadedAssetIds.length > 0) {
         if (projectId) {
           await fileService.updateBulkProjectAssetsUploadStatus(workspaceSlug, projectId.toString(), entityId, {
             asset_ids: uploadedAssetIds,
@@ -91,6 +93,7 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
   const isEmpty = isCommentEmpty(commentHTML ?? undefined);
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       className={cn("sticky bottom-0 z-[4] bg-surface-1 sm:static")}
       onKeyDown={(e) => {

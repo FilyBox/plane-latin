@@ -336,6 +336,7 @@ class Expense(BaseModel):
     reference = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     paid_at = models.DateField(null=True, blank=True)
+    scenario = models.ForeignKey("db.BudgetScenario", on_delete=models.SET_NULL, null=True, blank=True, related_name="actual_expenses")
     concept = models.CharField(max_length=255, blank=True)
     tags = models.JSONField(default=list, blank=True)
     recurrence = models.CharField(max_length=20, choices=FinancialVariable.Recurrence.choices, default="ONE_TIME")
@@ -362,6 +363,7 @@ class Expense(BaseModel):
 
 
 class ExpenseImport(BaseModel):
+    scenario = models.ForeignKey("db.BudgetScenario", on_delete=models.SET_NULL, null=True, blank=True)
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE)
     asset = models.ForeignKey("db.FileAsset", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, default="QUEUED")
@@ -406,3 +408,45 @@ class ExpenseDocument(BaseModel):
 
     def __str__(self):
         return f"{self.expense_id} -> {self.asset_id}"
+
+
+class BudgetRow(BaseModel):
+    """User annotations for a calculated row; amounts remain in the forecast."""
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE)
+    scenario = models.ForeignKey("db.BudgetScenario", on_delete=models.CASCADE)
+    row_key = models.CharField(max_length=255)
+    title = models.CharField(max_length=255, blank=True)
+    description = models.TextField(blank=True)
+    # The one category the line is filed under. Tags stay for the loose,
+    # many-per-row labelling; this is the single value the sheet sorts,
+    # groups and hides by.
+    category = models.ForeignKey(
+        "db.ExpenseCategory", on_delete=models.SET_NULL, null=True, blank=True, related_name="budget_rows"
+    )
+    tags = models.JSONField(default=list, blank=True)
+    documents = models.ManyToManyField("db.FileAsset", blank=True)
+
+    class Meta:
+        db_table = "budget_rows"
+        constraints = [models.UniqueConstraint(fields=["scenario", "row_key"], name="unique_budget_row")]
+
+
+class FinanceComment(BaseModel):
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE)
+    scenario = models.ForeignKey("db.BudgetScenario", on_delete=models.CASCADE, null=True, blank=True)
+    expense = models.ForeignKey("db.Expense", on_delete=models.CASCADE, null=True, blank=True)
+    row_key = models.CharField(max_length=255, blank=True)
+    cell = models.CharField(max_length=50, blank=True)
+    parent = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies")
+    actor = models.ForeignKey("db.User", on_delete=models.CASCADE)
+    comment_html = models.TextField()
+    reactions = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = "finance_comments"
+        ordering = ("created_at",)
+        constraints = [models.CheckConstraint(
+            check=(Q(scenario__isnull=False, expense__isnull=True) | Q(scenario__isnull=True, expense__isnull=False)),
+            name="finance_comment_one_target",
+        )]

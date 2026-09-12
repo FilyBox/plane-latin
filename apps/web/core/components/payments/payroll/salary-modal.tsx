@@ -25,11 +25,13 @@ type Props = {
   offices: TOffice[];
   defaultEffectiveFrom?: string;
   onClose: () => void;
+  /** Set when this opened from another panel, so it stacks over it. */
+  nested?: boolean;
   onSaved: () => void;
 };
 
 export function SalaryModal(props: Props) {
-  const { workspaceSlug, employeeId, salary, isOpen, offices, defaultEffectiveFrom, onClose, onSaved } = props;
+  const { workspaceSlug, employeeId, salary, isOpen, offices, defaultEffectiveFrom, onClose, nested, onSaved } = props;
   const { t } = useTranslation();
   const [office, setOffice] = useState("");
   const [amount, setAmount] = useState("");
@@ -83,6 +85,7 @@ export function SalaryModal(props: Props) {
     <PaymentsSidePanel
       isOpen={isOpen}
       onClose={onClose}
+      nested={nested}
       width="lg"
       title={t(salary ? "payroll.employees.edit_salary" : "payroll.employees.new_salary")}
     >
@@ -176,13 +179,7 @@ export function SalaryModal(props: Props) {
           <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             {t("payroll.actions.cancel")}
           </Button>
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            loading={isSubmitting}
-            disabled={!office || !amount.trim()}
-          >
+          <Button type="submit" variant="primary" size="sm" loading={isSubmitting} disabled={!office || !amount.trim()}>
             {t("payroll.actions.save")}
           </Button>
         </div>

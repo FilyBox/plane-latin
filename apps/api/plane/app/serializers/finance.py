@@ -259,6 +259,7 @@ class ExpenseSerializer(BaseSerializer):
             "category",
             "category_name",
             "project",
+            "scenario",
             "documents",
             "amount",
             "currency",
@@ -276,7 +277,7 @@ class ExpenseSerializer(BaseSerializer):
 
     def validate(self, data):
         workspace_id = self.context.get("workspace_id") or getattr(self.instance, "workspace_id", None)
-        for field in ("category", "project"):
+        for field in ("category", "project", "scenario"):
             related = data.get(field)
             if related and related.workspace_id != workspace_id:
                 raise serializers.ValidationError({field: "Must belong to this workspace"})

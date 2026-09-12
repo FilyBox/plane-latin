@@ -23,11 +23,13 @@ type Props = {
   isOpen: boolean;
   offices: TOffice[];
   onClose: () => void;
+  /** Set when this opened from another panel, so it stacks over it. */
+  nested?: boolean;
   onSaved: () => void;
 };
 
 export function AdjustmentModal(props: Props) {
-  const { workspaceSlug, employeeId, isOpen, offices, onClose, onSaved } = props;
+  const { workspaceSlug, employeeId, isOpen, offices, onClose, nested, onSaved } = props;
   const { t } = useTranslation();
   const [kind, setKind] = useState<TAdjustmentKind>("BONUS");
   const [office, setOffice] = useState("");
@@ -79,6 +81,7 @@ export function AdjustmentModal(props: Props) {
     <PaymentsSidePanel
       isOpen={isOpen}
       onClose={onClose}
+      nested={nested}
       width="lg"
       title={t("payroll.employees.new_adjustment")}
     >
@@ -170,13 +173,7 @@ export function AdjustmentModal(props: Props) {
           <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             {t("payroll.actions.cancel")}
           </Button>
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            loading={isSubmitting}
-            disabled={!amount.trim()}
-          >
+          <Button type="submit" variant="primary" size="sm" loading={isSubmitting} disabled={!amount.trim()}>
             {t("payroll.actions.save")}
           </Button>
         </div>

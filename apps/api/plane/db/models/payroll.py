@@ -54,6 +54,12 @@ class Employee(BaseModel):
     """A person on payroll. Not a Plane user account."""
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="employees")
+    # The office the person belongs to. A salary still carries its own office —
+    # that is what the money is charged to, and it can differ — but this is the
+    # one answer to "whose payroll is this", and it seeds the salary form.
+    office = models.ForeignKey(
+        "db.Office", on_delete=models.SET_NULL, null=True, blank=True, related_name="employees"
+    )
     full_name = models.CharField(max_length=255)
     email = models.EmailField(blank=True)
     # RFC/CURP or whatever identifier the company files them under

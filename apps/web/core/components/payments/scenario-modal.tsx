@@ -141,6 +141,7 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
                 max="2200"
                 value={year}
                 onChange={(event) => handleYearChange(Number(event.target.value) || currentYear)}
+                className="w-full"
               />
             </div>
             <div>

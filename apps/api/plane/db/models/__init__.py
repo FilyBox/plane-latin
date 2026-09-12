@@ -27,6 +27,8 @@ from .file_library import (
     WorkspaceFeature,
 )
 from .finance import (
+    BudgetRow,
+    FinanceComment,
     Budget,
     BudgetBonus,
     BudgetCellOverride,

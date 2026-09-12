@@ -45,7 +45,8 @@
       "all": "All",
       "search": "Search",
       "from": "From",
-      "to": "To"
+      "to": "To",
+      "label": "Filters"
     },
     "actions": {
       "save": "Save",
@@ -115,7 +116,10 @@
       "add_to_budget": "Add to budget",
       "no_team_title": "No team costs yet",
       "no_team_description": "Add employees and select the salary that applies to this scenario.",
-      "no_position": "No position"
+      "no_position": "No position",
+      "change_status": "Change status",
+      "year_desc": "Newest year",
+      "year_asc": "Oldest year"
     },
     "composer": {
       "open": "Add to budget",
@@ -190,7 +194,9 @@
         "count": "Count"
       },
       "export_xlsx": "Export to XLSX",
-      "export_csv": "Export to CSV"
+      "export_csv": "Export to CSV",
+      "hide_category": "Hide category",
+      "sort_by_category": "Sort by category"
     },
     "variables": {
       "title": "Financial variables",
@@ -331,7 +337,26 @@
       "no_results_description": "No expense matches the current search or filters.",
       "categories_help": "Categories group your expenses in reports and budgets.",
       "add_category": "Add",
-      "pending_upload": "Not uploaded"
+      "pending_upload": "Not uploaded",
+      "create_tag": "Create"
+    },
+    "flow": {
+      "planned": "Planned",
+      "actual": "Actual",
+      "actual_help": "Expenses recorded against this budget. They do not change the plan.",
+      "available": "Available",
+      "budget": "Budget",
+      "no_budget": "No budget",
+      "link_existing": "Link to a budget",
+      "open_expense": "Open the expense",
+      "source": "Source",
+      "period": "In effect",
+      "breakdown": "Monthly breakdown",
+      "comments_for": "Comments on",
+      "queue": "AI analysis",
+      "queue_help": "Upload receipts, invoices or XML. When the analysis finishes the expense is created with the file attached.",
+      "remove_row": "This line leaves the budget. The resource behind it is kept.",
+      "remove_employee": "This person leaves the budget. Their record and salary are kept."
     }
   }
 }

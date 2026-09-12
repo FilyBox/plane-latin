@@ -1,0 +1,120 @@
+/* ───────── RevoGrid con la retícula del lienzo ─────────
+   El tema `compact` mete 15px de padding a cada lado de la celda, lo que come
+   la mitad de una columna estrecha. Lo anulamos y el padding lo pone la propia
+   plantilla de celda, con los valores exactos del diseño. */
+.finance-grid {
+  --ink: var(--text-color-primary);
+  --ink-4: var(--text-color-secondary);
+  --muted: var(--text-color-tertiary);
+  --muted-2: var(--text-color-tertiary);
+  --muted-3: var(--text-color-placeholder);
+  --panel-alt: var(--background-color-layer-2);
+  --group: var(--background-color-layer-2);
+  --head: var(--background-color-layer-2);
+  --line-soft: var(--border-color-subtle);
+  --line-softer: var(--border-color-subtle);
+  --line-input: var(--border-color-subtle);
+  --accent: var(--color-accent-primary, #397367);
+  --accent-tint: var(--background-color-layer-1);
+  --purple: #6b44a0;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.finance-grid revo-grid {
+  width: 100%;
+  height: 100%;
+  background: var(--background-color-surface-1);
+  font-family: var(--font-sans);
+  color: var(--ink);
+
+  /* RevoGrid frames itself and paints its selection in its own blue. The page
+     owns the framing, and the accent has to be ours — including the 10px
+     autofill square it drops on the corner of the focused cell, which we do
+     not use at all because range selection is off. */
+  border: none;
+  --revo-grid-selection-border: var(--accent);
+  --revo-grid-autofill-handle-bg: transparent;
+  --revo-grid-autofill-handle-border: transparent;
+  --revo-grid-temporary-range-border: var(--accent);
+  --revo-grid-temporary-selection-border: var(--accent);
+}
+
+.finance-grid revogr-overlay-selection .autofill-handle {
+  display: none !important;
+}
+
+.finance-grid .rgCell > span,
+.finance-grid .rgCell > button {
+  width: 100%;
+}
+.finance-grid .rgCell > button:hover {
+  background: var(--background-color-layer-1-hover);
+}
+.finance-grid .rgCell > button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.finance-grid revo-grid .rgCell,
+.finance-grid revo-grid .rgHeaderCell {
+  padding: 0 !important;
+  border-right: none !important;
+}
+.finance-grid revo-grid .rgHeaderCell {
+  background: var(--head);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+}
+.finance-grid revo-grid .rgHeaderCell > * {
+  padding: 0 6px;
+}
+.finance-grid revo-grid .rgHeaderCell.align-center,
+.finance-grid revo-grid .header-rgRow {
+  background: var(--head);
+}
+.finance-grid revo-grid revogr-header {
+  border-bottom: 1px solid var(--line-soft);
+}
+.finance-grid revo-grid .rgRow {
+  border-bottom: none;
+}
+.finance-grid revo-grid .rgCell.disabled {
+  color: inherit;
+}
+.finance-grid revo-grid revogr-focus,
+.finance-grid revo-grid .focused-cell {
+  border-color: var(--accent) !important;
+}
+
+/* RevoGrid's own watermark: a 4px triangle in the bottom-left corner, painted
+   in its default blue. The MIT notice lives in the source, not on the sheet. */
+.finance-grid revo-grid .attribution {
+  display: none !important;
+}
+
+/* ───────── la fila de totales, abajo del todo ─────────
+   Each column section stacks header / content / footer, and the grid lays the
+   sections out with `align-items: flex-start`, so they only ever grow to the
+   height of their rows. With an empty sheet that leaves the pinned footer
+   welded under the header. Stretching the sections and letting the content
+   area absorb the slack pushes the footer to the real bottom; once the rows
+   overflow, `max-height` on the table makes it shrink back as before. */
+.finance-grid revo-grid .viewports {
+  align-items: stretch;
+}
+.finance-grid revo-grid revogr-viewport-scroll .inner-content-table {
+  height: 100%;
+}
+.finance-grid revo-grid revogr-viewport-scroll .content-wrapper {
+  flex-grow: 1;
+  min-height: 0;
+}
+.finance-grid revo-grid revogr-viewport-scroll .footer-wrapper {
+  border-top: 1px solid var(--line-input);
+  background: var(--panel-alt);
+}

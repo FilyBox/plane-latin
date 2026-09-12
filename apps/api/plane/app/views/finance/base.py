@@ -19,6 +19,7 @@ from io import BytesIO, StringIO
 from decimal import Decimal
 
 # Django imports
+from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -76,15 +77,28 @@ def _scenario_forecast_data(scenario):
     variables = BudgetScenarioVariable.objects.filter(scenario=scenario).select_related(
         "variable__office"
     )
-    expenses = Expense.all_objects.filter(
-        workspace_id=scenario.workspace_id,
-        expense_date__lte=scenario.period_end,
-    ).filter(
-        Q(expense_date__gte=scenario.period_start)
-        | (Q(series__isnull=True) & ~Q(recurrence="ONE_TIME"))
-    ).filter(Q(deleted_at__isnull=True) | Q(series__isnull=False)).select_related("category")
     overrides = BudgetCellOverride.objects.filter(scenario=scenario)
-    return scenario_forecast(scenario, employees, variables, expenses, overrides)
+    forecast = scenario_forecast(scenario, employees, variables, [], overrides)
+    from plane.db.models.finance import BudgetRow
+    metadata = {
+        row.row_key: row
+        for row in BudgetRow.objects.filter(scenario=scenario).select_related("category")
+    }
+    for line in forecast["lines"]:
+        row = metadata.get(line["key"])
+        line["tags"] = row.tags if row else []
+        line["category_id"] = str(row.category_id) if row and row.category_id else ""
+        line["category_name"] = row.category.name if row and row.category_id else ""
+        if row and row.title:
+            line["label"] = row.title
+    actual = Expense.objects.filter(scenario=scenario, expense_date__range=(scenario.period_start, scenario.period_end))
+    forecast["actuals"] = [
+        {"currency": row["currency"], "paid": str(row["paid"] or 0), "pending": str(row["pending"] or 0)}
+        for row in actual.values("currency").annotate(
+            paid=Sum("amount", filter=Q(status="PAID")), pending=Sum("amount", filter=Q(status="PENDING"))
+        )
+    ]
+    return forecast
 
 
 class FinanceBaseView(BaseAPIView):
@@ -132,7 +146,18 @@ class ExpenseCategoryDetailEndpoint(FinanceBaseView):
         serializer = ExpenseCategorySerializer(category, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        serializer.save()
+        new_name = serializer.validated_data.get("name", category.name)
+        if ExpenseCategory.objects.filter(workspace=category.workspace, name__iexact=new_name).exclude(id=category.id).exists():
+            return Response({"name": ["A category with this name already exists"]}, status=409)
+        from plane.db.models.finance import BudgetRow
+        with transaction.atomic():
+            old_name = category.name
+            serializer.save()
+            if old_name != new_name:
+                for model in (Expense, BudgetRow):
+                    for record in model.objects.select_for_update().filter(workspace=category.workspace, tags__contains=[old_name]):
+                        record.tags = list(dict.fromkeys(new_name if tag == old_name else tag for tag in record.tags))
+                        record.save(update_fields=["tags"])
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
@@ -140,7 +165,13 @@ class ExpenseCategoryDetailEndpoint(FinanceBaseView):
         category = ExpenseCategory.objects.get(id=category_id, workspace__slug=slug)
         # Expenses keep their history (category goes NULL); budgets are the
         # allocation for a bucket that no longer exists, so they go with it.
-        category.delete()
+        from plane.db.models.finance import BudgetRow
+        with transaction.atomic():
+            for model in (Expense, BudgetRow):
+                for record in model.objects.select_for_update().filter(workspace=category.workspace, tags__contains=[category.name]):
+                    record.tags = [tag for tag in record.tags if tag != category.name]
+                    record.save(update_fields=["tags"])
+            category.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -608,7 +639,7 @@ class BudgetScenarioExportEndpoint(FinanceBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, scenario_id):
         scenario = BudgetScenario.objects.get(id=scenario_id, workspace__slug=slug)
-        export_format = request.query_params.get("format", "xlsx").lower()
+        export_format = request.query_params.get("export_format", "xlsx").lower()
         if export_format not in {"csv", "xlsx"}:
             return Response({"error": "format must be csv or xlsx"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -641,7 +672,7 @@ class BudgetScenarioExportEndpoint(FinanceBaseView):
             sheet.title = "Budget"
             sheet.append(headers)
             for row in rows:
-                sheet.append(row)
+                sheet.append(sanitize_csv_row(row))
             sheet.freeze_panes = "E2"
             for cell in sheet[1]:
                 cell.font = Font(bold=True, color="FFFFFF")

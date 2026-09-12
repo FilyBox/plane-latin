@@ -43,6 +43,7 @@
     "@popperjs/core": "catalog:",
     "@react-pdf/renderer": "catalog:",
     "@react-router/node": "catalog:",
+    "@revolist/react-datagrid": "catalog:",
     "@tanstack/react-table": "catalog:",
     "ai": "^7.0.30",
     "axios": "catalog:",

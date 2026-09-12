@@ -47,6 +47,9 @@ export type TEmployee = {
   email: string;
   national_id: string;
   position: string;
+  /** The office the person belongs to. Required when creating. */
+  office: string | null;
+  office_name: string;
   hire_date: string;
   termination_date: string | null;
   is_active: boolean;

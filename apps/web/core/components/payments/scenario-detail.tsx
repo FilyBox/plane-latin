@@ -125,7 +125,6 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onChanged, onDel
         workspaceSlug={workspaceSlug}
         scenario={scenario}
         refreshToken={sheetRefreshToken}
-        onCompose={() => setPanel("compose")}
         meta={
           <span className="hidden items-center gap-1.5 text-11 whitespace-nowrap text-tertiary md:flex">
             <CalendarDays className="size-3" />
@@ -229,6 +228,7 @@ export function ScenarioTeam({ workspaceSlug, scenario }: { workspaceSlug: strin
   return (
     <div className="mx-auto max-w-[1180px] p-4 sm:p-6">
       <ScenarioEmployeeModal
+        nested
         workspaceSlug={workspaceSlug}
         scenario={scenario}
         employees={employees ?? []}
@@ -237,6 +237,7 @@ export function ScenarioTeam({ workspaceSlug, scenario }: { workspaceSlug: strin
         onSaved={refresh}
       />
       <BudgetBonusModal
+        nested
         workspaceSlug={workspaceSlug}
         scenario={scenario}
         assignment={bonusTarget}
@@ -410,6 +411,7 @@ function ScenarioVariables({
   return (
     <div className="mx-auto max-w-[1180px] p-4 sm:p-6">
       <FinancialVariableModal
+        nested
         workspaceSlug={workspaceSlug}
         offices={offices ?? []}
         variable={editing}
@@ -421,6 +423,7 @@ function ScenarioVariables({
         onSaved={refresh}
       />
       <OfficesModal
+        nested
         workspaceSlug={workspaceSlug}
         offices={offices ?? []}
         isOpen={isOfficesOpen}
@@ -598,7 +601,9 @@ function BudgetResourcesPanel({
         {section === "variables" && (
           <ScenarioVariables workspaceSlug={workspaceSlug} scenario={scenario} onChanged={onChanged} />
         )}
-        {section === "expenses" && <ExpensesTab workspaceSlug={workspaceSlug} onChanged={onChanged} />}
+        {section === "expenses" && (
+          <ExpensesTab workspaceSlug={workspaceSlug} scenario={scenario} onChanged={onChanged} />
+        )}
       </div>
     </div>
   );

@@ -23,11 +23,13 @@ type Props = {
   isOpen: boolean;
   categories: TExpenseCategory[];
   onClose: () => void;
+  /** Set when this opened from another panel, so it stacks over it. */
+  nested?: boolean;
   onChanged: () => void;
 };
 
 export function CategoriesModal(props: Props) {
-  const { workspaceSlug, isOpen, categories, onClose, onChanged } = props;
+  const { workspaceSlug, isOpen, categories, onClose, nested, onChanged } = props;
   const { t } = useTranslation();
   const [newName, setNewName] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<TExpenseCategory | null>(null);
@@ -81,6 +83,7 @@ export function CategoriesModal(props: Props) {
       <PaymentsSidePanel
         isOpen={isOpen}
         onClose={onClose}
+        nested={nested}
         width="md"
         title={t("payments.manage_categories")}
         description={t("payments.ledger.categories_help")}
@@ -96,6 +99,7 @@ export function CategoriesModal(props: Props) {
         >
           <Input
             value={newName}
+            // eslint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
             onChange={(event) => setNewName(event.target.value)}
             placeholder={t("payments.fields.name")}

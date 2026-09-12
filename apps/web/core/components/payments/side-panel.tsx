@@ -1,99 +1,121 @@
-/**
- * Copyright (c) 2023-present Plane Software, Inc. and contributors
- * SPDX-License-Identifier: AGPL-3.0-only
- * See the LICENSE file for details.
- */
-
-import { Fragment } from "react";
-import { Dialog, Transition } from "@headlessui/react";
-import { X } from "lucide-react";
-import { cn } from "@plane/utils";
+import { useEffect, useRef, useState } from "react";
+import { MoveRight, X } from "lucide-react";
+import { useTranslation } from "@plane/i18n";
+import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/propel/icons";
+import { CustomSelect } from "@plane/ui";
+import { PeekPanel, type PeekMode } from "@/components/core/peek-panel";
+import usePeekOverviewOutsideClickDetector from "@/hooks/use-peek-overview-outside-click";
 
 type Props = {
   isOpen: boolean;
   title: string;
   description?: string;
-  /** Rendered at the top-right of the header, next to the close button. */
   headerActions?: React.ReactNode;
+  /** True when this opened from another panel. It then renders narrower and
+   * inset, floating over the one underneath, so the stack is visible instead of
+   * being explained by a back arrow. */
+  nested?: boolean;
   onClose: () => void;
-  /** Panel width on desktop. Defaults to a comfortable form width. */
   width?: "md" | "lg" | "xl";
   children: React.ReactNode;
 };
 
-const WIDTHS = {
-  md: "sm:max-w-md",
-  lg: "sm:max-w-lg",
-  xl: "sm:max-w-2xl",
-} as const;
+const modes = [
+  { key: "side-peek", icon: SidePanelIcon, title: "common.side_peek" },
+  { key: "modal", icon: CenterPanelIcon, title: "common.modal" },
+  { key: "full-screen", icon: FullScreenPanelIcon, title: "common.full_screen" },
+] as const;
 
-/**
- * A dialog that docks to the right edge on desktop and rises as a sheet on
- * mobile — the shape Plane uses for anything you fill in while still looking at
- * the table behind it. Built on the same Headless UI primitives as `ModalCore`,
- * with `ModalCore`'s own transition, so it opens exactly like every other dialog
- * in the app; only the placement differs.
- *
- * Children own the whole body: pass a flex column (typically a `<form>`) so the
- * content scrolls and the actions stay pinned at the bottom.
- */
-export function PaymentsSidePanel(props: Props) {
-  const { isOpen, title, description, headerActions, onClose, width = "xl", children } = props;
-
+export function PaymentsSidePanel({
+  isOpen,
+  title,
+  description,
+  headerActions,
+  nested = false,
+  onClose,
+  children,
+}: Props) {
+  const { t } = useTranslation();
+  const [mode, setMode] = useState<PeekMode>("side-peek");
+  const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  usePeekOverviewOutsideClickDetector(
+    ref,
+    () => {
+      if (isOpen && !document.querySelector('[data-headlessui-state="open"]')) closeRef.current();
+    },
+    isOpen ? title : "",
+    ["main-sidebar"]
+  );
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector('[data-headlessui-state="open"], .editor-image-full-screen-modal')) return;
+      if (document.activeElement?.closest('[contenteditable="true"], input, textarea')) return;
+      closeRef.current();
+    };
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("keydown", escape);
+      previous?.focus();
+    };
+  }, [isOpen]);
+  if (!isOpen) return null;
+  const current = modes.find((item) => item.key === mode)!;
   return (
-    <Transition.Root show={isOpen} as={Fragment}>
-      <Dialog as="div" className="relative z-30" onClose={onClose}>
-        <Transition.Child
-          as={Fragment}
-          enter="ease-out duration-300"
-          enterFrom="opacity-0"
-          enterTo="opacity-100"
-          leave="ease-in duration-200"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
-        >
-          <div className="fixed inset-0 bg-backdrop transition-opacity" />
-        </Transition.Child>
-
-        <div className="fixed inset-0 z-30 flex items-end justify-center sm:items-stretch sm:justify-end">
-          <Transition.Child
-            as={Fragment}
-            enter="ease-out duration-300"
-            enterFrom="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-            enterTo="opacity-100 translate-y-0 sm:scale-100"
-            leave="ease-in duration-200"
-            leaveFrom="opacity-100 translate-y-0 sm:scale-100"
-            leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-          >
-            <Dialog.Panel
-              className={cn(
-                "flex max-h-[92vh] w-full transform flex-col overflow-hidden rounded-t-xl bg-surface-1 shadow-raised-200 transition-all",
-                "sm:h-full sm:max-h-none sm:rounded-none sm:border-l sm:border-subtle",
-                WIDTHS[width]
-              )}
-            >
-              <header className="flex shrink-0 items-start justify-between gap-4 border-b border-subtle px-5 py-4">
-                <div className="min-w-0">
-                  <Dialog.Title className="truncate text-15 font-semibold text-primary">{title}</Dialog.Title>
-                  {description && <p className="mt-1 text-12 text-tertiary">{description}</p>}
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  {headerActions}
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    aria-label="Close"
-                    className="flex size-7 items-center justify-center rounded-md text-tertiary hover:bg-layer-1-hover hover:text-primary"
-                  >
-                    <X className="size-4" />
+    <PeekPanel ref={ref} mode={mode} depth={nested ? "nested" : "root"} label={title}>
+      <header className="relative flex shrink-0 items-center justify-between gap-4 p-4">
+        <div className="flex min-w-0 items-center gap-4">
+          {/* A sub-panel is a card on top of the one behind: it closes, it does not
+            navigate, so it takes the plain X rather than the peek controls. */}
+          {nested ? (
+            <h2 className="truncate text-13 font-medium text-primary">{title}</h2>
+          ) : (
+            <>
+              <button type="button" onClick={onClose} aria-label={t("common.close_peek_view")}>
+                <MoveRight className="size-4 text-tertiary hover:text-secondary" />
+              </button>
+              <CustomSelect
+                value={mode}
+                onChange={(value: PeekMode) => setMode(value)}
+                customButton={
+                  <button type="button" aria-label={t("common.toggle_peek_view_layout")}>
+                    <current.icon className="size-4 text-tertiary" />
                   </button>
-                </div>
-              </header>
-              {children}
-            </Dialog.Panel>
-          </Transition.Child>
+                }
+              >
+                {modes.map((item) => (
+                  <CustomSelect.Option key={item.key} value={item.key}>
+                    <span className="flex items-center gap-1.5">
+                      <item.icon className="size-4" />
+                      {t(item.title)}
+                    </span>
+                  </CustomSelect.Option>
+                ))}
+              </CustomSelect>
+              <h2 className="truncate text-13 text-secondary">{title}</h2>
+            </>
+          )}
         </div>
-      </Dialog>
-    </Transition.Root>
+        <div className="flex shrink-0 items-center gap-1">
+          {headerActions}
+          {nested && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t("common.close_peek_view")}
+              className="rounded-sm p-1 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+      </header>
+      {description && <p className="px-8 pb-3 text-12 text-tertiary">{description}</p>}
+      {children}
+    </PeekPanel>
   );
 }

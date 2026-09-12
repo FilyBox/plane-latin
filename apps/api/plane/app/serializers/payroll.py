@@ -111,6 +111,7 @@ class EmployeeSerializer(BaseSerializer):
     scenario_names = serializers.SerializerMethodField()
     # Only the salaries in force — the full history is its own endpoint
     current_salaries = serializers.SerializerMethodField()
+    office_name = serializers.CharField(source="office.name", read_only=True, default="")
 
     class Meta:
         model = Employee
@@ -120,6 +121,8 @@ class EmployeeSerializer(BaseSerializer):
             "email",
             "national_id",
             "position",
+            "office",
+            "office_name",
             "hire_date",
             "termination_date",
             "is_active",
@@ -135,6 +138,7 @@ class EmployeeSerializer(BaseSerializer):
             "updated_at",
         ]
         read_only_fields = ["workspace_id", "created_at", "updated_at"]
+        extra_kwargs = {"office": {"required": True, "allow_null": False}}
 
     def get_current_salaries(self, obj):
         return [
