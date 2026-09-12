@@ -26,10 +26,11 @@ type Props = {
   /** Which one to open on; null closes the viewer */
   initialIndex: number | null;
   onClose: () => void;
+  resolveAssetUrl?: (id: string) => Promise<string>;
 };
 
 export function DocumentViewer(props: Props) {
-  const { workspaceSlug, expenseId, documents, initialIndex, onClose } = props;
+  const { workspaceSlug, expenseId, documents, initialIndex, onClose, resolveAssetUrl } = props;
   const { t } = useTranslation();
   const [index, setIndex] = useState(0);
   const [url, setUrl] = useState<string | null>(null);
@@ -41,7 +42,7 @@ export function DocumentViewer(props: Props) {
     typeof document !== "undefined" ? document.documentElement.dataset.theme === "dark" : false
   );
 
-  const isOpen = initialIndex !== null && expenseId !== null;
+  const isOpen = initialIndex !== null && (expenseId !== null || !!resolveAssetUrl);
   const current = documents[index];
   const kind = current ? documentViewerKind(current.name, current.type) : "none";
   const needsText = kind === "csv" || kind === "xml";
@@ -54,7 +55,7 @@ export function DocumentViewer(props: Props) {
   // resolves its own — borrowing the library's download route would break in a
   // workspace that runs payments without the file library.
   useEffect(() => {
-    if (!isOpen || !current || !expenseId) return;
+    if (!isOpen || !current || (!expenseId && !resolveAssetUrl)) return;
     let cancelled = false;
     setIsLoading(true);
     setHasFailed(false);
@@ -63,7 +64,9 @@ export function DocumentViewer(props: Props) {
 
     const resolve = async () => {
       try {
-        const resolved = await financeService.getDocumentViewUrl(workspaceSlug, expenseId, current.asset_id);
+        const resolved = await (resolveAssetUrl
+          ? resolveAssetUrl(current.asset_id)
+          : financeService.getDocumentViewUrl(workspaceSlug, expenseId!, current.asset_id));
         if (cancelled) return;
         setUrl(resolved);
         const resolvedKind = documentViewerKind(current.name, current.type);
@@ -83,6 +86,9 @@ export function DocumentViewer(props: Props) {
     return () => {
       cancelled = true;
     };
+    // `resolveAssetUrl` is a fresh closure on every render; re-running on it
+    // would refetch the document continuously.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, expenseId, current?.asset_id, workspaceSlug, current]);
 
   const go = useCallback(

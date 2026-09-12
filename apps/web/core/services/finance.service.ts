@@ -21,13 +21,13 @@ import type {
 } from "@plane/types";
 // services
 import { APIService } from "@/services/api.service";
-import { exportBudgetForecast } from "@/lib/budget-export";
+import { filenameFromDisposition, saveBlob } from "@/lib/finance-download";
 
 export type TExpenseImport = {
   id: string;
   asset_id: string;
   name: string;
-  status: "QUEUED" | "RUNNING" | "READY" | "FAILED" | "IMPORTED";
+  status: "QUEUED" | "RUNNING" | "READY" | "FAILED" | "IMPORTED" | "CANCELLED";
   stage: string;
   error: string;
   data: Partial<TExpense> & { warnings?: string[] };
@@ -35,9 +35,43 @@ export type TExpenseImport = {
   created_at: string;
 };
 
+export type TBudgetRowDetails = {
+  row_key: string;
+  title: string;
+  description: string;
+  category: string | null;
+  category_name: string;
+  tags: string[];
+  documents: import("@plane/types").TExpenseDocument[];
+};
+
 export class FinanceService extends APIService {
   constructor() {
     super(API_BASE_URL);
+  }
+
+  async cancelExpenseImport(workspaceSlug: string, id: string) {
+    return this.post(`/api/workspaces/${workspaceSlug}/expense-imports/${id}/`, { action: "cancel" }).then(
+      (response) => response.data
+    );
+  }
+
+  async getBudgetRow(workspaceSlug: string, scenario: string, key: string): Promise<TBudgetRowDetails> {
+    return this.get(
+      `/api/workspaces/${workspaceSlug}/budget-scenarios/${scenario}/rows/${encodeURIComponent(key)}/`
+    ).then((response) => response.data);
+  }
+
+  async updateBudgetRow(
+    workspaceSlug: string,
+    scenario: string,
+    key: string,
+    data: Partial<TBudgetRowDetails> & { asset_ids?: string[]; entity?: string }
+  ): Promise<TBudgetRowDetails> {
+    return this.patch(
+      `/api/workspaces/${workspaceSlug}/budget-scenarios/${scenario}/rows/${encodeURIComponent(key)}/`,
+      data
+    ).then((response) => response.data);
   }
 
   // named annual planning scenarios
@@ -118,14 +152,40 @@ export class FinanceService extends APIService {
       });
   }
 
+  /** Pulls the export over the authenticated client and hands the blob to the
+   * browser. A bare iframe or form submit would carry neither the auth header
+   * nor the CSRF token, and the redirect the server answers with would take
+   * over the tab. */
+  private async download(request: Promise<{ data: Blob; headers?: Record<string, unknown> }>, fallback: string) {
+    const response = await request;
+    saveBlob(response.data, filenameFromDisposition(response.headers?.["content-disposition"], fallback));
+  }
+
   async exportScenario(
     workspaceSlug: string,
     scenarioId: string,
     format: "csv" | "xlsx",
     filename = "budget"
   ): Promise<void> {
-    const forecast = await this.getScenarioForecast(workspaceSlug, scenarioId);
-    exportBudgetForecast(forecast, filename, format);
+    await this.download(
+      this.get(
+        `/api/workspaces/${workspaceSlug}/budget-scenarios/${scenarioId}/export/`,
+        { params: { export_format: format } },
+        { responseType: "blob" }
+      ),
+      `${filename}.${format}`
+    );
+  }
+
+  async exportExpenses(workspaceSlug: string, ids: string[], format: "csv" | "xlsx"): Promise<void> {
+    await this.download(
+      this.post(
+        `/api/workspaces/${workspaceSlug}/expenses/export/`,
+        { ids: JSON.stringify(ids), export_format: format },
+        { responseType: "blob" }
+      ),
+      `gastos.${format}`
+    );
   }
 
   async getScenarioEmployees(workspaceSlug: string, scenarioId: string): Promise<TBudgetScenarioEmployee[]> {
@@ -385,8 +445,8 @@ export class FinanceService extends APIService {
   async getExpenseImports(slug: string): Promise<TExpenseImport[]> {
     return this.get(`/api/workspaces/${slug}/expense-imports/`).then((response) => response.data);
   }
-  async startExpenseImports(slug: string, asset_ids: string[]): Promise<TExpenseImport[]> {
-    return this.post(`/api/workspaces/${slug}/expense-imports/`, { asset_ids })
+  async startExpenseImports(slug: string, asset_ids: string[], scenario?: string): Promise<TExpenseImport[]> {
+    return this.post(`/api/workspaces/${slug}/expense-imports/`, { asset_ids, scenario: scenario ?? null })
       .then((response) => response.data)
       .catch((error) => {
         throw error?.response?.data;

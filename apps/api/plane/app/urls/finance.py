@@ -31,7 +31,13 @@ from plane.app.views import (
 
 from plane.app.views.finance.imports import (ExpenseImportEndpoint, ExpenseImportDetailEndpoint, InternalExpenseImportEndpoint, ExpenseGenerateEndpoint)
 
+from plane.app.views.finance.records import ExpenseExportEndpoint, BudgetRowEndpoint, FinanceCommentEndpoint, FinanceCommentDetailEndpoint
+
 urlpatterns = [
+    path("workspaces/<str:slug>/expenses/export/", ExpenseExportEndpoint.as_view()),
+    path("workspaces/<str:slug>/budget-scenarios/<uuid:scenario_id>/rows/<str:row_key>/", BudgetRowEndpoint.as_view()),
+    path("workspaces/<str:slug>/finance-comments/", FinanceCommentEndpoint.as_view()),
+    path("workspaces/<str:slug>/finance-comments/<uuid:comment_id>/", FinanceCommentDetailEndpoint.as_view()),
     path("workspaces/<str:slug>/expense-imports/", ExpenseImportEndpoint.as_view()),
     path("workspaces/<str:slug>/expense-imports/<uuid:job_id>/", ExpenseImportDetailEndpoint.as_view()),
     path("workspaces/<str:slug>/expenses/generate/", ExpenseGenerateEndpoint.as_view()),

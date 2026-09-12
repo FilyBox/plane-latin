@@ -99,6 +99,9 @@ catalogs:
     '@react-router/serve':
       specifier: 7.15.0
       version: 7.15.0
+    '@revolist/react-datagrid':
+      specifier: 4.25.2
+      version: 4.25.2
     '@storybook/addon-designs':
       specifier: 11.1.3
       version: 11.1.3
@@ -1106,6 +1109,9 @@ importers:
       '@react-router/node':
         specifier: 'catalog:'
         version: 7.15.0(react-router@7.15.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@5.8.3)
+      '@revolist/react-datagrid':
+        specifier: 'catalog:'
+        version: 4.25.2
       '@tanstack/react-table':
         specifier: 'catalog:'
         version: 8.21.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5169,6 +5175,12 @@ packages:
 
   '@remix-run/node-fetch-server@0.13.0':
     resolution: {integrity: sha512-1EsNo0ZpgXu/90AWoRZf/oE3RVTUS80tiTUpt+hv5pjtAkw7icN4WskDwz/KdAw5ARbJLMhZBrO1NqThmy/McA==}
+
+  '@revolist/react-datagrid@4.25.2':
+    resolution: {integrity: sha512-2OZlGC5O5dDp8n9XXHkw8jyWtE34K+27QTqWg2ywdMidglkCwcWRA9/CT4qkOG5OEO6GAnue8mZCDlh+nIleaQ==}
+
+  '@revolist/revogrid@4.25.2':
+    resolution: {integrity: sha512-jypkUPedKfymW6OpwxC8B3u7plYxNjtzQDkOCC4dL5kfDyi4fRNWYiktStu9dRQ2WCC0l7D9WUASBLVX2ajb3Q==}
 
   '@rolldown/binding-android-arm64@1.0.0-beta.46':
     resolution: {integrity: sha512-1nfXUqZ227uKuLw9S12OQZU5z+h+cUOXLW5orntWVxHWvt20pt1PGUcVoIU8ssngKABu0vzHY268kAxuYX24BQ==}
@@ -13996,6 +14008,12 @@ snapshots:
   '@remirror/core-constants@3.0.0': {}
 
   '@remix-run/node-fetch-server@0.13.0': {}
+
+  '@revolist/react-datagrid@4.25.2':
+    dependencies:
+      '@revolist/revogrid': 4.25.2
+
+  '@revolist/revogrid@4.25.2': {}
 
   '@rolldown/binding-android-arm64@1.0.0-beta.46':
     optional: true

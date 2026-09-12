@@ -143,6 +143,7 @@ export type TBudgetForecastCell = {
 };
 
 export type TBudgetForecastLine = {
+  tags?: string[];
   key: string;
   label: string;
   category: "SALARY" | "BENEFIT" | "BONUS" | "VARIABLE" | "EXPENSE";
@@ -152,9 +153,14 @@ export type TBudgetForecastLine = {
   owner_name?: string;
   months: TBudgetForecastCell[];
   total: TMoney;
+  /** The office behind `entity_name`, so the sheet can move the line. */
+  entity_id: string;
+  category_id: string;
+  category_name: string;
 };
 
 export type TBudgetForecast = {
+  actuals?: { currency: string; paid: string; pending: string }[];
   year: number;
   months: { year: number; month: number }[];
   results: TBudgetForecastRow[];
@@ -174,6 +180,7 @@ export type TExpenseDocument = {
 };
 
 export type TExpense = {
+  scenario: string | null;
   concept: string;
   tags: string[];
   recurrence: "ONE_TIME" | "DAILY" | "WEEKLY" | "BIWEEKLY" | "MONTHLY" | "QUARTERLY" | "ANNUAL";

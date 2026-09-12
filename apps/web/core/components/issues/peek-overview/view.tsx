@@ -6,12 +6,11 @@
 
 import { useRef, useState } from "react";
 import { observer } from "mobx-react";
-import { createPortal } from "react-dom";
+import { PeekPanel } from "@/components/core/peek-panel";
 // plane imports
 import type { EditorRefApi } from "@plane/editor";
 import type { TNameDescriptionLoader } from "@plane/types";
 import { EIssueServiceType } from "@plane/types";
-import { cn } from "@plane/utils";
 // hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import useKeypress from "@/hooks/use-keypress";
@@ -118,32 +117,10 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
     removeRoutePeekId();
   };
 
-  const peekOverviewIssueClassName = cn(
-    !embedIssue
-      ? "absolute z-[25] flex flex-col overflow-hidden rounded-sm border border-subtle bg-surface-1 transition-all duration-300"
-      : `h-full w-full`,
-    !embedIssue && {
-      "top-0 right-0 bottom-0 w-full border-0 border-l md:w-[50%]": peekMode === "side-peek",
-      "top-[8.33%] left-[8.33%] size-5/6": peekMode === "modal",
-      "absolute inset-0 m-4": peekMode === "full-screen",
-    }
-  );
-
-  const shouldUsePortal = !embedIssue;
-
-  const portalContainer = document.getElementById("full-screen-portal") as HTMLElement;
-
   const content = (
     <div className="w-full text-body-sm-regular">
       {issueId && (
-        <div
-          ref={issuePeekOverviewRef}
-          className={peekOverviewIssueClassName}
-          style={{
-            boxShadow:
-              "0px 4px 8px 0px rgba(0, 0, 0, 0.12), 0px 6px 12px 0px rgba(16, 24, 40, 0.12), 0px 1px 16px 0px rgba(16, 24, 40, 0.12)",
-          }}
-        >
+        <PeekPanel ref={issuePeekOverviewRef} mode={peekMode} embedded={embedIssue}>
           {isError ? (
             <div className="relative h-screen w-full overflow-hidden">
               <IssuePeekOverviewError removeRoutePeekId={removeRoutePeekId} />
@@ -264,10 +241,10 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
               </div>
             </>
           )}
-        </div>
+        </PeekPanel>
       )}
     </div>
   );
 
-  return <>{shouldUsePortal && portalContainer ? createPortal(content, portalContainer) : content}</>;
+  return content;
 });

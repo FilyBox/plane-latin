@@ -72,6 +72,7 @@ export function EmployeesTab(props: Props) {
   return (
     <div className="space-y-3">
       <EmployeeModal
+        offices={offices}
         workspaceSlug={workspaceSlug}
         isOpen={isEmployeeModalOpen}
         employee={editing}

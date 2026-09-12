@@ -37,7 +37,7 @@
     },
     "offices": {
       "form_help": "Las entidades agrupan personas, salarios y variables financieras. Plane genera sus identificadores automaticamente.",
-      "aguinaldo_help": "Minimo legal: 15 dias",
+      "aguinaldo_help": "Mínimo legal: 15 días",
       "people": "personas",
       "delete_impact": "Se eliminara la entidad {name}. No tiene sueldos, pagos ni variables vinculadas. Esta accion no se puede deshacer.",
       "delete_blocked_impact": "No se puede eliminar {name}: contiene {employees} personas, {salaries} sueldos, {payments} pagos y {variables} variables. Reasigna o elimina esos recursos primero.",

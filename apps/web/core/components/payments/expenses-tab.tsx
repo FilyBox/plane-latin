@@ -12,11 +12,11 @@ import { Button } from "@plane/propel/button";
 import { EmptyStateCompact } from "@plane/propel/empty-state";
 import { Menu } from "@plane/propel/menu";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TExpense, TExpenseCategory } from "@plane/types";
+import type { TExpense, TExpenseCategory, TBudgetScenario } from "@plane/types";
 import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { financeService } from "@/services/finance.service";
-import { expenseCsv, expenseTotals } from "@/lib/expense-ledger";
+import { LinkExpensesPanel } from "./link-expenses-panel";
 import { CategoriesModal } from "./categories-modal";
 import { DocumentViewer } from "./document-viewer";
 import {
@@ -32,10 +32,19 @@ import { ExpenseModal } from "./expense-modal";
 import { ExpenseImports } from "./expense-imports";
 import { getApiErrorMessage } from "./shared";
 
-export function ExpensesTab({ workspaceSlug, onChanged }: { workspaceSlug: string; onChanged?: () => void }) {
+export function ExpensesTab({
+  workspaceSlug,
+  onChanged,
+  scenario,
+}: {
+  workspaceSlug: string;
+  onChanged?: () => void;
+  scenario?: TBudgetScenario;
+}) {
   const { t } = useTranslation();
   const { mutate: mutateGlobal } = useSWRConfig();
-  const [tab, setTab] = useState("ledger");
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [commentCell, setCommentCell] = useState("");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<TExpenseFilters>(EMPTY_EXPENSE_FILTERS);
   const [group, setGroup] = useState("none");
@@ -64,13 +73,14 @@ export function ExpensesTab({ workspaceSlug, onChanged }: { workspaceSlug: strin
     );
     onChanged?.();
   };
-  const reportError = (error: unknown) =>
-    setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
+  const reportError = (reason: unknown) =>
+    setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(reason) });
   const rows = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return (expenses ?? [])
       .filter(
         (expense) =>
+          (!scenario || expense.scenario === scenario.id) &&
           (!query ||
             [expense.concept, expense.vendor, expense.reference, expense.description, ...(expense.tags ?? [])]
               .join(" ")
@@ -95,7 +105,7 @@ export function ExpensesTab({ workspaceSlug, onChanged }: { workspaceSlug: strin
               ? a.expense_date.localeCompare(b.expense_date)
               : b.expense_date.localeCompare(a.expense_date)
       );
-  }, [expenses, search, filters, sort]);
+  }, [expenses, search, filters, sort, scenario]);
   const isNarrowed = countExpenseFilters(filters) > 0 || search.trim().length > 0;
   const tags = [...new Set((expenses ?? []).flatMap((expense) => expense.tags ?? []))].sort();
   const currencies = [...new Set((expenses ?? []).map((expense) => expense.currency))].sort();
@@ -103,9 +113,9 @@ export function ExpensesTab({ workspaceSlug, onChanged }: { workspaceSlug: strin
     try {
       await financeService.updateExpense(workspaceSlug, expense.id, patch);
       refresh();
-    } catch (error) {
-      reportError(error);
-      throw error;
+    } catch (reason) {
+      reportError(reason);
+      throw reason;
     }
   };
   const generate = () => {
@@ -116,52 +126,28 @@ export function ExpensesTab({ workspaceSlug, onChanged }: { workspaceSlug: strin
       .catch(reportError)
       .finally(() => setBusy(false));
   };
-  const exportRows = () => {
-    const headers = [
-      t("payments.sheet.concept"),
-      t("payments.fields.date"),
-      t("payments.fields.vendor"),
-      t("payments.fields.description"),
-      t("payments.fields.category"),
-      t("payments.ledger.tags"),
-      t("payments.fields.reference"),
-      t("payments.fields.status"),
-      t("payments.fields.documents"),
-      t("payments.fields.amount"),
-      t("payments.fields.currency"),
-    ];
-    const data = rows.map((row) => [
-      row.concept,
-      row.expense_date,
-      row.vendor,
-      row.description,
-      row.category_name || "",
-      (row.tags ?? []).join("; "),
-      row.reference,
-      t(`payments.status.${row.status.toLowerCase()}`),
-      row.documents.map((doc) => doc.name).join("; "),
-      row.amount,
-      row.currency,
-    ]);
-    for (const total of expenseTotals(rows))
-      data.push([t("payments.ledger.total"), "", "", "", "", "", "", "", "", total.total, total.currency]);
-    const url = URL.createObjectURL(new Blob([expenseCsv([headers, ...data])], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "gastos.csv";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  const exportRows = (format: "csv" | "xlsx") =>
+    void financeService
+      .exportExpenses(
+        workspaceSlug,
+        rows.map((row) => row.id),
+        format
+      )
+      .catch(reportError);
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface-1">
       <ExpenseModal
         workspaceSlug={workspaceSlug}
         isOpen={editing !== undefined}
-        categories={categories ?? []}
         expense={editing ?? null}
-        onClose={() => setEditing(undefined)}
+        initialData={scenario ? { scenario: scenario.id } : undefined}
+        commentCell={commentCell}
+        onDelete={editing ? () => setDeleting(editing) : undefined}
+        onClose={() => {
+          setEditing(undefined);
+          setCommentCell("");
+        }}
         onSaved={refresh}
-        onPreview={(index) => editing && setViewing({ expense: editing, index })}
       />
       <CategoriesModal
         workspaceSlug={workspaceSlug}
@@ -193,7 +179,8 @@ export function ExpensesTab({ workspaceSlug, onChanged }: { workspaceSlug: strin
             .deleteExpense(workspaceSlug, deleting.id)
             .then(() => {
               setDeleting(null);
-              refresh();
+              setEditing(undefined);
+              return refresh();
             })
             .catch(reportError)
             .finally(() => setBusy(false));
@@ -202,141 +189,124 @@ export function ExpensesTab({ workspaceSlug, onChanged }: { workspaceSlug: strin
       {/* One toolbar: the tab switch, the narrowing controls and the actions all
           share a line, leaving the height for the ledger itself. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle px-4 py-2 sm:px-5">
-        <nav className="flex shrink-0 items-center gap-0.5 rounded-md bg-layer-2 p-0.5" aria-label={t("payments.expenses")}>
-          {["ledger", "ai"].map((key) => (
-            <button
-              type="button"
-              key={key}
-              onClick={() => setTab(key)}
-              aria-pressed={tab === key}
-              className={cn(
-                "rounded-sm px-2.5 py-1 text-12 whitespace-nowrap",
-                tab === key ? "bg-surface-1 font-medium text-primary shadow-raised-100" : "text-tertiary hover:text-primary"
-              )}
-            >
-              {t(`payments.ledger.${key}`)}
-            </button>
-          ))}
-        </nav>
-        {tab === "ledger" && (
-          <>
-            <div className="relative">
-              <Search className="absolute top-2 left-2 size-4 text-tertiary" />
-              <input
-                aria-label={t("payments.filters.search")}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t("payments.filters.search")}
-                className="h-8 w-full max-w-52 rounded-sm border border-subtle bg-layer-1 pr-2 pl-8 text-12 text-primary outline-none focus:border-accent-primary"
-              />
-            </div>
-            <ExpenseFiltersDropdown
-              filters={filters}
-              categories={categories ?? []}
-              currencies={currencies}
-              tags={tags}
-              onChange={setFilters}
-            />
-            <ExpenseDisplayMenu group={group} sort={sort} onGroupChange={setGroup} onSortChange={setSort} />
-            <div className="ml-auto flex items-center gap-2">
-              <Menu
-                customButton={
-                  <span className="flex size-8 items-center justify-center rounded-sm border border-subtle text-secondary hover:bg-layer-1-hover">
-                    <MoreHorizontal className="size-4" />
-                  </span>
-                }
-                optionsClassName="w-56"
-                ariaLabel={t("payments.ledger.more_actions")}
-              >
-                <Menu.MenuItem onClick={() => setCategoriesOpen(true)}>
-                  <span className="flex items-center gap-2 text-12">
-                    <Tags className="size-3.5" />
-                    {t("payments.manage_categories")}
-                  </span>
-                </Menu.MenuItem>
-                <Menu.MenuItem onClick={generate} disabled={busy}>
-                  <span className="flex items-center gap-2 text-12">
-                    <RefreshCw className={cn("size-3.5", busy && "animate-spin")} />
-                    {t("payments.ledger.generate")}
-                  </span>
-                </Menu.MenuItem>
-                <Menu.MenuItem onClick={exportRows} disabled={!rows.length}>
-                  <span className="flex items-center gap-2 text-12">
-                    <Download className="size-3.5" />
-                    {t("payments.ledger.export")}
-                  </span>
-                </Menu.MenuItem>
-              </Menu>
-              <Button variant="primary" size="sm" onClick={() => setEditing(null)}>
-                <Plus className="size-3.5" />
-                {t("payments.new_expense")}
-              </Button>
-            </div>
-          </>
+        <div className="relative">
+          <Search className="absolute top-2 left-2 size-4 text-tertiary" />
+          <input
+            aria-label={t("payments.filters.search")}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t("payments.filters.search")}
+            className="focus:border-accent-primary h-8 w-full max-w-52 rounded-sm border border-subtle bg-layer-1 pr-2 pl-8 text-12 text-primary outline-none"
+          />
+        </div>
+        <ExpenseFiltersDropdown
+          filters={filters}
+          categories={categories ?? []}
+          currencies={currencies}
+          tags={tags}
+          onChange={setFilters}
+        />
+        <ExpenseDisplayMenu group={group} sort={sort} onGroupChange={setGroup} onSortChange={setSort} />
+        <div className="ml-auto flex items-center gap-2">
+          <ExpenseImports
+            workspaceSlug={workspaceSlug}
+            onChanged={refresh}
+            scenarioId={scenario?.id}
+            onOpenExpense={(id) => setEditing(expenses?.find((expense) => expense.id === id))}
+          />
+          {scenario && (
+            <Button variant="secondary" size="sm" onClick={() => setLinkOpen(true)}>
+              {t("payments.flow.link_existing")}
+            </Button>
+          )}
+          <Menu
+            customButton={
+              <span className="flex size-8 items-center justify-center rounded-sm border border-subtle text-secondary hover:bg-layer-1-hover">
+                <MoreHorizontal className="size-4" />
+              </span>
+            }
+            optionsClassName="w-56"
+            ariaLabel={t("payments.ledger.more_actions")}
+          >
+            <Menu.MenuItem onClick={() => setCategoriesOpen(true)}>
+              <span className="flex items-center gap-2 text-12">
+                <Tags className="size-3.5" />
+                {t("payments.manage_categories")}
+              </span>
+            </Menu.MenuItem>
+            <Menu.MenuItem onClick={generate} disabled={busy}>
+              <span className="flex items-center gap-2 text-12">
+                <RefreshCw className={cn("size-3.5", busy && "animate-spin")} />
+                {t("payments.ledger.generate")}
+              </span>
+            </Menu.MenuItem>
+            <Menu.MenuItem onClick={() => exportRows("csv")} disabled={!rows.length}>
+              <span className="flex items-center gap-2 text-12">
+                <Download className="size-3.5" />
+                {t("payments.sheet.export_csv")}
+              </span>
+            </Menu.MenuItem>
+            <Menu.MenuItem onClick={() => exportRows("xlsx")} disabled={!rows.length}>
+              {t("payments.sheet.export_xlsx")}
+            </Menu.MenuItem>
+          </Menu>
+          <Button variant="primary" size="sm" onClick={() => setEditing(null)}>
+            <Plus className="size-3.5" />
+            {t("payments.new_expense")}
+          </Button>
+        </div>
+      </div>
+      <AppliedExpenseFilters filters={filters} categories={categories ?? []} onChange={setFilters} />
+      <div className="flex min-h-0 flex-1 flex-col">
+        {isLoading ? (
+          <Loader2 className="m-auto size-5 animate-spin text-tertiary" />
+        ) : error ? (
+          <EmptyStateCompact
+            title={t("payments.ledger.failed")}
+            // `actions` renders its row full-width, which leaves the button
+            // hanging on the left of a centred empty state.
+            customButton={
+              <div className="flex justify-center">
+                <Button variant="secondary" size="base" onClick={() => void mutate()}>
+                  {t("payments.ledger.retry")}
+                </Button>
+              </div>
+            }
+          />
+        ) : (
+          /* The grid stays mounted with no rows so its pinned totals line keeps
+             closing the ledger; the toolbar already offers "new expense". */
+          <ExpenseTable
+            expenses={rows}
+            group={group}
+            emptyLabel={t(isNarrowed ? "payments.ledger.no_results" : "payments.ledger.empty_title")}
+            onEdit={(expense) => {
+              setCommentCell("");
+              setEditing(expense);
+            }}
+            onComment={(expense, cell) => {
+              setCommentCell(cell);
+              setEditing(expense);
+            }}
+            onDelete={setDeleting}
+            onPreview={(expense, index) => setViewing({ expense, index })}
+            onQuickEdit={quickEdit}
+          />
         )}
       </div>
-      {tab === "ai" ? (
-        <ExpenseImports workspaceSlug={workspaceSlug} categories={categories ?? []} onChanged={refresh} />
-      ) : (
-        <>
-          <AppliedExpenseFilters filters={filters} categories={categories ?? []} onChange={setFilters} />
-          <div className="flex min-h-0 flex-1 flex-col px-4 pt-2 pb-4 sm:px-5">
-            {isLoading ? (
-              <Loader2 className="m-auto size-5 animate-spin text-tertiary" />
-            ) : error ? (
-              <EmptyStateCompact
-                title={t("payments.ledger.failed")}
-                // `actions` renders its row full-width, which leaves the button
-                // hanging on the left of a centred empty state.
-                customButton={
-                  <div className="flex justify-center">
-                    <Button variant="secondary" size="base" onClick={() => void mutate()}>
-                      {t("payments.ledger.retry")}
-                    </Button>
-                  </div>
-                }
-              />
-            ) : rows.length === 0 ? (
-              <EmptyStateCompact
-                assetKey={isNarrowed ? "search" : "worklog"}
-                title={t(isNarrowed ? "payments.ledger.no_results" : "payments.ledger.empty_title")}
-                description={t(
-                  isNarrowed ? "payments.ledger.no_results_description" : "payments.ledger.empty_description"
-                )}
-                customButton={
-                  <div className="flex justify-center">
-                    {isNarrowed ? (
-                      <Button
-                        variant="secondary"
-                        size="base"
-                        onClick={() => {
-                          setFilters(EMPTY_EXPENSE_FILTERS);
-                          setSearch("");
-                        }}
-                      >
-                        {t("payments.ledger.clear")}
-                      </Button>
-                    ) : (
-                      <Button variant="primary" size="base" onClick={() => setEditing(null)}>
-                        <Plus className="size-4" />
-                        {t("payments.new_expense")}
-                      </Button>
-                    )}
-                  </div>
-                }
-              />
-            ) : (
-              <ExpenseTable
-                expenses={rows}
-                group={group}
-                onEdit={setEditing}
-                onDelete={setDeleting}
-                onPreview={(expense, index) => setViewing({ expense, index })}
-                onQuickEdit={quickEdit}
-              />
-            )}
-          </div>
-        </>
+      {scenario && (
+        <LinkExpensesPanel
+          isOpen={linkOpen}
+          expenses={expenses ?? []}
+          budgetName={scenario.name}
+          onClose={() => setLinkOpen(false)}
+          onLink={async (picked) => {
+            // Sequential on purpose: each write refreshes the ledger, and a
+            // parallel burst would race those refreshes against each other.
+            // eslint-disable-next-line no-await-in-loop
+            for (const expense of picked) await quickEdit(expense, { scenario: scenario.id });
+          }}
+        />
       )}
     </div>
   );

@@ -1,386 +1,418 @@
-/**
- * Copyright (c) 2023-present Plane Software, Inc. and contributors
- * SPDX-License-Identifier: AGPL-3.0-only
- */
-
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, RotateCcw, Search, Sigma } from "lucide-react";
+import { Check, Eye, EyeOff, Filter, Search } from "lucide-react";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
-import { Button } from "@plane/propel/button";
-import { EmptyStateCompact } from "@plane/propel/empty-state";
+import { Popover } from "@plane/propel/popover";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TBudgetForecast, TBudgetForecastCell, TBudgetForecastLine, TBudgetScenario } from "@plane/types";
+import type { TBudgetForecastLine, TBudgetScenario } from "@plane/types";
 import { cn } from "@plane/utils";
-import { useIntersectionObserver } from "@/hooks/use-intersection-observer";
 import { financeService } from "@/services/finance.service";
-import { formatMoney } from "./shared";
-
-type Aggregate = "SUM" | "AVERAGE" | "MIN" | "MAX" | "COUNT";
-type EditingCell = { rowKey: string; year: number; month: number } | null;
+import { FinanceGrid, type FinanceGridColumn, type FinanceGridRow } from "./finance-grid";
+import { BudgetRowPanel } from "./budget-row-panel";
+import { CellCataloguePicker } from "./cell-catalogue-picker";
+import { formatMoney, getApiErrorMessage } from "./shared";
 
 type Props = {
   workspaceSlug: string;
   scenario: TBudgetScenario;
   refreshToken?: number;
-  /** Opens the composer. The empty sheet's only useful next step is adding
-   * people or concepts, so it offers that directly instead of describing it. */
-  onCompose?: () => void;
-  /** The scenario's period and currency, shown inline rather than in a header
-   * band of its own. */
   meta?: React.ReactNode;
-  /** Scenario-level actions. They share the sheet's toolbar so the page spends
-   * its height on rows instead of on three stacked headers. */
   actions?: React.ReactNode;
 };
+type SheetOrder = "none" | "concept" | "entity" | "category" | "total";
 
-const aggregateValues = (values: number[], operation: Aggregate) => {
-  if (operation === "COUNT") return values.length;
-  if (values.length === 0) return 0;
-  if (operation === "AVERAGE") return values.reduce((total, value) => total + value, 0) / values.length;
-  if (operation === "MIN") return Math.min(...values);
-  if (operation === "MAX") return Math.max(...values);
-  return values.reduce((total, value) => total + value, 0);
+const ORDERS: { key: SheetOrder; labelKey: string }[] = [
+  { key: "none", labelKey: "payments.ledger.none" },
+  { key: "concept", labelKey: "payments.sheet.concept" },
+  { key: "entity", labelKey: "payroll.fields.office" },
+  { key: "category", labelKey: "payments.fields.category" },
+  { key: "total", labelKey: "payments.sheet.total" },
+];
+
+/** The name a line is filed under, for grouping and ordering. */
+const categoryOf = (line: TBudgetForecastLine) => line.category_name ?? "";
+
+const sum = (values: string[]) => {
+  const total = values.reduce((acc, value) => acc + BigInt(Math.round(Number(value) * 100)), 0n);
+  const absolute = total < 0 ? -total : total;
+  return `${total < 0 ? "-" : ""}${absolute / 100n}.${String(absolute % 100n).padStart(2, "0")}`;
 };
 
-const cellId = (rowKey: string, year: number, month: number) => `${rowKey}:${year}-${month}`;
-
-/** Rows laid out per batch. The forecast arrives whole, so this only caps how
- * much of it the browser renders at once — the work item spreadsheet's flow. */
-const PAGE_SIZE = 60;
-
-export function BudgetSpreadsheet({ workspaceSlug, scenario, refreshToken = 0, onCompose, meta, actions }: Props) {
+export function BudgetSpreadsheet({ workspaceSlug, scenario, refreshToken = 0, meta, actions }: Props) {
   const { t } = useTranslation();
   const {
     data: forecast,
     mutate,
-    isLoading,
-  } = useSWR<TBudgetForecast>(
-    `BUDGET_FORECAST_${workspaceSlug}_${scenario.id}`,
-    () => financeService.getScenarioForecast(workspaceSlug, scenario.id),
-    { revalidateOnFocus: false }
+    error,
+  } = useSWR(`BUDGET_FORECAST_${workspaceSlug}_${scenario.id}`, () =>
+    financeService.getScenarioForecast(workspaceSlug, scenario.id)
   );
-  const [editing, setEditing] = useState<EditingCell>(null);
-  const [draft, setDraft] = useState("");
+  const { data: counts = [] } = useSWR<{ row_key: string; cell: string; count: number }[]>(
+    ["FINANCE_COMMENT_COUNTS", workspaceSlug, scenario.id],
+    () =>
+      financeService
+        .get(`/api/workspaces/${workspaceSlug}/finance-comments/`, { params: { scenario: scenario.id, counts: 1 } })
+        .then((response) => response.data)
+  );
+  const [peek, setPeek] = useState<{ key: string; cell: string } | null>(null);
   const [search, setSearch] = useState("");
-  const [operation, setOperation] = useState<Aggregate>("SUM");
   const [currency, setCurrency] = useState(scenario.currency);
-  const cancelledEdit = useRef(false);
-  const initialRefreshToken = useRef(refreshToken);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const [sentinel, setSentinel] = useState<HTMLTableSectionElement | null>(null);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-
+  // Categories drive three separate things on the sheet: which lines show, which
+  // are put away, and whether the rows come out grouped and ordered by them.
+  const [shown, setShown] = useState<string[]>([]);
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [group, setGroup] = useState(false);
+  const [order, setOrder] = useState<SheetOrder>("none");
+  // Which reference cell is open, and where to float its picker.
+  const [cellPicker, setCellPicker] = useState<{ key: string; prop: string; anchor: DOMRect } | null>(null);
+  const initial = useRef(refreshToken);
   useEffect(() => {
-    if (refreshToken !== initialRefreshToken.current) void mutate();
-  }, [mutate, refreshToken]);
-
-  const currencies = useMemo(
-    () => Array.from(new Set((forecast?.lines ?? []).map((line) => line.currency))),
-    [forecast?.lines]
-  );
-  const visibleCurrency = currencies.includes(currency) ? currency : (currencies[0] ?? scenario.currency);
+    if (refreshToken !== initial.current) {
+      initial.current = refreshToken;
+      void mutate();
+    }
+  }, [refreshToken, mutate]);
+  const currencies = [...new Set((forecast?.lines ?? []).map((line) => line.currency))];
+  const selectedCurrency = currencies.includes(currency) ? currency : (currencies[0] ?? scenario.currency);
+  const tags = [...new Set((forecast?.lines ?? []).map((line) => line.category_name).filter(Boolean))].sort();
   const lines = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    return (forecast?.lines ?? []).filter(
-      (line) =>
-        line.currency === visibleCurrency &&
-        (!query || `${line.label} ${line.entity_name} ${line.category}`.toLocaleLowerCase().includes(query))
-    );
-  }, [forecast?.lines, search, visibleCurrency]);
-
-  // A new search or currency is a new list; start it from the top again.
-  useEffect(() => setVisibleCount(PAGE_SIZE), [search, visibleCurrency]);
-  const canLoadMore = visibleCount < lines.length;
-  useIntersectionObserver(
-    scrollRef,
-    canLoadMore ? sentinel : null,
-    () => setVisibleCount((current) => current + PAGE_SIZE),
-    "100% 0% 100% 0%"
-  );
-
-  const openEditor = (line: TBudgetForecastLine, cell: TBudgetForecastCell) => {
-    cancelledEdit.current = false;
-    setDraft(cell.amount);
-    setEditing({ rowKey: line.key, year: cell.year, month: cell.month });
-  };
-
-  const saveCell = async (line: TBudgetForecastLine, cell: TBudgetForecastCell) => {
-    if (cancelledEdit.current) {
-      cancelledEdit.current = false;
-      return;
-    }
-    const normalized = draft.trim().replace(/,/g, "");
-    const amount = Number(normalized);
-    setEditing(null);
-    if (!Number.isFinite(amount) || amount < 0 || normalized === "") {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.sheet.invalid_amount") });
-      return;
-    }
-    try {
-      await financeService.overrideScenarioCell(workspaceSlug, scenario.id, {
-        row_key: line.key,
-        year: cell.year,
-        month: cell.month,
-        amount: amount.toFixed(2),
-      });
-      await mutate();
-    } catch {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error") });
-    }
-  };
-
-  const restoreCell = async (line: TBudgetForecastLine, cell: TBudgetForecastCell) => {
-    await financeService.restoreScenarioCell(workspaceSlug, scenario.id, {
-      row_key: line.key,
-      year: cell.year,
-      month: cell.month,
+    const query = search.toLocaleLowerCase();
+    const filtered = (forecast?.lines ?? []).filter((line) => {
+      const category = line.category_name ?? "";
+      return (
+        line.currency === selectedCurrency &&
+        (shown.length === 0 || shown.includes(category)) &&
+        !hidden.includes(category) &&
+        `${line.label} ${line.entity_name} ${category}`.toLocaleLowerCase().includes(query)
+      );
     });
-    await mutate();
-  };
-
+    if (order === "none") return filtered;
+    /** Blank values sort last whatever the key, instead of first where an empty
+     * string would land them. */
+    const by = (line: TBudgetForecastLine) =>
+      order === "category" ? (line.category_name ?? "") : order === "entity" ? line.entity_name : line.label;
+    return [...filtered].sort((a, b) => {
+      if (order === "total") return Number(b.total) - Number(a.total);
+      const left = by(a);
+      const right = by(b);
+      if (!left !== !right) return left ? -1 : 1;
+      return left.localeCompare(right) || a.label.localeCompare(b.label);
+    });
+  }, [forecast, selectedCurrency, shown, hidden, search, order]);
+  const lineByKey = (row: FinanceGridRow) => lines.find((line) => line.key === row.id)!;
+  const rows = useMemo<FinanceGridRow[]>(() => {
+    const records = lines.map((line) => ({
+      id: line.key,
+      concept: line.label,
+      entity: line.entity_name,
+      entityId: line.entity_id,
+      category: categoryOf(line),
+      categoryId: line.category_id,
+      total: line.total,
+      ...Object.fromEntries(
+        line.months.map((cell) => [`${cell.year}-${String(cell.month).padStart(2, "0")}`, cell.amount])
+      ),
+    }));
+    if (!group) return records;
+    const groups = new Map<string, FinanceGridRow[]>();
+    for (const row of records) {
+      const key = String(row.category || "—");
+      const bucket = groups.get(key);
+      if (bucket) bucket.push(row);
+      else groups.set(key, [row]);
+    }
+    const grouped: FinanceGridRow[] = [];
+    for (const [name, items] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
+      grouped.push({ id: `group-${name}`, family: "group" as const, concept: name });
+      grouped.push(...items);
+    }
+    return grouped;
+  }, [lines, group]);
+  const totals = useMemo<FinanceGridRow[]>(
+    () => [
+      {
+        id: "total",
+        family: "subtotal",
+        concept: t("payments.flow.planned"),
+        total: sum(lines.map((line) => (line.kind === "INCOME" ? `-${line.total}` : line.total))),
+        ...Object.fromEntries(
+          (forecast?.months ?? []).map(({ year, month }, index) => [
+            `${year}-${String(month).padStart(2, "0")}`,
+            sum(lines.map((line) => `${line.kind === "INCOME" ? "-" : ""}${line.months[index]?.amount ?? "0"}`)),
+          ])
+        ),
+      },
+    ],
+    [lines, forecast, t]
+  );
+  const columns = useMemo<FinanceGridColumn[]>(
+    () => [
+      {
+        prop: "concept",
+        name: t("payments.sheet.concept"),
+        size: 236,
+        pin: "colPinStart",
+        onClick: (row) => setPeek({ key: row.id, cell: "" }),
+        flags: (row) => ({ hasThread: counts.some((count) => count.row_key === row.id && !count.cell) }),
+      },
+      { prop: "entity", name: t("payroll.fields.office"), size: 150, pickable: true },
+      { prop: "category", name: t("payments.fields.category"), size: 150, pickable: true },
+      ...(forecast?.months ?? []).map(({ year, month }, index) => {
+        const prop = `${year}-${String(month).padStart(2, "0")}`;
+        return {
+          prop,
+          name: new Intl.DateTimeFormat(undefined, { month: "short", year: "2-digit" }).format(
+            new Date(year, month - 1)
+          ),
+          size: 106,
+          amount: true,
+          editable: true,
+          display: (row: FinanceGridRow) =>
+            row[prop] === undefined ? "" : formatMoney(String(row[prop]), selectedCurrency),
+          flags: (row: FinanceGridRow) => ({
+            override: lineByKey(row)?.months[index]?.is_overridden,
+            isLinked: !row.family && !lineByKey(row)?.months[index]?.is_overridden,
+            hasThread: counts.some((count) => count.row_key === row.id && count.cell === prop),
+          }),
+        };
+      }),
+      {
+        prop: "total",
+        name: t("payments.sheet.total"),
+        size: 140,
+        pin: "colPinEnd",
+        amount: true,
+        display: (row) => (row.total === undefined ? "" : formatMoney(String(row.total), selectedCurrency)),
+      },
+      // `lineByKey` only reads `lines`, which is already a dependency.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    ],
+    [forecast, selectedCurrency, lines, t, counts]
+  );
+  const activeFilters = shown.length + hidden.length;
+  const peekLine = forecast?.lines.find((line) => line.key === peek?.key);
+  const actual = forecast?.actuals?.find((item) => item.currency === selectedCurrency);
   return (
-    <div className="flex min-h-0 flex-1 flex-col px-3 pt-2 pb-3 sm:px-5 sm:pb-4">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-40 flex-1 sm:max-w-64">
-          <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-tertiary" />
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle px-4 py-2.5">
+        <div className="relative">
+          <Search className="absolute top-2 left-2 size-4 text-tertiary" />
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t("payments.sheet.search")}
-            className="focus:border-accent-primary h-8 w-full rounded-md border border-subtle bg-layer-1 pr-3 pl-8 text-12 text-primary outline-none"
+            className="h-8 rounded-sm border border-subtle bg-layer-1 pr-2 pl-8 text-12"
           />
         </div>
-        {currencies.length > 1 && (
-          <select
-            value={visibleCurrency}
-            onChange={(event) => setCurrency(event.target.value)}
-            className="h-8 rounded-md border border-subtle bg-layer-1 px-2 text-11 text-secondary"
+        <Popover modal>
+          <Popover.Button
+            className={cn(
+              "flex h-8 items-center gap-1.5 rounded-sm border border-subtle px-2.5 text-12 text-secondary hover:bg-layer-1-hover",
+              activeFilters > 0 && "border-accent-strong text-accent-primary"
+            )}
           >
-            {currencies.map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
-        )}
-        {meta}
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          <span className="hidden text-11 text-tertiary xl:inline">{t("payments.sheet.edit_help")}</span>
-          {actions}
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div className="min-h-0 flex-1 animate-pulse rounded-lg border border-subtle bg-layer-1" />
-      ) : (
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <div
-          ref={scrollRef}
-          className="shadow-sm min-h-0 flex-1 overflow-auto rounded-lg border border-subtle bg-layer-1"
-        >
-            <table className="h-full w-max min-w-full border-separate border-spacing-0 text-11">
-              <thead className="sticky top-0 z-3 bg-layer-2">
-                <tr>
-                  <th className="sticky left-0 z-4 h-10 min-w-52 border-r border-b border-subtle bg-layer-2 px-3 text-left font-medium text-secondary sm:min-w-64">
-                    {t("payments.sheet.concept")}
-                  </th>
-                  <th className="h-10 min-w-32 border-r border-b border-subtle px-3 text-left font-medium text-secondary">
-                    {t("payments.sheet.entity")}
-                  </th>
-                  {(forecast?.months ?? []).map(({ year, month }) => (
-                    <th
-                      key={`${year}-${month}`}
-                      className="h-10 min-w-28 border-r border-b border-subtle px-3 text-right font-medium text-secondary"
+            <Filter className="size-3.5" />
+            {t("payments.filters.label")}
+            {activeFilters > 0 && (
+              <span className="rounded-full bg-accent-primary px-1.5 text-10 text-on-color">{activeFilters}</span>
+            )}
+          </Popover.Button>
+          <Popover.Panel positionerClassName="z-100" side="bottom" align="start">
+            <div className="w-64 rounded-md border border-subtle bg-layer-1 p-2 shadow-raised-200">
+              <p className="px-1 py-0.5 text-11 font-medium text-tertiary">{t("payments.fields.category")}</p>
+              <div className="max-h-52 overflow-y-auto">
+                {tags.map((name) => (
+                  <div key={name} className="flex items-center gap-1 rounded-sm px-1 hover:bg-layer-1-hover">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShown((current) =>
+                          current.includes(name) ? current.filter((item) => item !== name) : [...current, name]
+                        )
+                      }
+                      className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-13"
                     >
-                      {new Intl.DateTimeFormat(undefined, { month: "short" }).format(new Date(year, month - 1, 1))}
-                      <span className="ml-1 text-9 text-tertiary">{year}</span>
-                    </th>
-                  ))}
-                  <th className="sticky right-0 z-4 h-10 min-w-32 border-b border-l border-subtle bg-layer-2 px-3 text-right font-semibold text-primary">
-                    {t("payments.sheet.total")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.slice(0, visibleCount).map((line) => (
-                  <tr key={line.key} className="group hover:bg-layer-1-hover">
-                    <td className="sticky left-0 z-2 h-11 max-w-64 border-r border-b border-subtle bg-layer-1 px-3 group-hover:bg-layer-1-hover">
-                      <div className="flex items-center gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate font-medium text-primary">{line.label}</p>
-                          <p className="text-9 text-tertiary">
-                            {t(`payments.sheet.category.${line.category.toLowerCase()}`)}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="h-11 max-w-40 truncate border-r border-b border-subtle px-3 text-secondary">
-                      {line.entity_name || "-"}
-                    </td>
-                    {line.months.map((cell) => {
-                      const isEditing =
-                        editing?.rowKey === line.key && editing.year === cell.year && editing.month === cell.month;
-                      return (
-                        <td
-                          key={cellId(line.key, cell.year, cell.month)}
-                          className={cn(
-                            "relative h-11 border-r border-b border-subtle p-0 text-right tabular-nums",
-                            cell.is_overridden && "bg-accent-primary/5"
-                          )}
-                        >
-                          {isEditing ? (
-                            <input
-                              ref={(input) => input?.focus()}
-                              inputMode="decimal"
-                              value={draft}
-                              onChange={(event) => setDraft(event.target.value)}
-                              onBlur={() => void saveCell(line, cell)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === "Tab") event.currentTarget.blur();
-                                if (event.key === "Escape") {
-                                  cancelledEdit.current = true;
-                                  setEditing(null);
-                                }
-                              }}
-                              className="border-accent-primary h-full w-full border-2 bg-surface-1 px-2 text-right text-11 font-medium text-primary outline-none"
-                            />
-                          ) : (
-                            <>
-                              {cell.is_overridden && (
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void restoreCell(line, cell);
-                                  }}
-                                  className="absolute top-1/2 left-1 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm opacity-0 transition-opacity group-hover:opacity-100 hover:bg-layer-2 focus:opacity-100"
-                                  title={t("payments.sheet.restore")}
-                                >
-                                  <RotateCcw className="size-3 text-accent-primary" />
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onDoubleClick={() => openEditor(line, cell)}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter" || event.key === "F2") openEditor(line, cell);
-                                }}
-                                onClick={() => {
-                                  if (window.matchMedia("(max-width: 767px)").matches) openEditor(line, cell);
-                                }}
-                                className="focus:ring-accent-primary flex h-full w-full items-center justify-end px-2 text-right text-secondary outline-none hover:bg-accent-primary/5 focus:ring-2 focus:ring-inset"
-                                title={
-                                  cell.is_overridden
-                                    ? `${t("payments.sheet.automatic")}: ${formatMoney(cell.automatic, line.currency)}`
-                                    : t("payments.sheet.edit_help")
-                                }
-                              >
-                                <span className={cn(cell.is_overridden && "font-semibold text-accent-primary")}>
-                                  {formatMoney(cell.amount, line.currency)}
-                                </span>
-                              </button>
-                            </>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="sticky right-0 z-2 h-11 border-b border-l border-subtle bg-layer-2 px-3 text-right font-semibold text-primary tabular-nums">
-                      {formatMoney(line.total, line.currency)}
-                    </td>
-                  </tr>
-                ))}
-                {/* Absorbs the leftover height so the totals row stays welded to the
-                    bottom edge even when the sheet holds a single line. */}
-                <tr aria-hidden="true" className="h-full">
-                  <td colSpan={(forecast?.months.length ?? 0) + 3} />
-                </tr>
-              </tbody>
-              {canLoadMore && (
-                <tbody ref={setSentinel}>
-                  {Array.from({ length: 3 }).map((_, index) => (
-                    <tr key={index} className="animate-pulse">
-                      <td colSpan={(forecast?.months.length ?? 0) + 3} className="h-11 border-b border-subtle px-3">
-                        <span className="block h-3 w-40 rounded bg-layer-2" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              )}
-              <tfoot className="sticky bottom-0 z-3 bg-layer-2">
-                <tr>
-                  <td className="sticky left-0 z-4 h-11 border-t border-r border-subtle bg-layer-2 px-3">
-                    <label className="flex items-center gap-2">
-                      <Sigma className="size-3.5 text-accent-primary" />
-                      <select
-                        value={operation}
-                        onChange={(event) => setOperation(event.target.value as Aggregate)}
-                        className="bg-transparent text-10 font-semibold text-primary outline-none"
-                      >
-                        {(["SUM", "AVERAGE", "MIN", "MAX", "COUNT"] as Aggregate[]).map((item) => (
-                          <option key={item} value={item}>
-                            {t(`payments.sheet.aggregate.${item.toLowerCase()}`)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </td>
-                  <td className="border-t border-r border-subtle px-3 text-10 text-tertiary">
-                    {lines.length} {t("payments.sheet.rows")}
-                  </td>
-                  {(forecast?.months ?? []).map(({ year, month }, index) => {
-                    const value = aggregateValues(
-                      lines.map((line) => Number(line.months[index]?.amount ?? 0)),
-                      operation
-                    );
-                    return (
-                      <td
-                        key={`${year}-${month}`}
-                        className="h-11 border-t border-r border-subtle px-3 text-right font-semibold text-primary tabular-nums"
-                      >
-                        {operation === "COUNT" ? value : formatMoney(String(value), visibleCurrency)}
-                      </td>
-                    );
-                  })}
-                  <td className="sticky right-0 z-4 h-11 border-t border-l border-subtle bg-layer-2 px-3 text-right font-semibold text-primary tabular-nums">
-                    {operation === "COUNT"
-                      ? lines.length
-                      : formatMoney(
-                          String(
-                            aggregateValues(
-                              lines.map((line) => Number(line.total)),
-                              operation
-                            )
-                          ),
-                          visibleCurrency
+                      <span
+                        className={cn(
+                          "flex size-4 shrink-0 items-center justify-center rounded-sm border",
+                          shown.includes(name)
+                            ? "border-accent-strong bg-accent-primary text-on-color"
+                            : "border-strong"
                         )}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          {lines.length === 0 && (
-            <div className="pointer-events-none absolute inset-x-0 top-10 bottom-11 flex items-center justify-center px-6">
-              <div className="pointer-events-auto">
-                <EmptyStateCompact
-                  assetKey="worklog"
-                  title={t("payments.sheet.empty_title")}
-                  description={t("payments.sheet.empty_description")}
-                  // `actions` renders its row full-width, which leaves the button
-                  // hanging on the left of a centred empty state.
-                  customButton={
-                    onCompose ? (
-                      <div className="flex justify-center">
-                        <Button variant="primary" size="base" onClick={onCompose}>
-                          <Plus className="size-4" />
-                          {t("payments.composer.open")}
-                        </Button>
-                      </div>
-                    ) : undefined
-                  }
-                />
+                      >
+                        {shown.includes(name) && <Check className="size-3" />}
+                      </span>
+                      <span className={cn("truncate", hidden.includes(name) && "text-tertiary line-through")}>
+                        {name}
+                      </span>
+                    </button>
+                    {/* Hiding is not the opposite of filtering: it puts one
+                      category away while everything else stays as it was. */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setHidden((current) =>
+                          current.includes(name) ? current.filter((item) => item !== name) : [...current, name]
+                        )
+                      }
+                      aria-label={`${t("payments.sheet.hide_category")} ${name}`}
+                      title={t("payments.sheet.hide_category")}
+                      className="shrink-0 p-1 text-tertiary hover:text-primary"
+                    >
+                      {hidden.includes(name) ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                    </button>
+                  </div>
+                ))}
+                {tags.length === 0 && (
+                  <p className="px-1.5 py-1 text-11 text-tertiary">{t("payments.empty.categories")}</p>
+                )}
               </div>
+              <div className="mt-2 space-y-0.5 border-t border-subtle pt-2">
+                <button
+                  type="button"
+                  onClick={() => setGroup((value) => !value)}
+                  className="flex w-full items-center justify-between gap-2 rounded-sm px-1.5 py-1.5 text-left text-12 hover:bg-layer-1-hover"
+                >
+                  {t("payments.ledger.group_by_tag")}
+                  {group && <Check className="size-3.5 text-accent-primary" />}
+                </button>
+              </div>
+              <div className="mt-2 space-y-0.5 border-t border-subtle pt-2">
+                <p className="px-1 pb-0.5 text-11 font-medium text-tertiary">{t("payments.ledger.sort")}</p>
+                {ORDERS.map(({ key, labelKey }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setOrder(key)}
+                    className="flex w-full items-center justify-between gap-2 rounded-sm px-1.5 py-1.5 text-left text-12 hover:bg-layer-1-hover"
+                  >
+                    {t(labelKey)}
+                    {order === key && <Check className="size-3.5 text-accent-primary" />}
+                  </button>
+                ))}
+              </div>
+              {currencies.length > 1 && (
+                <div className="mt-2 border-t border-subtle pt-2">
+                  <p className="px-1 py-0.5 text-11 font-medium text-tertiary">{t("payments.fields.currency")}</p>
+                  {currencies.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setCurrency(item)}
+                      className="flex w-full items-center justify-between gap-2 rounded-sm px-1.5 py-1.5 text-left text-12 hover:bg-layer-1-hover"
+                    >
+                      {item}
+                      {item === selectedCurrency && <Check className="size-3.5 text-accent-primary" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {activeFilters > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShown([]);
+                    setHidden([]);
+                  }}
+                  className="mt-2 w-full border-t border-subtle pt-2 text-12 text-accent-primary"
+                >
+                  {t("payments.ledger.clear")}
+                </button>
+              )}
             </div>
+          </Popover.Panel>
+        </Popover>
+        {meta}
+        <div className="ml-auto flex gap-2">{actions}</div>
+      </div>
+      <div className="flex shrink-0 flex-wrap gap-x-6 gap-y-1 border-b border-subtle px-4 py-2 text-12 text-tertiary">
+        <span>
+          {t("payments.flow.planned")}: {formatMoney(String(totals[0]?.total ?? "0"), selectedCurrency)}
+        </span>
+        <span>
+          {t("payments.flow.actual")}: {formatMoney(actual?.paid ?? "0", selectedCurrency)}
+        </span>
+        <span>
+          {t("payments.status.pending")}: {formatMoney(actual?.pending ?? "0", selectedCurrency)}
+        </span>
+        <span>
+          {t("payments.flow.available")}:{" "}
+          {formatMoney(
+            sum([String(totals[0]?.total ?? "0"), `-${actual?.paid ?? "0"}`, `-${actual?.pending ?? "0"}`]),
+            selectedCurrency
           )}
-        </div>
+        </span>
+      </div>
+      {error && (
+        <button type="button" onClick={() => void mutate()}>
+          {t("payments.ledger.load_error")}
+        </button>
+      )}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <FinanceGrid
+          rows={rows}
+          totals={totals}
+          columns={columns}
+          emptyLabel={t("payments.sheet.empty_title")}
+          onPickCell={(row, prop, anchor) => setCellPicker({ key: row.id, prop, anchor })}
+          onComment={(row, cell) => setPeek({ key: row.id, cell })}
+          onEdit={async (row, prop, value) => {
+            if (!/^\d+(\.\d{1,2})?$/.test(value.trim())) {
+              setToast({ type: TOAST_TYPE.ERROR, title: t("payments.sheet.invalid_amount") });
+              return;
+            }
+            const [year, month] = prop.split("-").map(Number);
+            try {
+              await financeService.overrideScenarioCell(workspaceSlug, scenario.id, {
+                row_key: row.id,
+                year,
+                month,
+                amount: value,
+              });
+              await mutate();
+            } catch {
+              setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error") });
+            }
+          }}
+        />
+      </div>
+      {cellPicker && (
+        <CellCataloguePicker
+          workspaceSlug={workspaceSlug}
+          kind={cellPicker.prop === "entity" ? "office" : "category"}
+          anchor={cellPicker.anchor}
+          selected={
+            cellPicker.prop === "entity"
+              ? (forecast?.lines.find((line) => line.key === cellPicker.key)?.entity_id ?? "")
+              : (forecast?.lines.find((line) => line.key === cellPicker.key)?.category_id ?? "")
+          }
+          onClose={() => setCellPicker(null)}
+          onApply={async (id) => {
+            const patch = cellPicker.prop === "entity" ? { entity: id } : { category: id || null };
+            try {
+              await financeService.updateBudgetRow(workspaceSlug, scenario.id, cellPicker.key, patch);
+              await mutate();
+            } catch (reason) {
+              setToast({
+                type: TOAST_TYPE.ERROR,
+                title: t("payments.toasts.error"),
+                message: getApiErrorMessage(reason),
+              });
+            }
+            setCellPicker(null);
+          }}
+        />
+      )}
+      {peek && peekLine && (
+        <BudgetRowPanel
+          key={peek.key}
+          workspaceSlug={workspaceSlug}
+          scenario={scenario}
+          line={peekLine}
+          cell={peek.cell}
+          onClose={() => setPeek(null)}
+          onChanged={() => void mutate()}
+        />
       )}
     </div>
   );

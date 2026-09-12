@@ -22,10 +22,12 @@ type Props = {
   assignment: TBudgetScenarioEmployee | null;
   isOpen: boolean;
   onClose: () => void;
+  /** Set when this opened from another panel, so it stacks over it. */
+  nested?: boolean;
   onSaved: () => void;
 };
 
-export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, onClose, onSaved }: Props) {
+export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, onClose, nested, onSaved }: Props) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [calculationType, setCalculationType] = useState<"FIXED" | "PERCENTAGE">("FIXED");
@@ -72,6 +74,7 @@ export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, 
     <PaymentsSidePanel
       isOpen={isOpen}
       onClose={onClose}
+      nested={nested}
       width="lg"
       title={t("payments.bonuses.create")}
       description={`${assignment?.employee_name ?? ""} / ${assignment?.office_name ?? ""}`}
@@ -86,7 +89,7 @@ export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
           <div>
             <label className={LABEL}>{t("payments.fields.name")}</label>
-            <Input value={name} onChange={(event) => setName(event.target.value)} />
+            <Input value={name} onChange={(event) => setName(event.target.value)} className="w-full" />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
@@ -110,6 +113,7 @@ export function BudgetBonusModal({ workspaceSlug, scenario, assignment, isOpen, 
                 step="0.01"
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
+                className="w-full"
               />
             </div>
             <div>

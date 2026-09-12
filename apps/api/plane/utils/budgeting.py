@@ -56,12 +56,16 @@ def _line(
     kind,
     scenario_months,
     owner_name="",
+    entity_id=None,
 ):
     return {
         "key": row_key,
         "label": label,
         "category": category,
         "entity_name": entity_name,
+        # The office behind `entity_name`. The sheet needs the id, not just the
+        # label, to let someone move a line to another office in place.
+        "entity_id": str(entity_id) if entity_id else "",
         "currency": currency,
         "kind": kind,
         "owner_name": owner_name,
@@ -110,6 +114,7 @@ def scenario_forecast(
         if assignment_start > assignment_end:
             continue
 
+        office_id = getattr(salary, "office_id", None)
         salary_line = _line(
             f"salary:{assignment_id}",
             employee_name,
@@ -119,6 +124,7 @@ def scenario_forecast(
             "EXPENSE",
             scenario_months,
             employee_name,
+            office_id,
         )
         benefit_line = _line(
             f"benefit:{assignment_id}",
@@ -129,6 +135,7 @@ def scenario_forecast(
             "EXPENSE",
             scenario_months,
             employee_name,
+            office_id,
         )
 
         for year, month in scenario_months:
@@ -195,6 +202,8 @@ def scenario_forecast(
             variable.currency,
             variable.kind,
             scenario_months,
+            "",
+            getattr(variable, "office_id", None),
         )
         active_start = max(variable.effective_from, scenario.period_start)
         active_end = min(variable.effective_to or scenario.period_end, scenario.period_end)
@@ -294,6 +303,7 @@ def scenario_forecast(
                 "label": line["label"],
                 "category": line["category"],
                 "entity_name": line["entity_name"],
+                "entity_id": line["entity_id"],
                 "currency": line["currency"],
                 "kind": line["kind"],
                 "owner_name": line["owner_name"],

@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers.finance import ExpenseSerializer
 from plane.app.views.contract.internal import InternalBaseView
-from plane.db.models import ExpenseDocument, FileAsset, Workspace
+from plane.db.models import ExpenseDocument, FileAsset, Workspace, BudgetScenario
 from plane.db.models.finance import ExpenseImport
 from plane.settings.storage import S3Storage
 from plane.utils.expense_recurrence import materialize_expenses
@@ -22,7 +22,7 @@ class ImportSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExpenseImport
-        fields = ["id", "asset_id", "name", "status", "stage", "data", "error", "expense_id", "created_at"]
+        fields = ["id", "asset_id", "name", "status", "stage", "data", "error", "expense_id", "created_at", "scenario_id"]
 
     def get_name(self, obj):
         return (obj.asset.attributes or {}).get("name", "Document")
@@ -46,6 +46,18 @@ def dispatch_import(job):
         )
 
 
+def cancel_worker(attempt):
+    url = getattr(settings, "CF_EXPENSE_WORKER_TRIGGER_URL", "")
+    if not url:
+        return
+    try:
+        requests.post(url.rstrip("/") + "/trigger/cancel", json={"attempt": attempt},
+                      headers={"X-Trigger-Secret": getattr(settings, "CF_WORKER_TRIGGER_SECRET", "")}, timeout=5)
+    except requests.RequestException:
+        # The invalidated attempt also rejects every late callback.
+        pass
+
+
 class ExpenseImportEndpoint(FinanceBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
@@ -65,9 +77,12 @@ class ExpenseImportEndpoint(FinanceBaseView):
             attributes = asset.attributes or {}
             if attributes.get("type") not in allowed or int(attributes.get("size") or 0) > 20 * 1024 * 1024:
                 return Response({"error": "Upload PDF, XML or receipt images up to 20 MB"}, status=400)
+        scenario_id = serializers.UUIDField(allow_null=True).run_validation(request.data.get("scenario"))
+        if scenario_id:
+            get_object_or_404(BudgetScenario, id=scenario_id, workspace=workspace)
         jobs = []
         for asset in assets:
-            job, created = ExpenseImport.objects.get_or_create(workspace=workspace, asset=asset)
+            job, created = ExpenseImport.objects.get_or_create(workspace=workspace, asset=asset, defaults={"scenario_id": scenario_id, "created_by": request.user})
             if created:
                 dispatch_import(job)
             job.refresh_from_db()
@@ -81,9 +96,17 @@ class ExpenseImportDetailEndpoint(FinanceBaseView):
         retry = request.data.get("action") == "retry"
         with transaction.atomic():
             job = get_object_or_404(ExpenseImport.objects.select_for_update(), id=job_id, workspace__slug=slug)
+            if request.data.get("action") == "cancel":
+                if job.status not in ("QUEUED", "RUNNING"):
+                    return Response({"error": "Only pending analysis can be cancelled"}, status=409)
+                previous_attempt = str(job.attempt)
+                job.status, job.attempt, job.stage = "CANCELLED", uuid.uuid4(), ""
+                job.save()
+                transaction.on_commit(lambda: cancel_worker(previous_attempt))
+                return Response(ImportSerializer(job).data)
             if retry:
                 stale = (timezone.now() - job.updated_at).total_seconds() > 1800
-                if job.expense_id or (job.status not in ("FAILED",) and not stale):
+                if job.expense_id or (job.status not in ("FAILED", "CANCELLED") and not stale):
                     return Response({"error": "This analysis cannot be retried yet"}, status=409)
                 job.attempt, job.status, job.error = uuid.uuid4(), "QUEUED", ""
                 job.save()
@@ -106,7 +129,9 @@ class ExpenseImportDetailEndpoint(FinanceBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, job_id):
         job = get_object_or_404(ExpenseImport, id=job_id, workspace__slug=slug)
+        previous_attempt = str(job.attempt)
         job.delete()
+        cancel_worker(previous_attempt)
         return Response(status=204)
 
 
@@ -131,7 +156,7 @@ class InternalExpenseImportEndpoint(InternalBaseView):
     def post(self, request, workspace_id, job_id, attempt):
         with transaction.atomic():
             job = get_object_or_404(ExpenseImport.objects.select_for_update(), id=job_id, workspace_id=workspace_id, attempt=attempt)
-            if job.status == "IMPORTED":
+            if job.status in ("IMPORTED", "CANCELLED"):
                 return Response({"status": "ok"})
             new_status = request.data.get("status")
             if new_status not in ("RUNNING", "READY", "FAILED"):
@@ -146,6 +171,17 @@ class InternalExpenseImportEndpoint(InternalBaseView):
                     return Response({"error": "Invalid extraction"}, status=400)
                 allowed = ("concept", "vendor", "amount", "currency", "expense_date", "reference", "description", "tags", "warnings")
                 job.data = {key: data[key] for key in allowed if key in data}
+                payload = {key: value for key, value in job.data.items() if key != "warnings"}
+                for field in ("amount", "currency", "expense_date"):
+                    payload.setdefault(field, None)
+                payload.update(status="PENDING", scenario=job.scenario_id)
+                serializer = ExpenseSerializer(data=payload, context={"workspace_id": job.workspace_id})
+                if serializer.is_valid():
+                    expense = serializer.save(workspace_id=job.workspace_id, created_by_id=job.created_by_id)
+                    ExpenseDocument.objects.create(workspace_id=job.workspace_id, expense=expense, asset=job.asset)
+                    job.expense, job.status, job.stage = expense, "IMPORTED", ""
+                else:
+                    job.error = "Complete the missing fields to create this expense."
             if new_status == "FAILED":
                 job.error = "Analysis failed. Check the document and retry."
             job.save()

@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TEmployee } from "@plane/types";
+import type { TEmployee, TOffice } from "@plane/types";
 import { Input } from "@plane/ui";
 // services
 import { payrollService } from "@/services/payroll.service";
@@ -19,9 +19,13 @@ import { FIELD, LABEL, todayIso } from "./shared";
 
 type Props = {
   workspaceSlug: string;
+  /** The workspace's offices. A hire has to be filed under one. */
+  offices: TOffice[];
   isOpen: boolean;
   employee: TEmployee | null;
   onClose: () => void;
+  /** Set when this opened from another panel, so it stacks over it. */
+  nested?: boolean;
   onSaved: () => void;
 };
 
@@ -30,6 +34,7 @@ type FormState = {
   email: string;
   national_id: string;
   position: string;
+  office: string;
   hire_date: string;
   termination_date: string;
   notes: string;
@@ -40,13 +45,14 @@ const emptyForm = (): FormState => ({
   email: "",
   national_id: "",
   position: "",
+  office: "",
   hire_date: todayIso(),
   termination_date: "",
   notes: "",
 });
 
 export function EmployeeModal(props: Props) {
-  const { workspaceSlug, isOpen, employee, onClose, onSaved } = props;
+  const { workspaceSlug, offices, isOpen, employee, onClose, nested, onSaved } = props;
   const { t } = useTranslation();
   const [form, setForm] = useState<FormState>(emptyForm());
   const [hasTerminationDate, setHasTerminationDate] = useState(false);
@@ -61,6 +67,7 @@ export function EmployeeModal(props: Props) {
             email: employee.email,
             national_id: employee.national_id,
             position: employee.position,
+            office: employee.office ?? "",
             hire_date: employee.hire_date,
             termination_date: employee.termination_date ?? "",
             notes: employee.notes,
@@ -102,6 +109,7 @@ export function EmployeeModal(props: Props) {
     <PaymentsSidePanel
       isOpen={isOpen}
       onClose={onClose}
+      nested={nested}
       width="xl"
       title={t(employee ? "payroll.employees.edit" : "payroll.employees.new")}
       description={t("payroll.employees.form_help")}
@@ -124,11 +132,34 @@ export function EmployeeModal(props: Props) {
               />
             </div>
             <div>
+              <label className={LABEL} htmlFor="employee-office">
+                {t("payroll.fields.office")}
+              </label>
+              <select
+                id="employee-office"
+                required
+                className={FIELD}
+                value={form.office}
+                onChange={(event) => set("office", event.target.value)}
+              >
+                <option value="">—</option>
+                {offices.map((office) => (
+                  <option key={office.id} value={office.id}>
+                    {office.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className={LABEL}>
                 {t("payroll.fields.position")}{" "}
                 <span className="font-normal text-tertiary">({t("payroll.optional")})</span>
               </label>
-              <Input value={form.position} onChange={(event) => set("position", event.target.value)} className="w-full" />
+              <Input
+                value={form.position}
+                onChange={(event) => set("position", event.target.value)}
+                className="w-full"
+              />
             </div>
             <div>
               <label className={LABEL}>
@@ -179,7 +210,9 @@ export function EmployeeModal(props: Props) {
                   />
                   <span>
                     <span className="font-medium text-primary">{t("payroll.employees.left_company")}</span>
-                    <span className="mt-0.5 block text-10 text-tertiary">{t("payroll.employees.termination_help")}</span>
+                    <span className="mt-0.5 block text-10 text-tertiary">
+                      {t("payroll.employees.termination_help")}
+                    </span>
                   </span>
                 </label>
                 {hasTerminationDate && (
@@ -218,7 +251,7 @@ export function EmployeeModal(props: Props) {
             variant="primary"
             size="sm"
             loading={isSubmitting}
-            disabled={!form.full_name.trim() || !form.hire_date}
+            disabled={!form.full_name.trim() || !form.hire_date || !form.office}
           >
             {t("payroll.actions.save")}
           </Button>

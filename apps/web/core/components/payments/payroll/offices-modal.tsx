@@ -24,11 +24,13 @@ type Props = {
   isOpen: boolean;
   offices: TOffice[];
   onClose: () => void;
+  /** Set when this opened from another panel, so it stacks over it. */
+  nested?: boolean;
   onChanged: () => void;
 };
 
 export function OfficesModal(props: Props) {
-  const { workspaceSlug, isOpen, offices, onClose, onChanged } = props;
+  const { workspaceSlug, isOpen, offices, onClose, nested, onChanged } = props;
   const { t } = useTranslation();
   const [name, setName] = useState("");
   // Legal minimum in Mexico; an office may pay more, never less
@@ -119,6 +121,7 @@ export function OfficesModal(props: Props) {
       <PaymentsSidePanel
         isOpen={isOpen}
         onClose={onClose}
+        nested={nested}
         width="lg"
         title={t("payroll.offices.manage")}
         description={t("payroll.offices.form_help")}
