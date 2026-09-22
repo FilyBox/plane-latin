@@ -50,7 +50,6 @@ export function ContractsRoot(props: Props) {
   // states
   const [filters, setFiltersState] = useState<TContractFilters>({ order: "-created_at" });
   const [searchInput, setSearchInput] = useState("");
-  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isQueryModalOpen, setIsQueryModalOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -62,16 +61,43 @@ export function ContractsRoot(props: Props) {
 
   const setFilters = (next: Partial<TContractFilters>) => setFiltersState((prev) => ({ ...prev, ...next }));
 
-  // deep links: ?peek=<contract_id> (chat sources) and ?chat=<query> (Power K AI search)
+  /** Which contract the peek is showing. It lives in the URL rather than in
+   * component state so the address bar always names what is on screen: the link
+   * can be copied, bookmarked, or sent to someone else and it reopens the same
+   * contract. Back and forward move through it too. */
+  const selectedContractId = searchParams.get("peek");
+
+  const setSelectedContractId = useCallback(
+    (contractId: string | null) =>
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          if (contractId) next.set("peek", contractId);
+          else next.delete("peek");
+          return next;
+        },
+        // Opening a contract is a navigation, so Back closes it. Closing
+        // replaces, so Back does not immediately reopen what was just shut.
+        { replace: !contractId }
+      ),
+    [setSearchParams]
+  );
+
+  // ?chat=<query> (Power K AI search) seeds the first message once and is then
+  // consumed — unlike ?peek, it is an instruction, not a view to return to.
   useEffect(() => {
-    const peek = searchParams.get("peek");
     const chatQuery = searchParams.get("chat");
-    if (peek) setSelectedContractId(peek);
-    if (chatQuery !== null) {
-      setChatInitialQuery(chatQuery || undefined);
-      setIsChatOpen(true);
-    }
-    if (peek || chatQuery !== null) setSearchParams({}, { replace: true });
+    if (chatQuery === null) return;
+    setChatInitialQuery(chatQuery || undefined);
+    setIsChatOpen(true);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("chat");
+        return next;
+      },
+      { replace: true }
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 

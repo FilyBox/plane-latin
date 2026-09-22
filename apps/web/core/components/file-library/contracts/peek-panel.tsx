@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Loader2, RefreshCcw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Columns2, Loader2, Maximize2, RefreshCcw, Sparkles, X } from "lucide-react";
 import useSWR from "swr";
 // plane imports
 import { PDFViewer } from "@plane/extend-ui";
@@ -20,7 +20,7 @@ import { Button } from "@plane/propel/button";
 import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/propel/icons";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";
-import type { TContract, TContractJob, TContractRetryOptions, TContractUpdatePayload } from "@plane/types";
+import type { TContractJob, TContractRetryOptions, TContractUpdatePayload } from "@plane/types";
 import { cn } from "@plane/utils";
 // services
 import { contractService } from "@/services/contract.service";
@@ -113,6 +113,10 @@ export function ContractPeekPanel(props: Props) {
   const [isActing, setIsActing] = useState(false);
   const [isRetryModalOpen, setIsRetryModalOpen] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  // Which half of the split has the whole width. Independent of `peekMode`:
+  // reading a long clause or a wide table is the same problem whether the peek
+  // is docked, centred or full screen.
+  const [expanded, setExpanded] = useState<"none" | "document" | "side">("none");
 
   // On desktop the PDF is always visible, so "document" behaves as "info"
   const paneTab: Exclude<Tab, "document"> = tab === "document" ? "info" : tab;
@@ -165,6 +169,7 @@ export function ContractPeekPanel(props: Props) {
       .getPresignedViewUrl(workspaceSlug, contract.file_asset_id)
       .then((url) => {
         if (!cancelled) setPdfUrl(url);
+        return url;
       })
       .catch(() => {
         if (!cancelled) setPdfUrl(null);
@@ -254,13 +259,47 @@ export function ContractPeekPanel(props: Props) {
 
   const inputClass = "w-full rounded-sm border border-subtle bg-transparent px-2 py-1 text-13";
 
-  const pdfViewer = pdfUrl ? (
-    <PDFViewer src={pdfUrl} fileName={contract?.file_name ?? "contract.pdf"} className="h-full" showUpload={false} />
-  ) : (
-    <div className="flex h-full items-center justify-center text-tertiary">
-      <Loader2 className="size-5 animate-spin" />
-    </div>
-  );
+  /** Gives one pane the whole width, or hands the split back. The document
+   * half hands this to the viewer's own toolbar rather than floating it on top:
+   * overlaying the top-right corner covered the viewer's actions menu and ate
+   * its clicks. */
+  const expandButton = (pane: "document" | "side") => {
+    const isExpanded = expanded === pane;
+    const label = t(isExpanded ? "file_library.contracts.peek.split_view" : "file_library.contracts.peek.expand_pane");
+    return (
+      <Tooltip tooltipContent={label}>
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={isExpanded}
+          onClick={() => setExpanded(isExpanded ? "none" : pane)}
+          className="rounded-sm p-1 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+        >
+          {isExpanded ? <Columns2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+        </button>
+      </Tooltip>
+    );
+  };
+
+  /** `expandControl` is `null` on mobile, where the tabs already give each view
+   * the whole panel. While the preview is still resolving there is no viewer
+   * toolbar to seat it in, so it floats in the corner the toolbar would occupy
+   * — otherwise expanding a document that never loads is a one-way trip. */
+  const pdfViewer = (expandControl: React.ReactNode) =>
+    pdfUrl ? (
+      <PDFViewer
+        src={pdfUrl}
+        fileName={contract?.file_name ?? "contract.pdf"}
+        className="h-full"
+        showUpload={false}
+        toolbarActions={expandControl}
+      />
+    ) : (
+      <div className="relative flex h-full items-center justify-center text-tertiary">
+        {expandControl ? <div className="absolute top-2 right-2">{expandControl}</div> : null}
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+    );
 
   const infoPane = (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -502,7 +541,7 @@ export function ContractPeekPanel(props: Props) {
             {(["document", "info", "process", "chat"] as Tab[]).map((key) => tabButton(key))}
           </div>
           {tab === "document" ? (
-            <div className="min-h-0 flex-1">{pdfViewer}</div>
+            <div className="min-h-0 flex-1">{pdfViewer(null)}</div>
           ) : isLoading || !contract ? (
             loaderPane
           ) : tab === "chat" ? (
@@ -523,20 +562,29 @@ export function ContractPeekPanel(props: Props) {
 
         {/* ── Desktop: document beside the tabbed pane ─────────────────── */}
         <div className="hidden min-h-0 flex-1 lg:flex">
-          <div className="min-h-0 w-1/2 border-r border-subtle">{pdfViewer}</div>
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 items-center gap-1 border-b border-subtle px-3 pt-2">
-              {(["info", "process", "chat"] as Tab[]).map((key) => tabButton(key))}
+          {expanded !== "side" && (
+            <div
+              className={cn("min-h-0 border-r border-subtle", expanded === "document" ? "w-full border-r-0" : "w-1/2")}
+            >
+              {pdfViewer(expandButton("document"))}
             </div>
-            {isLoading || !contract
-              ? loaderPane
-              : paneTab === "chat"
-                ? chatPane
-                : paneTab === "process"
-                  ? processPane
-                  : infoPane}
-            {saveBar}
-          </div>
+          )}
+          {expanded !== "document" && (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex shrink-0 items-center gap-1 border-b border-subtle px-3 pt-2">
+                {(["info", "process", "chat"] as Tab[]).map((key) => tabButton(key))}
+                <span className="ml-auto pb-1">{expandButton("side")}</span>
+              </div>
+              {isLoading || !contract
+                ? loaderPane
+                : paneTab === "chat"
+                  ? chatPane
+                  : paneTab === "process"
+                    ? processPane
+                    : infoPane}
+              {saveBar}
+            </div>
+          )}
         </div>
       </div>
     </div>

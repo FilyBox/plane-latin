@@ -18,7 +18,7 @@
  * automatically while the message is running and fold away once it settles.
  */
 
-import type { PropsWithChildren, ReactNode } from "react";
+import type { ComponentProps, PropsWithChildren, ReactNode } from "react";
 import {
   ActionBarPrimitive,
   ComposerPrimitive,
@@ -34,6 +34,7 @@ import { AlertTriangle, ArrowUp, Bot, Brain, Copy, RefreshCw, Sparkles, Square, 
 import remarkGfm from "remark-gfm";
 // plane imports
 import { useTranslation } from "@plane/i18n";
+import { cn } from "@plane/utils";
 
 // Entrance animation used across the thread (mirrors the assistant-ui examples)
 const messageMotion = {
@@ -43,17 +44,35 @@ const messageMotion = {
 };
 
 /**
+ * A wide table scrolls inside its own box.
+ *
+ * react-markdown emits a bare `<table>` with no wrapper, so a CSS rule aimed at
+ * a containing div never matched: the table grew to its content width and the
+ * viewport, which hides horizontal overflow, simply clipped the right-hand
+ * columns off. Giving it a real scroll container is the only thing that keeps a
+ * ten-column answer readable inside a narrow panel.
+ */
+const MARKDOWN_COMPONENTS = {
+  table: ({ node: _node, className, ...props }: ComponentProps<"table"> & { node?: unknown }) => (
+    <div className="my-1.5 max-w-full overflow-x-auto">
+      <table {...props} className={cn("w-max min-w-full border-collapse text-12", className)} />
+    </div>
+  ),
+};
+
+/**
  * GFM markdown at the repo's type scale.
  *
- * `break-words` plus the scrolling `pre`/`table` wrappers are what keep an
- * answer inside the chat column: without them a long unbroken token or a wide
- * table pushes the whole thread sideways.
+ * `break-words` plus the scrolling `pre` and the table wrapper above are what
+ * keep an answer inside the chat column: without them a long unbroken token or
+ * a wide table pushes the whole thread sideways.
  */
 function MarkdownText() {
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
-      className="[&_code]:font-mono min-w-0 break-words *:first:mt-0 *:last:mb-0 [&_a]:text-accent-primary [&_a]:underline [&_blockquote]:my-1.5 [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_code]:rounded-sm [&_code]:bg-layer-2 [&_code]:px-1 [&_code]:text-12 [&_h1]:mt-2 [&_h1]:text-14 [&_h1]:font-semibold [&_h2]:mt-2 [&_h2]:text-13 [&_h2]:font-semibold [&_h3]:mt-1.5 [&_h3]:text-13 [&_h3]:font-semibold [&_hr]:my-2 [&_hr]:border-subtle [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5 [&_pre]:my-1.5 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-layer-2 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:whitespace-pre [&_strong]:font-semibold [&_strong]:text-primary [&_table]:my-1.5 [&_table]:w-max [&_table]:min-w-full [&_table]:border-collapse [&_table]:text-12 [&_td]:border [&_td]:border-subtle [&_td]:px-2 [&_td]:py-1 [&_td]:align-top [&_th]:border [&_th]:border-subtle [&_th]:bg-layer-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_ul]:list-disc [&_ul]:pl-5 [&>div:has(>table)]:overflow-x-auto"
+      components={MARKDOWN_COMPONENTS}
+      className="[&_code]:font-mono min-w-0 break-words *:first:mt-0 *:last:mb-0 [&_a]:text-accent-primary [&_a]:underline [&_blockquote]:my-1.5 [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_code]:rounded-sm [&_code]:bg-layer-2 [&_code]:px-1 [&_code]:text-12 [&_h1]:mt-2 [&_h1]:text-14 [&_h1]:font-semibold [&_h2]:mt-2 [&_h2]:text-13 [&_h2]:font-semibold [&_h3]:mt-1.5 [&_h3]:text-13 [&_h3]:font-semibold [&_hr]:my-2 [&_hr]:border-subtle [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5 [&_pre]:my-1.5 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-layer-2 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:whitespace-pre [&_strong]:font-semibold [&_strong]:text-primary [&_td]:border [&_td]:border-subtle [&_td]:px-2 [&_td]:py-1 [&_td]:align-top [&_th]:border [&_th]:border-subtle [&_th]:bg-layer-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:whitespace-nowrap [&_ul]:list-disc [&_ul]:pl-5"
     />
   );
 }

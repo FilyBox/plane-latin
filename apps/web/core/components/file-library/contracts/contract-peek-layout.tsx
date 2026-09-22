@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { Columns2, Maximize2, X } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/propel/icons";
@@ -35,7 +35,11 @@ type Props = {
   activeTab: string;
   desktopActiveTab?: string;
   onTabChange: (tab: string) => void;
-  documentPane: React.ReactNode;
+  /** A function receives the control that gives the document half the whole
+   * container, so the pane can seat it in its own chrome instead of having it
+   * floated over the top-right corner, where it covered the PDF viewer's
+   * actions menu. It gets `null` on mobile, where there is no split. */
+  documentPane: React.ReactNode | ((expandControl: React.ReactNode) => React.ReactNode);
   sidePane: React.ReactNode;
   status?: React.ReactNode;
   headerActions?: React.ReactNode;
@@ -60,6 +64,9 @@ export function ContractPeekLayout({
 }: Props) {
   const { t } = useTranslation();
   const [peekMode, setPeekMode] = useState<TPeekMode>("side-peek");
+  // Which half of the split has the whole width. Independent of `peekMode`:
+  // the document and the side pane each sometimes need the full container.
+  const [expanded, setExpanded] = useState<"none" | "document" | "side">("none");
   const documentTab = tabs.find((tab) => tab.document);
   const sideTabs = tabs.filter((tab) => !tab.document);
 
@@ -77,6 +84,28 @@ export function ContractPeekLayout({
       {tab.label}
     </button>
   );
+
+  const renderDocumentPane = (expandControl: React.ReactNode) =>
+    typeof documentPane === "function" ? documentPane(expandControl) : documentPane;
+
+  /** Gives one pane the whole width, or hands the split back. */
+  const expandButton = (pane: "document" | "side") => {
+    const isExpanded = expanded === pane;
+    const label = t(isExpanded ? "file_library.contracts.peek.split_view" : "file_library.contracts.peek.expand_pane");
+    return (
+      <Tooltip tooltipContent={label}>
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={isExpanded}
+          onClick={() => setExpanded(isExpanded ? "none" : pane)}
+          className="rounded-sm p-1 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+        >
+          {isExpanded ? <Columns2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+        </button>
+      </Tooltip>
+    );
+  };
 
   const panelClassName = cn(
     "absolute z-[25] flex flex-col overflow-hidden rounded-sm border border-subtle bg-surface-1 transition-all duration-300",
@@ -137,19 +166,28 @@ export function ContractPeekLayout({
           <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-3 pt-2">
             {tabs.map((tab) => tabButton(tab, activeTab === tab.key))}
           </div>
-          <div className="min-h-0 flex-1">{documentTab?.key === activeTab ? documentPane : sidePane}</div>
+          <div className="min-h-0 flex-1">{documentTab?.key === activeTab ? renderDocumentPane(null) : sidePane}</div>
           {documentTab?.key !== activeTab ? footer : null}
         </div>
 
         <div className="hidden min-h-0 flex-1 lg:flex">
-          <div className="min-h-0 w-1/2 border-r border-subtle">{documentPane}</div>
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-3 pt-2">
-              {sideTabs.map((tab) => tabButton(tab, desktopActiveTab === tab.key))}
+          {expanded !== "side" && (
+            <div
+              className={cn("min-h-0 border-r border-subtle", expanded === "document" ? "w-full border-r-0" : "w-1/2")}
+            >
+              {renderDocumentPane(expandButton("document"))}
             </div>
-            <div className="min-h-0 flex-1">{sidePane}</div>
-            {footer}
-          </div>
+          )}
+          {expanded !== "document" && (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-3 pt-2">
+                {sideTabs.map((tab) => tabButton(tab, desktopActiveTab === tab.key))}
+                <span className="ml-auto pb-1">{expandButton("side")}</span>
+              </div>
+              <div className="min-h-0 flex-1">{sidePane}</div>
+              {footer}
+            </div>
+          )}
         </div>
       </div>
     </div>

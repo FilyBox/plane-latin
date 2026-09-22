@@ -229,28 +229,43 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
       : []),
   ];
 
-  const documentPane =
-    isLoading && !request ? (
-      <ContractLoading className="h-full" />
-    ) : !previewAssetId ? (
-      <ContractEmptyState
-        className="h-full"
-        icon={<AlertTriangle className="size-5" />}
-        title={t("file_library.contracts.workflow.request_peek.preview_unavailable")}
-      />
-    ) : previewFailed ? (
-      <ContractEmptyState
-        className="h-full"
-        icon={<AlertTriangle className="size-5" />}
-        title={t("file_library.contracts.workflow.request_peek.preview_unavailable")}
-      />
-    ) : pdfUrl ? (
-      <PDFViewer src={pdfUrl} fileName={`${request?.title ?? "contract"}.pdf`} className="h-full" showUpload={false} />
-    ) : (
-      <div className="flex h-full items-center justify-center text-tertiary">
-        <Loader2 className="size-5 animate-spin" />
+  const documentPane = (expandControl: React.ReactNode) => {
+    /** The viewer seats the expand control in its own toolbar. The states with
+     * no chrome of their own float it in the corner instead, so a document that
+     * never previews is still one click away from handing the split back. */
+    const bare = (node: React.ReactNode) => (
+      <div className="relative h-full">
+        {expandControl ? <div className="absolute top-2 right-2 z-10">{expandControl}</div> : null}
+        {node}
       </div>
     );
+
+    if (isLoading && !request) return bare(<ContractLoading className="h-full" />);
+    if (!previewAssetId || previewFailed)
+      return bare(
+        <ContractEmptyState
+          className="h-full"
+          icon={<AlertTriangle className="size-5" />}
+          title={t("file_library.contracts.workflow.request_peek.preview_unavailable")}
+        />
+      );
+    if (!pdfUrl)
+      return bare(
+        <div className="flex h-full items-center justify-center text-tertiary">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      );
+
+    return (
+      <PDFViewer
+        src={pdfUrl}
+        fileName={`${request?.title ?? "contract"}.pdf`}
+        className="h-full"
+        showUpload={false}
+        toolbarActions={expandControl}
+      />
+    );
+  };
 
   const signaturePane = !request ? (
     <ContractLoading className="h-full" />
