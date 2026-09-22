@@ -393,7 +393,7 @@ export function ContractPeekPanel(props: Props) {
   );
 
   const chatPane = contract ? (
-    <div className="min-h-0 flex-1">
+    <div className="min-h-0 min-w-0 flex-1">
       <ContractChatPanel workspaceSlug={workspaceSlug} mode="CONTRACT" contractId={contract.id} compact />
     </div>
   ) : null;
@@ -570,7 +570,7 @@ export function ContractPeekPanel(props: Props) {
             </div>
           )}
           {expanded !== "document" && (
-            <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <div className="flex shrink-0 items-center gap-1 border-b border-subtle px-3 pt-2">
                 {(["info", "process", "chat"] as Tab[]).map((key) => tabButton(key))}
                 <span className="ml-auto pb-1">{expandButton("side")}</span>

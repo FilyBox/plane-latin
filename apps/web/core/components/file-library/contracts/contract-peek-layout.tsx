@@ -179,12 +179,12 @@ export function ContractPeekLayout({
             </div>
           )}
           {expanded !== "document" && (
-            <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-3 pt-2">
                 {sideTabs.map((tab) => tabButton(tab, desktopActiveTab === tab.key))}
                 <span className="ml-auto pb-1">{expandButton("side")}</span>
               </div>
-              <div className="min-h-0 flex-1">{sidePane}</div>
+              <div className="min-h-0 min-w-0 flex-1">{sidePane}</div>
               {footer}
             </div>
           )}

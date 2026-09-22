@@ -249,18 +249,23 @@ export function ContractChatPanel(props: Props) {
         </div>
 
         {/* document preview, opened from a citation card. Wide layouts get a
-            column beside the thread; narrow ones take the panel over. */}
+            column beside the thread; narrow ones take the panel over. `xl:` is a
+            viewport breakpoint, so a compact chat living inside a peek pane has
+            to take the overlay whatever the window measures — a 22rem column
+            beside it would leave the thread too narrow to read. */}
         {previewContractId && (
           <>
-            <div className="hidden w-88 shrink-0 border-l border-subtle xl:block">
-              <ContractChatPreviewPanel
-                workspaceSlug={workspaceSlug}
-                contractId={previewContractId}
-                onClose={() => setPreviewContractId(null)}
-                onOpenContract={onOpenContract}
-              />
-            </div>
-            <div className="absolute inset-0 z-20 xl:hidden">
+            {!compact && (
+              <div className="hidden w-88 shrink-0 border-l border-subtle xl:block">
+                <ContractChatPreviewPanel
+                  workspaceSlug={workspaceSlug}
+                  contractId={previewContractId}
+                  onClose={() => setPreviewContractId(null)}
+                  onOpenContract={onOpenContract}
+                />
+              </div>
+            )}
+            <div className={cn("absolute inset-0 z-20", !compact && "xl:hidden")}>
               <ContractChatPreviewPanel
                 workspaceSlug={workspaceSlug}
                 contractId={previewContractId}
