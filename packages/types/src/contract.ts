@@ -10,6 +10,9 @@ export type TContractProcessingStatus = "PENDING" | "PROCESSING" | "COMPLETED" |
 export type TContractStatus = "VIGENTE" | "FINALIZADO" | "NO_ESPECIFICADO";
 export type TContractType = "ARRENDAMIENTOS" | "ALQUILERES" | "VEHICULOS" | "SERVICIOS" | "ARTISTAS";
 export type TYesNoUnspecified = "SI" | "NO" | "NO_ESPECIFICADO";
+/** The sidebar subsets of the analyzed list. Vigente/vencido is decided by the
+ * effective end date on the server; editorial contracts live only in their own. */
+export type TContractView = "vigentes" | "vencidos" | "editoriales";
 
 export type TContract = {
   id: string;
@@ -39,6 +42,8 @@ export type TContract = {
   fecha_fin_efectiva: string | null;
   estatus_contrato: TContractStatus;
   tipo_contrato: TContractType | null;
+  /** Music-publishing deal. Null until the AI has classified it. */
+  es_editorial: boolean | null;
   periodo_coleccion: TYesNoUnspecified | null;
   collection_period_description: string | null;
   collection_period_duration: string | null;
@@ -67,6 +72,7 @@ export type TContractUpdatePayload = Partial<
     | "fecha_fin_efectiva"
     | "estatus_contrato"
     | "tipo_contrato"
+    | "es_editorial"
     | "periodo_coleccion"
     | "collection_period_description"
     | "collection_period_duration"

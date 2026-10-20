@@ -174,7 +174,8 @@
         "collection_period_duration": "Collection period duration",
         "periodo_retencion": "Retention period",
         "retention_period_description": "Retention period description",
-        "retention_period_duration": "Retention period duration"
+        "retention_period_duration": "Retention period duration",
+        "es_editorial": "Publishing contract"
       },
       "filters": {
         "people": "People",
@@ -582,14 +583,20 @@
           "created": "Created contracts",
           "expand": "Expand contracts menu",
           "template_detail": "Template detail",
-          "templates": "Templates"
+          "templates": "Templates",
+          "vigentes": "Active",
+          "vencidos": "Expired",
+          "editoriales": "Publishing"
         },
         "page_titles": {
           "analyzed": "AI analyzed contracts",
           "created": "Created contracts",
           "editor": "Contract editor",
           "template_detail": "Template detail",
-          "templates": "Contract templates"
+          "templates": "Contract templates",
+          "vigentes": "Active contracts",
+          "vencidos": "Expired contracts",
+          "editoriales": "Publishing contracts"
         },
         "preview": {
           "check_available": "Check that a preview is available for this version.",
@@ -899,6 +906,13 @@
       "peek": {
         "expand_pane": "Expand to the full panel",
         "split_view": "Back to split view"
+      },
+      "delete": {
+        "button": "Delete contract",
+        "title": "{count, plural, one {Delete contract?} other {Delete # contracts?}}",
+        "description": "{count, plural, one {The contract, its AI analysis, and its PDF will be deleted. This can't be undone.} other {The contracts, their AI analysis, and their PDFs will be deleted. This can't be undone.}}",
+        "success": "{count, plural, one {Contract deleted} other {# contracts deleted}}",
+        "failed": "Couldn't delete the contracts"
       }
     },
     "collabora": {

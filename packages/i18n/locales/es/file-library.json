@@ -174,7 +174,8 @@
         "collection_period_duration": "Duración del periodo de colección",
         "periodo_retencion": "Periodo de retención",
         "retention_period_description": "Descripción del periodo de retención",
-        "retention_period_duration": "Duración del periodo de retención"
+        "retention_period_duration": "Duración del periodo de retención",
+        "es_editorial": "Contrato editorial"
       },
       "filters": {
         "people": "Personas",
@@ -582,14 +583,20 @@
           "created": "Contratos creados",
           "expand": "Expandir menú de contratos",
           "template_detail": "Detalle de plantilla",
-          "templates": "Plantillas"
+          "templates": "Plantillas",
+          "vigentes": "Vigentes",
+          "vencidos": "Vencidos",
+          "editoriales": "Editoriales"
         },
         "page_titles": {
           "analyzed": "Contratos analizados con IA",
           "created": "Contratos creados",
           "editor": "Editor de contrato",
           "template_detail": "Detalle de plantilla",
-          "templates": "Plantillas de contrato"
+          "templates": "Plantillas de contrato",
+          "vigentes": "Contratos vigentes",
+          "vencidos": "Contratos vencidos",
+          "editoriales": "Contratos editoriales"
         },
         "preview": {
           "check_available": "Verifica que exista una vista previa para esta versión.",
@@ -899,6 +906,13 @@
       "peek": {
         "expand_pane": "Expandir a todo el panel",
         "split_view": "Volver a vista dividida"
+      },
+      "delete": {
+        "button": "Eliminar contrato",
+        "title": "{count, plural, one {¿Eliminar contrato?} other {¿Eliminar # contratos?}}",
+        "description": "{count, plural, one {Se eliminarán el contrato, su análisis de IA y su PDF. Esta acción no se puede deshacer.} other {Se eliminarán los contratos, su análisis de IA y sus PDF. Esta acción no se puede deshacer.}}",
+        "success": "{count, plural, one {Contrato eliminado} other {# contratos eliminados}}",
+        "failed": "No se pudieron eliminar los contratos"
       }
     },
     "collabora": {

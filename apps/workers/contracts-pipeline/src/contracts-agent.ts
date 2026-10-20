@@ -189,6 +189,7 @@ type ContractRow = {
   fecha_fin_efectiva?: string | null;
   estatus_contrato?: string | null;
   tipo_contrato?: string | null;
+  es_editorial?: boolean | null;
   processing_status?: string | null;
   has_text?: boolean;
   resumen?: string | null;
@@ -219,6 +220,10 @@ const searchFilterSchema = {
   estatus: z.array(z.enum(["VIGENTE", "FINALIZADO", "NO_ESPECIFICADO"])).optional(),
   tipo: z.array(z.enum(["ARRENDAMIENTOS", "ALQUILERES", "VEHICULOS", "SERVICIOS", "ARTISTAS"])).optional(),
   es_notariado: z.boolean().optional(),
+  es_editorial: z
+    .boolean()
+    .optional()
+    .describe("true = sólo contratos editoriales (edición musical); false = sólo los no editoriales"),
   has_text: z.boolean().optional().describe("true = sólo contratos con texto ya extraído"),
   tags: z.array(z.string()).max(6).optional().describe("Nombres exactos de tags del workspace"),
 };

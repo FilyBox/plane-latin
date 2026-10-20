@@ -12,12 +12,19 @@ import { generateEmbeddings, generateStructuredJson } from "../lib/ai";
 import { chunkText } from "../lib/chunking";
 import { internalApi } from "../lib/internal-api";
 import { parseJsonResponse } from "../lib/json-repair";
-import { collectTextDetectionText, getTextDetectionStatus, startTextDetection, type TextractError } from "../lib/textract";
+import {
+  collectTextDetectionText,
+  getTextDetectionStatus,
+  startTextDetection,
+  type TextractError,
+} from "../lib/textract";
 import {
   ARTISTS_KEYS,
+  CLASSIFY_KEYS,
   PRIMARY_KEYS,
   SECONDARY_KEYS,
   artistsPrompt,
+  classificationPrompt,
   primaryPrompt,
   secondaryPrompt,
 } from "../prompts";
@@ -33,6 +40,9 @@ export type PipelineParams = {
     generate_embeddings?: boolean;
     ai_analysis?: boolean;
     extract_thumbnail?: boolean;
+    /** Only the editorial classification, over the stored text — the backfill
+     * for contracts analyzed before the field existed. */
+    classify?: boolean;
   };
   /** FileAsset id of the contract PDF */
   asset_id?: string;
@@ -103,8 +113,11 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
           // Poll with step.sleep — idle time costs no CPU, so long documents
           // (Textract can take minutes) never hit Worker wall-time limits.
           let textractStatus = "IN_PROGRESS";
+          // Polling is sequential by nature: each check waits on the previous one.
           for (let attempt = 0; attempt < 120 && textractStatus === "IN_PROGRESS"; attempt++) {
+            // eslint-disable-next-line no-await-in-loop
             await step.sleep(`textract wait ${attempt}`, attempt < 12 ? "5 seconds" : "15 seconds");
+            // eslint-disable-next-line no-await-in-loop
             textractStatus = await step.do(`textract status ${attempt}`, TEXTRACT_RETRIES, async () => {
               try {
                 const { status } = await getTextDetectionStatus(this.env, textractJobId);
@@ -177,7 +190,14 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
           const embeddings: number[][] = [];
           for (let i = 0; i < chunks.length; i += 64) {
             const batch = chunks.slice(i, i + 64);
-            embeddings.push(...(await generateEmbeddings(this.env, batch.map((c) => c.text))));
+            embeddings.push(
+              // Sequential on purpose: parallel batches trip provider rate limits.
+              // eslint-disable-next-line no-await-in-loop
+              ...(await generateEmbeddings(
+                this.env,
+                batch.map((c) => c.text)
+              ))
+            );
           }
           const records = chunks.map((chunk, i) => ({
             index: chunk.index,
@@ -190,6 +210,8 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
           // First batch replaces the old chunk set, the rest append.
           const SAVE_BATCH = 40;
           for (let i = 0; i < records.length; i += SAVE_BATCH) {
+            // Order matters: the first batch replaces, the rest append.
+            // eslint-disable-next-line no-await-in-loop
             await api.saveChunks(contractId, records.slice(i, i + SAVE_BATCH), i === 0 ? "replace" : "append");
           }
           return { skipped: false, count: chunks.length };
@@ -229,9 +251,7 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
           // Only artist-kind (and legacy unclassified) tags are relevant for
           // normalizing artist names; group/person tags would add noise.
           if (detailed) {
-            return detailed
-              .filter((tag) => tag.kind === "ARTIST" || tag.kind === "CUSTOM")
-              .map((tag) => tag.name);
+            return detailed.filter((tag) => tag.kind === "ARTIST" || tag.kind === "CUSTOM").map((tag) => tag.name);
           }
           return tags;
         });
@@ -250,6 +270,38 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
             ...JSON.parse(artists.data),
           } as Record<string, unknown>;
           await api.saveExtractedData(contractId, merged, isReanalysis ? "proposed" : "apply", primary.model);
+        });
+      }
+
+      // ── Classification only (backfill) ───────────────────────────────
+      // `wants()` is true for every stage outside RETRY_PARTIAL, so this must
+      // test the mode itself; a full analysis already classifies through the
+      // secondary prompt.
+      const classifyOnly = mode === "RETRY_PARTIAL" && Boolean(retryOptions?.classify) && !retryOptions?.ai_analysis;
+      if (classifyOnly && extractedText) {
+        const fileName = await step.do("resolve file name for classification", async () => {
+          const assetId = event.payload.asset_id;
+          if (!assetId) return "contrato.pdf";
+          const { name } = await api.getPresignedUrl(assetId);
+          return name ?? "contrato.pdf";
+        });
+
+        const classification = await step.do("classify editorial", AI_RETRIES, async () => {
+          await report(60, "Clasificando contrato");
+          const { text } = await generateStructuredJson(this.env, {
+            prompt: classificationPrompt(fileName, extractedText),
+            keys: CLASSIFY_KEYS,
+            maxTokens: 256,
+          });
+          return JSON.stringify(parseJsonResponse<Record<string, unknown>>(text));
+        });
+
+        await step.do("save classification", async () => {
+          // Only `esEditorial` travels, and the ingest writes only the keys it
+          // receives — nothing else on the contract moves. The empty model
+          // keeps `ai_model_used` naming the model of the full analysis.
+          const { esEditorial } = JSON.parse(classification) as Record<string, unknown>;
+          await api.saveExtractedData(contractId, { esEditorial }, "apply", "");
         });
       }
 

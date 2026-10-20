@@ -48,7 +48,11 @@ Este es el contrato:
 ${extractedText}
 `;
 
-export const SECONDARY_KEYS = ["testigos", "clausulaRenovacion", "esNotariado"];
+export const SECONDARY_KEYS = ["testigos", "clausulaRenovacion", "esNotariado", "esEditorial"];
+
+/** Shared by the full analysis and the classification-only backfill, so both
+ * draw the editorial line in the same place. */
+const EDITORIAL_CRITERIA = `true si el objeto principal del contrato es la edición musical: edición, administración, sub-edición o co-edición de obras (composiciones, letras), o la cesión o licencia de derechos de autor sobre obras a una editora o editorial musical (contratos editoriales, de publishing, de administración de catálogo). false en cualquier otro caso, incluidos los contratos de artista, de grabación, de representación o management, de servicios, arrendamientos o vehículos.`;
 
 export const secondaryPrompt = (fileName: string, extractedText: string) => `
 Extrae la siguiente información de este contrato y responde en json con las claves indicadas.
@@ -56,8 +60,23 @@ El título del archivo es: ${fileName}
 1. "testigos": Lista con los nombres de los testigos del contrato, si existen (array de strings).
 2. "clausulaRenovacion": La cláusula de renovación del contrato citada textualmente, si existe.
 3. "esNotariado": Si el contrato es notariado (true o false).
+4. "esEditorial": ${EDITORIAL_CRITERIA}
 Este es el contrato:
 ${extractedText}
+`;
+
+export const CLASSIFY_KEYS = ["esEditorial"];
+
+/** The opening of a contract names its parties and its object — enough to tell
+ * an editorial deal apart, at a fraction of the full text's tokens. */
+const CLASSIFY_TEXT_CHARS = 12_000;
+
+export const classificationPrompt = (fileName: string, extractedText: string) => `
+Clasifica este contrato y responde en json con la clave "esEditorial".
+El título del archivo es: ${fileName}
+"esEditorial": ${EDITORIAL_CRITERIA}
+Este es el inicio del contrato:
+${extractedText.slice(0, CLASSIFY_TEXT_CHARS)}
 `;
 
 export const ARTISTS_KEYS = ["artistas"];
@@ -78,7 +97,15 @@ REGLA IMPORTANTE: si un artista del contrato corresponde a una etiqueta existent
 ${extractedText}
 `;
 
-export const QUERY_ANALYSIS_KEYS = ["coincide", "confianza", "razon", "fechaInicio", "fechaFin", "fechaFinFinal", "artistas"];
+export const QUERY_ANALYSIS_KEYS = [
+  "coincide",
+  "confianza",
+  "razon",
+  "fechaInicio",
+  "fechaFin",
+  "fechaFinFinal",
+  "artistas",
+];
 
 export const queryAnalysisPrompt = (
   fileName: string,
@@ -104,7 +131,12 @@ ${extractedText}
 
 export const SYNTHESIS_KEYS = ["resumen", "contractIdsSeleccionados"];
 
-export const synthesisPrompt = (userQuery: string, currentDateIso: string, currentYear: number, candidateList: unknown) => `
+export const synthesisPrompt = (
+  userQuery: string,
+  currentDateIso: string,
+  currentYear: number,
+  candidateList: unknown
+) => `
 Eres un analista legal. Recibiste el resultado del análisis individual de varios contratos frente a esta petición del usuario:
 PETICIÓN: "${userQuery}"
 Fecha actual: ${currentDateIso} (año en curso: ${currentYear})

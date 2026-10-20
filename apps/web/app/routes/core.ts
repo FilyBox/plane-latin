@@ -94,6 +94,20 @@ export const coreRoutes: RouteConfigEntry[] = [
               ":workspaceSlug/file-library/contracts/analyzed",
               "./(all)/[workspaceSlug]/(projects)/file-library/contracts/analyzed/page.tsx"
             ),
+            // Subsets of the analyzed list. Siblings rather than children of
+            // /analyzed, so the sidebar never lights up two entries at once.
+            route(
+              ":workspaceSlug/file-library/contracts/vigentes",
+              "./(all)/[workspaceSlug]/(projects)/file-library/contracts/vigentes/page.tsx"
+            ),
+            route(
+              ":workspaceSlug/file-library/contracts/vencidos",
+              "./(all)/[workspaceSlug]/(projects)/file-library/contracts/vencidos/page.tsx"
+            ),
+            route(
+              ":workspaceSlug/file-library/contracts/editoriales",
+              "./(all)/[workspaceSlug]/(projects)/file-library/contracts/editoriales/page.tsx"
+            ),
             route(
               ":workspaceSlug/file-library/contracts/templates",
               "./(all)/[workspaceSlug]/(projects)/file-library/contracts/templates/page.tsx"

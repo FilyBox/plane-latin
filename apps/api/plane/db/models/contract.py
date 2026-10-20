@@ -84,6 +84,10 @@ class Contract(BaseModel):
         max_length=30, choices=ContractStatus.choices, default=ContractStatus.NO_ESPECIFICADO, null=True
     )
     tipo_contrato = models.CharField(max_length=30, choices=ContractType.choices, null=True, blank=True)
+    # Music-publishing deals (edición / administración de obras). Kept apart
+    # from tipo_contrato so an editorial deal keeps its underlying type. Null
+    # means "not classified yet" and reads as non-editorial.
+    es_editorial = models.BooleanField(null=True, default=None)
     periodo_coleccion = models.CharField(
         max_length=30, choices=RetentionAndCollectionPeriod.choices, null=True, blank=True
     )

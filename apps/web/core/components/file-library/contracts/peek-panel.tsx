@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Columns2, Loader2, Maximize2, RefreshCcw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Columns2, Loader2, Maximize2, RefreshCcw, Sparkles, Trash2, X } from "lucide-react";
 import useSWR from "swr";
 // plane imports
 import { PDFViewer } from "@plane/extend-ui";
@@ -21,6 +21,7 @@ import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/prop
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";
 import type { TContractJob, TContractRetryOptions, TContractUpdatePayload } from "@plane/types";
+import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
 import { contractService } from "@/services/contract.service";
@@ -37,6 +38,8 @@ type Props = {
   onClose: () => void;
   /** Called after any action that changes the list row (save, retry, confirm) */
   onMutate: () => void;
+  /** Called once the contract has been deleted; the caller closes the peek. */
+  onDeleted: () => void;
 };
 
 type TPeekModes = "side-peek" | "modal" | "full-screen";
@@ -103,7 +106,7 @@ const SELECT_FIELDS: {
 ];
 
 export function ContractPeekPanel(props: Props) {
-  const { workspaceSlug, contractId, onClose, onMutate } = props;
+  const { workspaceSlug, contractId, onClose, onMutate, onDeleted } = props;
   const { t } = useTranslation();
   // states
   const [peekMode, setPeekMode] = useState<TPeekModes>("side-peek");
@@ -112,6 +115,7 @@ export function ContractPeekPanel(props: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [isActing, setIsActing] = useState(false);
   const [isRetryModalOpen, setIsRetryModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   // Which half of the split has the whole width. Independent of `peekMode`:
   // reading a long clause or a wide table is the same problem whether the peek
@@ -234,6 +238,21 @@ export function ContractPeekPanel(props: Props) {
     }
   };
 
+  const handleDelete = async () => {
+    if (!contract) return;
+    setIsActing(true);
+    try {
+      await contractService.deleteContract(workspaceSlug, contract.id);
+      setIsDeleteModalOpen(false);
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.delete.success", { count: 1 }) });
+      onDeleted();
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.delete.failed") });
+    } finally {
+      setIsActing(false);
+    }
+  };
+
   const handleConfirmProposed = async (accept: boolean) => {
     if (!contract) return;
     setIsActing(true);
@@ -327,6 +346,16 @@ export function ContractPeekPanel(props: Props) {
           onChange={(e) => setDraft((prev) => ({ ...prev, es_notariado: e.target.checked }))}
         />
         <span className="text-13">{t("file_library.contracts.fields.es_notariado")}</span>
+      </label>
+      {/* The AI files contracts under Editoriales on its own; this is where a
+          wrong call gets corrected, and the contract moves view on save. */}
+      <label className="flex items-center gap-2 py-1">
+        <input
+          type="checkbox"
+          checked={!!draftValue("es_editorial")}
+          onChange={(e) => setDraft((prev) => ({ ...prev, es_editorial: e.target.checked }))}
+        />
+        <span className="text-13">{t("file_library.contracts.fields.es_editorial")}</span>
       </label>
       {DATE_FIELDS.map((field) => (
         <label key={field.key} className="block space-y-1">
@@ -504,6 +533,17 @@ export function ContractPeekPanel(props: Props) {
               <Sparkles className="size-3.5" />
               <span className="hidden sm:inline">{t("file_library.contracts.reanalyze.button")}</span>
             </button>
+            <Tooltip tooltipContent={t("file_library.contracts.delete.button")}>
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(true)}
+                disabled={isActing || !contract}
+                aria-label={t("file_library.contracts.delete.button")}
+                className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-danger-primary disabled:opacity-50"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </Tooltip>
             <button type="button" onClick={onClose} className="rounded-sm p-1.5 hover:bg-layer-1-hover">
               <X className="size-4" />
             </button>
@@ -558,6 +598,16 @@ export function ContractPeekPanel(props: Props) {
           isOpen={isRetryModalOpen}
           onClose={() => setIsRetryModalOpen(false)}
           onConfirm={handleRetry}
+        />
+        <AlertModalCore
+          isOpen={isDeleteModalOpen}
+          handleClose={() => !isActing && setIsDeleteModalOpen(false)}
+          isSubmitting={isActing}
+          primaryButtonText={{ default: t("common.delete"), loading: t("common.deleting") }}
+          secondaryButtonText={t("common.cancel")}
+          title={t("file_library.contracts.delete.title", { count: 1 })}
+          content={t("file_library.contracts.delete.description", { count: 1 })}
+          handleSubmit={() => void handleDelete()}
         />
 
         {/* ── Desktop: document beside the tabbed pane ─────────────────── */}

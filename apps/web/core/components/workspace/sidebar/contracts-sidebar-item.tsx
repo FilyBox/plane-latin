@@ -8,7 +8,7 @@ import { useEffect } from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
-import { FileCheck2, LayoutTemplate, Sparkles } from "lucide-react";
+import { BookOpen, CalendarCheck2, CalendarX2, FileCheck2, LayoutTemplate, Sparkles } from "lucide-react";
 // plane imports
 import type { IWorkspaceSidebarNavigationItem } from "@plane/constants";
 import { EUserPermissionsLevel } from "@plane/constants";
@@ -33,6 +33,24 @@ const CONTRACT_ROUTES = [
     href: "/file-library/contracts/analyzed",
     labelKey: "file_library.contracts.workflow.navigation.ai_analysis",
     icon: Sparkles,
+  },
+  {
+    key: "vigentes",
+    href: "/file-library/contracts/vigentes",
+    labelKey: "file_library.contracts.workflow.navigation.vigentes",
+    icon: CalendarCheck2,
+  },
+  {
+    key: "vencidos",
+    href: "/file-library/contracts/vencidos",
+    labelKey: "file_library.contracts.workflow.navigation.vencidos",
+    icon: CalendarX2,
+  },
+  {
+    key: "editoriales",
+    href: "/file-library/contracts/editoriales",
+    labelKey: "file_library.contracts.workflow.navigation.editoriales",
+    icon: BookOpen,
   },
   {
     key: "templates",

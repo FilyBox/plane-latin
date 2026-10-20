@@ -23,6 +23,7 @@ import type {
   TContractTemplateRevision,
   TContractTemplateSchemaResponse,
   TContractUpdatePayload,
+  TContractView,
 } from "@plane/types";
 // services
 import { APIService } from "@/services/api.service";
@@ -32,9 +33,10 @@ export class ContractService extends APIService {
     super(API_BASE_URL);
   }
 
-  async getContracts(workspaceSlug: string, filters?: TContractFilters): Promise<TContract[]> {
+  async getContracts(workspaceSlug: string, filters?: TContractFilters, view?: TContractView): Promise<TContract[]> {
     // Multi-value filters repeat their key (?estatus=a&estatus=b) — Django getlist()
     const params = new URLSearchParams();
+    if (view) params.set("vista", view);
     if (filters?.asset_id) params.set("asset_id", filters.asset_id);
     if (filters?.search) params.set("search", filters.search);
     if (filters?.person) params.set("person", filters.person);
@@ -66,6 +68,15 @@ export class ContractService extends APIService {
   async updateContract(workspaceSlug: string, contractId: string, data: TContractUpdatePayload): Promise<TContract> {
     return this.patch(`/api/workspaces/${workspaceSlug}/contracts/${contractId}/`, data)
       .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /** Deletes the contract and its PDF, the way the file library deletes a file. */
+  async deleteContract(workspaceSlug: string, contractId: string): Promise<void> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/contracts/${contractId}/`)
+      .then(() => undefined)
       .catch((error) => {
         throw error?.response?.data;
       });
@@ -119,10 +130,10 @@ export class ContractService extends APIService {
 
   async bulkAction(
     workspaceSlug: string,
-    action: "retry" | "reanalyze",
+    action: "retry" | "reanalyze" | "delete",
     contractIds: string[],
     retryOptions?: TContractRetryOptions
-  ): Promise<{ dispatched: string[]; skipped: string[] }> {
+  ): Promise<{ dispatched?: string[]; skipped?: string[]; deleted?: string[] }> {
     return this.post(`/api/workspaces/${workspaceSlug}/contracts/bulk/`, {
       action,
       contract_ids: contractIds,

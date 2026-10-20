@@ -345,6 +345,8 @@ export function CataloguePanel(props: Props) {
         isOpen={deleting !== null}
         handleClose={() => !source.busy && setDeleting(null)}
         isSubmitting={source.busy}
+        primaryButtonText={{ default: t("common.delete"), loading: t("common.deleting") }}
+        secondaryButtonText={t("common.cancel")}
         title={t(source.deleteTitleKey)}
         content={t(source.deleteBodyKey)}
         handleSubmit={() => {

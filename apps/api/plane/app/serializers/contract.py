@@ -38,6 +38,7 @@ CONTRACT_EDITABLE_FIELDS = [
     "fecha_fin_efectiva",
     "estatus_contrato",
     "tipo_contrato",
+    "es_editorial",
     "periodo_coleccion",
     "collection_period_description",
     "collection_period_duration",

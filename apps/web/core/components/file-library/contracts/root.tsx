@@ -16,6 +16,7 @@ import {
   RefreshCcw,
   Search,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { useSearchParams } from "react-router";
 import useSWR from "swr";
@@ -23,7 +24,8 @@ import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TContract, TContractFilters, TContractJob, TContractRetryOptions } from "@plane/types";
+import type { TContract, TContractFilters, TContractJob, TContractRetryOptions, TContractView } from "@plane/types";
+import { AlertModalCore } from "@plane/ui";
 // services
 import { contractService } from "@/services/contract.service";
 import { fileLibraryService } from "@/services/file-library.service";
@@ -41,10 +43,12 @@ import { ContractsTable } from "./table";
 
 type Props = {
   workspaceSlug: string;
+  /** One of the sidebar subsets; the full analyzed list when absent. */
+  view?: TContractView;
 };
 
 export function ContractsRoot(props: Props) {
-  const { workspaceSlug } = props;
+  const { workspaceSlug, view } = props;
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   // states
@@ -58,6 +62,7 @@ export function ContractsRoot(props: Props) {
   const [isBulkRetryModalOpen, setIsBulkRetryModalOpen] = useState(false);
   const [isBulkActionsModalOpen, setIsBulkActionsModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
 
   const setFilters = (next: Partial<TContractFilters>) => setFiltersState((prev) => ({ ...prev, ...next }));
 
@@ -114,8 +119,8 @@ export function ContractsRoot(props: Props) {
     mutate: mutateContracts,
     isLoading,
   } = useSWR<TContract[]>(
-    `CONTRACTS_${workspaceSlug}_${filtersKey}`,
-    () => contractService.getContracts(workspaceSlug, filters),
+    `CONTRACTS_${workspaceSlug}_${view ?? "all"}_${filtersKey}`,
+    () => contractService.getContracts(workspaceSlug, filters, view),
     { revalidateOnFocus: false }
   );
 
@@ -250,10 +255,35 @@ export function ContractsRoot(props: Props) {
       void mutateContracts();
       setToast({
         type: TOAST_TYPE.SUCCESS,
-        title: t("file_library.contracts.bulk.dispatched", { count: dispatched.length, skipped: skipped.length }),
+        title: t("file_library.contracts.bulk.dispatched", {
+          count: dispatched?.length ?? 0,
+          skipped: skipped?.length ?? 0,
+        }),
       });
     } catch {
       setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.bulk.failed") });
+    } finally {
+      setIsBulkActing(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0 || isBulkActing) return;
+    setIsBulkActing(true);
+    try {
+      const { deleted } = await contractService.bulkAction(workspaceSlug, "delete", selectedIds);
+      const deletedIds = deleted ?? [];
+      // The peek would be left pointing at a contract that no longer exists.
+      if (selectedContractId && deletedIds.includes(selectedContractId)) setSelectedContractId(null);
+      setSelectedIds([]);
+      setIsBulkDeleteOpen(false);
+      void mutateContracts();
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: t("file_library.contracts.delete.success", { count: deletedIds.length }),
+      });
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.delete.failed") });
     } finally {
       setIsBulkActing(false);
     }
@@ -376,6 +406,10 @@ export function ContractsRoot(props: Props) {
             <Layers className="size-3.5" />
             {t("file_library.bulk.button")}
           </Button>
+          <Button variant="secondary" size="sm" onClick={() => setIsBulkDeleteOpen(true)} disabled={isBulkActing}>
+            <Trash2 className="size-3.5" />
+            {t("file_library.delete")}
+          </Button>
         </ContractBulkActionsBar>
 
         {/* table (desktop) / cards (mobile) */}
@@ -404,6 +438,11 @@ export function ContractsRoot(props: Props) {
             contractId={selectedContractId}
             onClose={() => setSelectedContractId(null)}
             onMutate={() => void mutateContracts()}
+            onDeleted={() => {
+              setSelectedIds((previous) => previous.filter((id) => id !== selectedContractId));
+              setSelectedContractId(null);
+              void mutateContracts();
+            }}
           />
         )}
 
@@ -426,6 +465,16 @@ export function ContractsRoot(props: Props) {
           onClose={() => setIsBulkRetryModalOpen(false)}
           onConfirm={(options) => handleBulk("retry", options)}
           count={selectedIds.length}
+        />
+        <AlertModalCore
+          isOpen={isBulkDeleteOpen}
+          handleClose={() => !isBulkActing && setIsBulkDeleteOpen(false)}
+          isSubmitting={isBulkActing}
+          primaryButtonText={{ default: t("common.delete"), loading: t("common.deleting") }}
+          secondaryButtonText={t("common.cancel")}
+          title={t("file_library.contracts.delete.title", { count: selectedIds.length })}
+          content={t("file_library.contracts.delete.description", { count: selectedIds.length })}
+          handleSubmit={() => void handleBulkDelete()}
         />
         <BulkActionsModal
           workspaceSlug={workspaceSlug}

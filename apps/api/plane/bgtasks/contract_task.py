@@ -144,3 +144,28 @@ def send_contract_query_email(query_id):
         logger.info("Contract query result email sent to %s", query.user.email)
     except Exception as e:
         log_exception(e)
+
+
+@shared_task
+def sync_contract_status_by_date():
+    """Keeps `estatus_contrato` true to the effective end date.
+
+    The AI reads the status once, at analysis time, so without this a contract
+    stays VIGENTE long after it ends. The vigentes/vencidos views already decide
+    by date; this keeps the status column agreeing with them. Contracts with no
+    effective end keep what the AI read from the text.
+    """
+    from plane.db.models import Contract
+
+    today = timezone.now().date()
+    dated = Contract.objects.filter(fecha_fin_efectiva__isnull=False)
+    expired = (
+        dated.filter(fecha_fin_efectiva__lt=today)
+        .exclude(estatus_contrato="FINALIZADO")
+        .update(estatus_contrato="FINALIZADO")
+    )
+    active = (
+        dated.filter(fecha_fin_efectiva__gte=today).exclude(estatus_contrato="VIGENTE").update(estatus_contrato="VIGENTE")
+    )
+    logger.info("Contract status sync: %s now FINALIZADO, %s now VIGENTE", expired, active)
+    return {"finalizado": expired, "vigente": active}

@@ -67,6 +67,19 @@ LIST_FIELD_MAP = {
 DATE_FIELD_MAP = {"fechaInicio": "fecha_inicio", "fechaFin": "fecha_fin"}
 
 
+def _as_bool(value):
+    """The models answer booleans as true/false, "true"/"false" or "sí"/"no"."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "si", "sí", "yes", "1"):
+            return True
+        if lowered in ("false", "no", "0"):
+            return False
+    return None
+
+
 def _parse_date(value):
     if not value:
         return None
@@ -101,13 +114,24 @@ def apply_extracted_data(contract, data):
     if "esNotariado" in data and data["esNotariado"] is not None:
         contract.es_notariado = bool(data["esNotariado"])
 
+    # False is a real answer here (it files the contract under vigentes or
+    # vencidos), so it cannot go through SIMPLE_FIELD_MAP's emptiness check.
+    is_editorial = _as_bool(data.get("esEditorial"))
+    if is_editorial is not None:
+        contract.es_editorial = is_editorial
+
     # Effective end date: fecha_fin + normalized extension months when the
-    # contract is expandable (avoids server-side NLP over free text)
-    extension_months = data.get("tiempoExtensionMeses")
-    if contract.fecha_fin and contract.es_posible_expandirlo == "SI" and isinstance(extension_months, int):
-        contract.fecha_fin_efectiva = contract.fecha_fin + relativedelta(months=extension_months)
-    elif contract.fecha_fin and contract.fecha_fin_efectiva is None:
-        contract.fecha_fin_efectiva = contract.fecha_fin
+    # contract is expandable (avoids server-side NLP over free text). Only a
+    # payload that speaks about the term recomputes it — a classification-only
+    # run must not reset an effective end someone set by hand.
+    if any(key in data for key in ("fechaFin", "esPosibleExpandirlo", "tiempoExtensionMeses")):
+        extension_months = data.get("tiempoExtensionMeses")
+        if contract.fecha_fin and contract.es_posible_expandirlo == "SI" and isinstance(extension_months, int):
+            contract.fecha_fin_efectiva = contract.fecha_fin + relativedelta(months=extension_months)
+        elif contract.fecha_fin and (contract.fecha_fin_efectiva is None or contract.es_posible_expandirlo != "SI"):
+            # Re-analysis used to leave a stale effective end behind when the
+            # end date moved; with no extension it simply is the end date.
+            contract.fecha_fin_efectiva = contract.fecha_fin
 
     contract.save()
 
@@ -238,8 +262,12 @@ class InternalJobProgressEndpoint(InternalBaseView):
             update_fields.append("error")
         job.save(update_fields=update_fields or None)
 
-        # Mirror terminal states onto the contract itself
-        if job.contract_id and "status" in data:
+        # Mirror terminal states onto the contract itself — except for a
+        # classification-only backfill, which must leave the contract as it is.
+        from .base import is_classify_only
+
+        quiet = is_classify_only((job.metadata or {}).get("retry_options") or {})
+        if job.contract_id and "status" in data and not quiet:
             if data["status"] == ContractProcessingJob.Status.COMPLETED:
                 Contract.objects.filter(id=job.contract_id).update(
                     processing_status="COMPLETED", processed_at=timezone.now()
@@ -366,7 +394,9 @@ class InternalWorkspaceContractsEndpoint(InternalBaseView):
         limit = min(int(request.query_params.get("limit", 20)), 50)
         offset = int(request.query_params.get("offset", 0))
         contracts = (
-            Contract.objects.filter(workspace_id=workspace_id, extracted_text__isnull=False)
+            Contract.objects.filter(
+                workspace_id=workspace_id, extracted_text__isnull=False, file_asset__is_deleted=False
+            )
             .exclude(extracted_text="")
             .order_by("created_at")
         )
@@ -426,7 +456,9 @@ class InternalChunkSearchEndpoint(InternalBaseView):
         limit = min(int(request.data.get("limit", 12)), 40)
 
         chunks = (
-            ContractChunk.objects.filter(workspace_id=workspace_id)
+            ContractChunk.objects.filter(
+                workspace_id=workspace_id, contract__deleted_at__isnull=True, contract__file_asset__is_deleted=False
+            )
             .annotate(distance=CosineDistance("embedding", embedding))
             .select_related("contract", "contract__file_asset")
             .order_by("distance")[:limit]
@@ -542,6 +574,7 @@ def _contract_row(contract, include_summary=True):
         "fecha_fin_efectiva": contract.fecha_fin_efectiva.isoformat() if contract.fecha_fin_efectiva else None,
         "estatus_contrato": contract.estatus_contrato,
         "tipo_contrato": contract.tipo_contrato,
+        "es_editorial": contract.es_editorial,
         "processing_status": contract.processing_status,
         "has_text": bool(contract.extracted_text),
     }
@@ -645,6 +678,12 @@ def _apply_contract_filters(contracts, data):
 
     if data.get("es_notariado") is not None:
         contracts = contracts.filter(es_notariado=bool(data["es_notariado"]))
+    if data.get("es_editorial") is not None:
+        contracts = (
+            contracts.filter(es_editorial=True)
+            if data["es_editorial"]
+            else contracts.filter(Q(es_editorial=False) | Q(es_editorial__isnull=True))
+        )
     if data.get("has_text") is not None:
         contracts = (
             contracts.exclude(extracted_text__isnull=True).exclude(extracted_text="")
@@ -676,7 +715,9 @@ class InternalContractSearchEndpoint(InternalBaseView):
 
     def post(self, request, workspace_id):
         data = request.data if isinstance(request.data, dict) else {}
-        contracts = Contract.objects.filter(workspace_id=workspace_id).select_related("file_asset")
+        contracts = Contract.objects.filter(workspace_id=workspace_id, file_asset__is_deleted=False).select_related(
+            "file_asset"
+        )
         contracts = _apply_contract_filters(contracts, data)
 
         allowed_order = {
@@ -824,7 +865,7 @@ class InternalContractFacetsEndpoint(InternalBaseView):
     """
 
     def get(self, request, workspace_id):
-        contracts = Contract.objects.filter(workspace_id=workspace_id)
+        contracts = Contract.objects.filter(workspace_id=workspace_id, file_asset__is_deleted=False)
 
         def split_names(values):
             seen = {}

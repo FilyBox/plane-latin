@@ -5,12 +5,28 @@
  */
 
 import { observer } from "mobx-react";
-import { FileCheck2, FileText, Files, LayoutTemplate, Sparkles } from "lucide-react";
+import {
+  BookOpen,
+  CalendarCheck2,
+  CalendarX2,
+  FileCheck2,
+  FileText,
+  Files,
+  LayoutTemplate,
+  Sparkles,
+} from "lucide-react";
 import { useLocation, useParams } from "react-router";
 import { useTranslation } from "@plane/i18n";
 import { Breadcrumbs, Header } from "@plane/ui";
 // components
 import { BreadcrumbLink } from "@/components/common/breadcrumb-link";
+
+/** The sidebar subsets of the analyzed list, each a leaf under "Contratos". */
+const CONTRACT_VIEW_CRUMBS = [
+  { segment: "vigentes", icon: CalendarCheck2 },
+  { segment: "vencidos", icon: CalendarX2 },
+  { segment: "editoriales", icon: BookOpen },
+] as const;
 
 export const FileLibraryHeader = observer(function FileLibraryHeader() {
   const { t } = useTranslation();
@@ -21,6 +37,9 @@ export const FileLibraryHeader = observer(function FileLibraryHeader() {
   const isContractTemplates = pathname.includes("/file-library/contracts/templates");
   const isContractDocuments = pathname.includes("/file-library/contracts/documents");
   const isTemplateDetail = /\/file-library\/contracts\/templates\/[^/]+/.test(pathname);
+  const contractView = CONTRACT_VIEW_CRUMBS.find(({ segment }) =>
+    pathname.includes(`/file-library/contracts/${segment}`)
+  );
 
   return (
     <Header>
@@ -41,7 +60,7 @@ export const FileLibraryHeader = observer(function FileLibraryHeader() {
                 component={
                   <BreadcrumbLink
                     href={
-                      isAnalyzedContracts || isContractTemplates || isContractDocuments
+                      isAnalyzedContracts || isContractTemplates || isContractDocuments || contractView
                         ? `/${workspaceSlug}/file-library/contracts/analyzed`
                         : undefined
                     }
@@ -57,6 +76,16 @@ export const FileLibraryHeader = observer(function FileLibraryHeader() {
                   <BreadcrumbLink
                     label={t("file_library.contracts.workflow.navigation.ai_analysis")}
                     icon={<Sparkles className="h-4 w-4 text-tertiary" />}
+                  />
+                }
+              />
+            )}
+            {contractView && (
+              <Breadcrumbs.Item
+                component={
+                  <BreadcrumbLink
+                    label={t(`file_library.contracts.workflow.navigation.${contractView.segment}`)}
+                    icon={<contractView.icon className="h-4 w-4 text-tertiary" />}
                   />
                 }
               />

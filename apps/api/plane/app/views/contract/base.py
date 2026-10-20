@@ -3,7 +3,9 @@
 # See the LICENSE file for details.
 
 # Django imports
+from django.db import transaction
 from django.db.models import F, Q
+from django.utils import timezone
 
 # Third party imports
 from rest_framework import status
@@ -18,11 +20,29 @@ from plane.app.serializers import (
     ContractUpdateSerializer,
 )
 from plane.bgtasks.contract_task import dispatch_contract_pipeline, dispatch_contract_query
-from plane.db.models import Contract, ContractProcessingJob, ContractQuery, Workspace
+from plane.db.models import Contract, ContractProcessingJob, ContractQuery, FileAsset, Workspace
+from plane.utils.contract_views import CONTRACT_VIEWS, apply_contract_view
 
 from ..file_library.base import FileLibraryBaseView
 
-RETRY_OPTION_KEYS = ["extract_text", "generate_embeddings", "ai_analysis", "extract_thumbnail", "tags"]
+# "classify" re-runs only the cheap editorial classification over the stored
+# text; it backfills contracts analyzed before the field existed.
+RETRY_OPTION_KEYS = ["extract_text", "generate_embeddings", "ai_analysis", "extract_thumbnail", "tags", "classify"]
+
+
+def is_classify_only(retry_options):
+    """A classification-only run is a background backfill: it must not flip the
+    contract to PROCESSING (it would jump between views) nor to ERROR if the
+    model call fails — the contract itself is fine either way."""
+    return bool(retry_options.get("classify")) and not any(
+        retry_options.get(key) for key in RETRY_OPTION_KEYS if key != "classify"
+    )
+
+
+def live_contracts():
+    """Contracts whose PDF still exists. Deleting the file from the library
+    soft-deletes the asset but leaves the Contract row behind."""
+    return Contract.objects.filter(file_asset__is_deleted=False)
 
 
 def ensure_contract_for_asset(asset, user=None):
@@ -65,7 +85,7 @@ def create_and_dispatch_job(workspace, contract, task_type, user=None, metadata=
         current_stage="Waiting in queue",
         metadata=metadata or {},
     )
-    if contract is not None:
+    if contract is not None and not is_classify_only(retry_options):
         contract.processing_status = "PROCESSING"
         contract.save(update_fields=["processing_status"])
 
@@ -122,7 +142,12 @@ class ContractsEndpoint(FileLibraryBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug):
-        contracts = Contract.objects.filter(workspace__slug=slug).select_related("file_asset")
+        contracts = live_contracts().filter(workspace__slug=slug).select_related("file_asset")
+
+        # The sidebar views: vigentes / vencidos / editoriales
+        view = request.query_params.get("vista")
+        if view in CONTRACT_VIEWS:
+            contracts = apply_contract_view(contracts, view, timezone.now().date())
 
         # Filters over AI-extracted data
         asset_id = request.query_params.get("asset_id")
@@ -180,11 +205,58 @@ class ContractDetailEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def patch(self, request, slug, contract_id):
         contract = Contract.objects.get(id=contract_id, workspace__slug=slug)
+        previous_end, previous_effective = contract.fecha_fin, contract.fecha_fin_efectiva
         serializer = ContractUpdateSerializer(contract, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()
+            contract = serializer.save()
+            # The views decide vigente/vencido on the effective end, so editing
+            # the end date has to carry it along — keeping whatever extension
+            # the contract already had — unless the effective end was sent too.
+            if "fecha_fin" in request.data and "fecha_fin_efectiva" not in request.data:
+                effective = shifted_effective_end(previous_end, previous_effective, contract.fecha_fin)
+                if effective != contract.fecha_fin_efectiva:
+                    contract.fecha_fin_efectiva = effective
+                    contract.save(update_fields=["fecha_fin_efectiva"])
             return Response(ContractSerializer(contract).data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def delete(self, request, slug, contract_id):
+        contract = Contract.objects.get(id=contract_id, workspace__slug=slug)
+        delete_contracts([contract])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def shifted_effective_end(previous_end, previous_effective, new_end):
+    """The effective end after the end date moves, keeping the extension gap."""
+    if new_end is None:
+        return None
+    if previous_end is None or previous_effective is None:
+        return new_end
+    return new_end + (previous_effective - previous_end)
+
+
+def delete_contracts(contracts):
+    """Deletes analyzed contracts and their PDFs.
+
+    The PDF is the contract, so its asset goes too — otherwise it would linger
+    in Archivos under "Contratos" with nothing behind it. The asset is soft
+    deleted, exactly as deleting it from Archivos does. The analysis is hard
+    deleted, as the signature workflow does with its own: that cascades through
+    chunks, embeddings, jobs and contract chats at once, so the chat stops
+    citing it immediately, and it frees the one-to-one slot on the asset.
+    A signature request that produced the analysis keeps its record
+    (SET_NULL).
+    """
+    contracts = list(contracts)
+    if not contracts:
+        return
+    with transaction.atomic():
+        FileAsset.objects.filter(id__in=[contract.file_asset_id for contract in contracts]).update(
+            is_deleted=True, deleted_at=timezone.now()
+        )
+        for contract in contracts:
+            contract.delete(soft=False)
 
 
 class ContractRetryEndpoint(FileLibraryBaseView):
@@ -246,7 +318,7 @@ class ContractReanalyzeConfirmEndpoint(FileLibraryBaseView):
 
 
 class ContractsBulkEndpoint(FileLibraryBaseView):
-    """Bulk actions over contracts: retry (full) or re-analyze many at once."""
+    """Bulk actions over contracts: retry (full), re-analyze or delete many at once."""
 
     model = ContractProcessingJob
 
@@ -254,11 +326,18 @@ class ContractsBulkEndpoint(FileLibraryBaseView):
     def post(self, request, slug):
         action = request.data.get("action")
         contract_ids = request.data.get("contract_ids") or []
-        if action not in ("retry", "reanalyze") or not isinstance(contract_ids, list) or not contract_ids:
+        if action not in ("retry", "reanalyze", "delete") or not isinstance(contract_ids, list) or not contract_ids:
             return Response(
-                {"error": "action (retry|reanalyze) and contract_ids are required"},
+                {"error": "action (retry|reanalyze|delete) and contract_ids are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        if action == "delete":
+            doomed = list(Contract.objects.filter(id__in=contract_ids, workspace__slug=slug))
+            # Read the ids first: a hard delete sets each instance's pk to None.
+            deleted_ids = [str(contract.id) for contract in doomed]
+            delete_contracts(doomed)
+            return Response({"deleted": deleted_ids}, status=status.HTTP_200_OK)
 
         # Optional per-stage selection (same contract as single retry):
         # empty/absent selection = full retry
