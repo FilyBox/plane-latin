@@ -310,3 +310,86 @@ class TestContractEndpoints:
         assert response.status_code == 200
         assert response.json()["deleted"] == []
         assert Contract.objects.filter(id=foreign.id).exists()
+
+    def test_bulk_moves_contracts_in_and_out_of_editoriales(self, session_client, workspace, make_contract):
+        today = timezone.now().date()
+        first = make_contract("move-1", es_editorial=False, fecha_fin_efectiva=today + timedelta(days=5))
+        second = make_contract("move-2", fecha_fin_efectiva=today - timedelta(days=5))
+        base = f"/api/workspaces/{workspace.slug}/contracts/"
+        ids = [str(first.id), str(second.id)]
+
+        response = session_client.post(
+            f"{base}bulk/", {"action": "editorial", "contract_ids": ids, "es_editorial": True}, format="json"
+        )
+        assert response.status_code == 200
+        assert sorted(response.json()["updated"]) == sorted(ids)
+        assert {row["titulo"] for row in session_client.get(base, {"vista": "editoriales"}).json()} == {
+            "move-1",
+            "move-2",
+        }
+
+        session_client.post(
+            f"{base}bulk/", {"action": "editorial", "contract_ids": ids, "es_editorial": False}, format="json"
+        )
+        assert session_client.get(base, {"vista": "editoriales"}).json() == []
+        # Back out of Editoriales, each lands where its date puts it.
+        assert {row["titulo"] for row in session_client.get(base, {"vista": "vigentes"}).json()} == {"move-1"}
+        assert {row["titulo"] for row in session_client.get(base, {"vista": "vencidos"}).json()} == {"move-2"}
+
+    def test_bulk_editorial_requires_a_boolean(self, session_client, workspace, make_contract):
+        contract = make_contract("move-bad")
+        response = session_client.post(
+            f"/api/workspaces/{workspace.slug}/contracts/bulk/",
+            {"action": "editorial", "contract_ids": [str(contract.id)], "es_editorial": "yes"},
+            format="json",
+        )
+        assert response.status_code == 400
+        contract.refresh_from_db()
+        assert contract.es_editorial is None
+
+
+@pytest.mark.unit
+class TestEditorialByName:
+    """The name-based stopgap in migration 0147."""
+
+    @pytest.fixture
+    def is_editorial_name(self):
+        import importlib
+
+        return importlib.import_module("plane.db.migrations.0147_contract_es_editorial_by_name").is_editorial_name
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "CONTRATO EDITORIAL.pdf",
+            "Contrato Editorial - Juan Pérez",
+            "Publishing Agreement 2019.pdf",
+            "Contrato de EDICIÓN MUSICAL",
+            "Convenio de co-edición",
+            "Coedicion catalogo.pdf",
+            "Contrato de sub edición",
+            "Contrato con editora musical",
+            "Contrato de edición de obras",
+        ],
+    )
+    def test_editorial_names_match(self, is_editorial_name, name):
+        assert is_editorial_name(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Contrato de artista exclusivo.pdf",
+            "Cesión de derechos de grabación",
+            "Contrato de edición de video",
+            "Arrendamiento oficina.pdf",
+            "Copia de AAR- EL BEBETO.pdf",
+            "",
+            None,
+        ],
+    )
+    def test_other_names_do_not(self, is_editorial_name, name):
+        assert not is_editorial_name(name)
+
+    def test_either_title_or_file_name_is_enough(self, is_editorial_name):
+        assert is_editorial_name(None, "CONTRATO EDITORIAL.pdf")
+        assert is_editorial_name("Contrato editorial", "scan_001.pdf")

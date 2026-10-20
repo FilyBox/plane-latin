@@ -8,7 +8,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import {
   ArrowUpDown,
+  BookOpen,
+  ChevronDown,
   Download,
+  FolderInput,
   Layers,
   Loader2,
   MessageSquare,
@@ -25,7 +28,7 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TContract, TContractFilters, TContractJob, TContractRetryOptions, TContractView } from "@plane/types";
-import { AlertModalCore } from "@plane/ui";
+import { AlertModalCore, CustomMenu } from "@plane/ui";
 // services
 import { contractService } from "@/services/contract.service";
 import { fileLibraryService } from "@/services/file-library.service";
@@ -267,6 +270,32 @@ export function ContractsRoot(props: Props) {
     }
   };
 
+  /** Files the selection under Editoriales, or takes it out — back into
+   * Vigentes or Vencidos, whichever its dates say. */
+  const handleBulkMove = async (esEditorial: boolean) => {
+    if (selectedIds.length === 0 || isBulkActing) return;
+    setIsBulkActing(true);
+    try {
+      const { updated } = await contractService.bulkAction(
+        workspaceSlug,
+        "editorial",
+        selectedIds,
+        undefined,
+        esEditorial
+      );
+      setSelectedIds([]);
+      void mutateContracts();
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: t("file_library.contracts.move.success", { count: updated?.length ?? 0 }),
+      });
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.move.failed") });
+    } finally {
+      setIsBulkActing(false);
+    }
+  };
+
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0 || isBulkActing) return;
     setIsBulkActing(true);
@@ -406,6 +435,30 @@ export function ContractsRoot(props: Props) {
             <Layers className="size-3.5" />
             {t("file_library.bulk.button")}
           </Button>
+          <CustomMenu
+            placement="bottom-start"
+            disabled={isBulkActing}
+            customButton={
+              <span className="flex h-7 shrink-0 items-center gap-1 rounded-sm border border-subtle bg-surface-1 px-2 text-12 font-medium whitespace-nowrap text-secondary hover:bg-layer-1-hover">
+                <FolderInput className="size-3.5" />
+                {t("file_library.contracts.move.button")}
+                <ChevronDown className="size-3" />
+              </span>
+            }
+          >
+            <CustomMenu.MenuItem onClick={() => void handleBulkMove(true)}>
+              <span className="flex items-center gap-2">
+                <BookOpen className="size-3.5" />
+                {t("file_library.contracts.move.to_editoriales")}
+              </span>
+            </CustomMenu.MenuItem>
+            <CustomMenu.MenuItem onClick={() => void handleBulkMove(false)}>
+              <span className="flex items-center gap-2">
+                <FolderInput className="size-3.5" />
+                {t("file_library.contracts.move.to_normal")}
+              </span>
+            </CustomMenu.MenuItem>
+          </CustomMenu>
           <Button variant="secondary" size="sm" onClick={() => setIsBulkDeleteOpen(true)} disabled={isBulkActing}>
             <Trash2 className="size-3.5" />
             {t("file_library.delete")}

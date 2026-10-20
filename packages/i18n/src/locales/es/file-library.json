@@ -913,6 +913,13 @@
         "description": "{count, plural, one {Se eliminarán el contrato, su análisis de IA y su PDF. Esta acción no se puede deshacer.} other {Se eliminarán los contratos, su análisis de IA y sus PDF. Esta acción no se puede deshacer.}}",
         "success": "{count, plural, one {Contrato eliminado} other {# contratos eliminados}}",
         "failed": "No se pudieron eliminar los contratos"
+      },
+      "move": {
+        "button": "Mover a",
+        "to_editoriales": "Editoriales",
+        "to_normal": "Vigentes o vencidos (según su fecha)",
+        "success": "{count, plural, one {Contrato movido} other {# contratos movidos}}",
+        "failed": "No se pudieron mover los contratos"
       }
     },
     "collabora": {

@@ -913,6 +913,13 @@
         "description": "{count, plural, one {The contract, its AI analysis, and its PDF will be deleted. This can't be undone.} other {The contracts, their AI analysis, and their PDFs will be deleted. This can't be undone.}}",
         "success": "{count, plural, one {Contract deleted} other {# contracts deleted}}",
         "failed": "Couldn't delete the contracts"
+      },
+      "move": {
+        "button": "Move to",
+        "to_editoriales": "Publishing",
+        "to_normal": "Active or expired (by date)",
+        "success": "{count, plural, one {Contract moved} other {# contracts moved}}",
+        "failed": "Couldn't move the contracts"
       }
     },
     "collabora": {

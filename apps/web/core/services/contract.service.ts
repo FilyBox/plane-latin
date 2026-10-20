@@ -130,14 +130,17 @@ export class ContractService extends APIService {
 
   async bulkAction(
     workspaceSlug: string,
-    action: "retry" | "reanalyze" | "delete",
+    action: "retry" | "reanalyze" | "delete" | "editorial",
     contractIds: string[],
-    retryOptions?: TContractRetryOptions
-  ): Promise<{ dispatched?: string[]; skipped?: string[]; deleted?: string[] }> {
+    retryOptions?: TContractRetryOptions,
+    /** "editorial" only: true files the contracts under Editoriales, false takes them out. */
+    esEditorial?: boolean
+  ): Promise<{ dispatched?: string[]; skipped?: string[]; deleted?: string[]; updated?: string[] }> {
     return this.post(`/api/workspaces/${workspaceSlug}/contracts/bulk/`, {
       action,
       contract_ids: contractIds,
       retry_options: retryOptions ?? {},
+      ...(esEditorial === undefined ? {} : { es_editorial: esEditorial }),
     })
       .then((response) => response?.data)
       .catch((error) => {

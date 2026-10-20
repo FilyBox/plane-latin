@@ -318,7 +318,8 @@ class ContractReanalyzeConfirmEndpoint(FileLibraryBaseView):
 
 
 class ContractsBulkEndpoint(FileLibraryBaseView):
-    """Bulk actions over contracts: retry (full), re-analyze or delete many at once."""
+    """Bulk actions over contracts: retry (full), re-analyze, delete, or move them
+    in or out of Editoriales ("editorial", with es_editorial true/false)."""
 
     model = ContractProcessingJob
 
@@ -326,11 +327,23 @@ class ContractsBulkEndpoint(FileLibraryBaseView):
     def post(self, request, slug):
         action = request.data.get("action")
         contract_ids = request.data.get("contract_ids") or []
-        if action not in ("retry", "reanalyze", "delete") or not isinstance(contract_ids, list) or not contract_ids:
+        actions = ("retry", "reanalyze", "delete", "editorial")
+        if action not in actions or not isinstance(contract_ids, list) or not contract_ids:
             return Response(
-                {"error": "action (retry|reanalyze|delete) and contract_ids are required"},
+                {"error": "action (retry|reanalyze|delete|editorial) and contract_ids are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        if action == "editorial":
+            # Moving between the sidebar views by hand. Vigente/vencido follows
+            # the dates, so the only thing a person files is editorial or not.
+            value = request.data.get("es_editorial")
+            if not isinstance(value, bool):
+                return Response({"error": "es_editorial must be true or false"}, status=status.HTTP_400_BAD_REQUEST)
+            contracts = Contract.objects.filter(id__in=contract_ids, workspace__slug=slug)
+            updated = [str(contract_id) for contract_id in contracts.values_list("id", flat=True)]
+            contracts.update(es_editorial=value, updated_at=timezone.now())
+            return Response({"updated": updated}, status=status.HTTP_200_OK)
 
         if action == "delete":
             doomed = list(Contract.objects.filter(id__in=contract_ids, workspace__slug=slug))
