@@ -23,6 +23,8 @@
 .finance-grid revo-grid {
   width: 100%;
   height: 100%;
+  /* RevoGrid ships a 300px floor; the wrapper sets the real height. */
+  min-height: 0;
   background: var(--background-color-surface-1);
   font-family: var(--font-sans);
   color: var(--ink);
@@ -62,13 +64,20 @@
 }
 .finance-grid revo-grid .rgHeaderCell {
   background: var(--head);
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 11px;
   color: var(--ink-4);
-  font-weight: 400;
+  font-weight: 500;
   display: flex;
   align-items: center;
+}
+/* The pinned columns draw their own header row; without this it keeps the
+   grid's default light fill and shows as a white block in dark mode. */
+.finance-grid revo-grid revogr-header .header-rgRow,
+.finance-grid revo-grid revogr-header .rgHeaderCell,
+.finance-grid revo-grid .rgHeaderCell.sortable,
+.finance-grid revo-grid .rgHeaderCell.focused-cell {
+  background: var(--head);
+  color: var(--ink-4);
 }
 .finance-grid revo-grid .rgHeaderCell > * {
   padding: 0 6px;
@@ -82,6 +91,22 @@
 }
 .finance-grid revo-grid .rgRow {
   border-bottom: none;
+  /* The theme draws row rules in a fixed light grey, bright white in dark mode. */
+  box-shadow: inset 0 -1px 0 0 var(--line-soft);
+}
+/* Same fixed grey on the pinned-column edges, the header rule and the line
+   above the totals. */
+.finance-grid revo-grid revogr-viewport-scroll.colPinStart {
+  box-shadow: inset -1px 0 0 0 var(--line-soft);
+}
+.finance-grid revo-grid revogr-viewport-scroll.colPinEnd {
+  box-shadow: -1px 0 0 0 var(--line-soft);
+}
+.finance-grid revo-grid .header-rgRow.actual-rgRow {
+  box-shadow: inset 0 -1px 0 0 var(--line-soft);
+}
+.finance-grid revo-grid revogr-data {
+  box-shadow: 0 -1px 0 0 var(--line-soft);
 }
 .finance-grid revo-grid .rgCell.disabled {
   color: inherit;
@@ -98,12 +123,10 @@
 }
 
 /* ───────── la fila de totales, abajo del todo ─────────
-   Each column section stacks header / content / footer, and the grid lays the
-   sections out with `align-items: flex-start`, so they only ever grow to the
-   height of their rows. With an empty sheet that leaves the pinned footer
-   welded under the header. Stretching the sections and letting the content
-   area absorb the slack pushes the footer to the real bottom; once the rows
-   overflow, `max-height` on the table makes it shrink back as before. */
+   The wrapper is sized to header + rows + totals (see FinanceGrid), so the
+   footer sits right under the last row. Stretching the sections keeps it at
+   the bottom of that box, and when the page caps the height the content area
+   absorbs the difference and scrolls. */
 .finance-grid revo-grid .viewports {
   align-items: stretch;
 }

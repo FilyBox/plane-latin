@@ -12,13 +12,13 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TEmployee, TOffice, TPayrollPayment, TPayrollStatus } from "@plane/types";
-import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
 import { payrollService } from "@/services/payroll.service";
 // local imports
 import { formatMoney } from "../shared";
 import { PayrollPaymentModal } from "./payment-modal";
+import { FinanceConfirmModal } from "../confirm-modal";
 
 const STATUS_STYLES: Record<TPayrollStatus, string> = {
   PAID: "bg-success-primary/10 text-success-primary",
@@ -95,7 +95,7 @@ export function PayrollPaymentsTab(props: Props) {
         onClose={() => setIsModalOpen(false)}
         onSaved={() => void mutate()}
       />
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleteTarget !== null}
         handleClose={() => setDeleteTarget(null)}
         handleSubmit={() => void handleDelete()}
@@ -142,7 +142,7 @@ export function PayrollPaymentsTab(props: Props) {
       ) : (
         <div className="overflow-x-auto rounded-md border border-subtle">
           <table className="w-full min-w-[720px] text-13">
-            <thead className="border-b border-subtle text-11 text-tertiary uppercase">
+            <thead className="border-b border-subtle text-11 text-tertiary">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">{t("payroll.fields.employee")}</th>
                 <th className="px-3 py-2 text-left font-medium">{t("payroll.fields.office")}</th>

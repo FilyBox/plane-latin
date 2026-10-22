@@ -52,9 +52,19 @@ export type TBudgetScenario = {
   status: TBudgetScenarioStatus;
   employee_count: number;
   variable_count: number;
+  /** Planned against spent, per currency (only when the list asks for it) */
+  totals?: TBudgetScenarioTotals[];
   workspace_id: string;
   created_at: string;
   updated_at: string;
+};
+
+export type TBudgetScenarioTotals = {
+  currency: string;
+  planned: TMoney;
+  paid: TMoney;
+  pending: TMoney;
+  available: TMoney;
 };
 
 export type TFinancialVariable = {
@@ -157,10 +167,17 @@ export type TBudgetForecastLine = {
   entity_id: string;
   category_id: string;
   category_name: string;
+  /** What was really spent on this line, per month (paid + pending) */
+  actual?: TBudgetActualCell[];
+  actual_total?: TMoney;
 };
+
+export type TBudgetActualCell = { year: number; month: number; amount: TMoney };
 
 export type TBudgetForecast = {
   actuals?: { currency: string; paid: string; pending: string }[];
+  /** Spent against the budget but not assigned to any of its lines */
+  unassigned?: { currency: string; months: TBudgetActualCell[]; total: TMoney }[];
   year: number;
   months: { year: number; month: number }[];
   results: TBudgetForecastRow[];
@@ -181,6 +198,9 @@ export type TExpenseDocument = {
 
 export type TExpense = {
   scenario: string | null;
+  /** Key of the budget line the expense is assigned to ("variable:<id>", …) */
+  budget_line?: string | null;
+  budget_line_label?: string | null;
   concept: string;
   tags: string[];
   recurrence: "ONE_TIME" | "DAILY" | "WEEKLY" | "BIWEEKLY" | "MONTHLY" | "QUARTERLY" | "ANNUAL";
@@ -230,4 +250,22 @@ export type TExpenseFilters = {
   search?: string;
   from?: string;
   to?: string;
+  /** A budget id, or "none" for expenses filed against no budget */
+  scenario?: string;
+  /** A budget line key, or "none" */
+  budget_line?: string;
+  currencies?: string[];
+  tags?: string[];
+  recurring?: boolean;
+  sort?: "date_desc" | "date_asc" | "amount_desc" | "concept_asc";
+  limit?: number;
+  offset?: number;
+};
+
+/** One window of the ledger plus the figures of the whole filtered set. */
+export type TExpensePage = {
+  count: number;
+  results: TExpense[];
+  totals: { currency: string; paid: TMoney; pending: TMoney; total: TMoney }[];
+  facets: { currencies: string[]; tags: string[] };
 };

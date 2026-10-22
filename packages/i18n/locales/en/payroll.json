@@ -10,7 +10,7 @@
       "annual_cost": "Annual cost"
     },
     "employees": {
-      "form_help": "Only the name and hire date are required. The internal identifier is generated automatically.",
+      "form_help": "Only the name, office and hire date are required.",
       "national_id_help": "A tax or legal identifier, not the system's internal ID.",
       "left_company": "This person no longer works here",
       "termination_help": "Enable this only when recording a departure; it is not requested for a new employee.",
@@ -36,11 +36,11 @@
       "delete_description": "Their salary history, adjustments and payments go with them. This cannot be undone."
     },
     "offices": {
-      "form_help": "Entities group people, salaries and financial variables. Plane generates their identifiers automatically.",
+      "form_help": "Offices group people, salaries and planned items.",
       "aguinaldo_help": "Legal minimum: 15 days",
       "people": "people",
-      "delete_impact": "The {name} entity will be deleted. It has no linked salaries, payments or variables. This cannot be undone.",
-      "delete_blocked_impact": "{name} cannot be deleted: it contains {employees} people, {salaries} salaries, {payments} payments and {variables} variables. Reassign or remove those resources first.",
+      "delete_impact": "The {name} office will be deleted. It has no linked salaries, payments or planned items. This can't be undone.",
+      "delete_blocked_impact": "{name} can't be deleted: it has {employees} people, {salaries} salaries, {payments} payments and {variables} planned items. Move them to another office or remove them first.",
       "title": "Offices",
       "manage": "Manage offices",
       "new": "New office",
@@ -68,7 +68,8 @@
       "empty": "No payments recorded yet.",
       "empty_upcoming": "No payments due.",
       "delete_title": "Delete payment",
-      "delete_description": "This payment will be removed from the ledger. This cannot be undone."
+      "delete_description": "This payment will be removed from the ledger. This cannot be undone.",
+      "title": "Payments"
     },
     "concepts": {
       "salary": "Salary",

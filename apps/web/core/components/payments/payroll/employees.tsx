@@ -12,7 +12,6 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TEmployee, TOffice } from "@plane/types";
-import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
 import useDebounce from "@/hooks/use-debounce";
@@ -23,6 +22,7 @@ import { ResourceSearch } from "../resource-search";
 import { EmployeeDetail } from "./employee-detail";
 import { EmployeeModal } from "./employee-modal";
 import { OfficesModal } from "./offices-modal";
+import { FinanceConfirmModal } from "../confirm-modal";
 
 type Props = {
   workspaceSlug: string;
@@ -95,7 +95,7 @@ export function EmployeesTab(props: Props) {
           onChanged?.();
         }}
       />
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleteTarget !== null}
         handleClose={() => setDeleteTarget(null)}
         handleSubmit={() => (deleteTarget?.scenario_count ? setDeleteTarget(null) : void handleDelete())}

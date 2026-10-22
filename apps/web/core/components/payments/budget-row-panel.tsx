@@ -5,28 +5,33 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Paperclip, Trash2 } from "lucide-react";
+import { Gift, Paperclip, Plus, ReceiptText, Trash2 } from "lucide-react";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import {
   DueDatePropertyIcon,
-  EstimatePropertyIcon,
   LabelPropertyIcon,
   ParentPropertyIcon,
   UserCirclePropertyIcon,
 } from "@plane/propel/icons";
+import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TBudgetForecastLine, TBudgetScenario } from "@plane/types";
-import { AlertModalCore, TextArea } from "@plane/ui";
+import type { TBudgetBonus, TBudgetForecastLine, TBudgetScenario, TExpense } from "@plane/types";
+import { TextArea } from "@plane/ui";
+import { cn } from "@plane/utils";
 import { SidebarPropertyListItem } from "@/components/common/layout/sidebar/property-list-item";
 import { financeService } from "@/services/finance.service";
 import { payrollService } from "@/services/payroll.service";
+import { BudgetBonusModal } from "./bonus-modal";
+import { SalaryModal } from "./payroll/salary-modal";
 import { PaymentsSidePanel } from "./side-panel";
 import { DocumentAttachments } from "./document-attachments";
+import { ExpenseModal } from "./expense-modal";
 import { FinanceComments } from "./finance-comments";
 import { FinanceCategorySelect, FinanceOfficeSelect } from "./tag-picker";
 import { FinancialVariableModal } from "./variable-modal";
 import { formatMoney } from "./shared";
+import { FinanceConfirmModal } from "./confirm-modal";
 
 type Props = {
   workspaceSlug: string;
@@ -34,11 +39,13 @@ type Props = {
   line: TBudgetForecastLine;
   /** The month whose conversation opened the panel, "" for the row itself. */
   cell: string;
+  /** "YYYY-MM" when opened from a real figure: the expenses list shows that month. */
+  month?: string;
   onClose: () => void;
   onChanged: () => void;
 };
 
-export function BudgetRowPanel({ workspaceSlug, scenario, line, cell, onClose, onChanged }: Props) {
+export function BudgetRowPanel({ workspaceSlug, scenario, line, cell, month = "", onClose, onChanged }: Props) {
   const { t } = useTranslation();
   const [title, setTitle] = useState(line.label);
   const [description, setDescription] = useState("");
@@ -47,13 +54,19 @@ export function BudgetRowPanel({ workspaceSlug, scenario, line, cell, onClose, o
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editSource, setEditSource] = useState(false);
+  const [expenseMonth, setExpenseMonth] = useState(month);
+  const [openExpense, setOpenExpense] = useState<TExpense | null>(null);
+  const [newExpense, setNewExpense] = useState(false);
+  const [editSalary, setEditSalary] = useState(false);
+  const [addingBonus, setAddingBonus] = useState(false);
+  const [deleteBonus, setDeleteBonus] = useState<TBudgetBonus | null>(null);
   const loaded = useRef(false);
   const [kind, id] = line.key.split(":");
 
   const { data, mutate } = useSWR(["BUDGET_ROW", workspaceSlug, scenario.id, line.key], () =>
     financeService.getBudgetRow(workspaceSlug, scenario.id, line.key)
   );
-  const { data: assignments = [] } = useSWR(
+  const { data: assignments = [], mutate: mutateAssignments } = useSWR(
     kind !== "variable" ? ["ROW_EMPLOYEES", workspaceSlug, scenario.id] : null,
     () => financeService.getScenarioEmployees(workspaceSlug, scenario.id)
   );
@@ -61,11 +74,51 @@ export function BudgetRowPanel({ workspaceSlug, scenario, line, cell, onClose, o
     kind === "variable" ? ["ROW_VARIABLES", workspaceSlug, scenario.id] : null,
     () => financeService.getScenarioVariables(workspaceSlug, scenario.id)
   );
-  const { data: offices = [] } = useSWR(editSource ? ["PAYROLL_OFFICES_LIST", workspaceSlug] : null, () =>
+  const { data: offices = [] } = useSWR(editSource || editSalary ? ["PAYROLL_OFFICES_LIST", workspaceSlug] : null, () =>
     payrollService.getOffices(workspaceSlug)
   );
+  // The expenses filed against this line: the real money behind its figures.
+  const monthRange = (() => {
+    if (!expenseMonth) return {};
+    const [year, monthNumber] = expenseMonth.split("-").map(Number);
+    const last = new Date(year, monthNumber, 0).getDate();
+    return { from: `${expenseMonth}-01`, to: `${expenseMonth}-${String(last).padStart(2, "0")}` };
+  })();
+  const { data: spent, mutate: mutateSpent } = useSWR(
+    ["LINE_EXPENSES", workspaceSlug, scenario.id, line.key, expenseMonth],
+    () =>
+      financeService.getExpensePage(workspaceSlug, {
+        scenario: scenario.id,
+        budget_line: line.key,
+        ...monthRange,
+        limit: 100,
+      })
+  );
+  // With a month picked, the figures read that month; otherwise the whole line.
+  const [pickedYear, pickedMonth] = expenseMonth ? expenseMonth.split("-").map(Number) : [0, 0];
+  const inPicked = (item: { year: number; month: number }) => item.year === pickedYear && item.month === pickedMonth;
+  const plannedFigure = expenseMonth ? (line.months.find(inPicked)?.amount ?? "0") : line.total;
+  const actualFigure = expenseMonth ? (line.actual?.find(inPicked)?.amount ?? "0") : (line.actual_total ?? "0");
+  const difference = (Number(plannedFigure) - Number(actualFigure)).toFixed(2);
+  const monthLabel = expenseMonth
+    ? new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric" }).format(new Date(pickedYear, pickedMonth - 1))
+    : "";
   const assignment = assignments.find((item) => item.id === id || item.bonuses.some((bonus) => bonus.id === id));
   const variable = variables.find((item) => item.id === id)?.variable_detail;
+  // The salary record behind a payroll line, fetched only when it is edited.
+  const { data: salaries = [] } = useSWR(
+    editSalary && assignment ? ["ROW_SALARIES", workspaceSlug, assignment.employee] : null,
+    () => payrollService.getSalaries(workspaceSlug, assignment?.employee ?? "")
+  );
+  const salary = salaries.find((item) => item.id === assignment?.salary) ?? null;
+  const canEditSource = Boolean(variable) || (Boolean(assignment) && kind !== "bonus");
+  // A new expense from a month's figures is dated in that month.
+  const today = new Date().toISOString().slice(0, 10);
+  const newExpenseDate = !expenseMonth || today.startsWith(expenseMonth) ? today : `${expenseMonth}-01`;
+  const refreshPayroll = () => {
+    void mutateAssignments();
+    onChanged();
+  };
 
   useEffect(() => {
     if (!data || loaded.current) return;
@@ -134,7 +187,8 @@ export function BudgetRowPanel({ workspaceSlug, scenario, line, cell, onClose, o
           <button
             type="button"
             onClick={() => setDeleting(true)}
-            aria-label={t("payments.actions.delete")}
+            aria-label={t("payments.composer.remove_title")}
+            title={t("payments.composer.remove_title")}
             className="rounded-sm p-1 text-tertiary hover:bg-layer-1-hover hover:text-danger-primary"
           >
             <Trash2 className="size-4" />
@@ -165,17 +219,18 @@ export function BudgetRowPanel({ workspaceSlug, scenario, line, cell, onClose, o
 
           <div className="space-y-2 border-t border-subtle pt-5">
             <SidebarPropertyListItem icon={ParentPropertyIcon} label={t("payments.flow.source")}>
-              {variable ? (
-                <button
-                  type="button"
-                  onClick={() => setEditSource(true)}
-                  className="h-7.5 text-body-xs-medium text-secondary hover:text-primary"
-                >
-                  {source}
-                </button>
-              ) : (
-                <span className="flex h-7.5 items-center text-body-xs-medium">{source}</span>
-              )}
+              <span className="flex h-7.5 min-w-0 items-center gap-3 text-body-xs-medium">
+                <span className="truncate">{source}</span>
+                {canEditSource && (
+                  <button
+                    type="button"
+                    onClick={() => (variable ? setEditSource(true) : setEditSalary(true))}
+                    className="shrink-0 text-accent-primary hover:underline"
+                  >
+                    {t("payments.flow.edit_source")}
+                  </button>
+                )}
+              </span>
             </SidebarPropertyListItem>
 
             <SidebarPropertyListItem icon={UserCirclePropertyIcon} label={t("payroll.fields.office")}>
@@ -206,13 +261,123 @@ export function BudgetRowPanel({ workspaceSlug, scenario, line, cell, onClose, o
                 </span>
               </SidebarPropertyListItem>
             )}
-
-            <SidebarPropertyListItem icon={EstimatePropertyIcon} label={t("payments.sheet.total")}>
-              <span className="font-mono flex h-7.5 items-center text-body-xs-medium">
-                {formatMoney(line.total, line.currency)}
-              </span>
-            </SidebarPropertyListItem>
           </div>
+
+          {/* The line read the way the sheet reads it: planned, real, and what is left. */}
+          <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-subtle bg-layer-3">
+            {(
+              [
+                ["payments.flow.planned", plannedFigure, ""],
+                ["payments.flow.actual", actualFigure, ""],
+                [
+                  "payments.flow.difference",
+                  difference,
+                  Number(difference) < 0 ? "text-danger-primary" : "text-primary",
+                ],
+              ] as const
+            ).map(([label, value, tone]) => (
+              <div key={label} className="flex flex-col-reverse bg-surface-1 px-3 py-2">
+                <dt className="text-11 text-tertiary">{t(label)}</dt>
+                <dd className={cn("font-mono text-13 font-medium tabular-nums", tone)}>
+                  {formatMoney(value, line.currency)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          {kind === "salary" && assignment && (
+            <section className="border-t border-subtle pt-5">
+              <div className="mb-3 flex items-center gap-2">
+                <h3 className="flex items-center gap-1.5 text-body-sm-medium">
+                  <Gift className="size-4 text-tertiary" />
+                  {t("payments.flow.bonuses")}
+                </h3>
+                <Button variant="secondary" size="base" className="ml-auto" onClick={() => setAddingBonus(true)}>
+                  <Plus className="size-3" /> {t("payments.bonuses.add")}
+                </Button>
+              </div>
+              {assignment.bonuses.length === 0 ? (
+                <p className="text-12 text-tertiary">{t("payments.flow.no_bonuses")}</p>
+              ) : (
+                <ul className="divide-y divide-subtle rounded-md border border-subtle">
+                  {assignment.bonuses.map((bonus) => (
+                    <li key={bonus.id} className="flex items-center gap-3 px-3 py-2">
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-13">{bonus.name}</span>
+                        <span className="block truncate text-11 text-tertiary">
+                          {bonus.effective_from}
+                          {bonus.effective_to ? ` → ${bonus.effective_to}` : ""}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-12 tabular-nums">
+                        {bonus.calculation_type === "PERCENTAGE"
+                          ? `${bonus.value}%`
+                          : formatMoney(bonus.value, assignment.salary_currency)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteBonus(bonus)}
+                        className="rounded-sm p-1 text-tertiary hover:text-danger-primary"
+                        aria-label={t("payments.bonuses.delete_title")}
+                        title={t("payments.bonuses.delete_title")}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
+          <section className="border-t border-subtle pt-5">
+            <div className="mb-3 flex items-center gap-2">
+              <h3 className="flex items-center gap-1.5 text-body-sm-medium">
+                <ReceiptText className="size-4 text-tertiary" />
+                {t("payments.flow.line_expenses")}
+              </h3>
+              {expenseMonth && (
+                <button
+                  type="button"
+                  onClick={() => setExpenseMonth("")}
+                  className="rounded-sm bg-layer-1 px-1.5 py-0.5 text-body-xs-regular text-secondary hover:text-primary"
+                  title={t("payments.flow.all_months")}
+                >
+                  {monthLabel} ×
+                </button>
+              )}
+              <Button variant="secondary" size="base" className="ml-auto" onClick={() => setNewExpense(true)}>
+                <Plus className="size-3" /> {t("payments.flow.record_expense")}
+              </Button>
+            </div>
+            {!spent ? (
+              <p className="text-12 text-tertiary">{t("payments.ledger.loading")}</p>
+            ) : spent.results.length === 0 ? (
+              <p className="text-12 text-tertiary">{t("payments.flow.no_line_expenses")}</p>
+            ) : (
+              <ul className="divide-y divide-subtle rounded-md border border-subtle">
+                {spent.results.map((expense) => (
+                  <li key={expense.id}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenExpense(expense)}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-layer-1-hover"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-13">{expense.concept || expense.vendor}</span>
+                        <span className="block truncate text-11 text-tertiary">
+                          {expense.expense_date} · {t(`payments.status.${expense.status.toLowerCase()}`)}
+                        </span>
+                      </span>
+                      <span className="font-mono shrink-0 text-12 tabular-nums">
+                        {formatMoney(expense.amount, expense.currency)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
           <section className="border-t border-subtle pt-5">
             <h3 className="mb-3 flex items-center gap-1.5 text-body-sm-medium">
@@ -250,15 +415,78 @@ export function BudgetRowPanel({ workspaceSlug, scenario, line, cell, onClose, o
         </div>
       </PaymentsSidePanel>
 
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleting}
         handleClose={() => setDeleting(false)}
         handleSubmit={() => void remove()}
         isSubmitting={busy}
-        title={t("payments.actions.delete")}
+        title={t("payments.composer.remove_title")}
+        primaryButtonText={{ default: t("payments.variables.remove"), loading: t("payments.ledger.loading") }}
         content={t(
           kind === "salary" || kind === "benefit" ? "payments.flow.remove_employee" : "payments.flow.remove_row"
         )}
+      />
+      <ExpenseModal
+        workspaceSlug={workspaceSlug}
+        isOpen={openExpense !== null || newExpense}
+        expense={openExpense}
+        initialData={
+          newExpense
+            ? {
+                scenario: scenario.id,
+                budget_line: line.key,
+                currency: line.currency,
+                expense_date: newExpenseDate,
+              }
+            : undefined
+        }
+        onClose={() => {
+          setOpenExpense(null);
+          setNewExpense(false);
+        }}
+        onSaved={() => {
+          void mutateSpent();
+          onChanged();
+        }}
+      />
+      {assignment && (
+        <SalaryModal
+          nested
+          workspaceSlug={workspaceSlug}
+          employeeId={assignment.employee}
+          salary={salary}
+          offices={offices}
+          isOpen={editSalary && salary !== null}
+          onClose={() => setEditSalary(false)}
+          onSaved={() => {
+            setEditSalary(false);
+            refreshPayroll();
+          }}
+        />
+      )}
+      <BudgetBonusModal
+        nested
+        workspaceSlug={workspaceSlug}
+        scenario={scenario}
+        assignment={assignment ?? null}
+        isOpen={addingBonus}
+        onClose={() => setAddingBonus(false)}
+        onSaved={refreshPayroll}
+      />
+      <FinanceConfirmModal
+        isOpen={deleteBonus !== null}
+        handleClose={() => setDeleteBonus(null)}
+        isSubmitting={busy}
+        title={t("payments.bonuses.delete_title")}
+        content={deleteBonus ? t("payments.bonuses.delete_description", { name: deleteBonus.name }) : ""}
+        handleSubmit={() =>
+          void run(async () => {
+            if (!assignment || !deleteBonus) return;
+            await financeService.deleteBudgetBonus(workspaceSlug, scenario.id, assignment.id, deleteBonus.id);
+            setDeleteBonus(null);
+            await mutateAssignments();
+          })
+        }
       />
       <FinancialVariableModal
         nested

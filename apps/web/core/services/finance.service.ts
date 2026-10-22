@@ -17,6 +17,7 @@ import type {
   TExpense,
   TExpenseCategory,
   TExpenseFilters,
+  TExpensePage,
   TFinancialVariable,
 } from "@plane/types";
 // services
@@ -30,7 +31,13 @@ export type TExpenseImport = {
   status: "QUEUED" | "RUNNING" | "READY" | "FAILED" | "IMPORTED" | "CANCELLED";
   stage: string;
   error: string;
-  data: Partial<TExpense> & { warnings?: string[] };
+  data: Partial<TExpense> & {
+    warnings?: string[];
+    /** Budget and category the extraction most likely belongs to */
+    suggestions?: { scenario: string | null; category: string | null };
+    /** Expenses already recorded that look like this same invoice */
+    duplicates?: { id: string; concept: string; amount: string; currency: string; expense_date: string }[];
+  };
   expense_id: string | null;
   created_at: string;
 };
@@ -43,6 +50,26 @@ export type TBudgetRowDetails = {
   category_name: string;
   tags: string[];
   documents: import("@plane/types").TExpenseDocument[];
+};
+
+/** Multi-value filters repeat their key (?status=PAID&status=PENDING), which is
+ * what Django's request.getlist() expects. */
+const expenseQuery = (filters?: TExpenseFilters): string => {
+  const params = new URLSearchParams();
+  (filters?.categories ?? []).forEach((id) => params.append("category", id));
+  (filters?.statuses ?? []).forEach((status) => params.append("status", status));
+  (filters?.currencies ?? []).forEach((currency) => params.append("currency", currency));
+  (filters?.tags ?? []).forEach((tag) => params.append("tag", tag));
+  if (filters?.search) params.set("search", filters.search);
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  if (filters?.scenario) params.set("scenario", filters.scenario);
+  if (filters?.budget_line) params.set("budget_line", filters.budget_line);
+  if (filters?.recurring) params.set("recurring", "1");
+  if (filters?.sort) params.set("sort", filters.sort);
+  if (filters?.limit !== undefined) params.set("limit", String(filters.limit));
+  if (filters?.offset) params.set("offset", String(filters.offset));
+  return params.toString();
 };
 
 export class FinanceService extends APIService {
@@ -76,8 +103,16 @@ export class FinanceService extends APIService {
 
   // named annual planning scenarios
 
-  async getScenarios(workspaceSlug: string, year?: number): Promise<TBudgetScenario[]> {
-    return this.get(`/api/workspaces/${workspaceSlug}/budget-scenarios/`, { params: year ? { year } : {} })
+  async getScenarios(
+    workspaceSlug: string,
+    year?: number,
+    options: { totals?: boolean } = {}
+  ): Promise<TBudgetScenario[]> {
+    const params: Record<string, string | number> = {};
+    if (year) params.year = year;
+    // Planned against spent per budget: heavier, so only the list asks for it
+    if (options.totals) params.totals = 1;
+    return this.get(`/api/workspaces/${workspaceSlug}/budget-scenarios/`, { params })
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;
@@ -399,16 +434,26 @@ export class FinanceService extends APIService {
   // expenses
 
   async getExpenses(workspaceSlug: string, filters?: TExpenseFilters): Promise<TExpense[]> {
-    // Multi-value filters repeat their key (?status=PAID&status=PENDING), which
-    // is what Django's request.getlist() expects.
-    const params = new URLSearchParams();
-    (filters?.categories ?? []).forEach((id) => params.append("category", id));
-    (filters?.statuses ?? []).forEach((status) => params.append("status", status));
-    if (filters?.search) params.set("search", filters.search);
-    if (filters?.from) params.set("from", filters.from);
-    if (filters?.to) params.set("to", filters.to);
-    const query = params.toString();
+    const query = expenseQuery(filters);
     return this.get(`/api/workspaces/${workspaceSlug}/expenses/${query ? `?${query}` : ""}`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async getExpense(workspaceSlug: string, expenseId: string): Promise<TExpense> {
+    return this.get(`/api/workspaces/${workspaceSlug}/expenses/${expenseId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /** A page of the ledger with the totals of everything that matches. */
+  async getExpensePage(workspaceSlug: string, filters: TExpenseFilters): Promise<TExpensePage> {
+    const query = expenseQuery({ limit: 200, ...filters });
+    return this.get(`/api/workspaces/${workspaceSlug}/expenses/?${query}`)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

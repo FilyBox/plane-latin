@@ -58,7 +58,7 @@ export function AnnualCostTab(props: Props) {
 
       <div className="overflow-x-auto rounded-md border border-subtle">
         <table className="w-full min-w-[860px] text-13">
-          <thead className="border-b border-subtle text-11 text-tertiary uppercase">
+          <thead className="border-b border-subtle text-11 text-tertiary">
             <tr>
               <th className="px-3 py-2 text-left font-medium">{t("payroll.fields.office")}</th>
               <th className="px-3 py-2 text-right font-medium">{t("payroll.annual_cost.headcount")}</th>

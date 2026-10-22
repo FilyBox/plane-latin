@@ -11,7 +11,6 @@ import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TAdjustment, TAdjustmentKind, TEmployee, TOffice, TSalary } from "@plane/types";
-import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
 import { payrollService } from "@/services/payroll.service";
@@ -19,6 +18,7 @@ import { payrollService } from "@/services/payroll.service";
 import { formatMoney, formatYearRange, getApiErrorMessage } from "../shared";
 import { AdjustmentModal } from "./adjustment-modal";
 import { SalaryModal } from "./salary-modal";
+import { FinanceConfirmModal } from "../confirm-modal";
 
 const KIND_STYLES: Record<TAdjustmentKind, string> = {
   BONUS: "bg-success-primary/10 text-success-primary",
@@ -97,7 +97,7 @@ export function EmployeeDetail(props: Props) {
           onChanged();
         }}
       />
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleteSalaryTarget !== null}
         handleClose={() => setDeleteSalaryTarget(null)}
         handleSubmit={() => (deleteSalaryTarget?.scenario_count ? setDeleteSalaryTarget(null) : void removeSalary())}
@@ -156,7 +156,7 @@ export function EmployeeDetail(props: Props) {
       {/* Salary history: a raise appends a row, so the old rate stays visible */}
       <section>
         <div className="mb-1.5 flex items-center justify-between">
-          <h4 className="text-11 font-medium text-tertiary uppercase">{t("payroll.employees.salaries")}</h4>
+          <h4 className="text-12 font-medium text-secondary">{t("payroll.employees.salaries")}</h4>
           <button
             type="button"
             onClick={() => setSalaryTarget(null)}
@@ -218,7 +218,7 @@ export function EmployeeDetail(props: Props) {
 
       <section>
         <div className="mb-1.5 flex items-center justify-between">
-          <h4 className="text-11 font-medium text-tertiary uppercase">{t("payroll.employees.adjustments")}</h4>
+          <h4 className="text-12 font-medium text-secondary">{t("payroll.employees.adjustments")}</h4>
           <button
             type="button"
             onClick={() => setIsAdjustmentOpen(true)}

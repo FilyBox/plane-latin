@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Download, Loader2, MoreHorizontal, Plus, RefreshCw, Search, Tags } from "lucide-react";
 import useSWR, { useSWRConfig } from "swr";
 import { useTranslation } from "@plane/i18n";
@@ -12,9 +12,9 @@ import { Button } from "@plane/propel/button";
 import { EmptyStateCompact } from "@plane/propel/empty-state";
 import { Menu } from "@plane/propel/menu";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TExpense, TExpenseCategory, TBudgetScenario } from "@plane/types";
-import { AlertModalCore } from "@plane/ui";
+import type { TExpense, TExpenseCategory, TBudgetScenario, TExpenseFilters as TExpenseQuery } from "@plane/types";
 import { cn } from "@plane/utils";
+import useDebounce from "@/hooks/use-debounce";
 import { financeService } from "@/services/finance.service";
 import { LinkExpensesPanel } from "./link-expenses-panel";
 import { CategoriesModal } from "./categories-modal";
@@ -31,6 +31,10 @@ import { ExpenseTable } from "./expense-table";
 import { ExpenseModal } from "./expense-modal";
 import { ExpenseImports } from "./expense-imports";
 import { getApiErrorMessage } from "./shared";
+import { FinanceConfirmModal } from "./confirm-modal";
+
+/** How many expenses each "load more" brings in. */
+const PAGE = 200;
 
 export function ExpensesTab({
   workspaceSlug,
@@ -46,9 +50,11 @@ export function ExpensesTab({
   const [linkOpen, setLinkOpen] = useState(false);
   const [commentCell, setCommentCell] = useState("");
   const [search, setSearch] = useState("");
+  const query = useDebounce(search.trim(), 300);
   const [filters, setFilters] = useState<TExpenseFilters>(EMPTY_EXPENSE_FILTERS);
   const [group, setGroup] = useState("none");
   const [sort, setSort] = useState("date_desc");
+  const [limit, setLimit] = useState(PAGE);
   const [editing, setEditing] = useState<TExpense | null | undefined>(undefined);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [deleting, setDeleting] = useState<TExpense | null>(null);
@@ -58,57 +64,48 @@ export function ExpensesTab({
     `PAYMENT_CATEGORIES_${workspaceSlug}`,
     () => financeService.getCategories(workspaceSlug)
   );
+
+  // The ledger is filtered, sorted and totalled by the server: only a window
+  // travels, and the totals always describe everything that matches.
+  const request: TExpenseQuery = {
+    scenario: scenario?.id,
+    search: query || undefined,
+    from: filters.from || undefined,
+    to: filters.to || undefined,
+    categories: filters.categories,
+    currencies: filters.currencies,
+    tags: filters.tags,
+    statuses: filters.statuses,
+    recurring: filters.recurring,
+    sort: sort as TExpenseQuery["sort"],
+    limit,
+  };
   const {
-    data: expenses,
+    data: page,
     error,
     isLoading,
+    isValidating,
     mutate,
-  } = useSWR<TExpense[]>(`PAYMENT_EXPENSES_${workspaceSlug}_ALL`, () => financeService.getExpenses(workspaceSlug));
+  } = useSWR(["PAYMENT_EXPENSES", workspaceSlug, JSON.stringify(request)], () =>
+    financeService.getExpensePage(workspaceSlug, request)
+  );
+  const rows = page?.results ?? [];
   const refresh = () => {
-    void mutate();
+    void mutateGlobal((key) => Array.isArray(key) && (key[0] === "PAYMENT_EXPENSES" || key[0] === "LINKABLE_EXPENSES"));
     void mutateGlobal(
       (key) =>
         typeof key === "string" &&
-        (key.startsWith(`BUDGET_FORECAST_${workspaceSlug}_`) || key.startsWith(`PAYMENT_SUMMARY_${workspaceSlug}_`))
+        (key.startsWith(`BUDGET_FORECAST_${workspaceSlug}_`) || key.startsWith(`BUDGET_SCENARIOS_${workspaceSlug}`))
     );
     onChanged?.();
   };
   const reportError = (reason: unknown) =>
     setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(reason) });
-  const rows = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    return (expenses ?? [])
-      .filter(
-        (expense) =>
-          (!scenario || expense.scenario === scenario.id) &&
-          (!query ||
-            [expense.concept, expense.vendor, expense.reference, expense.description, ...(expense.tags ?? [])]
-              .join(" ")
-              .toLocaleLowerCase()
-              .includes(query)) &&
-          (!filters.from || expense.expense_date >= filters.from) &&
-          (!filters.to || expense.expense_date <= filters.to) &&
-          (!filters.categories.length ||
-            filters.categories.includes(expense.category ?? "none") ||
-            (!expense.category && filters.categories.includes("none"))) &&
-          (!filters.currencies.length || filters.currencies.includes(expense.currency)) &&
-          (!filters.tags.length || (expense.tags ?? []).some((tag) => filters.tags.includes(tag))) &&
-          (!filters.recurring || expense.recurrence !== "ONE_TIME" || expense.series) &&
-          (!filters.statuses.length || filters.statuses.includes(expense.status))
-      )
-      .sort((a, b) =>
-        sort === "amount_desc"
-          ? a.currency.localeCompare(b.currency) || Number(b.amount) - Number(a.amount)
-          : sort === "concept_asc"
-            ? (a.concept || a.vendor).localeCompare(b.concept || b.vendor)
-            : sort === "date_asc"
-              ? a.expense_date.localeCompare(b.expense_date)
-              : b.expense_date.localeCompare(a.expense_date)
-      );
-  }, [expenses, search, filters, sort, scenario]);
   const isNarrowed = countExpenseFilters(filters) > 0 || search.trim().length > 0;
-  const tags = [...new Set((expenses ?? []).flatMap((expense) => expense.tags ?? []))].sort();
-  const currencies = [...new Set((expenses ?? []).map((expense) => expense.currency))].sort();
+  const changeFilters = (next: TExpenseFilters) => {
+    setFilters(next);
+    setLimit(PAGE);
+  };
   const quickEdit = async (expense: TExpense, patch: Partial<TExpense>) => {
     try {
       await financeService.updateExpense(workspaceSlug, expense.id, patch);
@@ -126,21 +123,28 @@ export function ExpensesTab({
       .catch(reportError)
       .finally(() => setBusy(false));
   };
-  const exportRows = (format: "csv" | "xlsx") =>
-    void financeService
-      .exportExpenses(
-        workspaceSlug,
-        rows.map((row) => row.id),
-        format
-      )
-      .catch(reportError);
+  /** Exports everything that matches, not only the rows loaded so far. */
+  const exportRows = async (format: "csv" | "xlsx") => {
+    try {
+      const ids = rows.map((row) => row.id);
+      const total = page?.count ?? ids.length;
+      for (let offset = ids.length; offset < total; offset += 500) {
+        // eslint-disable-next-line no-await-in-loop
+        const more = await financeService.getExpensePage(workspaceSlug, { ...request, offset, limit: 500 });
+        ids.push(...more.results.map((row) => row.id));
+      }
+      await financeService.exportExpenses(workspaceSlug, ids, format);
+    } catch (reason) {
+      reportError(reason);
+    }
+  };
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface-1">
       <ExpenseModal
         workspaceSlug={workspaceSlug}
         isOpen={editing !== undefined}
         expense={editing ?? null}
-        initialData={scenario ? { scenario: scenario.id } : undefined}
+        initialData={scenario ? { scenario: scenario.id, currency: scenario.currency } : undefined}
         commentCell={commentCell}
         onDelete={editing ? () => setDeleting(editing) : undefined}
         onClose={() => {
@@ -166,7 +170,7 @@ export function ExpensesTab({
         initialIndex={viewing?.index ?? null}
         onClose={() => setViewing(null)}
       />
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleting !== null}
         handleClose={() => !busy && setDeleting(null)}
         isSubmitting={busy}
@@ -186,33 +190,48 @@ export function ExpensesTab({
             .finally(() => setBusy(false));
         }}
       />
-      {/* One toolbar: the tab switch, the narrowing controls and the actions all
-          share a line, leaving the height for the ledger itself. */}
+      {/* One toolbar: the narrowing controls and the actions share a line,
+          leaving the height for the ledger itself. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle px-4 py-2 sm:px-5">
         <div className="relative">
           <Search className="absolute top-2 left-2 size-4 text-tertiary" />
           <input
             aria-label={t("payments.filters.search")}
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setLimit(PAGE);
+            }}
             placeholder={t("payments.filters.search")}
-            className="focus:border-accent-primary h-8 w-full max-w-52 rounded-sm border border-subtle bg-layer-1 pr-2 pl-8 text-12 text-primary outline-none"
+            className="h-8 w-full max-w-52 rounded-sm border border-subtle bg-layer-1 pr-2 pl-8 text-12 text-primary outline-none focus:border-accent-strong"
           />
         </div>
         <ExpenseFiltersDropdown
           filters={filters}
           categories={categories ?? []}
-          currencies={currencies}
-          tags={tags}
-          onChange={setFilters}
+          currencies={page?.facets.currencies ?? []}
+          tags={page?.facets.tags ?? []}
+          onChange={changeFilters}
         />
-        <ExpenseDisplayMenu group={group} sort={sort} onGroupChange={setGroup} onSortChange={setSort} />
+        <ExpenseDisplayMenu
+          group={group}
+          sort={sort}
+          onGroupChange={setGroup}
+          onSortChange={(value) => {
+            setSort(value);
+            setLimit(PAGE);
+          }}
+        />
         <div className="ml-auto flex items-center gap-2">
           <ExpenseImports
             workspaceSlug={workspaceSlug}
             onChanged={refresh}
             scenarioId={scenario?.id}
-            onOpenExpense={(id) => setEditing(expenses?.find((expense) => expense.id === id))}
+            onOpenExpense={(id) => {
+              const loaded = rows.find((expense) => expense.id === id);
+              if (loaded) setEditing(loaded);
+              else void financeService.getExpense(workspaceSlug, id).then(setEditing).catch(reportError);
+            }}
           />
           {scenario && (
             <Button variant="secondary" size="sm" onClick={() => setLinkOpen(true)}>
@@ -228,26 +247,35 @@ export function ExpensesTab({
             optionsClassName="w-56"
             ariaLabel={t("payments.ledger.more_actions")}
           >
-            <Menu.MenuItem onClick={() => setCategoriesOpen(true)}>
-              <span className="flex items-center gap-2 text-12">
-                <Tags className="size-3.5" />
-                {t("payments.manage_categories")}
-              </span>
-            </Menu.MenuItem>
-            <Menu.MenuItem onClick={generate} disabled={busy}>
-              <span className="flex items-center gap-2 text-12">
-                <RefreshCw className={cn("size-3.5", busy && "animate-spin")} />
-                {t("payments.ledger.generate")}
-              </span>
-            </Menu.MenuItem>
-            <Menu.MenuItem onClick={() => exportRows("csv")} disabled={!rows.length}>
+            {/* Workspace-wide actions stay on the ledger page, not inside a
+                single budget where they would read as budget-only. */}
+            {!scenario && (
+              <Menu.MenuItem onClick={() => setCategoriesOpen(true)}>
+                <span className="flex items-center gap-2 text-12">
+                  <Tags className="size-3.5" />
+                  {t("payments.manage_categories")}
+                </span>
+              </Menu.MenuItem>
+            )}
+            {!scenario && (
+              <Menu.MenuItem onClick={generate} disabled={busy}>
+                <span className="flex items-center gap-2 text-12">
+                  <RefreshCw className={cn("size-3.5", busy && "animate-spin")} />
+                  {t("payments.ledger.generate")}
+                </span>
+              </Menu.MenuItem>
+            )}
+            <Menu.MenuItem onClick={() => void exportRows("csv")} disabled={!rows.length}>
               <span className="flex items-center gap-2 text-12">
                 <Download className="size-3.5" />
                 {t("payments.sheet.export_csv")}
               </span>
             </Menu.MenuItem>
-            <Menu.MenuItem onClick={() => exportRows("xlsx")} disabled={!rows.length}>
-              {t("payments.sheet.export_xlsx")}
+            <Menu.MenuItem onClick={() => void exportRows("xlsx")} disabled={!rows.length}>
+              <span className="flex items-center gap-2 text-12">
+                <Download className="size-3.5" />
+                {t("payments.sheet.export_xlsx")}
+              </span>
             </Menu.MenuItem>
           </Menu>
           <Button variant="primary" size="sm" onClick={() => setEditing(null)}>
@@ -256,10 +284,12 @@ export function ExpensesTab({
           </Button>
         </div>
       </div>
-      <AppliedExpenseFilters filters={filters} categories={categories ?? []} onChange={setFilters} />
+      <AppliedExpenseFilters filters={filters} categories={categories ?? []} onChange={changeFilters} />
       <div className="flex min-h-0 flex-1 flex-col">
-        {isLoading ? (
-          <Loader2 className="m-auto size-5 animate-spin text-tertiary" />
+        {isLoading && !page ? (
+          <div className="flex flex-1 items-center justify-center" role="status">
+            <Loader2 className="size-5 animate-spin text-tertiary" aria-label={t("payments.ledger.loading")} />
+          </div>
         ) : error ? (
           <EmptyStateCompact
             title={t("payments.ledger.failed")}
@@ -267,7 +297,7 @@ export function ExpensesTab({
             // hanging on the left of a centred empty state.
             customButton={
               <div className="flex justify-center">
-                <Button variant="secondary" size="base" onClick={() => void mutate()}>
+                <Button variant="secondary" size="sm" onClick={() => void mutate()}>
                   {t("payments.ledger.retry")}
                 </Button>
               </div>
@@ -278,6 +308,7 @@ export function ExpensesTab({
              closing the ledger; the toolbar already offers "new expense". */
           <ExpenseTable
             expenses={rows}
+            totals={page?.totals}
             group={group}
             emptyLabel={t(isNarrowed ? "payments.ledger.no_results" : "payments.ledger.empty_title")}
             onEdit={(expense) => {
@@ -293,18 +324,32 @@ export function ExpensesTab({
             onQuickEdit={quickEdit}
           />
         )}
+        {page && page.count > rows.length && (
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-subtle px-4 py-2 text-12 text-tertiary sm:px-5">
+            <span>{t("payments.ledger.showing", { shown: rows.length, total: page.count })}</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={isValidating}
+              onClick={() => setLimit((value) => value + PAGE)}
+            >
+              {t("payments.ledger.load_more")}
+            </Button>
+          </div>
+        )}
       </div>
       {scenario && (
         <LinkExpensesPanel
+          workspaceSlug={workspaceSlug}
           isOpen={linkOpen}
-          expenses={expenses ?? []}
-          budgetName={scenario.name}
+          scenario={scenario}
           onClose={() => setLinkOpen(false)}
-          onLink={async (picked) => {
+          onLink={async (picked, budgetLine) => {
             // Sequential on purpose: each write refreshes the ledger, and a
             // parallel burst would race those refreshes against each other.
-            // eslint-disable-next-line no-await-in-loop
-            for (const expense of picked) await quickEdit(expense, { scenario: scenario.id });
+            for (const expense of picked)
+              // eslint-disable-next-line no-await-in-loop
+              await quickEdit(expense, { scenario: scenario.id, budget_line: budgetLine || null });
           }}
         />
       )}

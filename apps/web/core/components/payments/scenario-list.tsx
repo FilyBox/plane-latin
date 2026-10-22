@@ -12,12 +12,12 @@ import { Menu } from "@plane/propel/menu";
 import { Popover } from "@plane/propel/popover";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TBudgetScenario, TBudgetScenarioStatus } from "@plane/types";
-import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { ContractBulkActionsBar, ContractSelectionCheckbox } from "@/components/file-library/contracts/list-controls";
 import { financeService } from "@/services/finance.service";
 import { BudgetScenarioModal } from "./scenario-modal";
-import { getApiErrorMessage } from "./shared";
+import { formatMoney, getApiErrorMessage } from "./shared";
+import { FinanceConfirmModal } from "./confirm-modal";
 
 type Props = {
   workspaceSlug: string;
@@ -42,9 +42,11 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
     data: scenarios,
     mutate,
     isLoading,
-  } = useSWR<TBudgetScenario[]>(`BUDGET_SCENARIOS_${workspaceSlug}`, () => financeService.getScenarios(workspaceSlug), {
-    revalidateOnFocus: false,
-  });
+  } = useSWR<TBudgetScenario[]>(
+    `BUDGET_SCENARIOS_${workspaceSlug}_TOTALS`,
+    () => financeService.getScenarios(workspaceSlug, undefined, { totals: true }),
+    { revalidateOnFocus: false }
+  );
 
   const years = useMemo(
     () => [...new Set((scenarios ?? []).map((scenario) => scenario.fiscal_year))].sort((a, b) => b - a),
@@ -79,19 +81,18 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
     setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
 
   /** Budgets are few and the API has no bulk route, so the selection is applied
-   * one call at a time and refreshed once at the end. */
+   * one call per budget. Whatever fails stays selected and is reported; the
+   * list is refreshed either way, so it never shows a half-applied state. */
   const applyToSelection = async (action: (scenario: TBudgetScenario) => Promise<unknown>) => {
     setIsActing(true);
-    try {
-      await Promise.all(selected.map(action));
-      setSelectedIds([]);
-      await mutate();
-    } catch (error) {
-      report(error);
-    } finally {
-      setIsActing(false);
-      setIsDeleteOpen(false);
-    }
+    const results = await Promise.allSettled(selected.map(action));
+    const failed = selected.filter((_, index) => results[index].status === "rejected");
+    setSelectedIds(failed.map((scenario) => scenario.id));
+    const firstError = results.find((result) => result.status === "rejected");
+    if (firstError && firstError.status === "rejected") report(firstError.reason);
+    await mutate();
+    setIsActing(false);
+    setIsDeleteOpen(false);
   };
 
   return (
@@ -100,9 +101,13 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
         workspaceSlug={workspaceSlug}
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        onSaved={() => void mutate()}
+        onSaved={(saved) => {
+          void mutate();
+          // A new budget is empty: open it so the next step, adding to it, is right there.
+          onOpen(saved);
+        }}
       />
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={isDeleteOpen}
         handleClose={() => !isActing && setIsDeleteOpen(false)}
         isSubmitting={isActing}
@@ -119,9 +124,10 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
             <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-tertiary" />
             <input
               value={search}
+              aria-label={t("payments.scenarios.search")}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("payments.scenarios.search")}
-              className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pr-2 pl-8 text-12 sm:w-64"
+              className="h-8 w-36 rounded-sm border border-subtle bg-transparent pr-2 pl-8 text-12 outline-none focus:border-accent-strong sm:w-64"
             />
           </div>
 
@@ -142,17 +148,13 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
               <div className="w-56 rounded-md border border-subtle bg-layer-1 p-2 shadow-raised-200">
                 <p className="px-1 py-0.5 text-11 font-medium text-tertiary">{t("payments.fields.status")}</p>
                 {STATUSES.map((status) => (
-                  <button
+                  <label
                     key={status}
-                    type="button"
-                    onClick={() =>
-                      setStatuses((current) =>
-                        current.includes(status) ? current.filter((item) => item !== status) : [...current, status]
-                      )
-                    }
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-13 hover:bg-layer-1-hover"
+                    className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-13 hover:bg-layer-1-hover"
                   >
-                    <ContractSelectionCheckbox
+                    <input
+                      type="checkbox"
+                      className="accent-accent-primary size-3.5"
                       checked={statuses.includes(status)}
                       onChange={() =>
                         setStatuses((current) =>
@@ -161,7 +163,7 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
                       }
                     />
                     {t(`payments.scenarios.status.${status.toLowerCase()}`)}
-                  </button>
+                  </label>
                 ))}
                 <p className="mt-2 border-t border-subtle px-1 pt-2 pb-0.5 text-11 font-medium text-tertiary">
                   {t("payments.scenarios.fiscal_year")}
@@ -204,7 +206,7 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
               className="h-8 rounded-sm border border-subtle bg-surface-1 pr-7 pl-7 text-12 text-secondary hover:bg-layer-1-hover"
             >
               <option value="-created_at">{t("payments.ledger.date_desc")}</option>
-              <option value="name">{t("payments.ledger.concept_asc")}</option>
+              <option value="name">{t("payments.scenarios.name_asc")}</option>
               <option value="-fiscal_year">{t("payments.scenarios.year_desc")}</option>
               <option value="fiscal_year">{t("payments.scenarios.year_asc")}</option>
             </select>
@@ -257,7 +259,7 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
             <p className="max-w-sm text-12">{t("payments.scenarios.empty_description")}</p>
           </div>
         ) : (
-          <table className="w-full min-w-205 border-collapse text-left">
+          <table className="w-full min-w-[56rem] border-collapse text-left">
             <thead className="sticky top-0 z-1 bg-surface-1">
               <tr className="border-b border-subtle text-11 font-medium text-tertiary">
                 <th className="w-10 px-4 py-2">
@@ -268,48 +270,100 @@ export function BudgetScenarioList({ workspaceSlug, onOpen }: Props) {
                 </th>
                 <th className="px-2 py-2">{t("payments.scenarios.name")}</th>
                 <th className="px-3 py-2">{t("payments.fields.status")}</th>
-                <th className="px-3 py-2">{t("payments.scenarios.fiscal_year")}</th>
-                <th className="px-3 py-2">{t("payments.fields.period")}</th>
-                <th className="px-3 py-2">{t("payments.fields.currency")}</th>
+                <th className="px-3 py-2 text-right">{t("payments.flow.planned")}</th>
+                <th className="px-3 py-2 text-right">{t("payments.flow.actual")}</th>
+                <th className="px-3 py-2 text-right">{t("payments.flow.available")}</th>
+                <th className="w-36 px-3 py-2">{t("payments.flow.consumed")}</th>
                 <th className="px-3 py-2 text-right">{t("payments.composer.people")}</th>
                 <th className="px-3 py-2 text-right">{t("payments.composer.variables")}</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((scenario) => (
-                <tr
-                  key={scenario.id}
-                  onClick={() => onOpen(scenario)}
-                  className="cursor-pointer border-b border-subtle text-13 hover:bg-layer-1-hover"
-                >
-                  <td className="px-4 py-2.5">
-                    <ContractSelectionCheckbox
-                      checked={selectedIds.includes(scenario.id)}
-                      onChange={() =>
-                        setSelectedIds((current) =>
-                          current.includes(scenario.id)
-                            ? current.filter((id) => id !== scenario.id)
-                            : [...current, scenario.id]
-                        )
-                      }
-                    />
-                  </td>
-                  <td className="max-w-72 px-2 py-2.5">
-                    <p className="truncate font-medium">{scenario.name}</p>
-                    {scenario.description && <p className="truncate text-11 text-tertiary">{scenario.description}</p>}
-                  </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-secondary">
-                    {t(`payments.scenarios.status.${scenario.status.toLowerCase()}`)}
-                  </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">{scenario.fiscal_year}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-secondary tabular-nums">
-                    {scenario.period_start} / {scenario.period_end}
-                  </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap">{scenario.currency}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{scenario.employee_count}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{scenario.variable_count}</td>
-                </tr>
-              ))}
+              {rows.map((scenario) => {
+                // The budget's own currency leads; any other one is listed under it.
+                const totals = scenario.totals ?? [];
+                const main = totals.find((item) => item.currency === scenario.currency) ?? totals[0];
+                const spent = main ? Number(main.paid) + Number(main.pending) : 0;
+                const consumed =
+                  main && Number(main.planned) > 0 ? Math.round((spent / Number(main.planned)) * 100) : 0;
+                return (
+                  <tr
+                    key={scenario.id}
+                    onClick={() => onOpen(scenario)}
+                    className="cursor-pointer border-b border-subtle text-13 hover:bg-layer-1-hover"
+                  >
+                    <td className="px-4 py-2.5">
+                      <ContractSelectionCheckbox
+                        checked={selectedIds.includes(scenario.id)}
+                        onChange={() =>
+                          setSelectedIds((current) =>
+                            current.includes(scenario.id)
+                              ? current.filter((id) => id !== scenario.id)
+                              : [...current, scenario.id]
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="max-w-72 px-2 py-2.5">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpen(scenario);
+                        }}
+                        className="block max-w-full truncate text-left font-medium hover:underline focus-visible:underline"
+                      >
+                        {scenario.name}
+                      </button>
+                      <p className="truncate text-11 text-tertiary tabular-nums">
+                        {scenario.fiscal_year} · {scenario.period_start} – {scenario.period_end} · {scenario.currency}
+                      </p>
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap text-secondary">
+                      {t(`payments.scenarios.status.${scenario.status.toLowerCase()}`)}
+                    </td>
+                    <td className="font-mono px-3 py-2.5 text-right text-12 whitespace-nowrap tabular-nums">
+                      {main ? formatMoney(main.planned, main.currency) : "—"}
+                    </td>
+                    <td className="font-mono px-3 py-2.5 text-right text-12 whitespace-nowrap tabular-nums">
+                      {main ? formatMoney(String(spent.toFixed(2)), main.currency) : "—"}
+                    </td>
+                    <td
+                      className={cn(
+                        "font-mono px-3 py-2.5 text-right text-12 whitespace-nowrap tabular-nums",
+                        main && Number(main.available) < 0 && "text-danger-primary"
+                      )}
+                    >
+                      {main ? formatMoney(main.available, main.currency) : "—"}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {main && (
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-layer-3">
+                            <div
+                              className={cn(
+                                "h-full rounded-full",
+                                consumed > 100 ? "bg-danger-primary" : "bg-accent-primary"
+                              )}
+                              style={{ width: `${Math.min(100, consumed)}%` }}
+                            />
+                          </div>
+                          <span
+                            className={cn(
+                              "w-9 text-right text-11 tabular-nums",
+                              consumed > 100 ? "text-danger-primary" : "text-tertiary"
+                            )}
+                          >
+                            {consumed}%
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{scenario.employee_count}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{scenario.variable_count}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

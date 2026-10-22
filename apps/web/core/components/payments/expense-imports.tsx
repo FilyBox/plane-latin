@@ -1,16 +1,16 @@
 import { useRef, useState } from "react";
-import { FileText, Loader2, Upload } from "lucide-react";
+import { AlertTriangle, FileText, Loader2, Upload } from "lucide-react";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { EmptyStateCompact } from "@plane/propel/empty-state";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import { AlertModalCore } from "@plane/ui";
 import { fileLibraryService } from "@/services/file-library.service";
 import { financeService, type TExpenseImport } from "@/services/finance.service";
 import { ExpenseModal } from "./expense-modal";
 import { PaymentsSidePanel } from "./side-panel";
-import { getApiErrorMessage } from "./shared";
+import { formatMoney, getApiErrorMessage } from "./shared";
+import { FinanceConfirmModal } from "./confirm-modal";
 
 export function ExpenseImports({
   workspaceSlug,
@@ -115,20 +115,37 @@ export function ExpenseImports({
             workspaceSlug={workspaceSlug}
             isOpen={review !== null}
             expense={null}
-            initialData={review ? { ...review.data, scenario: scenarioId ?? null } : undefined}
+            initialData={
+              review
+                ? {
+                    ...review.data,
+                    // Opened from a budget, that budget; otherwise the one whose
+                    // period and currency fit the document best.
+                    scenario: scenarioId ?? review.data.suggestions?.scenario ?? null,
+                    category: review.data.category ?? review.data.suggestions?.category ?? null,
+                  }
+                : undefined
+            }
             importId={review?.id}
+            duplicates={review?.data.duplicates}
             onClose={() => setReview(null)}
             onSaved={() => {
               void mutate();
               onChanged();
             }}
           />
-          <AlertModalCore
+          <FinanceConfirmModal
             isOpen={discard !== null}
             handleClose={() => !busy && setDiscard(null)}
             isSubmitting={busy}
-            title={t("payments.ledger.discard")}
-            content={t("payments.ledger.discard_help")}
+            primaryButtonText={{
+              default: t(discard?.status === "IMPORTED" ? "payments.variables.remove" : "common.discard"),
+              loading: t("payments.ledger.loading"),
+            }}
+            title={t(discard?.status === "IMPORTED" ? "payments.ledger.remove_from_list" : "payments.ledger.discard")}
+            content={t(
+              discard?.status === "IMPORTED" ? "payments.ledger.remove_from_list_help" : "payments.ledger.discard_help"
+            )}
             handleSubmit={() => {
               if (!discard || busy) return;
               setBusy(true);
@@ -208,6 +225,23 @@ export function ExpenseImports({
                       {t(`payments.ledger.${job.status}`)}
                       {job.stage && ` · ${job.stage}`}
                     </p>
+                    {job.status === "READY" && (
+                      <p className="mt-1 text-12 text-secondary">
+                        {[
+                          job.data.amount && job.data.currency ? formatMoney(job.data.amount, job.data.currency) : null,
+                          job.data.vendor,
+                          job.data.expense_date,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    )}
+                    {job.status === "READY" && !!job.data.duplicates?.length && (
+                      <p className="mt-1 flex items-center gap-1 text-11 text-warning-primary">
+                        <AlertTriangle className="size-3" aria-hidden />
+                        {t("payments.ledger.duplicate_title")}
+                      </p>
+                    )}
                     {job.error && <p className="mt-1 max-w-xl text-11 text-danger-primary">{job.error}</p>}
                     {job.data.warnings?.map((warning) => (
                       <p key={warning} className="mt-1 text-11 text-tertiary">
@@ -219,7 +253,7 @@ export function ExpenseImports({
                 <div className="flex items-center gap-3">
                   {job.status === "READY" && (
                     <Button size="sm" variant="primary" onClick={() => setReview(job)}>
-                      {t("payments.ledger.review")}
+                      {t("payments.ledger.review_and_register")}
                     </Button>
                   )}
                   {(job.status === "FAILED" ||
@@ -284,7 +318,9 @@ export function ExpenseImports({
                       onClick={() => setDiscard(job)}
                       className="text-12 text-tertiary hover:text-danger-primary"
                     >
-                      {t("payments.ledger.discard")}
+                      {/* A registered expense stays in the ledger: this only
+                          clears the document from the list. */}
+                      {t(job.status === "IMPORTED" ? "payments.ledger.remove_from_list" : "payments.ledger.discard")}
                     </button>
                   }
                 </div>

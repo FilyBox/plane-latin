@@ -201,7 +201,7 @@ export function BudgetScenarioModal({ workspaceSlug, isOpen, scenario, onClose, 
             loading={isSubmitting}
             disabled={!name.trim() || Boolean(periodError)}
           >
-            {t("payments.actions.save")}
+            {t(scenario ? "payments.actions.save" : "payments.scenarios.create_submit")}
           </Button>
         </div>
       </form>

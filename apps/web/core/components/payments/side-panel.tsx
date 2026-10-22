@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { MoveRight, X } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/propel/icons";
@@ -20,6 +20,13 @@ type Props = {
   children: React.ReactNode;
 };
 
+/** Open panels, oldest first. Panels render as sibling portals, so a click
+ * inside a panel opened from another one is "outside" for the one underneath;
+ * only the panel on top answers Escape and outside clicks, which keeps the
+ * stack from closing all at once and losing what was typed further down. */
+const openPanels: string[] = [];
+const isTopPanel = (id: string) => openPanels[openPanels.length - 1] === id;
+
 const modes = [
   { key: "side-peek", icon: SidePanelIcon, title: "common.side_peek" },
   { key: "modal", icon: CenterPanelIcon, title: "common.modal" },
@@ -36,6 +43,7 @@ export function PaymentsSidePanel({
   children,
 }: Props) {
   const { t } = useTranslation();
+  const panelId = useId();
   const [mode, setMode] = useState<PeekMode>("side-peek");
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -43,26 +51,37 @@ export function PaymentsSidePanel({
   usePeekOverviewOutsideClickDetector(
     ref,
     () => {
-      if (isOpen && !document.querySelector('[data-headlessui-state="open"]')) closeRef.current();
+      if (!isOpen || !isTopPanel(panelId)) return;
+      if (!document.querySelector('[data-headlessui-state="open"]')) closeRef.current();
     },
     isOpen ? title : "",
     ["main-sidebar"]
   );
   useEffect(() => {
     if (!isOpen) return;
+    openPanels.push(panelId);
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.key !== "Escape" || event.defaultPrevented || !isTopPanel(panelId)) return;
       if (document.querySelector('[data-headlessui-state="open"], .editor-image-full-screen-modal')) return;
-      if (document.activeElement?.closest('[contenteditable="true"], input, textarea')) return;
+      const focused = document.activeElement;
+      // Rich text keeps Escape for itself. A plain field gives up focus first,
+      // so a second Escape closes the panel instead of never closing it.
+      if (focused?.closest('[contenteditable="true"]')) return;
+      if (focused instanceof HTMLElement && focused.closest("input, textarea, select")) {
+        focused.blur();
+        return;
+      }
       closeRef.current();
     };
     document.addEventListener("keydown", escape);
     return () => {
       document.removeEventListener("keydown", escape);
+      const index = openPanels.lastIndexOf(panelId);
+      if (index >= 0) openPanels.splice(index, 1);
       previous?.focus();
     };
-  }, [isOpen]);
+  }, [isOpen, panelId]);
   if (!isOpen) return null;
   const current = modes.find((item) => item.key === mode)!;
   return (

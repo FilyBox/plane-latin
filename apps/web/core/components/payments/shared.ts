@@ -59,10 +59,45 @@ export const currentQuarter = (date = new Date()): { from: string; to: string } 
 
 export const CURRENCIES = ["MXN", "USD", "EUR"];
 
+/** Exact money arithmetic in integer cents, signs included. */
+const toCents = (value: string | number): bigint => {
+  const text = String(value ?? "0").trim();
+  const negative = text.startsWith("-");
+  const [whole, fraction = ""] = text.replace(/^[-+]/, "").split(".");
+  const amount = BigInt(whole || "0") * 100n + BigInt((fraction + "00").slice(0, 2));
+  return negative ? -amount : amount;
+};
+const fromCents = (value: bigint): string => {
+  const absolute = value < 0n ? -value : value;
+  return `${value < 0n ? "-" : ""}${absolute / 100n}.${String(absolute % 100n).padStart(2, "0")}`;
+};
+export const sumMoney = (values: (string | number)[]): string =>
+  fromCents(values.reduce<bigint>((total, value) => total + toCents(value), 0n));
+export const subtractMoney = (from: string | number, value: string | number): string =>
+  fromCents(toCents(from) - toCents(value));
+export const negateMoney = (value: string | number): string => fromCents(-toCents(value));
+
 export const getApiErrorMessage = (error: unknown): string | undefined => {
   if (!error || typeof error !== "object") return typeof error === "string" ? error : undefined;
   const data = error as Record<string, unknown>;
-  for (const key of ["error", "detail", "amount", "concept", "currency", "expense_date", "recurrence_end", "recurrence", "tags", "category", "project", "name", "fiscal_year", "period_start", "period_end", "effective_from"]) {
+  for (const key of [
+    "error",
+    "detail",
+    "amount",
+    "concept",
+    "currency",
+    "expense_date",
+    "recurrence_end",
+    "recurrence",
+    "tags",
+    "category",
+    "project",
+    "name",
+    "fiscal_year",
+    "period_start",
+    "period_end",
+    "effective_from",
+  ]) {
     const value = data[key];
     if (typeof value === "string" && value) return value;
     if (Array.isArray(value) && typeof value[0] === "string") return value[0];

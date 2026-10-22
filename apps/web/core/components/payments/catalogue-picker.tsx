@@ -10,10 +10,10 @@ import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Menu } from "@plane/propel/menu";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { financeService } from "@/services/finance.service";
 import { payrollService } from "@/services/payroll.service";
+import { FinanceConfirmModal } from "./confirm-modal";
 
 export type CatalogueItem = { id: string; name: string };
 
@@ -341,7 +341,7 @@ export function CataloguePanel(props: Props) {
         {rows.length === 0 && <p className="px-1.5 py-1 text-11 text-tertiary">{t(source.emptyKey)}</p>}
       </div>
 
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleting !== null}
         handleClose={() => !source.busy && setDeleting(null)}
         isSubmitting={source.busy}
