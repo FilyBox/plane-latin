@@ -86,7 +86,7 @@ function pickModel(env: Env, requested?: string | null): { model: LanguageModel;
   }
   // Independent from AI_PROVIDER: the contracts pipeline stays on DeepSeek by
   // default while this chat can default to a different provider (Gemini).
-  const provider = (env.ASSISTANT_AI_PROVIDER || "gemini").toLowerCase();
+  const provider = (env.ASSISTANT_AI_PROVIDER || "deepseek").toLowerCase();
   if (provider === "deepseek" && deepseekModels.length > 0) {
     return { model: deepseek(deepseekModels[0]), id: deepseekModels[0] };
   }
@@ -100,7 +100,7 @@ function pickModel(env: Env, requested?: string | null): { model: LanguageModel;
  * ASSISTANT_AI_PROVIDER instead of CHAT_DEFAULT_MODEL. */
 export function listAssistantModels(env: Env): ReturnType<typeof listChatModels> {
   const { models, default_model } = listChatModels(env);
-  const provider = (env.ASSISTANT_AI_PROVIDER || "gemini").toLowerCase();
+  const provider = (env.ASSISTANT_AI_PROVIDER || "deepseek").toLowerCase();
   const preferred = models.find((model) => model.provider === provider);
   return { models, default_model: preferred?.id ?? default_model };
 }
@@ -226,7 +226,10 @@ function buildTools(env: Env, body: AssistantChatRequest) {
                   z.object({
                     value: z.string().describe("El token tal cual aparece en el archivo"),
                     count: z.number().describe("Cuántas filas lo contienen"),
-                    suggestion: z.string().optional().describe("Valor sugerido si es deducible, ej. 0:30 para ringtone"),
+                    suggestion: z
+                      .string()
+                      .optional()
+                      .describe("Valor sugerido si es deducible, ej. 0:30 para ringtone"),
                   })
                 )
                 .min(1),

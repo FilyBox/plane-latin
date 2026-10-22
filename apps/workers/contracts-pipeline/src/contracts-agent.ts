@@ -135,7 +135,7 @@ function defaultModelId(env: Env): string | null {
   const configured = env.CHAT_DEFAULT_MODEL?.trim();
   if (configured && declared.includes(configured)) return configured;
 
-  const provider = (env.ASSISTANT_AI_PROVIDER || "gemini").toLowerCase();
+  const provider = (env.ASSISTANT_AI_PROVIDER || "deepseek").toLowerCase();
   const preferred = provider === "deepseek" ? lists.deepseek[0] : lists.gemini[0];
   return preferred ?? declared[0] ?? null;
 }
@@ -157,7 +157,7 @@ function pickModel(env: Env, requested?: string | null): { model: LanguageModel;
 /** Cheapest declared model, used for the per-document sub-agent calls. */
 function pickWorkerModel(env: Env): LanguageModel {
   const lists = modelLists(env);
-  const provider = (env.ASSISTANT_AI_PROVIDER || "gemini").toLowerCase();
+  const provider = (env.ASSISTANT_AI_PROVIDER || "deepseek").toLowerCase();
   if (provider === "deepseek" && lists.deepseek.length > 0) {
     return createDeepSeek({ apiKey: env.DEEPSEEK_API_KEY })(lists.deepseek[0]);
   }
