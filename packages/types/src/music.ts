@@ -212,7 +212,7 @@ export type TMusicImportFile = {
 
 export type TMusicImportError = {
   row: number;
-  code: "REQUIRED_FIELD" | "DUPLICATE" | "DATABASE_NOT_READY" | "ROW_VALIDATION_ERROR" | string;
+  code: "REQUIRED_FIELD" | "DUPLICATE" | "DATABASE_NOT_READY" | "TOO_LONG" | "ROW_VALIDATION_ERROR" | string;
   field: string | null;
   column: string | null;
   value: unknown;
@@ -220,19 +220,73 @@ export type TMusicImportError = {
   row_data: Record<string, unknown>;
 };
 
+/** The existing song a file row was matched to. by === "ambiguous": only the
+ * title matched, so the row is a possible duplicate awaiting a decision. */
+export type TMusicImportMatch = {
+  by: "isrc" | "title" | "title_artist" | "title_date" | "catalog" | "upc" | "ambiguous";
+  track_id: string;
+  title: string;
+  isrc: string;
+};
+
+export type TMusicImportRowOutcome = "created" | "updated" | "unchanged" | "skipped" | "omitted" | "error";
+
 export type TMusicImportResult = {
   total: number;
   created: number;
+  /** Matched songs the file actually changes */
   updated: number;
+  /** Matched songs the file leaves exactly as they are */
+  unchanged: number;
+  /** Matched songs kept as they are by the "keep existing" rule */
   skipped: number;
+  /** Rows dropped by a value decision ("omit those rows") */
+  omitted: number;
+  /** Blank rows, ignored */
+  empty: number;
   errors: TMusicImportError[];
   invalid_row_strategy: "abort" | "skip";
   aborted: boolean;
+  /** Rows whose title matches a song but nothing else confirms it */
+  possible_duplicates: { row: number; title: string; isrc: string; match: TMusicImportMatch }[];
+  possible_duplicate_count: number;
+  /** The same ISRC on several rows of the file */
+  in_file_duplicates: { isrc: string; rows: number[] }[];
+  /** Dry-run only: what happens to each row */
+  rows?: {
+    row: number;
+    outcome: TMusicImportRowOutcome;
+    title: string;
+    isrc: string;
+    match?: TMusicImportMatch | null;
+    possible_duplicate?: boolean;
+  }[];
   /** Dry-run only: per canonical field, raw tokens that no parser understood
-   * ("ringtone" in a duration column) with their occurrence count */
-  unparseable?: Record<string, { value: string; count: number }[]>;
+   * ("ringtone" in a duration column), grouped ignoring case */
+  unparseable?: Record<string, { value: string; count: number; variants?: string[] }[]>;
   /** Set when the import was applied (provenance run id) */
   import_run_id?: string;
+};
+
+/** Live progress of a validation or an import */
+export type TMusicImportProgress = {
+  processed: number;
+  total: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  errors: number;
+};
+
+/** One applied import of a stored file, for its history */
+export type TMusicImportRunSummary = {
+  id: string;
+  imported_at: string;
+  source: "MANUAL" | "ASSISTANT" | string;
+  sheet: string | null;
+  summary: Partial<Record<"total" | "created" | "updated" | "unchanged" | "skipped" | "omitted" | "empty", number>>;
+  imported_by: string | null;
 };
 
 export type TMusicImportRun = {
@@ -253,6 +307,10 @@ export type TMusicImportRunRules = {
   /** When false (default) a file row only matches PRE-EXISTING records, so
    * rows sharing an identifier within the file don't collapse into one */
   dedupe_within_file?: boolean;
+  /** Title-only matches: create apart, treat as that song, or leave out */
+  ambiguous_strategy?: "create" | "match" | "skip";
+  /** Updating a song: an empty cell keeps its current value or clears it */
+  blank_cells?: "keep" | "clear";
   value_overrides?: Record<string, Record<string, string>>;
   row_overrides?: Record<string, Record<string, string>>;
   invalid_row_strategy?: "abort" | "skip";
@@ -278,6 +336,9 @@ export type TMusicImportAsset = {
     summary: Record<string, number>;
     imported_at: string;
   } | null;
+  /** Applied runs of this file, newest first (up to 20) */
+  runs?: TMusicImportRunSummary[];
+  run_count?: number;
 };
 
 export type TMusicImportPreview = {
@@ -294,7 +355,17 @@ export type TMusicImportPreview = {
   multi_fields?: string[];
   /** Expected-format example per typed field (shown when replacing variables) */
   format_examples?: Record<string, string>;
+  /** Max characters of plain text fields; longer values must be decided on */
+  field_limits?: Record<string, number>;
   artist_examples: { source: string; detected: string[] }[];
   database_ready: boolean;
   database_error: string | null;
+  file_name?: string | null;
+  /** Earlier applied imports of this same file */
+  previous_imports?: { id: string; asset_id: string | null; imported_at: string; summary: Record<string, number> }[];
+  /** ISRCs in the file, and how many the catalog already holds */
+  isrc_count?: number;
+  existing_isrc_count?: number;
+  /** How a date-looking column will be read ("1/7/1905" → 2009-01-01) */
+  date_interpretations?: Record<string, { raw: string; parsed: string; year_only: boolean }>;
 };
