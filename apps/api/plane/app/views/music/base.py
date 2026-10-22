@@ -6,9 +6,10 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO
 
-from django.db import DatabaseError, connection, transaction
+from crum import impersonate
+from django.db import DatabaseError, connection, models, transaction
 from django.db.models import Count, Exists, OuterRef, Q
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from openpyxl import Workbook, load_workbook
@@ -83,8 +84,18 @@ def _plain(value):
     )
 
 
+# Distributor exports tag each person with a role: "Ana <Lyricist>, Ana <Composer>"
+ROLE_TAG = re.compile(r"\s*<[^<>]*>")
+
+
 def _split(value):
-    return [part.strip(" .") for part in ARTIST_SEPARATOR.split(str(value or "")) if part.strip(" .")]
+    """Names in a cell, without role tags and without repeating a name."""
+    names = []
+    for part in ARTIST_SEPARATOR.split(ROLE_TAG.sub("", str(value or ""))):
+        name = part.strip(" .")
+        if name and name.lower() not in (existing.lower() for existing in names):
+            names.append(name)
+    return names
 
 
 def _prune(queryset):
@@ -94,18 +105,59 @@ def _prune(queryset):
         instance.delete()
 
 
-def _choice(raw, choices, default):
-    """Normalize a raw cell to a TextChoices VALUE. Matches the raw string
-    against choice values and labels case-insensitively so a CSV that says
-    "Released" is stored as the canonical "RELEASED" (filters compare values)."""
-    text = str(raw or "").strip()
-    if not text:
-        return default
-    lowered = text.lower()
+def _choice_value(raw, choices):
+    """The TextChoices VALUE a raw cell names (by value or label, ignoring
+    case: "Released" -> "RELEASED"), or None when it names none of them."""
+    lowered = str(raw or "").strip().lower()
+    if not lowered:
+        return None
     for value, label in choices:
         if lowered in (str(value).lower(), str(label).lower()):
             return value
-    return text
+    return None
+
+
+def _choice(raw, choices, default):
+    """Normalize a raw cell to a TextChoices VALUE. Text that names no choice
+    ("AudioTrack" as a track type) falls back to the default instead of being
+    stored as an invalid value; the review lists it for the user to decide."""
+    return _choice_value(raw, choices) or default
+
+
+# Distributor exports tag each credited name with its role. A tagged name only
+# feeds the credit fields its tag belongs to (tags compared lowercase, letters only).
+ROLE_TAG_FIELDS = {
+    "artists": ("primaryartist", "mainartist", "artist"),
+    "featured_artists": ("featuredartist", "featuring", "featured"),
+    "writers": ("writer", "songwriter", "lyricist", "composer", "author", "composerlyricist"),
+    "authors": ("lyricist", "author", "writer"),
+    "composers": ("composer", "composerlyricist"),
+    "producers": ("producer",),
+    "recording_engineers": ("recordingengineer", "engineer", "recording"),
+    "mixers": ("mixingengineer", "mixer", "mixing"),
+    "mastering_engineers": ("masteringengineer", "mastering"),
+}
+
+
+def _names_for(value, field):
+    """Names in a cell for one credit field. Untagged names always count; a
+    name tagged "<Composer>" only counts for the fields that tag belongs to."""
+    text = str(value or "")
+    if not ROLE_TAG.search(text):
+        return _split(text)
+    wanted = ROLE_TAG_FIELDS.get(field)
+    names = []
+    for part in ARTIST_SEPARATOR.split(text):
+        tag = ROLE_TAG.search(part)
+        name = ROLE_TAG.sub("", part).strip(" .")
+        if not name:
+            continue
+        role = re.sub(r"[^a-z]", "", tag.group(0).lower()) if tag else ""
+        if tag and wanted is not None and role not in wanted:
+            continue
+        if name.lower() not in (existing.lower() for existing in names):
+            names.append(name)
+    return names
 
 
 def _restore_or_create(model, workspace, lookup, values=None):
@@ -138,7 +190,9 @@ def _date(value, year_only=False):
         year = int(float(text))
         if 1900 <= year <= 2100:
             return date(year, 1, 1)
-    parsed = parse_date(text)
+    # "2024-12-13", "2024-12-13 00:00:00", "2024-12-13T00:00:00Z": the date part
+    iso = re.match(r"^(\d{4}-\d{2}-\d{2})(?:[T ]\d{1,2}:\d{2}.*)?$", text)
+    parsed = parse_date(iso.group(1)) if iso else None
     if parsed:
         return _date(parsed, year_only=year_only)
     normalized = _plain(text).replace(" de ", " ")
@@ -284,6 +338,9 @@ def _import_error_detail(index, exc, row, mapping):
         code = "DUPLICATE"
     elif message.startswith("The music catalog database is not ready"):
         code = "DATABASE_NOT_READY"
+    elif message.startswith("Too long: "):
+        field = message.removeprefix("Too long: ")
+        code = "TOO_LONG"
     field_columns = _columns_for(mapping, field) if field else []
     column = field_columns[0] if field_columns else None
     return {
@@ -342,6 +399,47 @@ def _header_index(rows):
     return best_index
 
 
+# Excel's "keep as text" trick in CSV exports: ="0198704887383"
+EXCEL_TEXT_WRAPPER = re.compile(r'^="(.*)"$', re.DOTALL)
+NUMERIC_DATE = re.compile(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$")
+
+
+def _unwrap_cell(value):
+    if isinstance(value, str):
+        match = EXCEL_TEXT_WRAPPER.match(value.strip())
+        if match:
+            return match.group(1)
+    return value
+
+
+def _normalize_month_first_dates(headers, rows):
+    """"12/4/2025" is April 12 or December 4 depending on the file. A single
+    value per column settles it: "5/17/2024" can only be month-first. Such
+    columns are rewritten as ISO dates; columns without that evidence keep the
+    day-first reading used everywhere else."""
+    for header in headers:
+        month_first = day_first = False
+        for row in rows:
+            value = row.get(header)
+            match = NUMERIC_DATE.match(value.strip()) if isinstance(value, str) else None
+            if not match:
+                continue
+            first, second = int(match.group(1)), int(match.group(2))
+            day_first = day_first or first > 12
+            month_first = month_first or second > 12
+        if not month_first or day_first:
+            continue
+        for row in rows:
+            value = row.get(header)
+            match = NUMERIC_DATE.match(value.strip()) if isinstance(value, str) else None
+            if match:
+                month, day, year = (int(part) for part in match.groups())
+                try:
+                    row[header] = date(year, month, day).isoformat()
+                except ValueError:
+                    continue
+
+
 def _read_table(upload, sheet_name=None):
     content = upload.read()
     filename = upload.name.lower()
@@ -367,6 +465,7 @@ def _read_table(upload, sheet_name=None):
         raw_rows = list(csv.reader(StringIO(decoded or ""), delimiter=delimiter))
     if not raw_rows or not any(any(value not in (None, "") for value in row) for row in raw_rows):
         return [], [], sheets, 0
+    raw_rows = [[_unwrap_cell(value) for value in row] for row in raw_rows]
     header_row = _header_index(raw_rows)
     width = max(len(row) for row in raw_rows)
     headers = _unique_headers(list(raw_rows[header_row]) + [None] * (width - len(raw_rows[header_row])))
@@ -375,6 +474,7 @@ def _read_table(upload, sheet_name=None):
         for row in raw_rows[header_row + 1 :]
         if any(value not in (None, "") for value in row)
     ]
+    _normalize_month_first_dates(headers, rows)
     return headers, rows, sheets, header_row + 1
 
 
@@ -411,23 +511,40 @@ def _asset_upload(slug, asset_id):
 
 
 IMPORT_ALIASES = {
-    "track.title": ("track", "song", "song name", "titulo", "cancion"),
+    "track.title": (
+        "track", "song", "song name", "track name", "track title", "song title", "titulo", "cancion",
+        "nombre cancion", "nombre de la cancion",
+    ),
+    "track.version": ("track version",),
+    "track.language": ("audio language", "track language", "idioma"),
+    "track.explicit": ("explicit lyrics", "explicit", "explicitlyrics", "explicito"),
     "track.isrc": ("isrc", "isrc audio", "isrc song"),
     "track.isrc_video": ("isrc video", "video isrc"),
     "track.catalog": ("catalog", "catalogo", "catalog number", "no cat", "cat"),
     "track.upc": ("upc", "ean", "barcode"),
     "track.release_date": ("track release date", "fecha lanzamiento cancion"),
     "track.duration_ms": ("duration", "duracion", "duracion tipo", "time"),
-    "release.title": ("album", "album name", "titulo album single lp ep"),
+    "release.title": (
+        "album", "album name", "album title", "product title", "release title", "release name",
+        "titulo album single lp ep",
+    ),
+    "release.p_line": ("product p line", "p line", "track p line"),
+    "release.c_line": ("product c line", "c line", "track c line"),
     "release.upc": ("upc",),
     "release.catalog_number": ("catalog", "catalog number", "product catalog"),
     "release.release_date": ("album release date", "release date", "fecha ano", "fecha"),
-    "artists": ("artist", "artists", "artista", "main artist"),
+    "artists": (
+        "artist", "artists", "artista", "main artist", "track display artist", "display artist",
+        "track artist", "product display artist",
+    ),
+    "genres": ("genre", "genero", "track genre", "product genre"),
     "writers": ("writer", "writers", "escritor", "escritores", "songwriter", "songwriters"),
     "record_label": ("label", "label name", "licencia", "statement"),
     "track.video_url": ("video url", "video link", "link video", "url video", "youtube", "music video url"),
     "track.video_release_date": ("video release date", "fecha video", "fecha lanzamiento video"),
-    "track.streaming_url": ("streaming url", "spotify", "spotify url", "enlace", "song url"),
+    "track.streaming_url": (
+        "streaming url", "spotify", "spotify url", "enlace", "song url", "track play link", "play link",
+    ),
 }
 
 IMPORT_FIELDS = [
@@ -478,6 +595,58 @@ UNPARSED_CHECKS = {
     "track.writer_percentage": _decimal,
 }
 
+def _field_length_limits():
+    """{import field: max characters} for plain text columns of tracks and
+    releases. Choice fields are left out: their raw text is normalized first."""
+    limits = {}
+    models_by_prefix = {"track": MusicTrack, "release": MusicRelease}
+    for field in IMPORT_FIELDS:
+        prefix, _, attr = field.partition(".")
+        model = models_by_prefix.get(prefix)
+        if not model or not attr:
+            continue
+        try:
+            model_field = model._meta.get_field(attr)
+        except Exception:
+            continue
+        if isinstance(model_field, models.CharField) and model_field.max_length and not model_field.choices:
+            limits[field] = model_field.max_length
+    return limits
+
+
+FIELD_LENGTH_LIMITS = _field_length_limits()
+
+
+def _fits(limit):
+    return lambda value: value if len(str(value).strip()) <= limit else None
+
+
+# A value longer than its column ("Spanish (Latin America)" in a 20-character
+# language field) is a value to decide on, grouped like any other misfit.
+for _field, _limit in FIELD_LENGTH_LIMITS.items():
+    UNPARSED_CHECKS.setdefault(_field, _fits(_limit))
+
+
+def _check_lengths(row, mapping):
+    """Fails the row with a clear, field-level message instead of a database
+    error when a mapped text value is longer than its column."""
+    for field, limit in FIELD_LENGTH_LIMITS.items():
+        value = _mapped(row, mapping, field)
+        if field in ("track.isrc", "track.isrc_video"):
+            value = value.upper().replace("-", "")
+        if len(value) > limit:
+            raise ValueError(f"Too long: {field}")
+
+
+CHOICE_FIELDS = {
+    "track.kind": MusicTrack.Kind.choices,
+    "track.status": MusicTrack.Status.choices,
+    "release.type": MusicRelease.Type.choices,
+}
+for _field, _choices in CHOICE_FIELDS.items():
+    UNPARSED_CHECKS.setdefault(_field, lambda value, choices=_choices: _choice_value(value, choices))
+
+
 # value_overrides sentinel: rows whose raw value maps to this are not imported
 SKIP_ROW = "__SKIP_ROW__"
 
@@ -503,6 +672,9 @@ FIELD_FORMAT_EXAMPLES = {
     "track.artist_percentage": "50",
     "track.writer_percentage": "50",
 }
+# Fixed-choice fields show their valid options as the expected format
+for _field, _choices in CHOICE_FIELDS.items():
+    FIELD_FORMAT_EXAMPLES.setdefault(_field, " / ".join(str(label) for _, label in _choices))
 
 
 def _column_samples(headers, rows, limit=10):
@@ -563,7 +735,8 @@ def _apply_overrides(row, mapping, value_overrides):
     return patched, False
 
 
-OUTCOME_ACTION = {"created": "CREATED", "updated": "UPDATED", "skipped": "PRESERVED"}
+# "unchanged" (matched, nothing to update) keeps the record as it was.
+OUTCOME_ACTION = {"created": "CREATED", "updated": "UPDATED", "unchanged": "PRESERVED", "skipped": "PRESERVED"}
 
 
 def _record_import_run(workspace, *, file_asset, source_name, source, sheet, rules, summary, touched):
@@ -1098,13 +1271,32 @@ class MusicImportAssetEndpoint(MusicBaseView):
             assets = assets.filter(attributes__name__icontains=search)
         assets = list(assets[:500])
 
-        # Latest run per asset: its rules restore the full panel configuration
-        # when the user chooses to re-import a saved file.
-        last_runs = {}
-        for run in MusicImportRun.objects.filter(
-            file_asset_id__in=[asset.id for asset in assets]
-        ).order_by("-created_at"):
-            last_runs.setdefault(run.file_asset_id, run)
+        # Every run per asset, newest first: the latest one's rules restore the
+        # whole configuration on re-import; the list is the file's history —
+        # who imported it, when, and what each run did.
+        runs_by_asset = {}
+        for run in (
+            MusicImportRun.objects.filter(file_asset_id__in=[asset.id for asset in assets])
+            .select_related("created_by")
+            .order_by("-created_at")
+        ):
+            runs_by_asset.setdefault(run.file_asset_id, []).append(run)
+        last_runs = {asset_id: runs[0] for asset_id, runs in runs_by_asset.items()}
+
+        def run_history(asset):
+            return [
+                {
+                    "id": str(run.id),
+                    "imported_at": run.created_at.isoformat(),
+                    "source": run.source,
+                    "sheet": run.sheet or None,
+                    "summary": run.summary or {},
+                    "imported_by": (
+                        run.created_by.display_name or run.created_by.email if run.created_by_id else None
+                    ),
+                }
+                for run in runs_by_asset.get(asset.id, [])[:20]
+            ]
 
         def last_run_payload(asset):
             run = last_runs.get(asset.id)
@@ -1128,6 +1320,8 @@ class MusicImportAssetEndpoint(MusicBaseView):
                         "upload_source": (asset.attributes or {}).get("upload_source") or "manual",
                         "created_at": asset.created_at.isoformat(),
                         "last_run": last_run_payload(asset),
+                        "runs": run_history(asset),
+                        "run_count": len(runs_by_asset.get(asset.id, [])),
                     }
                     for asset in assets
                 ]
@@ -1153,13 +1347,58 @@ class MusicImportAssetEndpoint(MusicBaseView):
         return Response({"deleted": deleted, "not_found": len(set(asset_ids)) - deleted})
 
 
+def _date_interpretations(headers, rows):
+    """How each date-looking column will be read, shown next to its samples:
+    a "Fecha (año)" cell holding 1/7/1905 is an Excel year serial and imports
+    as 2009 — without saying so the preview looks like corrupt data."""
+    interpretations = {}
+    for header in headers:
+        year_only = any(token in _plain(header) for token in ("year", "ano"))
+        for row in rows[:200]:
+            raw = row.get(header)
+            if raw in (None, "") or isinstance(raw, (int, float)) and not year_only:
+                continue
+            if not isinstance(raw, (date, datetime)) and not re.search(r"\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}", str(raw)):
+                break
+            parsed = _date(raw, year_only=year_only)
+            if parsed is None:
+                break
+            raw_text = raw.isoformat() if isinstance(raw, (date, datetime)) else str(raw).strip()
+            interpretations[header] = {"raw": raw_text, "parsed": parsed.isoformat(), "year_only": year_only}
+            break
+    return interpretations
+
+
+def _previous_imports(workspace_slug, asset_id=None, name=None, size=None):
+    """Earlier applied imports of this same file — by stored asset, or by
+    name and size for a fresh upload of a file already imported once."""
+    runs = MusicImportRun.objects.filter(workspace__slug=workspace_slug, file_asset__is_deleted=False)
+    if asset_id:
+        runs = runs.filter(file_asset_id=asset_id)
+    elif name:
+        runs = runs.filter(file_asset__attributes__name=name, file_asset__size=size)
+    else:
+        return []
+    return [
+        {
+            "id": str(run.id),
+            "asset_id": str(run.file_asset_id) if run.file_asset_id else None,
+            "imported_at": run.created_at.isoformat(),
+            "summary": run.summary or {},
+        }
+        for run in runs.order_by("-created_at")[:10]
+    ]
+
+
 class MusicImportPreviewEndpoint(MusicBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         upload = request.FILES.get("file")
+        asset_id = None
         if not upload and request.data.get("asset_id"):
             try:
                 _, upload = _asset_upload(slug, request.data["asset_id"])
+                asset_id = request.data["asset_id"]
             except FileAsset.DoesNotExist:
                 return Response({"error": "Archivo guardado no encontrado"}, status=status.HTTP_404_NOT_FOUND)
         if not upload:
@@ -1175,8 +1414,31 @@ class MusicImportPreviewEndpoint(MusicBaseView):
         inferred = _infer_mapping(headers, IMPORT_FIELDS)
         artist_column = inferred.get("artists")
         database_ready = _music_schema_ready()
+        # How much of this file the catalog already holds, judged by ISRC — the
+        # cue to update existing songs instead of creating them again.
+        isrc_column = inferred.get("track.isrc")
+        isrcs = {
+            str(row.get(isrc_column)).strip().upper().replace("-", "")
+            for row in rows
+            if isrc_column and row.get(isrc_column) not in (None, "")
+        }
+        existing_isrcs = (
+            MusicTrack.objects.filter(
+                workspace__slug=slug, parent_track__isnull=True, isrc__in=list(isrcs)
+            ).count()
+            if isrcs and database_ready
+            else 0
+        )
+        upload_size = getattr(upload, "size", None)
         return Response(
             {
+                "file_name": getattr(upload, "name", None),
+                "previous_imports": _previous_imports(
+                    slug, asset_id=asset_id, name=getattr(upload, "name", None), size=upload_size
+                ),
+                "isrc_count": len(isrcs),
+                "existing_isrc_count": existing_isrcs,
+                "date_interpretations": _date_interpretations(headers, rows),
                 "headers": headers,
                 "rows": sample,
                 "sheets": sheets,
@@ -1187,6 +1449,7 @@ class MusicImportPreviewEndpoint(MusicBaseView):
                 "column_samples": _column_samples(headers, rows),
                 "multi_fields": MULTI_COLUMN_FIELDS,
                 "format_examples": FIELD_FORMAT_EXAMPLES,
+                "field_limits": FIELD_LENGTH_LIMITS,
                 "artist_examples": [
                     {"source": str(row.get(artist_column, "")), "detected": _split(row.get(artist_column, ""))}
                     for row in rows[:5]
@@ -1238,9 +1501,58 @@ class MusicImportAIMapEndpoint(MusicBaseView):
         return Response({"mapping": mapping, "model": data.get("model")}, status=status.HTTP_200_OK)
 
 
+def _sse(event, payload):
+    """One server-sent event. The import streams as text/event-stream so the
+    gzip middleware leaves it alone and every progress tick reaches the browser
+    as it happens (see StreamingSafeGZipMiddleware)."""
+    return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+
+def _store_import_source(workspace, upload):
+    """The FileAsset an applied import is recorded against. Re-importing the
+    SAME file (same name and size) reuses its asset so the file shows up once,
+    with every run under it."""
+    upload.seek(0)
+    content = upload.read()
+    file_asset = FileAsset.objects.filter(
+        workspace=workspace,
+        entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
+        attributes__music_asset_kind="IMPORT_SOURCE",
+        attributes__name=upload.name,
+        size=len(content),
+        is_deleted=False,
+    ).first()
+    if file_asset is not None:
+        return file_asset
+    from plane.settings.storage import S3Storage
+
+    asset_key = f"{workspace.id}/music-imports/{timezone.now().strftime('%Y%m%d%H%M%S')}-{upload.name}"
+    storage = S3Storage()
+    storage.s3_client.put_object(Bucket=storage.aws_storage_bucket_name, Key=asset_key, Body=content)
+    return FileAsset.objects.create(
+        workspace=workspace,
+        entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
+        attributes={
+            "name": upload.name,
+            "type": getattr(upload, "content_type", "") or "text/csv",
+            "size": len(content),
+            "music_asset_kind": "IMPORT_SOURCE",
+            "upload_source": "manual",
+        },
+        asset=asset_key,
+        size=len(content),
+        is_uploaded=True,
+    )
+
+
+SUMMARY_KEYS = ("total", "created", "updated", "unchanged", "skipped", "omitted", "empty")
+
+
 class MusicImportEndpoint(MusicBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
+        from .importer import AMBIGUOUS_STRATEGIES, BLANK_CELL_MODES, run_import
+
         upload = request.FILES.get("file")
         source_asset = None
         if not upload and request.data.get("asset_id"):
@@ -1266,10 +1578,20 @@ class MusicImportEndpoint(MusicBaseView):
         relations_mode = request.data.get("relations_mode", "merge")
         if relations_mode not in ("merge", "replace"):
             return Response({"relations_mode": ["Use merge or replace"]}, status=status.HTTP_400_BAD_REQUEST)
+        # What to do with a row whose title matches a song but nothing else
+        # confirms it is the same recording: create it apart (default), treat
+        # it as that song, or leave it out.
+        ambiguous_strategy = request.data.get("ambiguous_strategy", "create")
+        if ambiguous_strategy not in AMBIGUOUS_STRATEGIES:
+            return Response({"ambiguous_strategy": ["Use create, match or skip"]}, status=status.HTTP_400_BAD_REQUEST)
+        blank_cells = request.data.get("blank_cells", "keep")
+        if blank_cells not in BLANK_CELL_MODES:
+            return Response({"blank_cells": ["Use keep or clear"]}, status=status.HTTP_400_BAD_REQUEST)
         # Off by default: a file row only matches PRE-EXISTING records, so rows
         # that share an identifier within the file don't collapse into one.
         dedupe_within_file = str(request.data.get("dedupe_within_file", "false")).lower() == "true"
         dry_run = str(request.data.get("dry_run", "false")).lower() == "true"
+        stream = str(request.data.get("stream", "false")).lower() == "true"
         invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
         try:
             row_overrides = json.loads(request.data.get("row_overrides", "{}"))
@@ -1281,165 +1603,219 @@ class MusicImportEndpoint(MusicBaseView):
                 {"invalid_row_strategy": ["Use abort or skip"]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = {
-            "total": len(rows),
-            "created": 0,
-            "updated": 0,
-            "skipped": 0,
-            "errors": [],
-            "invalid_row_strategy": invalid_row_strategy,
-            "aborted": False,
-        }
-        unparseable = {}
-        touched = []
-        run_created_ids = set()
+        sheet = request.data.get("sheet")
+        user = request.user
 
-        with transaction.atomic():
-            for index, row in enumerate(rows, start=header_row + 1):
-                effective_row, effective_mapping = _apply_row_overrides(
-                    row, mapping, row_overrides.get(str(index), {})
-                )
-                effective_row, skip_row = _apply_overrides(effective_row, effective_mapping, value_overrides)
-                if skip_row:
-                    result["skipped"] += 1
-                    continue
-                if dry_run:
-                    for field, token in _collect_unparsed(effective_row, effective_mapping).items():
-                        tokens = unparseable.setdefault(field, {})
-                        tokens[token] = tokens.get(token, 0) + 1
-                try:
-                    # Keep every row in its own savepoint. A database or validation
-                    # error must not leave the remaining spreadsheet transaction aborted.
-                    with transaction.atomic():
-                        outcome, track = self._import_row(
-                            workspace, effective_row, effective_mapping, strategy, defaults, dedupe_by,
-                            relations_mode=relations_mode,
-                            exclude_ids=None if dedupe_within_file else run_created_ids,
-                        )
-                    result[outcome] += 1
-                    if outcome == "created" and track is not None:
-                        run_created_ids.add(track.id)
-                    if track is not None:
-                        touched.append((track.id, outcome, index))
-                except Exception as exc:
-                    detail = _import_error_detail(index, exc, effective_row, effective_mapping)
-                    result["errors"].append(detail)
-                    if detail["code"] == "DATABASE_NOT_READY":
-                        break
-            aborted = result["errors"] and invalid_row_strategy == "abort"
-            if not dry_run and not aborted:
-                # Provenance: persist the source file itself + run + per-track
-                # links. Re-importing the SAME file (stored asset, or same name
-                # and size) reuses the asset so the filter shows one entry per file.
-                upload.seek(0)
-                content = upload.read()
-                file_asset = source_asset or FileAsset.objects.filter(
-                    workspace=workspace,
-                    entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
-                    attributes__music_asset_kind="IMPORT_SOURCE",
-                    attributes__name=upload.name,
-                    size=len(content),
-                    is_deleted=False,
-                ).first()
-                if file_asset is None:
-                    from plane.settings.storage import S3Storage
+        def execute():
+            """Runs the import, yielding (event, payload). Validation and an
+            aborted import roll everything back; a successful apply commits
+            and records which file each track came from.
 
-                    asset_key = f"{workspace.id}/music-imports/{timezone.now().strftime('%Y%m%d%H%M%S')}-{upload.name}"
-                    storage = S3Storage()
-                    storage.s3_client.put_object(
-                        Bucket=storage.aws_storage_bucket_name, Key=asset_key, Body=content
-                    )
-                    file_asset = FileAsset.objects.create(
-                        workspace=workspace,
-                        entity_type=FileAsset.EntityTypeContext.MUSIC_CATALOG,
-                        attributes={
-                            "name": upload.name,
-                            "type": getattr(upload, "content_type", "") or "text/csv",
-                            "size": len(content),
-                            "music_asset_kind": "IMPORT_SOURCE",
-                            "upload_source": "manual",
-                        },
-                        asset=asset_key,
-                        size=len(content),
-                        is_uploaded=True,
-                        created_by=request.user,
-                    )
-                run = _record_import_run(
+            A streamed response is iterated after the view has returned, when
+            the per-request current user (crum) is already cleared — every
+            record would lose its author. `impersonate` restores it for the run.
+            """
+            with impersonate(user if getattr(user, "is_authenticated", False) else None), transaction.atomic():
+                result, touched = None, []
+                for event in run_import(
+                    self,
                     workspace,
-                    file_asset=file_asset,
-                    source_name=upload.name,
-                    source="MANUAL",
-                    sheet=request.data.get("sheet"),
-                    # The FULL panel configuration, so a re-import can restore
-                    # it and the user only touches what changed.
-                    rules={
-                        "mapping": mapping,
-                        "duplicate_strategy": strategy,
-                        "dedupe_by": dedupe_by,
-                        "relations_mode": relations_mode,
-                        "dedupe_within_file": dedupe_within_file,
-                        "value_overrides": value_overrides,
-                        "row_overrides": row_overrides,
-                        "invalid_row_strategy": invalid_row_strategy,
-                        "defaults": defaults,
-                    },
-                    summary={k: result[k] for k in ("total", "created", "updated", "skipped")},
-                    touched=touched,
-                )
-                result["import_run_id"] = str(run.id)
-            if dry_run or aborted:
-                transaction.set_rollback(True)
-                result["aborted"] = bool(aborted)
-        if dry_run:
-            result["unparseable"] = {
-                field: [{"value": token, "count": count} for token, count in tokens.items()]
-                for field, tokens in unparseable.items()
-            }
-        return Response(result, status=status.HTTP_200_OK if not result["errors"] else status.HTTP_207_MULTI_STATUS)
+                    rows,
+                    header_row,
+                    mapping,
+                    strategy=strategy,
+                    dedupe_by=dedupe_by,
+                    relations_mode=relations_mode,
+                    dedupe_within_file=dedupe_within_file,
+                    defaults=defaults,
+                    row_overrides=row_overrides,
+                    value_overrides=value_overrides,
+                    ambiguous_strategy=ambiguous_strategy,
+                    blank_cells=blank_cells,
+                    dry_run=dry_run,
+                ):
+                    if event[0] == "result":
+                        _, result, touched = event
+                    else:
+                        yield event
+                result["invalid_row_strategy"] = invalid_row_strategy
+                aborted = bool(result["errors"]) and invalid_row_strategy == "abort"
+                result["aborted"] = aborted
+                if not dry_run and not aborted:
+                    run = _record_import_run(
+                        workspace,
+                        file_asset=source_asset or _store_import_source(workspace, upload),
+                        source_name=upload.name,
+                        source="MANUAL",
+                        sheet=sheet,
+                        # The FULL configuration, so a re-import can restore it
+                        # and the user only touches what changed.
+                        rules={
+                            "mapping": mapping,
+                            "duplicate_strategy": strategy,
+                            "dedupe_by": dedupe_by,
+                            "relations_mode": relations_mode,
+                            "dedupe_within_file": dedupe_within_file,
+                            "ambiguous_strategy": ambiguous_strategy,
+                            "blank_cells": blank_cells,
+                            "value_overrides": value_overrides,
+                            "row_overrides": row_overrides,
+                            "invalid_row_strategy": invalid_row_strategy,
+                            "defaults": defaults,
+                        },
+                        summary={key: result.get(key, 0) for key in SUMMARY_KEYS},
+                        touched=touched,
+                    )
+                    result["import_run_id"] = str(run.id)
+                if dry_run or aborted:
+                    transaction.set_rollback(True)
+            yield "result", result
+
+        if not stream:
+            result = None
+            for event, payload in execute():
+                if event == "result":
+                    result = payload
+            return Response(
+                result, status=status.HTTP_200_OK if not result["errors"] else status.HTTP_207_MULTI_STATUS
+            )
+
+        def events():
+            try:
+                for event, payload in execute():
+                    yield _sse(event, payload)
+            except Exception as exc:
+                log_exception(exc)
+                yield _sse("error", {"error": _import_error_message(exc)})
+
+        response = StreamingHttpResponse(events(), content_type="text/event-stream")
+        # Progress must not be buffered by intermediaries (nginx) or caches
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    @staticmethod
+    def _find_existing(workspace, row, mapping, title, isrc, dedupe_by, exclude_ids=None):
+        """The existing song this row refers to, and how sure that is.
+
+        Returns (track, match). `match` is None when nothing matched, otherwise
+        {"by": <identifier>, "track_id", "title", "isrc"}; by == "ambiguous"
+        means a same-titled song exists but nothing else confirms it is the
+        same recording — the caller decides through `ambiguous_strategy`
+        instead of silently treating it as a duplicate.
+
+        Dedupe runs against SONGS only: music-video children share the parent's
+        title, so an unfiltered title match could wrongly hit the video.
+        `exclude_ids` holds records CREATED earlier in this same import: when
+        de-duplication within the file is off, two file rows sharing an
+        identifier must not collapse into the first row's new track.
+        """
+        # Oldest first: with several songs sharing an identifier, rows claim
+        # them in a stable order run after run. Claimed songs are skipped in
+        # Python, not with NOT IN: the identifier narrows each lookup to a
+        # handful of rows, while the claimed set grows to the whole file.
+        songs = MusicTrack.objects.filter(workspace=workspace, parent_track__isnull=True).order_by("created_at")
+        excluded = exclude_ids or ()
+
+        def first(queryset):
+            return next((track for track in queryset.iterator() if track.id not in excluded), None)
+
+        def found(track, by):
+            if track is None:
+                return None, None
+            return track, {"by": by, "track_id": str(track.id), "title": track.title, "isrc": track.isrc}
+
+        if dedupe_by == "none":
+            return None, None
+        if dedupe_by == "isrc":
+            return found(first(songs.filter(isrc__iexact=isrc)) if isrc else None, "isrc")
+        if dedupe_by == "title":
+            # Explicitly chosen by the user: the title alone defines a duplicate.
+            return found(first(songs.filter(title__iexact=title)), "title")
+        if dedupe_by == "catalog":
+            catalog = _mapped(row, mapping, "track.catalog")
+            return found(first(songs.filter(catalog__iexact=catalog)) if catalog else None, "catalog")
+        if dedupe_by == "upc":
+            upc = _mapped(row, mapping, "track.upc")
+            return found(first(songs.filter(upc__iexact=upc)) if upc else None, "upc")
+
+        # auto. An ISRC identifies one recording: when the row carries one it
+        # is the only thing allowed to match — a same-titled song with another
+        # ISRC is a different recording (covers, re-recordings, the countless
+        # "Feliz Navidad"), never a duplicate.
+        if isrc:
+            return found(first(songs.filter(isrc__iexact=isrc)), "isrc")
+        same_title = songs.filter(title__iexact=title)
+        original = _mapped_date(row, mapping, "track.original_release_date")
+        artists = [name for value in _mapped_many(row, mapping, "artists") for name in _split(value)]
+        if artists:
+            artist_filter = Q()
+            for name in artists:
+                artist_filter |= Q(display_name__iexact=name)
+            confirmed = same_title.filter(
+                credits__role=MusicCredit.Role.PRIMARY_ARTIST,
+                credits__party__in=MusicParty.objects.filter(workspace=workspace).filter(artist_filter),
+            )
+            if original:
+                confirmed = confirmed.filter(original_release_date=original)
+            track = first(confirmed.distinct())
+            if track:
+                return found(track, "title_artist")
+        elif original:
+            track = first(same_title.filter(original_release_date=original))
+            if track:
+                return found(track, "title_date")
+        candidate = first(same_title)
+        if candidate is None:
+            return None, None
+        return None, {
+            "by": "ambiguous",
+            "track_id": str(candidate.id),
+            "title": candidate.title,
+            "isrc": candidate.isrc,
+        }
+
+    @staticmethod
+    def _track_state(track, mapping):
+        """Everything an import can change on a track: its mapped scalar
+        fields and how many relations hang off it. Compared before and after
+        an update to tell a real change from a no-op."""
+        fields = tuple(
+            getattr(track, key.split(".", 1)[1], None) for key in sorted(mapping) if key.startswith("track.")
+        )
+        counts = MusicTrack.objects.filter(id=track.id).aggregate(
+            credits=Count("credits", filter=Q(credits__deleted_at__isnull=True), distinct=True),
+            genres=Count("genre_links", filter=Q(genre_links__deleted_at__isnull=True), distinct=True),
+            distributions=Count("distributions", filter=Q(distributions__deleted_at__isnull=True), distinct=True),
+            releases=Count("release_links", filter=Q(release_links__deleted_at__isnull=True), distinct=True),
+            links=Count("links", filter=Q(links__deleted_at__isnull=True), distinct=True),
+        )
+        return fields, tuple(sorted(counts.items()))
 
     def _import_row(
         self, workspace, row, mapping, strategy, defaults=None, dedupe_by="auto", relations_mode="merge",
-        exclude_ids=None,
+        exclude_ids=None, ambiguous_strategy="create", blank_cells="keep",
     ):
+        """Imports one spreadsheet row. Returns (outcome, track, match):
+        outcome is created | updated | unchanged | skipped, and `match`
+        describes the existing song the row was matched to (_find_existing)."""
         title = _mapped(row, mapping, "track.title")
         if not title:
             raise ValueError("Track title is empty")
+        _check_lengths(row, mapping)
         isrc = _mapped(row, mapping, "track.isrc").upper().replace("-", "")
-        # Dedupe against SONGS only: music-video children share the parent's
-        # title, so an unfiltered title match could wrongly hit the video.
-        # `dedupe_by` lets the user pick WHICH identifier defines a duplicate
-        # ("none" = always create, even with identical titles).
-        # `exclude_ids` holds records CREATED earlier in this same import: when
-        # de-duplication within the file is off, two file rows sharing a title
-        # must not collapse — each becomes its own record instead of the second
-        # one "matching" the first row's freshly-created track.
-        songs = MusicTrack.objects.filter(workspace=workspace, parent_track__isnull=True)
-        if exclude_ids:
-            songs = songs.exclude(id__in=exclude_ids)
-        track = None
-        if dedupe_by == "none":
-            track = None
-        elif dedupe_by == "isrc":
-            track = songs.filter(isrc__iexact=isrc).first() if isrc else None
-        elif dedupe_by == "title":
-            track = songs.filter(title__iexact=title).first()
-        elif dedupe_by == "catalog":
-            catalog = _mapped(row, mapping, "track.catalog")
-            track = songs.filter(catalog__iexact=catalog).first() if catalog else None
-        elif dedupe_by == "upc":
-            upc = _mapped(row, mapping, "track.upc")
-            track = songs.filter(upc__iexact=upc).first() if upc else None
-        else:  # auto: ISRC first, then title + original release date
-            track = songs.filter(isrc__iexact=isrc).first() if isrc else None
-            if not track:
-                track = songs.filter(
-                    title__iexact=title,
-                    original_release_date=_mapped_date(row, mapping, "track.original_release_date"),
-                ).first()
+        track, match = self._find_existing(workspace, row, mapping, title, isrc, dedupe_by, exclude_ids)
+        if match and match["by"] == "ambiguous":
+            # A same-titled song that nothing else confirms: the user decides.
+            if ambiguous_strategy == "skip":
+                return "skipped", None, match
+            if ambiguous_strategy == "match":
+                track = MusicTrack.objects.get(id=match["track_id"])
         if track and strategy == "skip":
-            return "skipped", track
+            return "skipped", track, match
         if track and strategy == "error":
             raise ValueError(f"Duplicate track: {isrc or title}")
+        before = self._track_state(track, mapping) if track else None
 
         values = {
             "title": title,
@@ -1467,11 +1843,28 @@ class MusicImportEndpoint(MusicBaseView):
             "artist_percentage": _decimal(_mapped(row, mapping, "track.artist_percentage")),
             "writer_percentage": _decimal(_mapped(row, mapping, "track.writer_percentage")),
         }
+        # A value that names no valid choice was listed for a decision; until
+        # then an existing song keeps what it has (a new one takes the default).
+        undecided = {
+            field.split(".")[1]
+            for field in ("track.kind", "track.status")
+            if _mapped(row, mapping, field)
+            and _choice_value(_mapped(row, mapping, field), CHOICE_FIELDS[field]) is None
+        }
         if track:
+            changed = False
             for key, value in values.items():
-                if f"track.{key}" in mapping:
+                if f"track.{key}" not in mapping or key in undecided:
+                    continue
+                # An empty cell only erases what the song has when the user
+                # chose so; by default it leaves the current value alone.
+                if blank_cells == "keep" and not _mapped(row, mapping, f"track.{key}"):
+                    continue
+                if getattr(track, key) != value:
                     setattr(track, key, value)
-            track.save()
+                    changed = True
+            if changed:
+                track.save()
             outcome = "updated"
         else:
             track = MusicTrack.objects.create(workspace=workspace, **values)
@@ -1490,7 +1883,9 @@ class MusicImportEndpoint(MusicBaseView):
                 release = MusicRelease.objects.create(
                     workspace=workspace,
                     title=release_title,
-                    release_type=_mapped(row, mapping, "release.type") or MusicRelease.Type.ALBUM,
+                    release_type=_choice(
+                        _mapped(row, mapping, "release.type"), MusicRelease.Type.choices, MusicRelease.Type.ALBUM
+                    ),
                     upc=upc,
                     catalog_number=_mapped(row, mapping, "release.catalog_number"),
                     release_date=_mapped_date(row, mapping, "release.release_date"),
@@ -1524,7 +1919,7 @@ class MusicImportEndpoint(MusicBaseView):
         for field, (kind, role) in role_fields.items():
             produced_parties = set()
             for value in _mapped_many(row, mapping, field):
-                for name in _split(value):
+                for name in _names_for(value, field):
                     party = _party(workspace, name, kind)
                     produced_parties.add(party.id)
                     _restore_or_create(MusicCredit, workspace, {"track": track, "party": party, "role": role})
@@ -1561,7 +1956,11 @@ class MusicImportEndpoint(MusicBaseView):
                 _prune(track.distributions.filter(company__kind=kind).exclude(company_id__in=produced_companies))
         self._import_links(workspace, track, row, mapping, values, replace_relations)
         self._apply_defaults(workspace, track, release, defaults or {})
-        return outcome, track
+        if before is not None:
+            track.refresh_from_db()
+            if self._track_state(track, mapping) == before:
+                outcome = "unchanged"
+        return outcome, track, match
 
     @staticmethod
     def _import_links(workspace, track, row, mapping, values, replace_relations=False):
