@@ -272,6 +272,10 @@ export function useImportFlow(workspaceSlug: string) {
       const controller = new AbortController();
       abortRef.current = controller;
       const keyAtStart = configKey;
+      // From the moment an import is launched the stored file is never
+      // discarded automatically: if the connection drops after the server
+      // saved everything, the page can't tell — the file must stay linked.
+      if (!dryRun) unusedUploadRef.current = undefined;
       setPhase(dryRun ? "validating" : "importing");
       setProgress({
         processed: 0,
@@ -314,8 +318,6 @@ export function useImportFlow(workspaceSlug: string) {
           setReview(result);
           setReviewKey(keyAtStart);
         } else {
-          // Even a stopped import links its rows to the file: keep it.
-          unusedUploadRef.current = undefined;
           setApplied(result);
         }
         return result;
