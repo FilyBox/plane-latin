@@ -4,7 +4,8 @@
  * See the LICENSE file for details.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Download, Loader2, MoreHorizontal, Plus, RefreshCw, Search, Tags } from "lucide-react";
 import useSWR, { useSWRConfig } from "swr";
 import { useTranslation } from "@plane/i18n";
@@ -56,6 +57,25 @@ export function ExpensesTab({
   const [sort, setSort] = useState("date_desc");
   const [limit, setLimit] = useState(PAGE);
   const [editing, setEditing] = useState<TExpense | null | undefined>(undefined);
+  // ?expense=<id> arrives from a mention or a shared tag: open that expense.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const linked = searchParams.get("expense");
+    if (!linked) return;
+    void financeService
+      .getExpense(workspaceSlug, linked)
+      .then(setEditing)
+      .catch(() => undefined);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("expense");
+        return next;
+      },
+      { replace: true }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [deleting, setDeleting] = useState<TExpense | null>(null);
   const [busy, setBusy] = useState(false);

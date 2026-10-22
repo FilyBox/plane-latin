@@ -1267,5 +1267,21 @@
       "no_matches": "Sin coincidencias",
       "create": "Crear «{name}»"
     }
+  },
+  "music_catalog": {
+    "action_bar": {
+      "selected": "{count, plural, one {# seleccionada} other {# seleccionadas}}",
+      "selecting": "Seleccionando…",
+      "select_all": "Seleccionar las {count} con filtros",
+      "select_all_short": "Todas ({count})",
+      "download": "Descargar XLSX",
+      "delete": "Eliminar",
+      "clear": "Quitar selección",
+      "page": "Página",
+      "go_to_page": "Ir a página",
+      "of_pages": "de {count}",
+      "previous": "Página anterior",
+      "next": "Página siguiente"
+    }
   }
 }

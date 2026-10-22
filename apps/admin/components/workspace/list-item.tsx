@@ -13,6 +13,7 @@ import { NewTabIcon } from "@plane/propel/icons";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";
 import { ToggleSwitch } from "@plane/ui";
+import type { TWorkspaceFeatureKey } from "@plane/services";
 import { getFileURL } from "@plane/utils";
 // hooks
 import { useWorkspace } from "@/hooks/store";
@@ -23,17 +24,13 @@ type TWorkspaceListItemProps = {
 
 export const WorkspaceListItem = observer(function WorkspaceListItem({ workspaceId }: TWorkspaceListItemProps) {
   // states
-  const [updatingFeature, setUpdatingFeature] = useState<"file_library" | "payments" | "music_catalog" | null>(null);
+  const [updatingFeature, setUpdatingFeature] = useState<TWorkspaceFeatureKey | null>(null);
   // store hooks
   const { getWorkspaceById, updateWorkspaceFeature } = useWorkspace();
   // derived values
   const workspace = getWorkspaceById(workspaceId);
 
-  const handleFeatureToggle = async (
-    key: "file_library" | "payments" | "music_catalog",
-    currentValue: boolean | undefined,
-    label: string
-  ) => {
+  const handleFeatureToggle = async (key: TWorkspaceFeatureKey, currentValue: boolean | undefined, label: string) => {
     if (!workspace || updatingFeature) return;
     const nextValue = !currentValue;
     setUpdatingFeature(key);
@@ -158,6 +155,17 @@ export const WorkspaceListItem = observer(function WorkspaceListItem({ workspace
                 onChange={() =>
                   handleFeatureToggle("music_catalog", workspace.is_music_catalog_enabled, "Music catalog")
                 }
+                size="sm"
+                disabled={updatingFeature !== null}
+              />
+            </div>
+          </Tooltip>
+          <Tooltip tooltipContent="Mention, attach and share tags across contracts, music, files, budgets and work items">
+            <div className={`flex items-center gap-2 ${updatingFeature === "references" ? "opacity-70" : ""}`}>
+              <span className="text-11 font-medium text-secondary">References</span>
+              <ToggleSwitch
+                value={Boolean(workspace.is_references_enabled)}
+                onChange={() => handleFeatureToggle("references", workspace.is_references_enabled, "References")}
                 size="sm"
                 disabled={updatingFeature !== null}
               />

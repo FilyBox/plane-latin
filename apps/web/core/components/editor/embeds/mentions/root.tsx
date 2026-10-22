@@ -7,11 +7,18 @@
 // plane web imports
 import type { TEditorMentionComponentProps } from "@/plane-web/components/editor/embeds/mentions";
 import { EditorAdditionalMentionsRoot } from "@/plane-web/components/editor/embeds/mentions";
+// references
+import { EntityMentionChip } from "@/components/references/entity-chip";
+import { isEntityName } from "@/components/references/entity-meta";
 // local imports
 import { EditorUserMention } from "./user";
 
 export function EditorMentionsRoot(props: TEditorMentionComponentProps) {
   const { entity_identifier, entity_name } = props;
+
+  // Contracts, songs, files… registered for cross-module references.
+  if (entity_name !== "user_mention" && isEntityName(entity_name) && entity_identifier)
+    return <EntityMentionChip entity_name={entity_name} id={entity_identifier} />;
 
   switch (entity_name) {
     case "user_mention":

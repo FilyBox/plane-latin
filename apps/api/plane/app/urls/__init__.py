@@ -22,6 +22,7 @@ from .notification import urlpatterns as notification_urls
 from .page import urlpatterns as page_urls
 from .project import urlpatterns as project_urls
 from .search import urlpatterns as search_urls
+from .references import urlpatterns as reference_urls
 from .state import urlpatterns as state_urls
 from .user import urlpatterns as user_urls
 from .views import urlpatterns as view_urls
@@ -41,6 +42,7 @@ urlpatterns = [
     *file_library_urls,
     *finance_urls,
     *music_urls,
+    *reference_urls,
     *assistant_urls,
     *payroll_urls,
     *intake_urls,

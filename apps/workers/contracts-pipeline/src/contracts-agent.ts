@@ -69,7 +69,7 @@ const truncate = (value: string | null | undefined, max: number): string | null 
 };
 
 /** Drops null/empty keys so tool JSON stays small in the model's context. */
-function compact<T extends Record<string, unknown>>(row: T): Partial<T> {
+export function compact<T extends Record<string, unknown>>(row: T): Partial<T> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {
     if (value === null || value === undefined || value === "") continue;
@@ -129,7 +129,7 @@ function modelLists(env: Env) {
  * default whenever that list was reordered. The provider preference remains
  * the fallback when no explicit default is configured.
  */
-function defaultModelId(env: Env): string | null {
+export function defaultModelId(env: Env): string | null {
   const lists = modelLists(env);
   const declared = [...lists.deepseek, ...lists.gemini];
   const configured = env.CHAT_DEFAULT_MODEL?.trim();
@@ -140,7 +140,7 @@ function defaultModelId(env: Env): string | null {
   return preferred ?? declared[0] ?? null;
 }
 
-function pickModel(env: Env, requested?: string | null): { model: LanguageModel; id: string } {
+export function pickModel(env: Env, requested?: string | null): { model: LanguageModel; id: string } {
   const gemini = createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY });
   const deepseek = createDeepSeek({ apiKey: env.DEEPSEEK_API_KEY });
   const lists = modelLists(env);
@@ -228,7 +228,7 @@ const searchFilterSchema = {
   tags: z.array(z.string()).max(6).optional().describe("Nombres exactos de tags del workspace"),
 };
 
-function buildTools(env: Env, body: ContractsAgentRequest) {
+export function buildTools(env: Env, body: ContractsAgentRequest) {
   const api = internalApi(env);
   const workspace = body.workspace_id;
   const tools: ToolSet = {};
@@ -556,7 +556,7 @@ function buildTools(env: Env, body: ContractsAgentRequest) {
  * while a misconfigured one is not. This keeps that distinction without
  * echoing provider or infrastructure detail back to the browser.
  */
-function publicStreamError(error: unknown): string {
+export function publicStreamError(error: unknown): string {
   const detail = String(error instanceof Error ? error.message : error);
   if (/429|rate.?limit|quota|RESOURCE_EXHAUSTED/i.test(detail)) {
     return "El servicio de IA está saturado ahora mismo. Espera unos segundos y reintenta, o cambia de modelo en el selector.";
@@ -582,7 +582,7 @@ function publicStreamError(error: unknown): string {
  * turn alive. The message stays generic — tool failures are internal-API
  * failures and their detail belongs in the Worker log, not the transcript.
  */
-function resilient(tools: ToolSet): ToolSet {
+export function resilient(tools: ToolSet): ToolSet {
   const guarded: ToolSet = {};
   for (const [name, definition] of Object.entries(tools)) {
     const execute = definition.execute as ((input: unknown, options: unknown) => Promise<unknown>) | undefined;

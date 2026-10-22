@@ -1,0 +1,160 @@
+{
+  "references": {
+    "types": {
+      "issue": "Work item",
+      "page": "Page",
+      "file": "File",
+      "contract": "Contract",
+      "music_track": "Song",
+      "music_release": "Release",
+      "music_artist": "Artist",
+      "budget": "Budget",
+      "expense": "Expense"
+    },
+    "groups": {
+      "issue": "Work items",
+      "page": "Pages",
+      "file": "Files",
+      "contract": "Contracts",
+      "music_track": "Songs",
+      "music_release": "Releases",
+      "music_artist": "Artists",
+      "budget": "Budgets",
+      "expense": "Expenses"
+    },
+    "restricted": "Restricted item",
+    "restricted_help": "It exists, but you don't have access to that module.",
+    "missing": "Deleted item",
+    "missing_help": "It no longer exists.",
+    "attach": "Reference",
+    "detach": "Remove attachment",
+    "in_comment": "in a comment",
+    "kind": {
+      "mention": "Mentioned",
+      "attachment": "Attached"
+    },
+    "picker": {
+      "placeholder": "Search contracts, songs, files, work items…",
+      "all": "All",
+      "no_results": "Nothing matches this search.",
+      "start": "Type to search the whole workspace.",
+      "attached": "Attached"
+    },
+    "section": {
+      "title": "References",
+      "outgoing": "Mentions and attachments",
+      "backlinks": "Referenced in",
+      "empty": "No references yet."
+    },
+    "toasts": {
+      "attached": "{name} is now referenced",
+      "error": "Couldn't save. Try again."
+    },
+    "tags": {
+      "title": "Tags",
+      "workspace_tag": "workspace tag",
+      "remove": "Remove {name}",
+      "project_group": "Project",
+      "workspace_group": "Workspace",
+      "create_workspace": "+ Create “{name}” as a workspace tag",
+      "add": "Add tag",
+      "search": "Search tags…",
+      "empty": "No tags yet.",
+      "delete_title": "Delete tag",
+      "delete_body": "It will be removed from everything that has it. The items themselves stay.",
+      "pick_title": "Pick a tag",
+      "pick_body": "You'll see everything carrying it across contracts, files, music, work items and expenses, ready to download.",
+      "total": "{count} items",
+      "narrow": "Type:",
+      "nothing_tagged": "Nothing carries this tag yet.",
+      "more": "and {count} more",
+      "mentioned_in": "Mentioned in",
+      "search_in": "Search in {name}…",
+      "any_date": "Any date",
+      "custom_range": "Date range…",
+      "date_label": "Date",
+      "date_help": "Music uses the release date, expenses the expense date, contracts the start date and everything else the creation date.",
+      "from": "From",
+      "to": "To",
+      "clear": "Clear",
+      "matching": "{count} of {total} match",
+      "no_matches": "Nothing matches this search or these dates.",
+      "see_all": "See all {count}",
+      "load_more": "Load more",
+      "showing": "Showing {shown} of {count}"
+    },
+    "tag_kinds": {
+      "artist": "Artist",
+      "group": "Group",
+      "person": "Person",
+      "type": "Type",
+      "custom": "Custom"
+    },
+    "export": {
+      "all": "Download everything",
+      "type": "Download {type}",
+      "started": "Preparing the download…",
+      "ready": "Download ready",
+      "failed": "Couldn't prepare the download.",
+      "filtered": "Download results"
+    },
+    "ai": {
+      "open": "Map with AI",
+      "title": "Map with AI",
+      "description": "AI reads contracts, files, work items and expenses and proposes whose each thing is and what it is. You review before applying.",
+      "what": "What to review",
+      "music_note": "Music isn't needed: songs and releases are already tied to their artist through credits.",
+      "how": "Several agents review each kind at the same time. They propose artist and type tags (cover art, publishing contract, invoice…) and spot names spelled several ways. Nothing is applied without your review, and every applied mapping can be undone.",
+      "start": "Review {count} items",
+      "start_failed": "Couldn't start the mapping.",
+      "reading": "Reading items… {done} of {total}",
+      "normalizing": "Unifying names…",
+      "can_close": "You can close this panel: the mapping keeps going and the result will be here to review.",
+      "nothing": "The AI found nothing new to propose.",
+      "merges": "Unify names",
+      "merges_help": "Tags that look like the same artist spelled several ways. Unifying them puts everything under one name.",
+      "absorbs": "Absorbs: {names}",
+      "apply": "Apply {count} changes",
+      "discard": "Discard",
+      "applied": "Mapping applied",
+      "discarded": "Mapping discarded",
+      "history": "Previous mappings",
+      "applied_count": "{count} tags applied",
+      "undo": "Undo",
+      "undone": "Mapping undone",
+      "status": {
+        "queued": "Queued",
+        "running": "Running",
+        "review": "Ready for review",
+        "completed": "Applied",
+        "failed": "Failed",
+        "cancelled": "Discarded",
+        "undone": "Undone"
+      },
+      "auto_review": "Proposals for the {count} files uploaded recently. Review and apply what is right.",
+      "auto_label": "new files",
+      "to_review": "To review"
+    },
+    "preview": {
+      "details": "Tags and references"
+    },
+    "filters": {
+      "workspace_tag": "Workspace tag"
+    },
+    "bulk": {
+      "trigger": "Tag",
+      "add_mode": "Add",
+      "remove_mode": "Remove",
+      "added": "“{name}” added to {count} {items}",
+      "removed": "“{name}” removed from {count} {items}",
+      "already": "{count} were already that way.",
+      "create_and_add": "+ Create “{name}” and add it to {count}",
+      "hint_add": "Added to the {count} selected {items}.",
+      "hint_remove": "Removed from the {count} selected {items}.",
+      "items": {
+        "music_track": "songs",
+        "music_release": "releases"
+      }
+    }
+  }
+}

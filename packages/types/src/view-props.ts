@@ -103,6 +103,8 @@ export const WORK_ITEM_FILTER_PROPERTY_KEYS = [
   "created_by_id",
   "subscriber_id",
   "label_id",
+  // Workspace tags shared across modules (entity_tag_links).
+  "shared_tag_id",
   "state_id",
   "cycle_id",
   "module_id",

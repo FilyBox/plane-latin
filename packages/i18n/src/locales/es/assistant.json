@@ -1,0 +1,210 @@
+{
+  "assistant": {
+    "title": "Asistente",
+    "open": "Abrir asistente",
+    "close": "Cerrar asistente",
+    "shortcut": "Ctrl J",
+    "new_chat": "Nuevo chat",
+    "history": "Conversaciones",
+    "no_chats": "Aún no hay conversaciones.",
+    "untitled": "Conversación sin título",
+    "delete_chat": "Eliminar conversación",
+    "resize": "Arrastra para cambiar el ancho",
+    "load_failed": "No se pudo abrir la conversación.",
+    "not_saved": "La respuesta no se guardó en el historial.",
+    "copy": "Copiar respuesta",
+    "retry": "Reintentar",
+    "edit": "Editar mensaje",
+    "thinking": "Pensando…",
+    "reasoning": "Razonamiento",
+    "empty": {
+      "title": "¿En qué te ayudo?",
+      "description": "Busca en contratos, música, etiquetas y tareas, o adjunta un archivo para importarlo al catálogo."
+    },
+    "suggestions": {
+      "contracts_expiring": "¿Qué contratos vencen este año?",
+      "contracts_by_status": "¿Cuántos contratos hay por estatus?",
+      "contracts_mention": "¿Qué contratos mencionan regalías?",
+      "music_year": "Canciones lanzadas este año",
+      "music_videos": "¿Qué canciones no tienen video?",
+      "tag_summary": "Resume todo lo que tiene la etiqueta {name}",
+      "tag_releases": "¿Qué lanzamientos tiene {name} este año?",
+      "item_summary": "Resume {name}",
+      "item_references": "¿Dónde se menciona {name}?",
+      "selection": "¿Qué tienen en común estas {count} canciones?",
+      "workspace": "¿Qué etiquetas son las más usadas?"
+    },
+    "composer": {
+      "placeholder": "Pregunta o pide algo…",
+      "attach": "Adjuntar CSV o Excel para importar",
+      "send": "Enviar (Enter)",
+      "stop": "Detener",
+      "model": "Modelo",
+      "remove_context": "Quitar {name} del contexto",
+      "context_hint": "El asistente sabe qué estás viendo"
+    },
+    "context": {
+      "tag": "Etiqueta",
+      "work_item": "Elemento de trabajo",
+      "selection": "{count} seleccionados"
+    },
+    "attachments": {
+      "download": "Descargar archivo",
+      "remove": "Quitar archivo"
+    },
+    "steps": {
+      "working": "Trabajando…",
+      "summary": "{count, plural, one {# paso} other {# pasos}} · {duration}",
+      "failed": "falló",
+      "results": "{count, plural, one {# resultado} other {# resultados}}",
+      "of_total": "{shown} de {total}",
+      "groups": "{count, plural, one {# grupo} other {# grupos}} · {total} contratos",
+      "scan": "{matched} de {scanned} coinciden",
+      "file": "{rows} filas · {columns} columnas",
+      "documents": "{count, plural, one {# documento} other {# documentos}}",
+      "fragments": "{count, plural, one {# fragmento} other {# fragmentos}}",
+      "tags": "{count, plural, one {# etiqueta} other {# etiquetas}}",
+      "references": "{refs} mencionados · {backlinks} lo mencionan",
+      "list_known_names": {
+        "running": "Revisando cómo se escriben los nombres",
+        "done": "Revisó los nombres"
+      },
+      "find_contracts": {
+        "running": "Buscando contratos",
+        "done": "Buscó contratos"
+      },
+      "search_contract_text": {
+        "running": "Buscando en el texto",
+        "done": "Buscó en el texto"
+      },
+      "read_contract_excerpts": {
+        "running": "Leyendo fragmentos",
+        "done": "Leyó fragmentos"
+      },
+      "get_contract_details": {
+        "running": "Abriendo fichas",
+        "done": "Abrió fichas"
+      },
+      "summarize_contracts": {
+        "running": "Resumiendo documentos",
+        "done": "Resumió documentos"
+      },
+      "count_contracts": {
+        "running": "Contando contratos",
+        "done": "Contó contratos"
+      },
+      "scan_contracts": {
+        "running": "Leyendo contratos",
+        "done": "Leyó contratos"
+      },
+      "show_documents": {
+        "running": "Preparando documentos",
+        "done": "Documentos"
+      },
+      "query_music_tracks": {
+        "running": "Consultando el catálogo",
+        "done": "Consultó el catálogo"
+      },
+      "export_music_excel": {
+        "running": "Preparando el Excel",
+        "done": "Preparó el Excel"
+      },
+      "list_music_files": {
+        "running": "Buscando archivos",
+        "done": "Buscó archivos"
+      },
+      "read_import_file": {
+        "running": "Leyendo el archivo",
+        "done": "Leyó el archivo"
+      },
+      "plan_music_import": {
+        "running": "Validando el archivo",
+        "done": "Validó el archivo"
+      },
+      "update_music_track": {
+        "running": "Preparando el cambio",
+        "done": "Preparó el cambio"
+      },
+      "find_tags": {
+        "running": "Buscando etiquetas",
+        "done": "Buscó etiquetas"
+      },
+      "find_by_tag": {
+        "running": "Reuniendo la etiqueta",
+        "done": "Reunió la etiqueta"
+      },
+      "search_workspace": {
+        "running": "Buscando en el espacio de trabajo",
+        "done": "Buscó en el espacio de trabajo"
+      },
+      "get_references": {
+        "running": "Revisando referencias",
+        "done": "Revisó referencias"
+      },
+      "ask_user": {
+        "running": "Preguntando",
+        "done": "Preguntó"
+      },
+      "fallback": {
+        "running": "Usando una herramienta",
+        "done": "Usó una herramienta"
+      },
+      "count": "{count, plural, one {# paso} other {# pasos}}"
+    },
+    "export": {
+      "title": "Excel listo",
+      "body": "{count, plural, one {# canción} other {# canciones}} con estos filtros",
+      "download": "Descargar"
+    },
+    "import_plan": {
+      "title": "Plan de importación",
+      "rows": "{count, plural, one {# fila} other {# filas}}",
+      "created": "Nuevas",
+      "updated": "Actualizadas",
+      "unchanged": "Sin cambios",
+      "skipped": "Omitidas",
+      "errors": "Con problemas",
+      "possible_duplicates": "Posibles duplicados",
+      "mapping": "Columnas asignadas",
+      "more": "+{count} más",
+      "first_errors": "Primeros problemas",
+      "row": "Fila {row}",
+      "review": "Revisar e importar",
+      "note": "Nada se importa hasta que lo confirmes en Música, donde puedes ajustar columnas, reglas y duplicados.",
+      "admin_only": "Solo un administrador puede importar al catálogo."
+    },
+    "update": {
+      "title": "Cambio propuesto",
+      "field": "Campo",
+      "before": "Antes",
+      "after": "Después",
+      "approve": "Aplicar cambio",
+      "discard": "Descartar",
+      "applied": "Cambio aplicado",
+      "discarded": "Descartado",
+      "failed": "No se pudo aplicar el cambio.",
+      "multiple": "Coinciden varias canciones",
+      "not_found": "No se encontró la canción",
+      "video_added": "Se agrega un video; los existentes no cambian.",
+      "fields": {
+        "release_date": "Fecha de lanzamiento",
+        "original_release_date": "Fecha original",
+        "isrc": "ISRC",
+        "videos": "Videos",
+        "video_url": "Video nuevo",
+        "video_release_date": "Fecha del video",
+        "video_isrc": "ISRC del video"
+      }
+    },
+    "ask": {
+      "other": "Otra respuesta…",
+      "send": "Responder",
+      "answered": "Respondiste: {answer}"
+    },
+    "errors": {
+      "unavailable": "El asistente no está disponible en este momento. Reintenta en unos segundos.",
+      "forbidden": "El asistente no está activado en este espacio de trabajo.",
+      "generic": "No se pudo enviar el mensaje. Reintenta."
+    }
+  }
+}

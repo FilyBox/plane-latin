@@ -19,10 +19,6 @@ export type TUserMention = {
 export abstract class PageCoreService extends APIService {
   protected abstract basePath: string;
 
-  constructor() {
-    super();
-  }
-
   async fetchDetails(pageId: string): Promise<TPage> {
     try {
       const response = await this.get(`${this.basePath}/pages/${pageId}/`, {
@@ -150,6 +146,38 @@ export abstract class PageCoreService extends APIService {
       });
       logger.error("Failed to fetch user mentions", appError);
       throw appError;
+    }
+  }
+
+  /**
+   * Titles of mentioned workspace entities (contracts, songs, files…), as
+   * the reader is allowed to see them. Empty when references are off.
+   */
+  async fetchEntityTitles(
+    workspaceSlug: string,
+    items: Array<{ entity_name: string; id: string }>
+  ): Promise<Record<string, string>> {
+    if (items.length === 0) return {};
+    try {
+      const response = await this.post(
+        `/api/workspaces/${workspaceSlug}/entities/resolve/`,
+        { items },
+        { headers: this.getHeader() }
+      );
+      const results = (response?.data?.results ?? []) as Array<{
+        entity_name: string;
+        id: string;
+        status: string;
+        title?: string;
+      }>;
+      return Object.fromEntries(
+        results
+          .filter((card) => card.status === "ok" && card.title)
+          .map((card) => [`${card.entity_name}:${card.id}`, card.title as string])
+      );
+    } catch (error) {
+      logger.warn("Could not resolve entity mentions for export", new AppError(error));
+      return {};
     }
   }
 

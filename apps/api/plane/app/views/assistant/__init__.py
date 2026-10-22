@@ -3,3 +3,4 @@
 # See the LICENSE file for details.
 
 from .base import AssistantChatEndpoint, AssistantModelsEndpoint, AssistantMusicImportEndpoint
+from .chats import AssistantChatDetailEndpoint, AssistantChatMessagesEndpoint, AssistantChatsEndpoint

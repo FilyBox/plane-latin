@@ -72,3 +72,6 @@ export const formatElapsed = (milliseconds: number) => {
 
 export const formatDate = (value: string, locale?: string) =>
   new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(new Date(value));
+
+/** Where the assistant leaves its import plan for /music/import?asset=<id>. */
+export const importDraftKey = (assetId: string) => `music-import-draft:${assetId}`;

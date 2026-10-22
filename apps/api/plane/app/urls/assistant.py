@@ -5,6 +5,11 @@
 from django.urls import path
 
 from plane.app.views import AssistantChatEndpoint, AssistantModelsEndpoint, AssistantMusicImportEndpoint
+from plane.app.views.assistant import (
+    AssistantChatDetailEndpoint,
+    AssistantChatMessagesEndpoint,
+    AssistantChatsEndpoint,
+)
 
 urlpatterns = [
     path(
@@ -21,5 +26,16 @@ urlpatterns = [
         "workspaces/<str:slug>/assistant/music-import/",
         AssistantMusicImportEndpoint.as_view(),
         name="assistant-music-import",
+    ),
+    path("workspaces/<str:slug>/assistant/chats/", AssistantChatsEndpoint.as_view(), name="assistant-chats"),
+    path(
+        "workspaces/<str:slug>/assistant/chats/<uuid:chat_id>/",
+        AssistantChatDetailEndpoint.as_view(),
+        name="assistant-chat-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/assistant/chats/<uuid:chat_id>/messages/",
+        AssistantChatMessagesEndpoint.as_view(),
+        name="assistant-chat-messages",
     ),
 ]

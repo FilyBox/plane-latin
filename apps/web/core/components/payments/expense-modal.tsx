@@ -26,6 +26,7 @@ import { SidebarPropertyListItem } from "@/components/common/layout/sidebar/prop
 import { fileLibraryService } from "@/services/file-library.service";
 import { financeService, type TExpenseImport } from "@/services/finance.service";
 // local imports
+import { EntityBacklinks } from "@/components/references/references-section";
 import { AttachmentCard, DocumentAttachments } from "./document-attachments";
 import { FinanceComments } from "./finance-comments";
 import { PaymentsSidePanel } from "./side-panel";
@@ -617,6 +618,15 @@ export function ExpenseModal(props: Props) {
               </div>
             )}
           </section>
+
+          {expense && (
+            <EntityBacklinks
+              workspaceSlug={workspaceSlug}
+              entityName="expense"
+              entityId={expense.id}
+              className="border-t border-subtle pt-5"
+            />
+          )}
 
           <section className="border-t border-subtle pt-5">
             <h3 className="mb-3 flex items-center gap-1.5 text-body-sm-medium">

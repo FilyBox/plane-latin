@@ -149,6 +149,7 @@ export const ISSUE_DISPLAY_FILTERS_BY_PAGE: TIssueFiltersToDisplayByPageType = {
       "assignee_id",
       "created_by_id",
       "label_id",
+      "shared_tag_id",
       "start_date",
       "target_date",
     ],
@@ -172,6 +173,7 @@ export const ISSUE_DISPLAY_FILTERS_BY_PAGE: TIssueFiltersToDisplayByPageType = {
       "priority",
       "state_group",
       "label_id",
+      "shared_tag_id",
       "assignee_id",
       "created_by_id",
       "subscriber_id",
@@ -214,6 +216,7 @@ export const ISSUE_DISPLAY_FILTERS_BY_PAGE: TIssueFiltersToDisplayByPageType = {
       "mention_id",
       "created_by_id",
       "label_id",
+      "shared_tag_id",
       "start_date",
       "target_date",
     ],
@@ -353,9 +356,9 @@ export const filterActivityOnSelectedFilters = (
   activity: TIssueActivityComment[],
   filters: TActivityFilters[]
 ): TIssueActivityComment[] =>
-  activity.filter((activity) => {
-    if (activity.activity_type === EActivityFilterType.DEFAULT) return true;
-    return filters.includes(activity.activity_type as TActivityFilters);
+  activity.filter((item) => {
+    if (item.activity_type === EActivityFilterType.DEFAULT) return true;
+    return filters.includes(item.activity_type as TActivityFilters);
   });
 
 export const ENABLE_ISSUE_DEPENDENCIES = false;

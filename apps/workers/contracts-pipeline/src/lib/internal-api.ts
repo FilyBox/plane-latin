@@ -120,6 +120,22 @@ export function internalApi(env: Env) {
       }>("GET", `/internal/workspaces/${workspaceId}/contracts/?offset=${offset}&limit=${limit}`),
     saveQueryResult: (queryId: string, result: Record<string, unknown>, status: "COMPLETED" | "FAILED") =>
       request<{ status: string }>("POST", `/internal/contract-queries/${queryId}/result/`, { result, status }),
+    taggingContext: (workspaceId: string) =>
+      request<{
+        tags: Array<{ name: string; kind: string; usage?: number; catalog?: boolean }>;
+        artists: string[];
+        vocabulary: Record<string, string[]>;
+      }>("GET", `/internal/workspaces/${workspaceId}/tagging/context/`),
+    taggingInventory: (workspaceId: string, entityType: string, offset: number, limit: number, runId: string) =>
+      request<{
+        total: number;
+        results: Array<{ id: string; title: string; text: string; tags: string[] }>;
+      }>(
+        "GET",
+        `/internal/workspaces/${workspaceId}/tagging/inventory/?type=${encodeURIComponent(entityType)}&offset=${offset}&limit=${limit}&run_id=${runId}`
+      ),
+    taggingProgress: (runId: string, body: Record<string, unknown>) =>
+      request<{ status: string }>("POST", `/internal/tagging-runs/${runId}/`, body),
     getWorkspaceTags: (workspaceId: string) =>
       request<{ tags: string[]; detailed?: Array<{ name: string; kind: string }> }>(
         "GET",

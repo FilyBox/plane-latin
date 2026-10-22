@@ -20,9 +20,10 @@ export function SidebarPropertyListItem(props: TSidebarPropertyListItemProps) {
 
   return (
     <div className="flex items-start gap-2">
-      <div className="flex h-7.5 w-30 shrink-0 items-center gap-1.5 text-body-xs-regular text-tertiary">
+      {/* Long labels (e.g. "Fecha de vencimiento") wrap instead of running into the value. */}
+      <div className="flex min-h-7.5 w-30 shrink-0 items-center gap-1.5 text-body-xs-regular text-tertiary">
         <Icon className="size-4 shrink-0" />
-        <span>{label}</span>
+        <span className="min-w-0 leading-tight break-words whitespace-normal">{label}</span>
         {appendElement}
       </div>
       <div className={cn("flex grow flex-wrap items-center gap-1", childrenClassName)}>{children}</div>

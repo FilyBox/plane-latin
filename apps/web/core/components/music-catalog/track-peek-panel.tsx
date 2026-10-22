@@ -41,6 +41,9 @@ import type {
 } from "@plane/types";
 import { cn, copyTextToClipboard } from "@plane/utils";
 // services
+import { EntityBacklinks } from "@/components/references/references-section";
+import { SharedTagPicker } from "@/components/references/shared-tag-picker";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 import { fileLibraryService } from "@/services/file-library.service";
 import { musicService } from "@/services/music.service";
 import type { TPreviewFile } from "../file-library/file-preview-modal";
@@ -269,6 +272,8 @@ export function MusicTrackPeekPanel(props: Props) {
   // The panel owns the freshest copy: PATCH responses replace it in place
   const [track, setTrack] = useState<TMusicTrack>(initialTrack ?? EMPTY_TRACK);
   const isCreate = !track.id;
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
   const [isCreating, setIsCreating] = useState(false);
   const [isAddingCredit, setIsAddingCredit] = useState(false);
   const [newCreditRole, setNewCreditRole] = useState("PRIMARY_ARTIST");
@@ -1738,6 +1743,22 @@ export function MusicTrackPeekPanel(props: Props) {
                   </div>
                 )}
               </section>
+            </>
+          )}
+
+          {!isCreate && referencesEnabled && (
+            <>
+              <section className="space-y-1.5">
+                <SectionTitle>{t("references.tags.title")}</SectionTitle>
+                <SharedTagPicker workspaceSlug={workspaceSlug} entityName="music_track" entityId={track.id} />
+              </section>
+              <EntityBacklinks
+                workspaceSlug={workspaceSlug}
+                entityName="music_track"
+                entityId={track.id}
+                className="space-y-1.5"
+                renderTitle={(label, count) => <SectionTitle>{`${label} · ${count}`}</SectionTitle>}
+              />
             </>
           )}
 

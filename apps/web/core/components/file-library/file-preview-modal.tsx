@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { observer } from "mobx-react";
-import { Download, FileText, Loader2, Pencil, X } from "lucide-react";
+import { Download, FileText, Loader2, Pencil, Tags, X } from "lucide-react";
 import { Link } from "react-router";
 import useSWR from "swr";
 // plane imports
@@ -16,8 +16,11 @@ import { EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // components
 import { XmlViewer } from "@/components/common/xml-viewer";
+import { EntityBacklinks } from "@/components/references/references-section";
+import { SharedTagPicker } from "@/components/references/shared-tag-picker";
 // hooks
 import { useFileLibrary } from "@/hooks/store/use-file-library";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 // services
 import { contractService } from "@/services/contract.service";
 import { fileLibraryService } from "@/services/file-library.service";
@@ -87,6 +90,11 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
     { revalidateOnFocus: false }
   );
   const contract = contractMatches?.[0];
+  // Library files carry the workspace's shared tags and show where they are
+  // referenced; contract PDFs show it under their contract data.
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  const showReferences = !scope && isWorkspaceFeatureEnabled(workspaceSlug, "references");
+  const hasInfo = Boolean(contract) || showReferences;
 
   // resolve the presigned URL (and fetch text for csv) whenever the file changes
   useEffect(() => {
@@ -211,7 +219,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                 {contract && <ProcessingBadge contract={contract} />}
               </div>
               <div className="flex items-center gap-1">
-                {contract && (
+                {hasInfo && (
                   <button
                     type="button"
                     onClick={() => setShowContractInfo((value) => !value)}
@@ -220,10 +228,13 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                       "hidden items-center gap-1 rounded-sm px-2 py-1.5 text-12 hover:bg-layer-1-hover sm:flex",
                       showContractInfo ? "text-accent-primary" : ""
                     )}
-                    title={t("file_library.contracts.preview_info")}
+                    title={t(contract ? "file_library.contracts.preview_info" : "references.preview.details")}
+                    aria-pressed={showContractInfo}
                   >
-                    <FileText className="size-4" />
-                    <span className="hidden sm:inline">{t("file_library.contracts.preview_info")}</span>
+                    {contract ? <FileText className="size-4" /> : <Tags className="size-4" />}
+                    <span className="hidden sm:inline">
+                      {t(contract ? "file_library.contracts.preview_info" : "references.preview.details")}
+                    </span>
                   </button>
                 )}
                 {/* Office docs can be opened in the Collabora editor. Not for
@@ -257,7 +268,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
               </div>
             </div>
             {/* Mobile tabs: the document and the contract info each get full focus */}
-            {contract && (
+            {hasInfo && (
               <div className="flex shrink-0 items-center gap-1 border-b border-subtle px-3 pt-1.5 sm:hidden">
                 {(["document", "info"] as const).map((key) => (
                   <button
@@ -272,18 +283,22 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                     )}
                   >
                     {t(
-                      key === "document" ? "file_library.contracts.tabs.document" : "file_library.contracts.tabs.info"
+                      key === "document"
+                        ? "file_library.contracts.tabs.document"
+                        : contract
+                          ? "file_library.contracts.tabs.info"
+                          : "references.preview.details"
                     )}
                   </button>
                 ))}
               </div>
             )}
             <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-              <div className={cn("min-h-0 flex-1", contract && mobileView === "info" ? "max-sm:hidden" : "")}>
+              <div className={cn("min-h-0 min-w-0 flex-1", hasInfo && mobileView === "info" ? "max-sm:hidden" : "")}>
                 {renderBody()}
               </div>
-              {/* AI-extracted contract data: tab on mobile, side panel on desktop */}
-              {contract && (
+              {/* Contract data, tags and references: tab on mobile, side panel on desktop */}
+              {hasInfo && (
                 <div
                   className={cn(
                     "min-h-0 overflow-y-auto max-sm:flex-1 sm:w-80 sm:shrink-0 sm:border-l sm:border-subtle",
@@ -292,83 +307,109 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                   )}
                 >
                   <div className="space-y-4 p-4">
-                    {contract.titulo && (
-                      <div>
-                        <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
-                          {t("file_library.contracts.fields.titulo")}
-                        </p>
-                        <p className="mt-1 text-13 leading-snug font-medium">{contract.titulo}</p>
-                      </div>
-                    )}
-                    {contract.resumen_general && (
-                      <div>
-                        <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
-                          {t("file_library.contracts.fields.resumen_general")}
-                        </p>
-                        <p className="mt-1 rounded-md bg-layer-1 p-2.5 text-12 leading-relaxed text-secondary">
-                          {contract.resumen_general}
-                        </p>
-                      </div>
-                    )}
-                    {contract.artistas && (
-                      <div>
-                        <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
-                          {t("file_library.contracts.fields.artistas")}
-                        </p>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {contract.artistas.split(",").map((artist) => (
-                            <span key={artist} className="rounded-full bg-layer-1 px-2 py-0.5 text-11 text-secondary">
-                              {artist.trim()}
-                            </span>
-                          ))}
+                    {showReferences && (
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-12 font-medium text-tertiary">{t("references.tags.title")}</p>
+                          <SharedTagPicker
+                            workspaceSlug={workspaceSlug}
+                            entityName={contract ? "contract" : "file"}
+                            entityId={contract ? contract.id : file.assetId}
+                            disabled={readOnly}
+                            className="mt-1"
+                          />
                         </div>
+                        <EntityBacklinks
+                          workspaceSlug={workspaceSlug}
+                          entityName={contract ? "contract" : "file"}
+                          entityId={contract ? contract.id : file.assetId}
+                        />
                       </div>
                     )}
-                    {contract.involucrados && (
-                      <div>
-                        <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
-                          {t("file_library.contracts.fields.involucrados")}
-                        </p>
-                        <p className="mt-1 text-12 leading-relaxed text-secondary">{contract.involucrados}</p>
-                      </div>
-                    )}
-                    {(contract.fecha_inicio || contract.fecha_fin || contract.fecha_fin_efectiva) && (
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-2 rounded-md border border-subtle p-2.5">
-                        {contract.fecha_inicio && (
+                    {contract && (
+                      <>
+                        {contract.titulo && (
                           <div>
                             <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
-                              {t("file_library.contracts.fields.fecha_inicio")}
+                              {t("file_library.contracts.fields.titulo")}
                             </p>
-                            <p className="mt-0.5 text-12 tabular-nums">{contract.fecha_inicio}</p>
+                            <p className="mt-1 text-13 leading-snug font-medium">{contract.titulo}</p>
                           </div>
                         )}
-                        {contract.fecha_fin && (
+                        {contract.resumen_general && (
                           <div>
                             <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
-                              {t("file_library.contracts.fields.fecha_fin")}
+                              {t("file_library.contracts.fields.resumen_general")}
                             </p>
-                            <p className="mt-0.5 text-12 tabular-nums">{contract.fecha_fin}</p>
-                          </div>
-                        )}
-                        {contract.fecha_fin_efectiva && (
-                          <div>
-                            <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
-                              {t("file_library.contracts.fields.fecha_fin_efectiva")}
-                            </p>
-                            <p className="mt-0.5 text-12 font-medium text-accent-primary tabular-nums">
-                              {contract.fecha_fin_efectiva}
+                            <p className="mt-1 rounded-md bg-layer-1 p-2.5 text-12 leading-relaxed text-secondary">
+                              {contract.resumen_general}
                             </p>
                           </div>
                         )}
-                      </div>
+                        {contract.artistas && (
+                          <div>
+                            <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
+                              {t("file_library.contracts.fields.artistas")}
+                            </p>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {contract.artistas.split(",").map((artist) => (
+                                <span
+                                  key={artist}
+                                  className="rounded-full bg-layer-1 px-2 py-0.5 text-11 text-secondary"
+                                >
+                                  {artist.trim()}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {contract.involucrados && (
+                          <div>
+                            <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
+                              {t("file_library.contracts.fields.involucrados")}
+                            </p>
+                            <p className="mt-1 text-12 leading-relaxed text-secondary">{contract.involucrados}</p>
+                          </div>
+                        )}
+                        {(contract.fecha_inicio || contract.fecha_fin || contract.fecha_fin_efectiva) && (
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-2 rounded-md border border-subtle p-2.5">
+                            {contract.fecha_inicio && (
+                              <div>
+                                <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
+                                  {t("file_library.contracts.fields.fecha_inicio")}
+                                </p>
+                                <p className="mt-0.5 text-12 tabular-nums">{contract.fecha_inicio}</p>
+                              </div>
+                            )}
+                            {contract.fecha_fin && (
+                              <div>
+                                <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
+                                  {t("file_library.contracts.fields.fecha_fin")}
+                                </p>
+                                <p className="mt-0.5 text-12 tabular-nums">{contract.fecha_fin}</p>
+                              </div>
+                            )}
+                            {contract.fecha_fin_efectiva && (
+                              <div>
+                                <p className="text-10 font-semibold tracking-wide text-tertiary uppercase">
+                                  {t("file_library.contracts.fields.fecha_fin_efectiva")}
+                                </p>
+                                <p className="mt-0.5 text-12 font-medium text-accent-primary tabular-nums">
+                                  {contract.fecha_fin_efectiva}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <Link
+                          to={`/${workspaceSlug}/file-library/contracts/analyzed?peek=${contract.id}`}
+                          onClick={onClose}
+                          className="inline-block w-full rounded-md border border-subtle px-2.5 py-1.5 text-center text-12 font-medium hover:bg-layer-1-hover"
+                        >
+                          {t("file_library.contracts.open_in_contracts")}
+                        </Link>
+                      </>
                     )}
-                    <Link
-                      to={`/${workspaceSlug}/file-library/contracts/analyzed?peek=${contract.id}`}
-                      onClick={onClose}
-                      className="inline-block w-full rounded-md border border-subtle px-2.5 py-1.5 text-center text-12 font-medium hover:bg-layer-1-hover"
-                    >
-                      {t("file_library.contracts.open_in_contracts")}
-                    </Link>
                   </div>
                 </div>
               )}

@@ -6,6 +6,7 @@
 
 import { observer } from "mobx-react";
 import { Outlet } from "react-router";
+import { AssistantPanel } from "@/components/assistant/panel";
 import { ProjectsAppPowerKProvider } from "@/components/power-k/projects-app-provider";
 // plane web components
 import { ProjectAppSidebar } from "./_sidebar";
@@ -15,15 +16,19 @@ function WorkspaceLayout() {
   return (
     <>
       <ProjectsAppPowerKProvider />
-      <div className="relative flex h-full w-full flex-col overflow-hidden rounded-lg border border-subtle">
-        <div id="full-screen-portal" className="absolute inset-0 w-full" />
-        <div className="relative flex size-full overflow-hidden">
-          <ProjectAppSidebar />
-          <ExtendedProjectSidebar />
-          <main className="relative flex h-full w-full flex-col overflow-hidden bg-surface-1">
-            <Outlet />
-          </main>
+      {/* The assistant panel is a sibling column: opening it pushes the page. */}
+      <div className="flex size-full gap-2 overflow-hidden">
+        <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-subtle">
+          <div id="full-screen-portal" className="absolute inset-0 w-full" />
+          <div className="relative flex size-full overflow-hidden">
+            <ProjectAppSidebar />
+            <ExtendedProjectSidebar />
+            <main className="relative flex h-full w-full flex-col overflow-hidden bg-surface-1">
+              <Outlet />
+            </main>
+          </div>
         </div>
+        <AssistantPanel />
       </div>
     </>
   );

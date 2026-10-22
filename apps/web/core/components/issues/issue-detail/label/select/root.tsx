@@ -6,6 +6,7 @@
 
 // components
 import type { TLabelOperations } from "../root";
+import type { IIssueLabelSelect } from "./label-select";
 import { IssueLabelSelect } from "./label-select";
 // types
 
@@ -15,10 +16,11 @@ type TIssueLabelSelectRoot = {
   issueId: string;
   values: string[];
   labelOperations: TLabelOperations;
+  shared?: IIssueLabelSelect["shared"];
 };
 
 export function IssueLabelSelectRoot(props: TIssueLabelSelectRoot) {
-  const { workspaceSlug, projectId, issueId, values, labelOperations } = props;
+  const { workspaceSlug, projectId, issueId, values, labelOperations, shared } = props;
 
   const handleLabel = async (_labelIds: string[]) => {
     await labelOperations.updateIssue(workspaceSlug, projectId, issueId, { label_ids: _labelIds });
@@ -32,6 +34,7 @@ export function IssueLabelSelectRoot(props: TIssueLabelSelectRoot) {
       values={values}
       onSelect={handleLabel}
       onAddLabel={labelOperations.createLabel}
+      shared={shared}
     />
   );
 }

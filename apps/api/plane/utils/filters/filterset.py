@@ -8,7 +8,7 @@ from django.db import models
 from django.db.models import Q
 from django_filters import FilterSet, filters
 
-from plane.db.models import Issue
+from plane.db.models import EntityTagLink, Issue
 
 
 class UUIDInFilter(filters.BaseInFilter, filters.UUIDFilter):
@@ -139,6 +139,10 @@ class IssueFilterSet(BaseFilterSet):
     label_id = filters.UUIDFilter(method="filter_label_id")
     label_id__in = UUIDInFilter(method="filter_label_id_in", lookup_expr="in")
 
+    # Workspace tags shared across modules (entity_tag_links, no FK to Issue)
+    shared_tag_id = filters.UUIDFilter(method="filter_shared_tag_id")
+    shared_tag_id__in = UUIDInFilter(method="filter_shared_tag_id_in", lookup_expr="in")
+
     # Direct field lookups remain the same
     created_by_id = filters.UUIDFilter(field_name="created_by_id")
     created_by_id__in = UUIDInFilter(field_name="created_by_id", lookup_expr="in")
@@ -243,6 +247,23 @@ class IssueFilterSet(BaseFilterSet):
             label_issue__label_id=value,
             label_issue__deleted_at__isnull=True,
         )
+
+    def _shared_tag_q(self, tag_ids):
+        tagged = EntityTagLink.objects.filter(
+            entity_type="issue",
+            tag_id__in=tag_ids,
+            status=EntityTagLink.Status.CONFIRMED,
+            tag__deleted_at__isnull=True,
+        ).values("entity_id")
+        return Q(id__in=tagged)
+
+    def filter_shared_tag_id(self, queryset, name, value):
+        """Work items carrying a workspace (shared) tag"""
+        return self._shared_tag_q([value])
+
+    def filter_shared_tag_id_in(self, queryset, name, value):
+        """Work items carrying any of these workspace (shared) tags"""
+        return self._shared_tag_q(value)
 
     def filter_label_id_in(self, queryset, name, value):
         """Filter by label IDs (in), excluding soft deleted labels"""

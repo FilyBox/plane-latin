@@ -60,6 +60,9 @@ export type PDFExportOptions = {
 export type PDFExportMetadata = {
   /** User mentions (user_mention in mention node) */
   userMentions?: PDFUserMention[];
+  /** Titles of mentioned contracts, songs, files… keyed "entity_name:id".
+   * Missing when the reader may not open it: the PDF then shows the type. */
+  entityMentions?: Record<string, string>;
   /** Resolved image URLs: Map of asset ID to presigned URL */
   resolvedImageUrls?: Record<string, string>;
   /** When true, images and other assets are excluded from the PDF */

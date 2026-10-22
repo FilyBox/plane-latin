@@ -36,6 +36,15 @@ export type TImportPhase = "idle" | "uploading" | "reading" | "validating" | "im
 
 export type TValueDecision = { mode: "" | "assign" | "empty" | "skip"; value: string };
 
+/** A plan prepared by the assistant: its mapping and duplicate rules replace
+ * the file's last configuration. */
+export type TImportDraft = {
+  mapping?: Record<string, string | string[]>;
+  sheet?: string | null;
+  dedupe_by?: string;
+  duplicate_strategy?: "skip" | "update";
+};
+
 const DEFAULT_RULES: TImportRules = {
   strategy: "skip",
   dedupeBy: "auto",
@@ -169,19 +178,22 @@ export function useImportFlow(workspaceSlug: string) {
   );
 
   /** A stored file, restoring its last import's configuration. Duplicates
-   * default to "update": re-importing is usually about bringing changes in. */
+   * default to "update": re-importing is usually about bringing changes in.
+   * An assistant `draft` takes precedence over that configuration. */
   const reimport = useCallback(
-    async (asset: TMusicImportAsset) => {
+    async (asset: TMusicImportAsset, draft?: TImportDraft) => {
       reset();
       setAssetId(asset.id);
       setAssetName(asset.name);
       const ruleSet = asset.last_run?.rules ?? {};
-      const next = await inspect({ assetId: asset.id }, asset.last_run?.sheet ?? undefined);
+      const next = await inspect({ assetId: asset.id }, draft?.sheet ?? asset.last_run?.sheet ?? undefined);
       if (!next) return false;
-      if (ruleSet.mapping && Object.keys(ruleSet.mapping).length > 0) setMapping(ruleSet.mapping);
+      const mappingToUse = draft?.mapping ?? ruleSet.mapping;
+      if (mappingToUse && Object.keys(mappingToUse).length > 0) setMapping(mappingToUse);
+      const dedupeBy = draft?.dedupe_by ?? ruleSet.dedupe_by;
       setRules({
-        strategy: "update",
-        dedupeBy: ruleSet.dedupe_by && ruleSet.dedupe_by !== "none" ? ruleSet.dedupe_by : "auto",
+        strategy: draft?.duplicate_strategy ?? "update",
+        dedupeBy: dedupeBy && dedupeBy !== "none" ? dedupeBy : "auto",
         relationsMode: ruleSet.relations_mode ?? "merge",
         dedupeWithinFile: ruleSet.dedupe_within_file ?? false,
         ambiguousStrategy: ruleSet.ambiguous_strategy ?? "create",

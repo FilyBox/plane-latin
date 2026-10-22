@@ -7,3 +7,9 @@ from django.apps import AppConfig
 
 class BgtasksConfig(AppConfig):
     name = "plane.bgtasks"
+
+    def ready(self):
+        # Mention references follow saved editor HTML (see reference_task).
+        from plane.bgtasks.reference_task import connect_signals
+
+        connect_signals()

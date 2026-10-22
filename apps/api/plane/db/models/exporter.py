@@ -30,6 +30,7 @@ class ExporterHistory(BaseModel):
             ("issue_exports", "Issue Exports"),
             ("issue_worklogs", "Issue Worklogs"),
             ("file_library", "File Library"),
+            ("shared_tag", "Shared Tag"),
         ),
     )
     workspace = models.ForeignKey("db.WorkSpace", on_delete=models.CASCADE, related_name="workspace_exporters")

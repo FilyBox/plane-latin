@@ -1096,6 +1096,31 @@ class MusicTrackEndpoint(MusicBaseView):
                         isrc=values["isrc_video"],
                     )
             track.videos.exclude(id__in=retained).delete()
+        # Adds videos without touching the existing ones (`video_entries` is
+        # the full list and drops whatever it leaves out). Used by the
+        # assistant's "add a video" proposals.
+        for entry in data.get("video_append") or []:
+            if not isinstance(entry, dict) or not entry.get("video_url"):
+                continue
+            isrc_video = str(entry.get("isrc", "")).upper().replace("-", "")
+            video = MusicTrack.objects.create(
+                workspace=workspace,
+                parent_track=track,
+                title=entry.get("title") or track.title,
+                kind=MusicTrack.Kind.MUSIC_VIDEO,
+                status=entry.get("status", MusicTrack.Status.DRAFT),
+                isrc_video=isrc_video,
+                release_date=entry.get("release_date") or None,
+            )
+            MusicLink.objects.create(
+                workspace=workspace,
+                track=video,
+                kind=MusicLink.Kind.MUSIC_VIDEO,
+                platform=entry.get("platform", ""),
+                name=entry.get("name") or "Music video",
+                url=entry["video_url"],
+                isrc=isrc_video,
+            )
 
 
 class MusicTrackBulkDeleteEndpoint(MusicBaseView):

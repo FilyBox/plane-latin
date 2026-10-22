@@ -19,6 +19,12 @@
 			"name": "contract-query",
 			"binding": "CONTRACT_QUERY",
 			"class_name": "ContractQueryWorkflow"
+		},
+		{
+			// AI mapping of the workspace into shared tags (proposals for review)
+			"name": "tagging-run",
+			"binding": "TAGGING_RUN",
+			"class_name": "TaggingWorkflow"
 		}
 	],
 	// Non-secret config. Secrets are set with `wrangler secret put`:

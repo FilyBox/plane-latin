@@ -13,6 +13,7 @@ import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { cn } from "@plane/utils";
 import { financeService } from "@/services/finance.service";
 import { payrollService } from "@/services/payroll.service";
+import { referencesService } from "@/services/references.service";
 import { FinanceConfirmModal } from "./confirm-modal";
 
 export type CatalogueItem = { id: string; name: string };
@@ -41,7 +42,8 @@ function useCatalogue(
 ): CatalogueSource {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
-  const { data: items = [], mutate } = useSWR(key, fetcher);
+  // An empty key leaves a source switched off (nothing is fetched).
+  const { data: items = [], mutate } = useSWR(key || null, fetcher);
 
   const run = async <T,>(operation: () => Promise<T>): Promise<T | null> => {
     if (busy) return null;
@@ -82,6 +84,25 @@ export function useCategorySource(workspaceSlug: string): CatalogueSource {
       deleteTitleKey: "payments.delete_category_title",
       deleteBodyKey: "payments.delete_category_description",
       emptyKey: "payments.empty.categories",
+    }
+  );
+}
+
+/** Workspace tags shared with every module (contracts, music, work items…).
+ * Same SWR key as the other shared-tag pickers, so they stay in step. */
+export function useSharedTagSource(workspaceSlug: string, enabled = true): CatalogueSource {
+  return useCatalogue(
+    enabled ? `SHARED_TAG_CATALOGUE_${workspaceSlug}` : "",
+    () => referencesService.getTags(workspaceSlug),
+    {
+      create: (name) => referencesService.createTag(workspaceSlug, { name }),
+      rename: (item, name) => referencesService.updateTag(workspaceSlug, item.id, { name }),
+      remove: (item) => referencesService.deleteTag(workspaceSlug, item.id),
+    },
+    {
+      deleteTitleKey: "references.tags.delete_title",
+      deleteBodyKey: "references.tags.delete_body",
+      emptyKey: "references.tags.empty",
     }
   );
 }

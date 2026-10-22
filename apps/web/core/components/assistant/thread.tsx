@@ -3,281 +3,252 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  * See the LICENSE file for details.
  *
- * Styled Thread built on assistant-ui primitives (the repo's design system
- * instead of the shadcn starter kit): markdown text, grouped tool calls,
- * per-message errors, attachments and an in-memory thread list.
+ * The assistant's conversation, laid out for a narrow side panel: answers run
+ * full width (no avatar column eating space), lookups fold into one steps
+ * block, wide tables scroll inside their own box, and links open in the app.
  */
 
-import type { PropsWithChildren, ReactNode } from "react";
-import { motion } from "framer-motion";
-import {
-  AlertTriangle,
-  ArrowUp,
-  Bot,
-  Check,
-  Copy,
-  MessageSquarePlus,
-  Paperclip,
-  Pencil,
-  RefreshCw,
-  Square,
-  Trash2,
-  Wrench,
-} from "lucide-react";
+import type { ComponentProps, ReactNode } from "react";
 import {
   ActionBarPrimitive,
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
-  ThreadListItemPrimitive,
-  ThreadListPrimitive,
   ThreadPrimitive,
+  useThread,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
+import { AlertTriangle, ArrowUp, Copy, Paperclip, Pencil, RefreshCw, Sparkles, Square } from "lucide-react";
 import remarkGfm from "remark-gfm";
-// local imports
+import { useTranslation } from "@plane/i18n";
+import { cn } from "@plane/utils";
 import { ComposerAttachmentsRow, MessageAttachmentsRow } from "./attachments";
+import { AssistantLink } from "./links";
+import { FallbackStep, groupThought, ReasoningStep, ThinkingBlock, useIsMessageRunning } from "./steps";
 
-/** Shared entrance for chat items: subtle rise + fade, respects reduced motion */
-const enterProps = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.25, ease: "easeOut" as const },
+const MARKDOWN_COMPONENTS = {
+  // react-markdown emits a bare <table>; without its own scroll box a wide
+  // table pushes the whole panel sideways.
+  table: ({ node: _node, className, ...props }: ComponentProps<"table"> & { node?: unknown }) => (
+    <div className="my-2 max-w-full overflow-x-auto rounded-md border border-subtle">
+      <table {...props} className={cn("w-max min-w-full border-collapse text-12", className)} />
+    </div>
+  ),
+  a: ({ node: _node, ...props }: ComponentProps<"a"> & { node?: unknown }) => <AssistantLink {...props} />,
 };
 
-const SUGGESTIONS = [
-  "¿Qué canciones se lanzaron este año?",
-  "Canciones de un artista con sus ISRC y videos",
-  "Genera un Excel de todo el catálogo",
-  "¿Qué dice el contrato de X sobre regalías?",
-];
-
-/** Pulsing dot-matrix activity indicator (replaces spinner icons) */
-export function DotMatrix({ className = "size-4" }: { className?: string }) {
-  const dots = [
-    ["top-left", 0],
-    ["top-center", 300],
-    ["top-right", 600],
-    ["middle-left", 450],
-    ["middle-center", 0],
-    ["middle-right", 150],
-    ["bottom-left", 600],
-    ["bottom-center", 150],
-    ["bottom-right", 300],
-  ] as const;
-  return (
-    <span className={`grid shrink-0 grid-cols-3 gap-px ${className}`} role="status" aria-label="Trabajando…">
-      {dots.map(([position, delay]) => (
-        <span
-          key={position}
-          className="animate-pulse rounded-full bg-accent-primary"
-          style={{ animationDelay: `${delay}ms`, animationDuration: "900ms" }}
-        />
-      ))}
-    </span>
-  );
-}
-
-/** Assistant text rendered as GFM markdown, styled to the repo's scale */
 function MarkdownText() {
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
-      className="[&_code]:font-mono [&_h1]:text-15 [&_a]:text-accent-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_code]:rounded-sm [&_code]:bg-layer-2 [&_code]:px-1 [&_code]:text-12 [&_h1]:font-semibold [&_h2]:text-14 [&_h2]:font-semibold [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5 [&_pre]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-layer-2 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:my-1.5 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-subtle [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-subtle [&_th]:bg-layer-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_ul]:list-disc [&_ul]:pl-5"
+      components={MARKDOWN_COMPONENTS}
+      className="min-w-0 text-13 leading-relaxed break-words text-primary *:first:mt-0 *:last:mb-0 [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_blockquote]:text-secondary [&_code]:rounded-sm [&_code]:bg-layer-2 [&_code]:px-1 [&_code]:text-12 [&_h1]:mt-3 [&_h1]:text-14 [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:text-13 [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:text-13 [&_h3]:font-medium [&_hr]:my-3 [&_hr]:border-subtle [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-layer-2 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_td]:border-t [&_td]:border-subtle [&_td]:px-2 [&_td]:py-1 [&_td]:align-top [&_th]:bg-layer-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium [&_th]:whitespace-nowrap [&_ul]:list-disc [&_ul]:pl-5"
     />
   );
 }
 
-/** Consecutive tool calls collapse into one "acciones" block, chain-of-thought
- * style: activity indicator while the run is live, count when settled. */
-function ToolGroup({ startIndex, endIndex, children }: PropsWithChildren<{ startIndex: number; endIndex: number }>) {
-  const count = endIndex - startIndex + 1;
+/** Reasoning and lookups that sit next to each other form one "thinking"
+ * block; the answer text and cards (export, import, edits) stay outside it. */
+function AssistantParts() {
   return (
-    <motion.details {...enterProps} className="my-1.5 rounded-md border border-subtle bg-layer-1" open>
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-12 font-medium text-secondary [&::-webkit-details-marker]:hidden">
-        <ThreadPrimitive.If running>
-          <DotMatrix className="size-3.5" />
-        </ThreadPrimitive.If>
-        <ThreadPrimitive.If running={false}>
-          <Wrench className="size-3.5 text-tertiary" />
-        </ThreadPrimitive.If>
-        {count === 1 ? "1 acción" : `${count} acciones`}
-      </summary>
-      <div className="border-t border-subtle px-3 pb-2">{children}</div>
-    </motion.details>
+    <MessagePrimitive.GroupedParts groupBy={groupThought} indicator="never">
+      {({ part, children }) => {
+        switch (part.type) {
+          case "group-thought":
+            return <ThinkingBlock indices={part.indices}>{children}</ThinkingBlock>;
+          case "text":
+            return <MarkdownText />;
+          case "reasoning":
+            return <ReasoningStep text={part.text} />;
+          case "tool-call":
+            return part.toolUI ?? <FallbackStep toolName={part.toolName} status={part.status} />;
+          default:
+            return null;
+        }
+      }}
+    </MessagePrimitive.GroupedParts>
   );
 }
 
-/** Unregistered tools still get a readable row (name + state) */
-function ToolFallback({ toolName, status }: { toolName: string; status: { type: string } }) {
+const ICON_BUTTON = "rounded-md p-1 text-tertiary hover:bg-layer-1-hover hover:text-secondary";
+
+function UserMessage() {
+  const { t } = useTranslation();
   return (
-    <p className="my-1 flex items-center gap-1.5 text-12 text-tertiary">
-      {status.type === "running" ? <DotMatrix className="size-3" /> : <Wrench className="size-3" />}
-      {toolName}
-    </p>
+    <MessagePrimitive.Root className="group flex flex-col items-end gap-1 px-4 py-1.5">
+      <MessageAttachmentsRow />
+      <div className="relative max-w-[88%] min-w-0">
+        {/* Beside the bubble, never above or below it: showing it on hover
+            must not move a single line of the conversation. */}
+        <ActionBarPrimitive.Root
+          hideWhenRunning
+          autohide="never"
+          className="absolute top-1/2 right-full mr-1 flex -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+        >
+          <ActionBarPrimitive.Edit className={ICON_BUTTON} title={t("assistant.edit")} aria-label={t("assistant.edit")}>
+            <Pencil className="size-3" />
+          </ActionBarPrimitive.Edit>
+        </ActionBarPrimitive.Root>
+        <div className="min-w-0 rounded-xl rounded-br-sm bg-accent-primary/10 px-3 py-2 text-13 break-words whitespace-pre-wrap text-primary">
+          <MessagePrimitive.Parts />
+        </div>
+      </div>
+    </MessagePrimitive.Root>
+  );
+}
+
+function EditComposer() {
+  const { t } = useTranslation();
+  return (
+    <ComposerPrimitive.Root className="mx-4 my-2 rounded-lg border border-accent-strong bg-layer-1 p-2">
+      <ComposerPrimitive.Input className="max-h-40 w-full resize-none bg-transparent text-13 outline-none" />
+      <div className="mt-1.5 flex justify-end gap-1.5">
+        <ComposerPrimitive.Cancel className="rounded-md px-2 py-1 text-12 text-tertiary hover:bg-layer-1-hover">
+          {t("cancel")}
+        </ComposerPrimitive.Cancel>
+        <ComposerPrimitive.Send className="rounded-md bg-accent-primary px-2 py-1 text-12 text-on-color">
+          {t("assistant.composer.send")}
+        </ComposerPrimitive.Send>
+      </div>
+    </ComposerPrimitive.Root>
   );
 }
 
 function AssistantMessage() {
+  const { t } = useTranslation();
+  const running = useIsMessageRunning();
   return (
-    <MessagePrimitive.Root asChild>
-      <motion.div {...enterProps} className="group flex gap-2.5 py-2">
-        <span className="mt-1 flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-primary/10 text-accent-primary">
-          <Bot className="size-3.5" />
-        </span>
-        <div className="min-w-0 flex-1 text-13 leading-relaxed">
-        <MessagePrimitive.Parts components={{ Text: MarkdownText, ToolGroup, tools: { Fallback: ToolFallback } }} />
-        <MessagePrimitive.Error>
-          <ErrorPrimitive.Root className="mt-1.5 flex items-center gap-2 rounded-md border border-danger-strong bg-danger-subtle px-3 py-2 text-12 text-danger-primary">
-            <AlertTriangle className="size-3.5 shrink-0" />
-            <ErrorPrimitive.Message className="line-clamp-3" />
-          </ErrorPrimitive.Root>
-        </MessagePrimitive.Error>
-        <ActionBarPrimitive.Root
-          hideWhenRunning
-          autohide="not-last"
-          autohideFloat="single-branch"
-          className="mt-1 flex h-7 items-center gap-0.5 text-tertiary data-[floating]:opacity-0 data-[floating]:transition-opacity data-[floating]:group-hover:opacity-100"
+    <MessagePrimitive.Root className="group min-w-0 px-4 pt-1.5">
+      <AssistantParts />
+      <MessagePrimitive.Error>
+        <ErrorPrimitive.Root className="mt-2 flex items-start gap-2 rounded-md border border-danger-strong bg-danger-subtle px-3 py-2 text-12 text-danger-primary">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <ErrorPrimitive.Message className="min-w-0 break-words" />
+        </ErrorPrimitive.Root>
+      </MessagePrimitive.Error>
+      {/* Always laid out (as in Twenty's message footer); hover only changes
+          its opacity, so the actions never push the conversation around. */}
+      <ActionBarPrimitive.Root
+        autohide="never"
+        className={cn(
+          "flex h-7 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
+          running && "invisible"
+        )}
+      >
+        <ActionBarPrimitive.Copy className={ICON_BUTTON} title={t("assistant.copy")} aria-label={t("assistant.copy")}>
+          <Copy className="size-3" />
+        </ActionBarPrimitive.Copy>
+        <ActionBarPrimitive.Reload
+          className={ICON_BUTTON}
+          title={t("assistant.retry")}
+          aria-label={t("assistant.retry")}
         >
-          <ActionBarPrimitive.Copy
-            copiedDuration={1800}
-            className="group/copy flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover hover:text-primary"
-            title="Copiar respuesta"
-          >
-            <Copy className="size-3.5 group-data-[copied]/copy:hidden" />
-            <Check className="hidden size-3.5 text-success-primary group-data-[copied]/copy:block" />
-          </ActionBarPrimitive.Copy>
-          <ActionBarPrimitive.Reload
-            className="flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover hover:text-primary disabled:opacity-40"
-            title="Regenerar respuesta"
-          >
-            <RefreshCw className="size-3.5" />
-          </ActionBarPrimitive.Reload>
-        </ActionBarPrimitive.Root>
-        </div>
-      </motion.div>
+          <RefreshCw className="size-3" />
+        </ActionBarPrimitive.Reload>
+      </ActionBarPrimitive.Root>
     </MessagePrimitive.Root>
   );
 }
 
-function UserMessage() {
+/** "Pensando…" only until the first part arrives: after that, the steps
+ * block is the status. */
+function Waiting() {
+  const { t } = useTranslation();
+  const waiting = useThread((thread) => {
+    if (!thread.isRunning) return false;
+    const last = thread.messages.at(-1);
+    return last?.role !== "assistant" || last.content.length === 0;
+  });
+  if (!waiting) return null;
   return (
-    <MessagePrimitive.Root asChild>
-      <motion.div {...enterProps} className="group flex flex-col items-end gap-1 py-2">
-        <div className="flex flex-wrap justify-end gap-1.5 empty:hidden">
-          <MessageAttachmentsRow />
-        </div>
-        <div className="max-w-[80%] rounded-lg bg-layer-2 px-3 py-2 text-13 whitespace-pre-wrap">
-          <MessagePrimitive.Parts />
-        </div>
-        <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="h-7 text-tertiary">
-          <ActionBarPrimitive.Edit
-            className="flex size-7 items-center justify-center rounded-sm hover:bg-layer-1-hover hover:text-primary"
-            title="Editar mensaje"
-          >
-            <Pencil className="size-3.5" />
-          </ActionBarPrimitive.Edit>
-        </ActionBarPrimitive.Root>
-      </motion.div>
-    </MessagePrimitive.Root>
+    <div className="flex items-center gap-2 px-4 py-2 text-12 text-tertiary" role="status">
+      <span className="size-1.5 animate-pulse rounded-full bg-accent-primary motion-reduce:animate-none" aria-hidden />
+      {t("assistant.thinking")}
+    </div>
   );
 }
 
-/** In-memory conversation rail: new chat + switch/delete threads */
-export function AssistantThreadList() {
-  return (
-    <ThreadListPrimitive.Root className="flex h-full w-56 shrink-0 flex-col gap-1 overflow-y-auto border-r border-subtle p-2">
-      <ThreadListPrimitive.New className="flex items-center gap-1.5 rounded-md border border-subtle px-2.5 py-1.5 text-12 font-medium hover:bg-layer-1-hover">
-        <MessageSquarePlus className="size-3.5" /> Nueva conversación
-      </ThreadListPrimitive.New>
-      <ThreadListPrimitive.Items
-        components={{
-          ThreadListItem: () => (
-            <ThreadListItemPrimitive.Root className="group flex items-center gap-1 rounded-md px-1 text-13 hover:bg-layer-1-hover data-active:bg-layer-1-selected">
-              <ThreadListItemPrimitive.Trigger className="min-w-0 flex-1 truncate px-1.5 py-1.5 text-left">
-                <ThreadListItemPrimitive.Title fallback="Nueva conversación" />
-              </ThreadListItemPrimitive.Trigger>
-              <ThreadListItemPrimitive.Delete className="hidden shrink-0 rounded-sm p-1 text-tertiary group-hover:block hover:text-danger-primary">
-                <Trash2 className="size-3" />
-              </ThreadListItemPrimitive.Delete>
-            </ThreadListItemPrimitive.Root>
-          ),
-        }}
-      />
-    </ThreadListPrimitive.Root>
-  );
-}
+type Props = {
+  suggestions: string[];
+  /** Chips for what the assistant knows the user is looking at */
+  contextBar?: ReactNode;
+  /** Model picker and similar controls, bottom-left of the composer */
+  composerAccessory?: ReactNode;
+  allowAttachments: boolean;
+};
 
-export function AssistantThread({ composerAccessory }: { composerAccessory?: ReactNode }) {
+export function AssistantThread({ suggestions, contextBar, composerAccessory, allowAttachments }: Props) {
+  const { t } = useTranslation();
   return (
-    <ThreadPrimitive.Root className="flex h-full min-h-0 flex-1 flex-col">
-      <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-8">
+    <ThreadPrimitive.Root className="flex h-full min-h-0 min-w-0 flex-col">
+      <ThreadPrimitive.Viewport className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto py-2">
         <ThreadPrimitive.Empty>
-          <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-            <span className="flex size-12 items-center justify-center rounded-full bg-accent-primary/10 text-accent-primary">
-              <Bot className="size-6" />
-            </span>
-            <div>
-              <p className="text-16 font-medium">Asistente del workspace</p>
-              <p className="mt-1 text-13 text-tertiary">
-                Pregunta por tu catálogo musical, contratos, adjunta archivos para importarlos o pide reportes en Excel.
-              </p>
-            </div>
-            <div className="flex max-w-lg flex-wrap justify-center gap-1.5">
-              {SUGGESTIONS.map((suggestion) => (
-                <ThreadPrimitive.Suggestion
-                  key={suggestion}
-                  prompt={suggestion}
-                  method="replace"
-                  autoSend
-                  className="cursor-pointer rounded-full border border-subtle px-3 py-1.5 text-12 text-secondary hover:bg-layer-1-hover"
-                >
-                  {suggestion}
-                </ThreadPrimitive.Suggestion>
-              ))}
-            </div>
+          <div className="flex h-full flex-col justify-end px-4 pb-4">
+            <Sparkles className="size-6 text-accent-primary" aria-hidden />
+            <p className="mt-3 text-16 font-semibold text-primary">{t("assistant.empty.title")}</p>
+            <p className="mt-1 text-13 text-tertiary">{t("assistant.empty.description")}</p>
+            {suggestions.length > 0 && (
+              <div className="mt-4 flex flex-col items-start gap-1.5">
+                {suggestions.map((suggestion) => (
+                  <ThreadPrimitive.Suggestion
+                    key={suggestion}
+                    prompt={suggestion}
+                    method="replace"
+                    autoSend
+                    className="max-w-full truncate rounded-md border border-subtle px-2.5 py-1.5 text-left text-12 text-secondary hover:border-accent-strong hover:text-primary"
+                  >
+                    {suggestion}
+                  </ThreadPrimitive.Suggestion>
+                ))}
+              </div>
+            )}
           </div>
         </ThreadPrimitive.Empty>
-        <div className="mx-auto max-w-3xl">
-          <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
-          <ThreadPrimitive.If running>
-            <p className="flex items-center gap-2 py-2 text-12 text-tertiary">
-              <DotMatrix className="size-3.5" /> Trabajando…
-            </p>
-          </ThreadPrimitive.If>
-        </div>
+        <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage, EditComposer }} />
+        <Waiting />
       </ThreadPrimitive.Viewport>
 
-      <div className="shrink-0 border-t border-subtle p-3 sm:px-8">
-        {composerAccessory && <div className="mx-auto mb-1.5 flex max-w-3xl justify-end">{composerAccessory}</div>}
-        <ComposerPrimitive.AttachmentDropzone className="mx-auto max-w-3xl rounded-lg data-dragging:outline-2 data-dragging:outline-accent-strong data-dragging:outline-dashed">
-          <div className="mb-1.5 flex flex-wrap gap-1.5 empty:hidden">
-            <ComposerAttachmentsRow />
-          </div>
-          <ComposerPrimitive.Root className="flex items-end gap-2 rounded-lg border border-subtle bg-layer-1 p-2">
-            <ComposerPrimitive.AddAttachment
-              className="flex size-8 shrink-0 items-center justify-center rounded-md text-tertiary hover:bg-layer-1-hover"
-              title="Adjuntar archivo (CSV/XLSX)"
-            >
-              <Paperclip className="size-4" />
-            </ComposerPrimitive.AddAttachment>
-            <ComposerPrimitive.Input
-              rows={1}
-              placeholder="Pregunta por canciones, contratos, o adjunta un archivo para importarlo…"
-              className="max-h-40 min-h-9 w-full resize-none bg-transparent px-2 py-1.5 text-13 outline-none"
-            />
+      <div className="shrink-0 px-3 pt-1 pb-3">
+        <ComposerPrimitive.Root className="rounded-xl border border-subtle bg-layer-1 transition-colors focus-within:border-accent-strong">
+          {contextBar}
+          <ComposerAttachmentsRow />
+          <ComposerPrimitive.Input
+            rows={1}
+            placeholder={t("assistant.composer.placeholder")}
+            aria-label={t("assistant.composer.placeholder")}
+            className="block max-h-40 min-h-10 w-full resize-none bg-transparent px-3 pt-2.5 text-13 outline-none placeholder:text-placeholder"
+          />
+          <div className="flex items-center gap-1 px-2 pb-2">
+            {allowAttachments && (
+              <ComposerPrimitive.AddAttachment
+                className={ICON_BUTTON}
+                title={t("assistant.composer.attach")}
+                aria-label={t("assistant.composer.attach")}
+              >
+                <Paperclip className="size-4" />
+              </ComposerPrimitive.AddAttachment>
+            )}
+            <div className="min-w-0 flex-1">{composerAccessory}</div>
             <ThreadPrimitive.If running={false}>
-              <ComposerPrimitive.Send className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent-primary text-on-color hover:opacity-90 disabled:opacity-50">
+              <ComposerPrimitive.Send
+                className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary text-on-color disabled:opacity-40"
+                title={t("assistant.composer.send")}
+                aria-label={t("assistant.composer.send")}
+              >
                 <ArrowUp className="size-4" />
               </ComposerPrimitive.Send>
             </ThreadPrimitive.If>
             <ThreadPrimitive.If running>
-              <ComposerPrimitive.Cancel className="flex size-8 shrink-0 items-center justify-center rounded-md border border-subtle text-secondary hover:bg-layer-1-hover">
-                <Square className="size-3.5" />
+              <ComposerPrimitive.Cancel
+                className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-subtle text-secondary hover:bg-layer-1-hover"
+                title={t("assistant.composer.stop")}
+                aria-label={t("assistant.composer.stop")}
+              >
+                <Square className="size-3 fill-current" />
               </ComposerPrimitive.Cancel>
             </ThreadPrimitive.If>
-          </ComposerPrimitive.Root>
-        </ComposerPrimitive.AttachmentDropzone>
+          </div>
+        </ComposerPrimitive.Root>
       </div>
     </ThreadPrimitive.Root>
   );

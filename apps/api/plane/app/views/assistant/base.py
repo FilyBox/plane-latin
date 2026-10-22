@@ -10,12 +10,13 @@ no CORS, no browser-held worker secrets.
 """
 
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
-from plane.db.models import Workspace, WorkspaceFeature
+from plane.db.models import Workspace, WorkspaceFeature, WorkspaceMember
 from plane.utils.exception_logger import log_exception
 from plane.utils.streaming import proxy_stream
 from plane.utils.worker_client import WorkerTriggerError, get_assistant_models, stream_assistant_chat
@@ -105,9 +106,7 @@ class AssistantMusicImportEndpoint(BaseAPIView):
         run_created_ids = set()
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
-                effective_row, effective_mapping = _apply_row_overrides(
-                    row, mapping, row_overrides.get(str(index), {})
-                )
+                effective_row, effective_mapping = _apply_row_overrides(row, mapping, row_overrides.get(str(index), {}))
                 effective_row, skip_row = _apply_overrides(effective_row, effective_mapping, value_overrides)
                 if skip_row:
                     result["skipped"] += 1
@@ -118,7 +117,8 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                         tokens[token] = tokens.get(token, 0) + 1
                 try:
                     with transaction.atomic():
-                        outcome, track = importer._import_row(
+                        # _import_row also returns how the row matched (unused here).
+                        outcome, track, *_ = importer._import_row(
                             workspace,
                             effective_row,
                             effective_mapping,
@@ -128,15 +128,13 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                             relations_mode=relations_mode if relations_mode in ("merge", "replace") else "merge",
                             exclude_ids=None if dedupe_within_file else run_created_ids,
                         )
-                    result[outcome] += 1
+                    result[outcome] = result.get(outcome, 0) + 1
                     if outcome == "created" and track is not None:
                         run_created_ids.add(track.id)
                     if track is not None:
                         touched.append((track.id, outcome, index))
                 except Exception as exc:
-                    result["errors"].append(
-                        _import_error_detail(index, exc, effective_row, effective_mapping)
-                    )
+                    result["errors"].append(_import_error_detail(index, exc, effective_row, effective_mapping))
             aborted = result["errors"] and invalid_row_strategy == "abort"
             if not dry_run and not aborted:
                 asset = FileAsset.objects.get(id=asset_id, workspace=workspace)
@@ -170,6 +168,59 @@ class AssistantMusicImportEndpoint(BaseAPIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
+def _page_context(request, slug, references_enabled):
+    """What the user is looking at, so "this song" or "these contracts" make
+    sense. The item's name is resolved here as this user, never taken from
+    the client."""
+    raw = request.data.get("context")
+    if not isinstance(raw, dict):
+        return None
+    page = str(raw.get("page") or "")[:40]
+    context = {"page": page} if page else {}
+    items = raw.get("items") if isinstance(raw.get("items"), list) else []
+    items = [
+        {"entity_name": str(item.get("entity_name") or ""), "id": str(item.get("id") or "")}
+        for item in items[:30]
+        if isinstance(item, dict)
+    ]
+    if not references_enabled:
+        return context or None
+    from plane.db.models import FileTag, Issue
+    from plane.utils.entities import AccessContext, resolve_entities
+
+    ctx = AccessContext.build(slug, request.user)
+    if ctx is None:
+        return context or None
+    # A work item opened by key (YO-1) and the open shared tag.
+    issue_key = str(raw.get("issue_key") or "")
+    if "-" in issue_key:
+        identifier, _, sequence = issue_key.rpartition("-")
+        issue = (
+            Issue.issue_objects.filter(
+                workspace_id=ctx.workspace_id, project__identifier__iexact=identifier, sequence_id=sequence
+            ).first()
+            if sequence.isdigit()
+            else None
+        )
+        if issue is not None:
+            items.insert(0, {"entity_name": "issue", "id": str(issue.id)})
+    tag_id = str(raw.get("tag_id") or "")
+    if tag_id:
+        try:
+            tag = FileTag.objects.filter(workspace_id=ctx.workspace_id, id=tag_id).first()
+        except Exception:
+            tag = None
+        if tag is not None:
+            context["tag"] = {"id": str(tag.id), "name": tag.name, "path": f"/{slug}/tags/{tag.id}"}
+    if items:
+        context["items"] = [
+            {key: card.get(key) for key in ("entity_name", "id", "title", "subtitle", "path")}
+            for card in resolve_entities(ctx, items)
+            if card.get("status") == "ok"
+        ]
+    return context or None
+
+
 class AssistantChatEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
@@ -184,22 +235,31 @@ class AssistantChatEndpoint(BaseAPIView):
         if not isinstance(messages, list) or not messages:
             return Response({"error": "messages must be a non-empty list"}, status=status.HTTP_400_BAD_REQUEST)
 
+        enabled = set(
+            WorkspaceFeature.objects.filter(workspace=workspace, is_enabled=True).values_list("key", flat=True)
+        )
+        member = WorkspaceMember.objects.filter(workspace=workspace, member=request.user, is_active=True).first()
+        is_admin = bool(member and member.role >= ROLE.ADMIN.value)
         payload = {
             "workspace_id": str(workspace.id),
             "workspace_slug": slug,
             "messages": messages,
             "model": (request.data.get("model") or "").strip() or None,
             "locale": (request.data.get("locale") or "").strip() or None,
-            # Which tool families the agent may use, derived from the flags —
-            # a workspace with only contracts must not expose music tools.
+            # Lookups across modules are answered as this user (their role
+            # decides what the assistant may name).
+            "user_id": str(request.user.id),
+            "user_name": request.user.display_name or request.user.first_name or "",
+            "today": timezone.localdate().isoformat(),
+            # Which tool families the agent may use, from the flags and the
+            # user's role: the music catalog is admin-only everywhere else, so
+            # members never get its tools (or buttons they cannot use).
             "capabilities": {
-                "contracts": WorkspaceFeature.objects.filter(
-                    workspace=workspace, key=WorkspaceFeature.FeatureKey.FILE_LIBRARY, is_enabled=True
-                ).exists(),
-                "music": WorkspaceFeature.objects.filter(
-                    workspace=workspace, key=WorkspaceFeature.FeatureKey.MUSIC_CATALOG, is_enabled=True
-                ).exists(),
+                "contracts": WorkspaceFeature.FeatureKey.FILE_LIBRARY in enabled,
+                "music": WorkspaceFeature.FeatureKey.MUSIC_CATALOG in enabled and is_admin,
+                "references": WorkspaceFeature.FeatureKey.REFERENCES in enabled,
             },
+            "context": _page_context(request, slug, WorkspaceFeature.FeatureKey.REFERENCES in enabled),
         }
 
         try:

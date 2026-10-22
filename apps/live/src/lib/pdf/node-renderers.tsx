@@ -14,6 +14,20 @@ import { applyMarks } from "./mark-renderers";
 import { pdfStyles } from "./styles";
 import type { KeyGenerator, NodeRendererRegistry, PDFExportMetadata, PDFRenderContext, TipTapNode } from "./types";
 
+/** What a mention shows when the reader may not open the item (same labels
+ * as the shared-tag export, which is Spanish too). */
+const ENTITY_FALLBACK: Record<string, string> = {
+  issue: "Elemento de trabajo",
+  page: "Página",
+  file: "Archivo",
+  contract: "Contrato",
+  music_track: "Canción",
+  music_release: "Lanzamiento",
+  music_artist: "Artista",
+  budget: "Presupuesto",
+  expense: "Gasto",
+};
+
 const getCalloutIcon = (node: TipTapNode, color: string): ReactElement => {
   const logoInUse = node.attrs?.["data-logo-in-use"] as string | undefined;
   const iconName = node.attrs?.["data-icon-name"] as string | undefined;
@@ -350,6 +364,13 @@ export const nodeRenderers: NodeRendererRegistry = {
       if (userMention) {
         displayText = userMention.display_name;
       }
+    } else if (entityName) {
+      // Contracts, songs, files…: their title, or just the kind of thing when
+      // the reader may not open it (never an internal id).
+      displayText =
+        ctx.metadata?.entityMentions?.[`${entityName}:${entityIdentifier}`] ??
+        ENTITY_FALLBACK[entityName] ??
+        entityName;
     }
 
     return (

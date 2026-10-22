@@ -18,6 +18,7 @@ import { AppSidebarItem } from "@/components/sidebar/sidebar-item";
 import { InboxIcon } from "@plane/propel/icons";
 import useSWR from "swr";
 import { useWorkspaceNotifications } from "@/hooks/store/notifications";
+import { AssistantToggleButton } from "@/components/assistant/toggle-button";
 // local imports
 // import { StarUsOnGitHubLink } from "@/app/(all)/[workspaceSlug]/(projects)/star-us-link";
 
@@ -63,6 +64,7 @@ export const TopNavigationRoot = observer(function TopNavigationRoot() {
       </div>
       {/* Additional Actions */}
       <div className="flex shrink-0 items-center gap-1 sm:flex-1 sm:justify-end">
+        <AssistantToggleButton />
         <Tooltip tooltipContent="Inbox" position="bottom">
           <AppSidebarItem
             variant="link"

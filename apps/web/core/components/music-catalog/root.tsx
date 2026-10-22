@@ -21,6 +21,10 @@ import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TMusicFilters, TMusicRelease, TMusicTrack } from "@plane/types";
 import { AlertModalCore } from "@plane/ui";
+import { cn } from "@plane/utils";
+import { setAssistantSelection } from "@/components/assistant/page-context";
+import { BulkTagMenu } from "@/components/references/bulk-tag-menu";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 import { musicService } from "@/services/music.service";
 import { MusicEntityManager } from "./entity-manager";
 import { MusicAppliedFilters, MusicFiltersDropdown, type TMusicFiltersData } from "./filters";
@@ -28,7 +32,7 @@ import { MusicImportAssetsPanel } from "./import-assets-panel";
 import { MusicReleaseModal } from "./release-modal";
 import { formatDate } from "./import/constants";
 import { getApiError, musicDate } from "./shared";
-import { MusicTableActionBar } from "./table-action-bar";
+import { actionButton, actionLabel, MusicTableActionBar } from "./table-action-bar";
 import { MusicTrackPeekPanel } from "./track-peek-panel";
 
 type Props = { workspaceSlug: string };
@@ -115,9 +119,14 @@ const TrackCardSkeleton = () => (
   </article>
 );
 
+const DEEP_LINK_KEYS = ["import_run", "import_file", "import_files", "track", "release", "artist"];
+
 export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const { t, currentLocale } = useTranslation();
   const navigate = useNavigate();
+  // Selected songs can be tagged with the workspace's shared tags.
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -125,6 +134,8 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   // and the file history: the catalog opens filtered to those songs.
   const [filters, setFilters] = useState<TMusicFilters>(() => ({
     songs_only: "true",
+    // ?artist=<id> arrives from a mention or a shared tag.
+    ...(searchParams.get("artist") ? { artist: searchParams.get("artist")! } : {}),
     ...(searchParams.get("import_run") ? { import_run: searchParams.get("import_run")! } : {}),
     ...(searchParams.get("import_file") ? { import_file: searchParams.get("import_file")! } : {}),
   }));
@@ -140,20 +151,41 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   // The deep-link params seeded state once; drop them so a reload or a
   // shared link doesn't keep re-applying a filter the user already removed.
   useEffect(() => {
-    if (!["import_run", "import_file", "import_files"].some((key) => searchParams.has(key))) return;
+    if (!DEEP_LINK_KEYS.some((key) => searchParams.has(key))) return;
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
-        ["import_run", "import_file", "import_files"].forEach((key) => next.delete(key));
+        DEEP_LINK_KEYS.forEach((key) => next.delete(key));
         return next;
       },
       { replace: true }
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // ?track=<id> / ?release=<id> (mentions, references, shared tags) open
+  // that song's panel or that release's editor.
+  const [linkedRelease, setLinkedRelease] = useState(() => searchParams.get("release"));
+  useEffect(() => {
+    const trackId = searchParams.get("track");
+    if (!trackId) return;
+    void musicService
+      .getTracks(workspaceSlug, { ids: trackId })
+      .then((response) => {
+        const found = (Array.isArray(response) ? response : response.results)[0];
+        if (found) setPeekTrack(found);
+        return undefined;
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [deletingTrack, setDeletingTrack] = useState<TMusicTrack>();
   const [isDeletingTrack, setIsDeletingTrack] = useState(false);
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
+  // The assistant knows which songs are selected ("estas canciones").
+  useEffect(() => {
+    setAssistantSelection({ entity_name: "music_track", ids: selectedTrackIds });
+  }, [selectedTrackIds]);
+  useEffect(() => () => setAssistantSelection(null), []);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [isSelectingAllMatching, setIsSelectingAllMatching] = useState(false);
@@ -191,6 +223,18 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   } = useSWR(["MUSIC_TRACKS", workspaceSlug, query], () => musicService.getTracks(workspaceSlug, query), {
     keepPreviousData: true,
   });
+
+  useEffect(() => {
+    if (!linkedRelease || releaseOpen) return;
+    const found = releases.find((item) => item.id === linkedRelease);
+    if (found) {
+      setEditingRelease(found);
+      setReleaseOpen(true);
+      setLinkedRelease(null);
+    }
+    // Only for the release named in the link, once it has loaded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedRelease, releases]);
 
   const trackPage = Array.isArray(trackResponse) ? undefined : trackResponse;
   const tracks = Array.isArray(trackResponse) ? trackResponse : (trackResponse?.results ?? []);
@@ -726,6 +770,19 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                 onPrevious={() => setPage((current) => current - 1)}
                 onNext={() => setPage((current) => current + 1)}
                 onGoTo={(nextPage) => setPage(nextPage)}
+                selectionActions={
+                  referencesEnabled ? (
+                    <BulkTagMenu
+                      workspaceSlug={workspaceSlug}
+                      entityName="music_track"
+                      ids={selectedTrackIds}
+                      itemsLabel={t("references.bulk.items.music_track")}
+                      disabled={isBulkDeleting}
+                      triggerClassName={cn(actionButton, "text-secondary hover:bg-layer-1-hover")}
+                      labelClassName={actionLabel}
+                    />
+                  ) : undefined
+                }
               />
             )}
           </>

@@ -12,8 +12,10 @@ import {
   useCatalogueOutsideClose,
   useCategorySource,
   useOfficeSource,
+  useSharedTagSource,
   type CatalogueSource,
 } from "./catalogue-picker";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 
 /** Many names on one record — the work item label pattern. Stores names, so a
  * budget line and an expense can carry the same tag without sharing a row. */
@@ -29,7 +31,13 @@ export function FinanceTagPicker({
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const ref = useCatalogueOutsideClose(isOpen, () => setIsOpen(false));
-  const source = useCategorySource(workspaceSlug);
+  // With shared tags on, a ledger tag is a workspace tag (also usable on
+  // contracts, songs, work items…); before, tags were category names.
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  const shared = isWorkspaceFeatureEnabled(workspaceSlug, "references");
+  const categorySource = useCategorySource(workspaceSlug);
+  const sharedSource = useSharedTagSource(workspaceSlug, shared);
+  const source = shared ? sharedSource : categorySource;
 
   const toggle = (name: string) =>
     onChange(value.includes(name) ? value.filter((item) => item !== name) : [...value, name]);

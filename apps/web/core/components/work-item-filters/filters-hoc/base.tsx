@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { observer } from "mobx-react";
 import { v4 as uuidv4 } from "uuid";
 // plane imports
@@ -91,13 +91,21 @@ const WorkItemFilterRoot = observer(function WorkItemFilterRoot(props: TWorkItem
     [entityType, workItemEntityID, saveViewOptions, updateViewOptions, updateFilters]
   );
 
-  // delete filter instance when component unmounts
-  useEffect(
-    () => () => {
-      deleteFilter(entityType, workItemEntityID);
-    },
-    [deleteFilter, entityType, workItemEntityID]
-  );
+  // Delete the filter instance when the component unmounts. The deletion
+  // waits a tick and is cancelled if the same filter mounts again right away:
+  // React's StrictMode (dev) unmounts and remounts once, and deleting then
+  // left the list without its filter (the memoized instance is not rebuilt).
+  const pendingDelete = useRef<{ key: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  useEffect(() => {
+    const key = `${entityType}:${workItemEntityID}`;
+    if (pendingDelete.current?.key === key) {
+      clearTimeout(pendingDelete.current.timer);
+      pendingDelete.current = null;
+    }
+    return () => {
+      pendingDelete.current = { key, timer: setTimeout(() => deleteFilter(entityType, workItemEntityID), 0) };
+    };
+  }, [deleteFilter, entityType, workItemEntityID]);
 
   useEffect(() => {
     workItemLayoutFilter.configManager.setAreConfigsReady(workItemFiltersConfig.areAllConfigsInitialized);

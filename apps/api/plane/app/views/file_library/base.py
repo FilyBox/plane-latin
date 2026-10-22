@@ -8,7 +8,7 @@ import uuid
 
 # Django imports
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q
 from django.http import HttpResponseRedirect
 from django.utils import timezone
@@ -25,8 +25,10 @@ from plane.app.serializers import (
     FileLibraryAssetSerializer,
     FileTagSerializer,
 )
+from plane.bgtasks.reference_task import schedule_auto_classify
 from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
 from plane.db.models import (
+    EntityTagLink,
     FileAsset,
     FileCategory,
     FileCategoryLink,
@@ -39,6 +41,7 @@ from plane.db.models import (
 )
 from plane.settings.storage import S3Storage
 from plane.utils.path_validator import sanitize_filename
+from plane.utils.shared_tags import _expense_ids, delete_tag, merge_into, remirror_expenses
 from plane.utils.workspace_feature import is_workspace_feature_enabled
 
 from ..base import BaseAPIView
@@ -303,6 +306,7 @@ class FileLibraryAssetDetailEndpoint(FileLibraryBaseView):
             workspace__slug=slug,
             entity_type=_asset_context(request),
         )
+        just_uploaded = not asset.is_uploaded
         asset.is_uploaded = True
         if not asset.storage_metadata:
             get_asset_object_metadata.delay(asset_id=str(asset_id))
@@ -312,6 +316,10 @@ class FileLibraryAssetDetailEndpoint(FileLibraryBaseView):
         if new_name:
             asset.attributes = {**asset.attributes, "name": new_name}
         asset.save(update_fields=["is_uploaded", "attributes"])
+        # New library files get tag proposals from the AI a few minutes later
+        # (reviewed before anything is applied).
+        if just_uploaded and asset.entity_type == FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY:
+            schedule_auto_classify(asset.workspace_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
@@ -673,16 +681,20 @@ class FileTagDetailEndpoint(FileLibraryBaseView):
         tag = FileTag.objects.get(id=tag_id, workspace__slug=slug)
         serializer = FileTagSerializer(tag, data=request.data, partial=True, context={"workspace_id": tag.workspace_id})
         if serializer.is_valid():
+            previous_name = tag.name
             serializer.save()
+            # Tags are shared: expenses keep the name in their own field.
+            if serializer.instance.name != previous_name:
+                remirror_expenses(_expense_ids([tag.id]))
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def delete(self, request, slug, tag_id):
         tag = FileTag.objects.get(id=tag_id, workspace__slug=slug)
-        # Deleting a tag only unlinks files
-        FileTagLink.objects.filter(tag=tag).delete()
-        tag.delete()
+        # Tags are shared across modules: unlink it everywhere, never delete
+        # the tagged files, work items, songs or expenses.
+        delete_tag(tag)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -706,18 +718,12 @@ class FileTagMergeEndpoint(FileLibraryBaseView):
         source = FileTag.objects.get(id=tag_id, workspace__slug=slug)
         target = FileTag.objects.get(id=target_tag_id, workspace__slug=slug)
 
-        # Files already tagged with the target would violate the
-        # (file_asset, tag) uniqueness if re-pointed — just drop those links
-        already_tagged_assets = set(FileTagLink.objects.filter(tag=target).values_list("file_asset_id", flat=True))
-        FileTagLink.objects.filter(tag=source).exclude(file_asset_id__in=already_tagged_assets).update(tag=target)
-        FileTagLink.objects.filter(tag=source).delete()
-
-        # The target adopts the source's classification if it had none
-        if target.kind == FileTag.Kind.CUSTOM and source.kind != FileTag.Kind.CUSTOM:
-            target.kind = source.kind
-            target.save(update_fields=["kind"])
-
-        source.delete()
+        # Tags are shared: everything tagged with the source (files, work
+        # items, songs, expenses…) ends up under the target, and the target
+        # adopts the source's classification and catalog artist if it had none.
+        with transaction.atomic():
+            merge_into(target.workspace_id, target, source, source=EntityTagLink.Source.MANUAL)
+        target.refresh_from_db()
         return Response(FileTagSerializer(target).data, status=status.HTTP_200_OK)
 
 

@@ -1267,5 +1267,21 @@
       "no_matches": "No matches",
       "create": "Create “{name}”"
     }
+  },
+  "music_catalog": {
+    "action_bar": {
+      "selected": "{count} selected",
+      "selecting": "Selecting…",
+      "select_all": "Select all {count} matching",
+      "select_all_short": "All ({count})",
+      "download": "Download XLSX",
+      "delete": "Delete",
+      "clear": "Clear selection",
+      "page": "Page",
+      "go_to_page": "Go to page",
+      "of_pages": "of {count}",
+      "previous": "Previous page",
+      "next": "Next page"
+    }
   }
 }

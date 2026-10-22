@@ -8,10 +8,11 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import useSWR, { useSWRConfig } from "swr";
 import { useTranslation } from "@plane/i18n";
+import type { TMusicImportAsset } from "@plane/types";
 import { Button } from "@plane/propel/button";
 import { musicService } from "@/services/music.service";
 import { FilePreviewModal } from "../../file-library/file-preview-modal";
-import { IMPORT_STEPS, type TImportStep } from "./constants";
+import { IMPORT_STEPS, importDraftKey, type TImportStep } from "./constants";
 import { ImportStatusHeader } from "./status-header";
 import { ImportStepColumns } from "./step-columns";
 import { ImportStepDone } from "./step-done";
@@ -19,6 +20,7 @@ import { ImportStepFile } from "./step-file";
 import { ImportStepReview } from "./step-review";
 import { ImportStepRules } from "./step-rules";
 import { useImportFlow } from "./use-import-flow";
+import type { TImportDraft } from "./use-import-flow";
 
 type Props = { workspaceSlug: string };
 
@@ -73,7 +75,20 @@ export function MusicImportRoot({ workspaceSlug }: Props) {
       },
       { replace: true }
     );
-    if (asset) void flow.reimport(asset);
+    // A plan from the assistant (its mapping and duplicate rules), if any.
+    let draft: TImportDraft | undefined;
+    try {
+      const stored = sessionStorage.getItem(importDraftKey(requestedAsset));
+      if (stored) {
+        draft = JSON.parse(stored) as TImportDraft;
+        sessionStorage.removeItem(importDraftKey(requestedAsset));
+      }
+    } catch {
+      draft = undefined;
+    }
+    if (asset) void flow.reimport(asset, draft);
+    // A file the assistant just received may not be in the list yet.
+    else if (draft) void flow.reimport({ id: requestedAsset, name: "", last_run: null } as TMusicImportAsset, draft);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedAsset, assetData]);
 

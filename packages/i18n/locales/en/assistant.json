@@ -1,0 +1,210 @@
+{
+  "assistant": {
+    "title": "Assistant",
+    "open": "Open assistant",
+    "close": "Close assistant",
+    "shortcut": "Ctrl J",
+    "new_chat": "New chat",
+    "history": "Conversations",
+    "no_chats": "No conversations yet.",
+    "untitled": "Untitled conversation",
+    "delete_chat": "Delete conversation",
+    "resize": "Drag to resize",
+    "load_failed": "Could not open the conversation.",
+    "not_saved": "The answer was not saved to history.",
+    "copy": "Copy answer",
+    "retry": "Retry",
+    "edit": "Edit message",
+    "thinking": "Thinking…",
+    "reasoning": "Reasoning",
+    "empty": {
+      "title": "How can I help?",
+      "description": "Search contracts, music, tags and work items, or attach a file to import it into the catalog."
+    },
+    "suggestions": {
+      "contracts_expiring": "Which contracts expire this year?",
+      "contracts_by_status": "How many contracts are there by status?",
+      "contracts_mention": "Which contracts mention royalties?",
+      "music_year": "Songs released this year",
+      "music_videos": "Which songs have no video?",
+      "tag_summary": "Summarize everything tagged {name}",
+      "tag_releases": "Which releases does {name} have this year?",
+      "item_summary": "Summarize {name}",
+      "item_references": "Where is {name} mentioned?",
+      "selection": "What do these {count} songs have in common?",
+      "workspace": "Which tags are used the most?"
+    },
+    "composer": {
+      "placeholder": "Ask or request something…",
+      "attach": "Attach a CSV or Excel to import",
+      "send": "Send (Enter)",
+      "stop": "Stop",
+      "model": "Model",
+      "remove_context": "Remove {name} from context",
+      "context_hint": "The assistant knows what you're looking at"
+    },
+    "context": {
+      "tag": "Tag",
+      "work_item": "Work item",
+      "selection": "{count} selected"
+    },
+    "attachments": {
+      "download": "Download file",
+      "remove": "Remove file"
+    },
+    "steps": {
+      "working": "Working…",
+      "summary": "{count, plural, one {# step} other {# steps}} · {duration}",
+      "failed": "failed",
+      "results": "{count, plural, one {# result} other {# results}}",
+      "of_total": "{shown} of {total}",
+      "groups": "{count, plural, one {# group} other {# groups}} · {total} contracts",
+      "scan": "{matched} of {scanned} match",
+      "file": "{rows} rows · {columns} columns",
+      "documents": "{count, plural, one {# document} other {# documents}}",
+      "fragments": "{count, plural, one {# fragment} other {# fragments}}",
+      "tags": "{count, plural, one {# tag} other {# tags}}",
+      "references": "{refs} referenced · {backlinks} mention it",
+      "list_known_names": {
+        "running": "Checking how names are spelled",
+        "done": "Checked names"
+      },
+      "find_contracts": {
+        "running": "Searching contracts",
+        "done": "Searched contracts"
+      },
+      "search_contract_text": {
+        "running": "Searching the text",
+        "done": "Searched the text"
+      },
+      "read_contract_excerpts": {
+        "running": "Reading excerpts",
+        "done": "Read excerpts"
+      },
+      "get_contract_details": {
+        "running": "Opening records",
+        "done": "Opened records"
+      },
+      "summarize_contracts": {
+        "running": "Summarizing documents",
+        "done": "Summarized documents"
+      },
+      "count_contracts": {
+        "running": "Counting contracts",
+        "done": "Counted contracts"
+      },
+      "scan_contracts": {
+        "running": "Reading contracts",
+        "done": "Read contracts"
+      },
+      "show_documents": {
+        "running": "Preparing documents",
+        "done": "Documents"
+      },
+      "query_music_tracks": {
+        "running": "Querying the catalog",
+        "done": "Queried the catalog"
+      },
+      "export_music_excel": {
+        "running": "Preparing the Excel",
+        "done": "Prepared the Excel"
+      },
+      "list_music_files": {
+        "running": "Looking for files",
+        "done": "Looked for files"
+      },
+      "read_import_file": {
+        "running": "Reading the file",
+        "done": "Read the file"
+      },
+      "plan_music_import": {
+        "running": "Validating the file",
+        "done": "Validated the file"
+      },
+      "update_music_track": {
+        "running": "Preparing the change",
+        "done": "Prepared the change"
+      },
+      "find_tags": {
+        "running": "Looking for tags",
+        "done": "Looked for tags"
+      },
+      "find_by_tag": {
+        "running": "Gathering the tag",
+        "done": "Gathered the tag"
+      },
+      "search_workspace": {
+        "running": "Searching the workspace",
+        "done": "Searched the workspace"
+      },
+      "get_references": {
+        "running": "Checking references",
+        "done": "Checked references"
+      },
+      "ask_user": {
+        "running": "Asking",
+        "done": "Asked"
+      },
+      "fallback": {
+        "running": "Using a tool",
+        "done": "Used a tool"
+      },
+      "count": "{count, plural, one {# step} other {# steps}}"
+    },
+    "export": {
+      "title": "Excel ready",
+      "body": "{count, plural, one {# song} other {# songs}} with these filters",
+      "download": "Download"
+    },
+    "import_plan": {
+      "title": "Import plan",
+      "rows": "{count, plural, one {# row} other {# rows}}",
+      "created": "New",
+      "updated": "Updated",
+      "unchanged": "Unchanged",
+      "skipped": "Skipped",
+      "errors": "With problems",
+      "possible_duplicates": "Possible duplicates",
+      "mapping": "Mapped columns",
+      "more": "+{count} more",
+      "first_errors": "First problems",
+      "row": "Row {row}",
+      "review": "Review and import",
+      "note": "Nothing is imported until you confirm in Music, where you can adjust columns, rules and duplicates.",
+      "admin_only": "Only an admin can import into the catalog."
+    },
+    "update": {
+      "title": "Proposed change",
+      "field": "Field",
+      "before": "Before",
+      "after": "After",
+      "approve": "Apply change",
+      "discard": "Discard",
+      "applied": "Change applied",
+      "discarded": "Discarded",
+      "failed": "Could not apply the change.",
+      "multiple": "Several songs match",
+      "not_found": "Song not found",
+      "video_added": "A video is added; existing ones don't change.",
+      "fields": {
+        "release_date": "Release date",
+        "original_release_date": "Original date",
+        "isrc": "ISRC",
+        "videos": "Videos",
+        "video_url": "New video",
+        "video_release_date": "Video date",
+        "video_isrc": "Video ISRC"
+      }
+    },
+    "ask": {
+      "other": "Another answer…",
+      "send": "Answer",
+      "answered": "You answered: {answer}"
+    },
+    "errors": {
+      "unavailable": "The assistant is unavailable right now. Try again in a few seconds.",
+      "forbidden": "The assistant is not enabled in this workspace.",
+      "generic": "The message could not be sent. Try again."
+    }
+  }
+}

@@ -11,7 +11,7 @@ import { useParams } from "next/navigation";
 // plane imports
 import { WORKSPACE_DEFAULT_SEARCH_RESULT } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
-import type { IWorkspaceSearchResults, TLibraryFile } from "@plane/types";
+import type { IWorkspaceSearchResults, TEntityCard, TEntityName, TLibraryFile } from "@plane/types";
 import { cn } from "@plane/utils";
 // hooks
 import { usePowerK } from "@/hooks/store/use-power-k";
@@ -20,7 +20,9 @@ import { useAppRouter } from "@/hooks/use-app-router";
 import useDebounce from "@/hooks/use-debounce";
 // plane web imports
 import { PowerKModalNoSearchResultsCommand } from "@/plane-web/components/command-palette/power-k/search/no-results-command";
+import { ENTITY_ICONS, ENTITY_ORDER, entityGroupKey } from "@/components/references/entity-meta";
 import { fileLibraryService } from "@/services/file-library.service";
+import { referencesService } from "@/services/references.service";
 import { WorkspaceService } from "@/services/workspace.service";
 // local imports
 import type { TPowerKContext, TPowerKPageType } from "../../core/types";
@@ -28,6 +30,9 @@ import { PowerKModalCommandItem } from "./command-item";
 import { PowerKModalSearchResults } from "./search-results";
 // services init
 const workspaceService = new WorkspaceService();
+// Plane's own search already covers work items and pages; the entity search
+// adds everything else that can be referenced (contracts, music, finance…).
+const ENTITY_SEARCH_TYPES = ENTITY_ORDER.filter((name) => name !== "issue" && name !== "page");
 
 type Props = {
   activePage: TPowerKPageType | null;
@@ -46,6 +51,7 @@ export function PowerKModalSearchMenu(props: Props) {
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<IWorkspaceSearchResults>(WORKSPACE_DEFAULT_SEARCH_RESULT);
   const [fileResults, setFileResults] = useState<TLibraryFile[]>([]);
+  const [entityResults, setEntityResults] = useState<Partial<Record<TEntityName, TEntityCard[]>>>({});
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
   // navigation
   const router = useAppRouter();
@@ -53,12 +59,39 @@ export function PowerKModalSearchMenu(props: Props) {
   // store hooks
   const { togglePowerKModal } = usePowerK();
   const { isWorkspaceFeatureEnabled } = useWorkspace();
-  const isFileLibraryEnabled =
-    !!workspaceSlug && isWorkspaceFeatureEnabled(workspaceSlug.toString(), "file_library");
+  const isFileLibraryEnabled = !!workspaceSlug && isWorkspaceFeatureEnabled(workspaceSlug.toString(), "file_library");
+  const isReferencesEnabled = !!workspaceSlug && isWorkspaceFeatureEnabled(workspaceSlug.toString(), "references");
 
-  // File-name search over the workspace library (server-side icontains)
+  // Contracts, files, songs, releases, artists, budgets and expenses the
+  // viewer may open (the entity registry decides, as for @mentions).
   useEffect(() => {
-    if (activePage || !workspaceSlug || !isFileLibraryEnabled) return;
+    if (activePage || !workspaceSlug || !isReferencesEnabled) return;
+    if (!debouncedSearchTerm.trim()) {
+      setEntityResults({});
+      return;
+    }
+    let cancelled = false;
+    referencesService
+      .search(workspaceSlug.toString(), debouncedSearchTerm.trim(), { types: ENTITY_SEARCH_TYPES, count: 5 })
+      .then((response) => {
+        if (!cancelled) setEntityResults(response.results);
+        return undefined;
+      })
+      .catch(() => {
+        if (!cancelled) setEntityResults({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearchTerm, workspaceSlug, activePage, isReferencesEnabled]);
+  const entityGroups = ENTITY_SEARCH_TYPES.map((name) => ({ name, items: entityResults[name] ?? [] })).filter(
+    (group) => group.items.length > 0
+  );
+
+  // File-name search over the workspace library (server-side icontains),
+  // for workspaces without references: the entity search covers files.
+  useEffect(() => {
+    if (activePage || !workspaceSlug || !isFileLibraryEnabled || isReferencesEnabled) return;
     if (!debouncedSearchTerm) {
       setFileResults([]);
       return;
@@ -68,6 +101,7 @@ export function PowerKModalSearchMenu(props: Props) {
       .getFiles(workspaceSlug.toString(), { search: debouncedSearchTerm })
       .then((files) => {
         if (!cancelled) setFileResults(files.slice(0, 6));
+        return undefined;
       })
       .catch(() => {
         if (!cancelled) setFileResults([]);
@@ -75,7 +109,7 @@ export function PowerKModalSearchMenu(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearchTerm, workspaceSlug, activePage, isFileLibraryEnabled]);
+  }, [debouncedSearchTerm, workspaceSlug, activePage, isFileLibraryEnabled, isReferencesEnabled]);
 
   useEffect(() => {
     if (activePage || !workspaceSlug) return;
@@ -88,13 +122,14 @@ export function PowerKModalSearchMenu(props: Props) {
           search: debouncedSearchTerm,
           workspace_search: !projectId ? true : isWorkspaceLevel,
         })
-        .then((results) => {
-          setResults(results);
-          const count = Object.keys(results.results).reduce(
-            (accumulator, key) => results.results[key as keyof typeof results.results]?.length + accumulator,
+        .then((response) => {
+          setResults(response);
+          const count = Object.keys(response.results).reduce(
+            (accumulator, key) => response.results[key as keyof typeof response.results]?.length + accumulator,
             0
           );
           setResultsCount(count);
+          return undefined;
         })
         .catch(() => {
           setResults(WORKSPACE_DEFAULT_SEARCH_RESULT);
@@ -138,6 +173,7 @@ export function PowerKModalSearchMenu(props: Props) {
       {!isSearching &&
         resultsCount === 0 &&
         fileResults.length === 0 &&
+        entityGroups.length === 0 &&
         searchTerm.trim() !== "" &&
         debouncedSearchTerm.trim() !== "" && (
           <PowerKModalNoSearchResultsCommand
@@ -164,6 +200,33 @@ export function PowerKModalSearchMenu(props: Props) {
           ))}
         </Command.Group>
       )}
+
+      {/* Everything else that can be referenced, grouped by kind */}
+      {searchTerm.trim() !== "" &&
+        entityGroups.map(({ name, items }) => (
+          <Command.Group key={name} heading={t(entityGroupKey(name))}>
+            {items.map((card) => (
+              <PowerKModalCommandItem
+                key={card.id}
+                icon={ENTITY_ICONS[name]}
+                // Matches can come from fields not shown (ISRC, artist…):
+                // keep the typed term in the value so the palette keeps them.
+                value={`entity-${name}-${card.id}-${card.title ?? ""}-${searchTerm}`}
+                label={
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="truncate">{card.title}</span>
+                    {card.subtitle && <span className="truncate text-11 text-tertiary">{card.subtitle}</span>}
+                  </span>
+                }
+                onSelect={() => {
+                  if (!card.path) return;
+                  handleClosePalette();
+                  router.push(card.path);
+                }}
+              />
+            ))}
+          </Command.Group>
+        ))}
 
       {searchTerm.trim() !== "" && <PowerKModalSearchResults closePalette={handleClosePalette} results={results} />}
     </>

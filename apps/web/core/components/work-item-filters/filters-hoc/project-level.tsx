@@ -17,12 +17,14 @@ import { removeNillKeys } from "@/components/issues/issue-layouts/utils";
 import { CreateUpdateProjectViewModal } from "@/components/views/modal";
 // hooks
 import { useCycle } from "@/hooks/store/use-cycle";
+import { useSharedTags } from "@/components/references/use-shared-tags";
 import { useLabel } from "@/hooks/store/use-label";
 import { useMember } from "@/hooks/store/use-member";
 import { useModule } from "@/hooks/store/use-module";
 import { useProject } from "@/hooks/store/use-project";
 import { useProjectState } from "@/hooks/store/use-project-state";
 import { useProjectView } from "@/hooks/store/use-project-view";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 // local imports
 import { WorkItemFiltersHOC } from "./base";
@@ -49,6 +51,10 @@ export const ProjectLevelWorkItemFiltersHOC = observer(function ProjectLevelWork
   const { allowPermissions } = useUserPermissions();
   const { getProjectCycleIds } = useCycle();
   const { getProjectLabelIds } = useLabel();
+  // Workspace tags shared with contracts, files and music, when enabled.
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
+  const { data: sharedTags } = useSharedTags(workspaceSlug, referencesEnabled);
   const {
     project: { getProjectMemberIds },
   } = useMember();
@@ -156,6 +162,7 @@ export const ProjectLevelWorkItemFiltersHOC = observer(function ProjectLevelWork
             title: "Success!",
             message: "Your view has been updated successfully.",
           });
+          return undefined;
         })
         .catch(() => {
           setToast({
@@ -204,6 +211,7 @@ export const ProjectLevelWorkItemFiltersHOC = observer(function ProjectLevelWork
         workspaceSlug={workspaceSlug}
         cycleIds={getProjectCycleIds(projectId) ?? undefined}
         labelIds={getProjectLabelIds(projectId)}
+        sharedTags={referencesEnabled ? sharedTags : undefined}
         memberIds={getProjectMemberIds(projectId, false) ?? undefined}
         moduleIds={getProjectModuleIds(projectId) ?? undefined}
         stateIds={getProjectStateIds(projectId)}

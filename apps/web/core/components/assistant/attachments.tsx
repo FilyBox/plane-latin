@@ -4,13 +4,14 @@
  * See the LICENSE file for details.
  *
  * Spreadsheet attachments are Music-owned assets and surface their `asset_id` to the
- * agent, so "importa este archivo" chains straight into the
- * `propose_music_import` tool without a separate upload step.
+ * agent, so "importa este archivo" chains straight into `read_import_file`
+ * and `plan_music_import` without a separate upload step.
  */
 
 import { Download, FileSpreadsheet, Loader2, X } from "lucide-react";
 import type { AttachmentAdapter, CompleteAttachment, PendingAttachment } from "@assistant-ui/react";
 import { AttachmentPrimitive, ComposerPrimitive, MessagePrimitive, useAttachment } from "@assistant-ui/react";
+import { useTranslation } from "@plane/i18n";
 // services
 import { fileLibraryService } from "@/services/file-library.service";
 
@@ -52,12 +53,12 @@ export class FileLibraryAttachmentAdapter implements AttachmentAdapter {
     return {
       ...attachment,
       status: { type: "complete" },
-      // The agent reads this text part: it carries the asset_id the
-      // propose_music_import tool needs, so no extra lookup round-trip.
+      // The agent reads this text part: it carries the asset_id its import
+      // tools need, so no extra lookup round-trip.
       content: [
         {
           type: "text",
-          text: `[Archivo adjunto interno de Music] nombre="${attachment.name}" asset_id=${uploaded.asset_id}. Para importarlo al catálogo musical, usa propose_music_import con ese asset_id (primero mode=read).`,
+          text: `[Archivo adjunto] nombre="${attachment.name}" asset_id=${uploaded.asset_id}. Para importarlo al catálogo musical: read_import_file con ese asset_id y luego plan_music_import.`,
         },
       ],
     };
@@ -71,6 +72,7 @@ export class FileLibraryAttachmentAdapter implements AttachmentAdapter {
 
 /** Pill for one attachment: upload states while pending, download once sent */
 function AttachmentPill() {
+  const { t } = useTranslation();
   const status = useAttachment((attachment) => attachment.status);
   const id = useAttachment((attachment) => attachment.id);
   const downloadUrl = status.type === "complete" ? attachmentDownloadUrls.get(id) : undefined;
@@ -89,7 +91,11 @@ function AttachmentPill() {
   return (
     <AttachmentPrimitive.Root className="group/pill flex items-center gap-1.5 rounded-full border border-subtle bg-layer-1 py-1 pr-1.5 pl-2.5 text-11">
       {downloadUrl ? (
-        <a href={downloadUrl} className="flex items-center gap-1.5 hover:text-accent-primary" title="Descargar archivo">
+        <a
+          href={downloadUrl}
+          className="flex items-center gap-1.5 hover:text-accent-primary"
+          title={t("assistant.attachments.download")}
+        >
           {body}
           <Download className="size-3 shrink-0 opacity-0 transition-opacity group-hover/pill:opacity-100" />
         </a>
@@ -97,7 +103,10 @@ function AttachmentPill() {
         body
       )}
       {status.type !== "complete" && (
-        <AttachmentPrimitive.Remove className="rounded-full p-0.5 text-tertiary hover:bg-layer-1-hover">
+        <AttachmentPrimitive.Remove
+          className="rounded-full p-0.5 text-tertiary hover:bg-layer-1-hover"
+          aria-label={t("assistant.attachments.remove")}
+        >
           <X className="size-3" />
         </AttachmentPrimitive.Remove>
       )}
