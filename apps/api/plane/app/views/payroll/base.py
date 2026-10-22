@@ -48,6 +48,28 @@ from ..base import BaseAPIView
 SALARIES = Prefetch("salaries", queryset=Salary.objects.select_related("office"))
 
 
+def _requested_year(request):
+    """The ?year= of a report, or this year. A malformed value is a 400."""
+    raw = request.query_params.get("year")
+    if raw in (None, ""):
+        return date.today().year, None
+    try:
+        year = int(raw)
+    except (TypeError, ValueError):
+        year = 0
+    if not 1900 <= year <= 2200:
+        return None, Response({"year": ["Enter a valid year"]}, status=status.HTTP_400_BAD_REQUEST)
+    return year, None
+
+
+def _foreign(workspace_id, **related):
+    """The first related record that belongs to another workspace, by field name."""
+    for field, value in related.items():
+        if value is not None and value.workspace_id != workspace_id:
+            return Response({field: ["Unknown " + field]}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
 class PayrollBaseView(BaseAPIView):
     """Payroll is gated by the payments feature flag *and* is admin-only.
 
@@ -146,6 +168,9 @@ class EmployeeEndpoint(PayrollBaseView):
         serializer = EmployeeSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        refused = _foreign(workspace.id, office=serializer.validated_data.get("office"))
+        if refused:
+            return refused
         serializer.save(workspace_id=workspace.id)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -167,6 +192,9 @@ class EmployeeDetailEndpoint(PayrollBaseView):
         serializer = EmployeeSerializer(employee, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        refused = _foreign(employee.workspace_id, office=serializer.validated_data.get("office"))
+        if refused:
+            return refused
         serializer.save()
         return Response(EmployeeSerializer(employee).data, status=status.HTTP_200_OK)
 
@@ -333,6 +361,9 @@ class AdjustmentEndpoint(PayrollBaseView):
         serializer = AdjustmentSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        refused = _foreign(employee.workspace_id, office=serializer.validated_data.get("office"))
+        if refused:
+            return refused
         serializer.save(workspace_id=employee.workspace_id, employee=employee)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -389,6 +420,13 @@ class PayrollPaymentEndpoint(PayrollBaseView):
         serializer = PayrollPaymentSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        refused = _foreign(
+            workspace.id,
+            employee=serializer.validated_data.get("employee"),
+            office=serializer.validated_data.get("office"),
+        )
+        if refused:
+            return refused
         serializer.save(workspace_id=workspace.id)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -403,6 +441,13 @@ class PayrollPaymentDetailEndpoint(PayrollBaseView):
         serializer = PayrollPaymentSerializer(payment, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        refused = _foreign(
+            payment.workspace_id,
+            employee=serializer.validated_data.get("employee"),
+            office=serializer.validated_data.get("office"),
+        )
+        if refused:
+            return refused
         payment = serializer.save()
 
         # Marking it paid without a date leaves the ledger unable to say when
@@ -424,7 +469,9 @@ class AguinaldoEndpoint(PayrollBaseView):
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
-        year = int(request.query_params.get("year", date.today().year))
+        year, refused = _requested_year(request)
+        if refused:
+            return refused
         employees = Employee.objects.filter(workspace__slug=slug).prefetch_related(SALARIES)
 
         results = []
@@ -476,7 +523,9 @@ class AnnualCostEndpoint(PayrollBaseView):
             # the thing being kept quiet
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        year = int(request.query_params.get("year", date.today().year))
+        year, refused = _requested_year(request)
+        if refused:
+            return refused
         employees = Employee.objects.filter(workspace__slug=slug).prefetch_related(SALARIES)
         adjustments = Adjustment.objects.filter(
             workspace__slug=slug, effective_date__year=year

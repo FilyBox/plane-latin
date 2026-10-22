@@ -11,7 +11,7 @@ from rest_framework.response import Response
 
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers.user import UserLiteSerializer
-from plane.db.models import BudgetScenario, Expense, FileAsset, Office, Salary, Workspace
+from plane.db.models import BudgetScenario, Expense, FileAsset, FinancialVariable, Office, Salary, Workspace
 from plane.db.models.finance import BudgetRow, BudgetScenarioEmployee, BudgetScenarioVariable, FinanceComment
 from plane.utils.content_validator import validate_html_content
 from .base import FinanceBaseView, _scenario_forecast_data
@@ -19,6 +19,12 @@ from .base import FinanceBaseView, _scenario_forecast_data
 
 class BudgetRowSerializer(serializers.ModelSerializer):
     tags = serializers.ListField(child=serializers.CharField(max_length=50), max_length=20, required=False)
+
+    def validate_category(self, value):
+        workspace_id = self.context.get("workspace_id")
+        if value is not None and workspace_id and value.workspace_id != workspace_id:
+            raise serializers.ValidationError("Unknown category")
+        return value
     category_name = serializers.CharField(source="category.name", read_only=True, default="")
     documents = serializers.SerializerMethodField()
 
@@ -50,7 +56,9 @@ class BudgetRowEndpoint(FinanceBaseView):
     def patch(self, request, slug, scenario_id, row_key):
         with transaction.atomic():
             scenario, row = self.row(slug, scenario_id, row_key)
-            serializer = BudgetRowSerializer(row, data=request.data, partial=True)
+            serializer = BudgetRowSerializer(
+                row, data=request.data, partial=True, context={"workspace_id": scenario.workspace_id}
+            )
             serializer.is_valid(raise_exception=True)
             row = serializer.save(workspace=scenario.workspace, scenario=scenario, row_key=row_key)
             if "asset_ids" in request.data:
@@ -85,6 +93,14 @@ class BudgetRowEndpoint(FinanceBaseView):
             salary = assignment.salary
             if salary.office_id == office.id:
                 return
+            # The office lives on the salary itself, which other budgets and the
+            # payroll history read too. Moving it from here would silently
+            # rewrite those, so it only happens when this budget is the only one
+            # using it; otherwise the move is made from the person's salaries.
+            if BudgetScenarioEmployee.objects.filter(salary=salary).exclude(scenario=scenario).exists():
+                raise serializers.ValidationError(
+                    {"entity": "This salary is used by other budgets. Change its office from the person's salaries."}
+                )
             # One running salary per employee and office is a database rule, so
             # a move onto an office they already draw from has to be refused
             # rather than left to raise an integrity error.
@@ -100,6 +116,16 @@ class BudgetRowEndpoint(FinanceBaseView):
                 BudgetScenarioVariable.objects.select_related("variable"), id=identifier, scenario=scenario
             )
             variable = assignment.variable
+            if variable.office_id == office.id:
+                return
+            if BudgetScenarioVariable.objects.filter(variable=variable).exclude(scenario=scenario).exists():
+                raise serializers.ValidationError(
+                    {"entity": "This concept is used by other budgets. Change its office from the concept itself."}
+                )
+            if FinancialVariable.objects.filter(
+                workspace_id=variable.workspace_id, office=office, name__iexact=variable.name
+            ).exclude(id=variable.id).exists():
+                raise serializers.ValidationError({"entity": "That office already has a concept with this name"})
             variable.office = office
             variable.save(update_fields=["office"])
         else:

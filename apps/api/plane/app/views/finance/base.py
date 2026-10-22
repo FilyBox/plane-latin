@@ -92,6 +92,7 @@ def _scenario_forecast_data(scenario):
         if row and row.title:
             line["label"] = row.title
     actual = Expense.objects.filter(scenario=scenario, expense_date__range=(scenario.period_start, scenario.period_end))
+    _attach_actuals(forecast, actual)
     forecast["actuals"] = [
         {"currency": row["currency"], "paid": str(row["paid"] or 0), "pending": str(row["pending"] or 0)}
         for row in actual.values("currency").annotate(
@@ -99,6 +100,71 @@ def _scenario_forecast_data(scenario):
         )
     ]
     return forecast
+
+
+def _attach_actuals(forecast, expenses):
+    """Puts what was really spent next to what was planned.
+
+    Each line gets `actual` (per month) and `actual_total`, from the expenses
+    assigned to it in the line's currency. Pending and paid both count —
+    committed money — and cancelled ones never do. Expenses filed against the
+    budget without a line, or against a line that no longer exists, are
+    reported under `unassigned` per currency so nothing spent goes missing.
+    """
+    from django.db.models.functions import ExtractMonth, ExtractYear
+
+    months = [(item["year"], item["month"]) for item in forecast["months"]]
+    lines = {line["key"]: line for line in forecast["lines"]}
+    by_line, unassigned = {}, {}
+    rows = (
+        expenses.exclude(status="CANCELLED")
+        .annotate(year=ExtractYear("expense_date"), month=ExtractMonth("expense_date"))
+        .values("budget_row__row_key", "currency", "year", "month")
+        .annotate(total=Sum("amount"))
+    )
+    for row in rows:
+        line = lines.get(row["budget_row__row_key"])
+        cell = (row["year"], row["month"])
+        if line is not None and line["currency"] == row["currency"]:
+            bucket = by_line.setdefault(line["key"], {})
+        else:
+            bucket = unassigned.setdefault(row["currency"], {})
+        bucket[cell] = bucket.get(cell, Decimal(0)) + row["total"]
+
+    def serialize(values):
+        cells = [{"year": year, "month": month, "amount": str(values.get((year, month), Decimal(0)).quantize(CENTS))}
+                 for year, month in months]
+        return cells, str(sum(values.values(), Decimal(0)).quantize(CENTS))
+
+    for key, line in lines.items():
+        line["actual"], line["actual_total"] = serialize(by_line.get(key, {}))
+    forecast["unassigned"] = [
+        {"currency": currency, **dict(zip(("months", "total"), serialize(values)))}
+        for currency, values in sorted(unassigned.items())
+    ]
+
+
+def _scenario_totals(scenario):
+    """[{currency, planned, paid, pending, available}] for one budget."""
+    forecast = _scenario_forecast_data(scenario)
+    actuals = {item["currency"]: item for item in forecast.get("actuals", [])}
+    currencies = sorted({item["currency"] for item in forecast["results"]} | set(actuals))
+    totals = []
+    for currency in currencies:
+        result = next((item for item in forecast["results"] if item["currency"] == currency), None)
+        planned = Decimal(result["annual"]["total"]) if result else Decimal(0)
+        paid = Decimal(actuals.get(currency, {}).get("paid", "0"))
+        pending = Decimal(actuals.get(currency, {}).get("pending", "0"))
+        totals.append(
+            {
+                "currency": currency,
+                "planned": str(planned.quantize(CENTS)),
+                "paid": str(paid.quantize(CENTS)),
+                "pending": str(pending.quantize(CENTS)),
+                "available": str((planned - paid - pending).quantize(CENTS)),
+            }
+        )
+    return totals
 
 
 class FinanceBaseView(BaseAPIView):
@@ -258,7 +324,14 @@ class BudgetScenarioEndpoint(FinanceBaseView):
         year = request.query_params.get("year")
         if year:
             scenarios = scenarios.filter(fiscal_year=year)
-        return Response(BudgetScenarioSerializer(scenarios, many=True).data, status=status.HTTP_200_OK)
+        data = BudgetScenarioSerializer(scenarios, many=True).data
+        if request.query_params.get("totals"):
+            # Planned against spent for the list, per currency. Opt-in: it runs
+            # each budget's forecast, which only the list screen needs.
+            totals = {str(scenario.id): _scenario_totals(scenario) for scenario in scenarios}
+            for item in data:
+                item["totals"] = totals.get(str(item["id"]), [])
+        return Response(data, status=status.HTTP_200_OK)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
@@ -456,12 +529,35 @@ class BudgetScenarioEmployeeDetailEndpoint(FinanceBaseView):
             return Response({"error": "Employee and salary must belong to this workspace"}, status=status.HTTP_400_BAD_REQUEST)
         if salary.employee_id != employee.id:
             return Response({"error": "The selected salary does not belong to this employee"}, status=status.HTTP_400_BAD_REQUEST)
+        scenario = assignment.scenario
         start = serializer.validated_data.get("effective_from", assignment.effective_from)
-        end = serializer.validated_data.get("effective_to", assignment.effective_to) or assignment.scenario.period_end
-        if start < assignment.scenario.period_start or end > assignment.scenario.period_end:
+        end = serializer.validated_data.get("effective_to", assignment.effective_to) or scenario.period_end
+        if start < scenario.period_start or end > scenario.period_end:
             return Response(
                 {"error": "The employee dates must stay inside the budget period"},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Same rules as adding the person: the salary has to be in force for
+        # these dates, and one salary is included once per budget.
+        valid_start = max(scenario.period_start, employee.hire_date, salary.effective_from)
+        valid_end = min(
+            scenario.period_end,
+            employee.termination_date or scenario.period_end,
+            salary.effective_to or scenario.period_end,
+        )
+        if valid_start > valid_end or start < valid_start or end > valid_end:
+            return Response(
+                {"error": "The selected salary is not valid for these budget dates"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if (
+            BudgetScenarioEmployee.objects.filter(scenario=scenario, employee=employee, salary=salary)
+            .exclude(id=assignment.id)
+            .exists()
+        ):
+            return Response(
+                {"error": "This salary is already included for the employee"},
+                status=status.HTTP_409_CONFLICT,
             )
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -513,6 +609,15 @@ class BudgetBonusDetailEndpoint(FinanceBaseView):
         serializer = BudgetBonusSerializer(bonus, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        assignment = bonus.scenario_employee
+        assignment_end = assignment.effective_to or assignment.scenario.period_end
+        start = serializer.validated_data.get("effective_from", bonus.effective_from)
+        end = serializer.validated_data.get("effective_to", bonus.effective_to) or assignment_end
+        if start < assignment.effective_from or end > assignment_end:
+            return Response(
+                {"error": "The bonus dates must stay inside the employee assignment"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -706,9 +811,20 @@ class ExpenseEndpoint(FinanceBaseView):
         # instead of one per expense
         expenses = (
             Expense.objects.filter(workspace__slug=slug)
-            .select_related("category")
+            .select_related("category", "budget_row__scenario")
             .prefetch_related("documents__asset")
         )
+
+        scenario_id = request.query_params.get("scenario")
+        if scenario_id == "none":
+            expenses = expenses.filter(scenario__isnull=True)
+        elif scenario_id:
+            expenses = expenses.filter(scenario_id=scenario_id)
+        budget_line = request.query_params.get("budget_line")
+        if budget_line == "none":
+            expenses = expenses.filter(budget_row__isnull=True)
+        elif budget_line:
+            expenses = expenses.filter(budget_row__row_key=budget_line)
 
         category_ids = request.query_params.getlist("category")
         if "none" in category_ids:
@@ -736,7 +852,77 @@ class ExpenseEndpoint(FinanceBaseView):
             expenses = expenses.filter(
                 Q(concept__icontains=search) | Q(vendor__icontains=search) | Q(description__icontains=search) | Q(reference__icontains=search)
             )
-        return Response(ExpenseSerializer(expenses, many=True).data, status=status.HTTP_200_OK)
+
+        currencies = [value.upper() for value in request.query_params.getlist("currency") if value]
+        if currencies:
+            expenses = expenses.filter(currency__in=currencies)
+        tags = [value for value in request.query_params.getlist("tag") if value]
+        if tags:
+            any_tag = Q()
+            for tag in tags:
+                any_tag |= Q(tags__contains=[tag])
+            expenses = expenses.filter(any_tag)
+        if request.query_params.get("recurring") in ("1", "true"):
+            expenses = expenses.filter(Q(series__isnull=False) | ~Q(recurrence="ONE_TIME"))
+
+        ordering = {
+            "date_asc": ("expense_date", "created_at"),
+            "amount_desc": ("currency", "-amount", "-expense_date"),
+            "concept_asc": ("concept", "vendor", "-expense_date"),
+        }.get(request.query_params.get("sort"), ("-expense_date", "-created_at"))
+        expenses = expenses.order_by(*ordering)
+
+        # Paged on request: the ledger asks for a window plus the figures of the
+        # whole filtered set, so totals never depend on how much is loaded. Old
+        # callers that don't send `limit` still get the plain list.
+        limit = request.query_params.get("limit")
+        if limit is None:
+            return Response(ExpenseSerializer(expenses, many=True).data, status=status.HTTP_200_OK)
+        try:
+            limit = max(1, min(int(limit), 500))
+            offset = max(0, int(request.query_params.get("offset", 0)))
+        except (TypeError, ValueError):
+            return Response({"limit": ["Enter whole numbers"]}, status=status.HTTP_400_BAD_REQUEST)
+        totals = (
+            expenses.exclude(status="CANCELLED")
+            .order_by()
+            .values("currency")
+            .annotate(
+                paid=Sum("amount", filter=Q(status="PAID")),
+                pending=Sum("amount", filter=Q(status="PENDING")),
+            )
+            .order_by("currency")
+        )
+        return Response(
+            {
+                "count": expenses.count(),
+                "results": ExpenseSerializer(expenses[offset : offset + limit], many=True).data,
+                "totals": [
+                    {
+                        "currency": row["currency"],
+                        "paid": str((row["paid"] or Decimal(0)).quantize(CENTS)),
+                        "pending": str((row["pending"] or Decimal(0)).quantize(CENTS)),
+                        "total": str(((row["paid"] or Decimal(0)) + (row["pending"] or Decimal(0))).quantize(CENTS)),
+                    }
+                    for row in totals
+                ],
+                # Every currency and tag in use, so the filter menu can offer them
+                # without loading the ledger.
+                "facets": {
+                    "currencies": sorted(
+                        set(Expense.objects.filter(workspace__slug=slug).values_list("currency", flat=True))
+                    ),
+                    "tags": sorted(
+                        {
+                            tag
+                            for row in Expense.objects.filter(workspace__slug=slug).values_list("tags", flat=True)
+                            for tag in (row or [])
+                        }
+                    ),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
