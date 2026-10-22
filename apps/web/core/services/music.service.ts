@@ -7,6 +7,7 @@ import type {
   TMusicGenre,
   TMusicImportResult,
   TMusicImportPreview,
+  TMusicImportProgress,
   TMusicImportAsset,
   TMusicParty,
   TMusicRelease,
@@ -14,6 +15,24 @@ import type {
   TMusicTrackPage,
 } from "@plane/types";
 import { APIService } from "@/services/api.service";
+
+export type TMusicImportRequest = {
+  /** A fresh browser File, or a stored import asset (never re-uploaded) */
+  source: File | { assetId: string };
+  mapping: Record<string, string | string[]>;
+  duplicateStrategy: "skip" | "update" | "error";
+  dedupeBy: string;
+  relationsMode: "merge" | "replace";
+  dedupeWithinFile: boolean;
+  ambiguousStrategy: "create" | "match" | "skip";
+  blankCells: "keep" | "clear";
+  dryRun: boolean;
+  sheet?: string;
+  defaults: Record<string, unknown>;
+  invalidRowStrategy: "abort" | "skip";
+  rowOverrides: Record<string, Record<string, string>>;
+  valueOverrides: Record<string, Record<string, string>>;
+};
 
 export class MusicService extends APIService {
   constructor() {
@@ -133,40 +152,71 @@ export class MusicService extends APIService {
     );
   }
 
-  importSpreadsheet(
+  /**
+   * Validates (dryRun) or applies an import, reporting progress as the server
+   * works through the rows. The response is a server-sent event stream: one
+   * "progress" event per tick, then a single "result" — or "error".
+   */
+  async streamImport(
     workspaceSlug: string,
-    source: File | { assetId: string },
-    mapping: Record<string, string | string[]>,
-    duplicateStrategy: "skip" | "update" | "error",
-    dryRun: boolean,
-    sheet?: string,
-    defaults: Record<string, unknown> = {},
-    invalidRowStrategy: "abort" | "skip" = "abort",
-    rowOverrides: Record<string, Record<string, string>> = {},
-    valueOverrides: Record<string, Record<string, string>> = {},
-    dedupeBy: string = "auto",
-    relationsMode: "merge" | "replace" = "merge",
-    dedupeWithinFile: boolean = false
-  ) {
+    request: TMusicImportRequest,
+    onProgress: (progress: TMusicImportProgress) => void,
+    signal?: AbortSignal
+  ): Promise<TMusicImportResult> {
     const data = new FormData();
-    if (source instanceof File) data.append("file", source);
-    else data.append("asset_id", source.assetId);
-    data.append("mapping", JSON.stringify(mapping));
-    data.append("duplicate_strategy", duplicateStrategy);
-    data.append("dedupe_by", dedupeBy);
-    data.append("relations_mode", relationsMode);
-    data.append("dedupe_within_file", String(dedupeWithinFile));
-    data.append("dry_run", String(dryRun));
-    data.append("defaults", JSON.stringify(defaults));
-    data.append("invalid_row_strategy", invalidRowStrategy);
-    data.append("row_overrides", JSON.stringify(rowOverrides));
-    data.append("value_overrides", JSON.stringify(valueOverrides));
-    if (sheet) data.append("sheet", sheet);
-    return this.data<TMusicImportResult>(
-      this.post(`/api/workspaces/${workspaceSlug}/music/import/`, data, {
-        headers: { "Content-Type": "multipart/form-data" },
-      })
-    );
+    if (request.source instanceof File) data.append("file", request.source);
+    else data.append("asset_id", request.source.assetId);
+    data.append("mapping", JSON.stringify(request.mapping));
+    data.append("duplicate_strategy", request.duplicateStrategy);
+    data.append("dedupe_by", request.dedupeBy);
+    data.append("relations_mode", request.relationsMode);
+    data.append("dedupe_within_file", String(request.dedupeWithinFile));
+    data.append("ambiguous_strategy", request.ambiguousStrategy);
+    data.append("blank_cells", request.blankCells);
+    data.append("dry_run", String(request.dryRun));
+    data.append("defaults", JSON.stringify(request.defaults));
+    data.append("invalid_row_strategy", request.invalidRowStrategy);
+    data.append("row_overrides", JSON.stringify(request.rowOverrides));
+    data.append("value_overrides", JSON.stringify(request.valueOverrides));
+    data.append("stream", "true");
+    if (request.sheet) data.append("sheet", request.sheet);
+
+    const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceSlug}/music/import/`, {
+      method: "POST",
+      body: data,
+      credentials: "include",
+      signal,
+    });
+    // Request-level problems (unreadable file, missing title mapping) come
+    // back as plain JSON before any streaming starts.
+    if (!response.ok || !response.body) {
+      throw await response.json().catch(() => ({ error: response.statusText }));
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result: TMusicImportResult | undefined;
+    for (;;) {
+      // A ReadableStream must be consumed in order.
+      // eslint-disable-next-line no-await-in-loop
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const event = /^event: (.+)$/m.exec(block)?.[1];
+        const payload = /^data: (.+)$/m.exec(block)?.[1];
+        if (!event || !payload) continue;
+        const parsed = JSON.parse(payload);
+        if (event === "progress") onProgress(parsed as TMusicImportProgress);
+        else if (event === "result") result = parsed as TMusicImportResult;
+        else if (event === "error") throw parsed;
+      }
+    }
+    if (!result) throw { error: "The import ended without a result" };
+    return result;
   }
 
   /** Optional AI column mapping for the manual import panel */

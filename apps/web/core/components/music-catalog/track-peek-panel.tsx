@@ -29,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 // plane imports
+import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type {
   TMusicCatalogOptions,
@@ -250,6 +251,7 @@ function AddAction({ onClick, isOpen }: { onClick: () => void; isOpen: boolean }
 }
 
 export function MusicTrackPeekPanel(props: Props) {
+  const { t } = useTranslation();
   const {
     workspaceSlug,
     track: initialTrack,
@@ -388,10 +390,7 @@ export function MusicTrackPeekPanel(props: Props) {
     if (parts.length === 2 || parts.length === 3) {
       const nums = parts.map((part) => Number(part.trim()));
       if (nums.every((num) => Number.isFinite(num) && num >= 0)) {
-        ms =
-          parts.length === 2
-            ? (nums[0] * 60 + nums[1]) * 1000
-            : (nums[0] * 3600 + nums[1] * 60 + nums[2]) * 1000;
+        ms = parts.length === 2 ? (nums[0] * 60 + nums[1]) * 1000 : (nums[0] * 3600 + nums[1] * 60 + nums[2]) * 1000;
       }
     } else if (/^\d+$/.test(raw)) {
       ms = Number(raw) * 1000;
@@ -842,13 +841,13 @@ export function MusicTrackPeekPanel(props: Props) {
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
           {(track.import_sources?.length ?? 0) > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-11 text-tertiary">Importado de</span>
+              <span className="text-11 text-tertiary">{t("music_import.history.imported_from")}</span>
               {track.import_sources?.map((source) => (
                 <button
                   key={source.id}
                   type="button"
                   disabled={!source.asset_id}
-                  title={`${source.action === "CREATED" ? "Creado" : source.action === "UPDATED" ? "Actualizado" : "Conservado"}${source.row_number ? ` · fila ${source.row_number}` : ""} · ${new Date(source.imported_at).toLocaleDateString()}`}
+                  title={`${t(`music_import.history.action_${source.action.toLowerCase()}`)} · ${new Date(source.imported_at).toLocaleDateString()}`}
                   onClick={() =>
                     source.asset_id &&
                     setPreviewImportFile({ assetId: source.asset_id, name: source.name, contentType: "" })
@@ -857,6 +856,9 @@ export function MusicTrackPeekPanel(props: Props) {
                 >
                   <FileSpreadsheet className="size-3" />
                   <span className="max-w-40 truncate">{source.name}</span>
+                  {source.row_number && (
+                    <span className="text-tertiary">{t("music_import.history.row", { row: source.row_number })}</span>
+                  )}
                 </button>
               ))}
             </div>

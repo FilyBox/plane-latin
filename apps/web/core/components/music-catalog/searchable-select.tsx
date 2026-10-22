@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronsUpDown, Plus, Search } from "lucide-react";
+import { useTranslation } from "@plane/i18n";
 // plane imports
 import { cn } from "@plane/utils";
 
@@ -25,7 +26,9 @@ type Props = {
   className?: string;
 };
 
-export function SearchableSelect({ options, value, onSelect, onCreate, placeholder = "Buscar…", className }: Props) {
+export function SearchableSelect({ options, value, onSelect, onCreate, placeholder, className }: Props) {
+  const { t } = useTranslation();
+  const searchLabel = placeholder ?? t("music_import.select.search");
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -33,9 +36,7 @@ export function SearchableSelect({ options, value, onSelect, onCreate, placehold
 
   const selected = options.find((option) => option.value === value);
   const normalized = query.trim().toLowerCase();
-  const filtered = normalized
-    ? options.filter((option) => option.label.toLowerCase().includes(normalized))
-    : options;
+  const filtered = normalized ? options.filter((option) => option.label.toLowerCase().includes(normalized)) : options;
   const exactMatch = options.some((option) => option.label.toLowerCase() === normalized);
 
   useEffect(() => {
@@ -71,11 +72,11 @@ export function SearchableSelect({ options, value, onSelect, onCreate, placehold
         onClick={() => setIsOpen((open) => !open)}
         className="flex w-full items-center justify-between gap-1.5 rounded-sm border border-subtle bg-transparent px-2 py-1 text-left text-12 hover:bg-layer-1-hover"
       >
-        <span className={cn("truncate", !selected && "text-placeholder")}>{selected?.label ?? placeholder}</span>
+        <span className={cn("truncate", !selected && "text-placeholder")}>{selected?.label ?? searchLabel}</span>
         <ChevronsUpDown className="size-3 shrink-0 text-tertiary" />
       </button>
       {isOpen && (
-        <div className="absolute top-full left-0 z-10 mt-1 w-full min-w-52 rounded-md border border-subtle bg-layer-1 p-1.5 shadow-raised-200">
+        <div className="absolute top-full left-0 z-30 mt-1 w-full min-w-52 rounded-md border border-subtle bg-layer-1 p-1.5 shadow-raised-200">
           <div className="relative mb-1">
             <Search className="absolute top-1/2 left-2 size-3 -translate-y-1/2 text-tertiary" />
             <input
@@ -93,7 +94,8 @@ export function SearchableSelect({ options, value, onSelect, onCreate, placehold
                   }
                 }
               }}
-              placeholder={placeholder}
+              placeholder={searchLabel}
+              aria-label={searchLabel}
               className="w-full rounded-sm border border-subtle bg-transparent py-1 pr-2 pl-6 text-12"
             />
           </div>
@@ -113,7 +115,9 @@ export function SearchableSelect({ options, value, onSelect, onCreate, placehold
                 {option.value === value && <Check className="size-3 shrink-0 text-accent-primary" />}
               </button>
             ))}
-            {filtered.length === 0 && !onCreate && <p className="px-1.5 py-1 text-11 text-tertiary">Sin coincidencias</p>}
+            {filtered.length === 0 && !onCreate && (
+              <p className="px-1.5 py-1 text-11 text-tertiary">{t("music_import.select.no_matches")}</p>
+            )}
             {onCreate && normalized && !exactMatch && (
               <button
                 type="button"
@@ -124,7 +128,7 @@ export function SearchableSelect({ options, value, onSelect, onCreate, placehold
                 }}
                 className="flex w-full items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-12 text-accent-primary hover:bg-layer-1-hover"
               >
-                <Plus className="size-3" /> Crear «{query.trim()}»
+                <Plus className="size-3" /> {t("music_import.select.create", { name: query.trim() })}
               </button>
             )}
           </div>

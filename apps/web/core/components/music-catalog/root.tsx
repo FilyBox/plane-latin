@@ -14,7 +14,9 @@ import {
   Users,
   Video,
 } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router";
 import useSWR from "swr";
+import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TMusicFilters, TMusicRelease, TMusicTrack } from "@plane/types";
@@ -23,9 +25,9 @@ import { musicService } from "@/services/music.service";
 import { MusicEntityManager } from "./entity-manager";
 import { MusicAppliedFilters, MusicFiltersDropdown, type TMusicFiltersData } from "./filters";
 import { MusicImportAssetsPanel } from "./import-assets-panel";
-import { MusicImportModal } from "./import-modal";
 import { MusicReleaseModal } from "./release-modal";
-import { getApiError, musicDate, MUSIC_FIELD } from "./shared";
+import { formatDate } from "./import/constants";
+import { getApiError, musicDate } from "./shared";
 import { MusicTableActionBar } from "./table-action-bar";
 import { MusicTrackPeekPanel } from "./track-peek-panel";
 
@@ -114,17 +116,41 @@ const TrackCardSkeleton = () => (
 );
 
 export function MusicCatalogRoot({ workspaceSlug }: Props) {
+  const { t, currentLocale } = useTranslation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
-  const [filters, setFilters] = useState<TMusicFilters>({ songs_only: "true" });
+  // ?import_run=<id> / ?import_file=<asset id> arrive from the import result
+  // and the file history: the catalog opens filtered to those songs.
+  const [filters, setFilters] = useState<TMusicFilters>(() => ({
+    songs_only: "true",
+    ...(searchParams.get("import_run") ? { import_run: searchParams.get("import_run")! } : {}),
+    ...(searchParams.get("import_file") ? { import_file: searchParams.get("import_file")! } : {}),
+  }));
   const [page, setPage] = useState(1);
   const [editingRelease, setEditingRelease] = useState<TMusicRelease>();
   const [peekTrack, setPeekTrack] = useState<TMusicTrack>();
   const [peekCreateOpen, setPeekCreateOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
-  const [importAssetsOpen, setImportAssetsOpen] = useState(false);
+  const [importAssetsOpen, setImportAssetsOpen] = useState(() => searchParams.get("import_files") === "1");
+  const openImport = () => navigate(`/${workspaceSlug}/music/import`);
+
+  // The deep-link params seeded state once; drop them so a reload or a
+  // shared link doesn't keep re-applying a filter the user already removed.
+  useEffect(() => {
+    if (!["import_run", "import_file", "import_files"].some((key) => searchParams.has(key))) return;
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        ["import_run", "import_file", "import_files"].forEach((key) => next.delete(key));
+        return next;
+      },
+      { replace: true }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [deletingTrack, setDeletingTrack] = useState<TMusicTrack>();
   const [isDeletingTrack, setIsDeletingTrack] = useState(false);
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
@@ -135,6 +161,17 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const exportQuery = { ...filters, search: deferredSearch || undefined };
   const query = { ...exportQuery, page: String(page), page_size: String(PAGE_SIZE) };
   const { data: options } = useSWR(`MUSIC_OPTIONS_${workspaceSlug}`, () => musicService.getOptions(workspaceSlug));
+  // Names the file behind "?import_run=": same key as the import page's list.
+  const { data: importAssets } = useSWR(filters.import_run ? `MUSIC_IMPORT_ASSETS_${workspaceSlug}_` : null, () =>
+    musicService.getImportAssets(workspaceSlug)
+  );
+  const filteredRun = useMemo(() => {
+    for (const asset of importAssets?.results ?? []) {
+      const run = asset.runs?.find((item) => item.id === filters.import_run);
+      if (run) return { file: asset.name, importedAt: run.imported_at };
+    }
+    return undefined;
+  }, [filters.import_run, importAssets]);
   const { data: parties = [], mutate: mutateParties } = useSWR(`MUSIC_PARTIES_${workspaceSlug}`, () =>
     musicService.getParties(workspaceSlug)
   );
@@ -378,7 +415,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
             <Users className="size-3.5" />
             <span className="hidden lg:inline">Recursos</span>
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+          <Button variant="secondary" size="sm" onClick={openImport}>
             <FileUp className="size-3.5" />
             <span className="hidden lg:inline">Importar</span>
           </Button>
@@ -411,6 +448,25 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         </div>
       </div>
 
+      {filters.import_run && (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle bg-layer-1 px-3 py-2 text-12 sm:px-4">
+          <span className="min-w-0 truncate text-secondary">
+            {filteredRun
+              ? t("music_import.history.run_filter_named", {
+                  file: filteredRun.file,
+                  date: formatDate(filteredRun.importedAt, currentLocale),
+                })
+              : t("music_import.history.run_filter")}
+          </span>
+          <button
+            type="button"
+            onClick={() => setFilter("import_run", "")}
+            className="text-primary underline-offset-2 hover:underline"
+          >
+            {t("music_import.history.clear_filter")}
+          </button>
+        </div>
+      )}
       {activeFilterCount > 0 && (
         <div className="shrink-0 border-b border-subtle px-3 py-2 sm:px-4">
           <MusicAppliedFilters filters={filters} data={filtersData} onSet={setFilter} onClearAll={clearFilters} />
@@ -474,7 +530,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                 crear durante cualquiera de los dos flujos.
               </p>
               <div className="mt-5 flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+                <Button variant="secondary" size="sm" onClick={openImport}>
                   <FileUp className="size-3.5" /> Importar archivo
                 </Button>
                 <Button variant="primary" size="sm" onClick={() => setPeekCreateOpen(true)}>
@@ -598,6 +654,9 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                 <article
                   key={track.id}
                   className="rounded-lg border border-subtle bg-layer-1 p-4"
+                  // The card holds its own controls, so it can't be a <button>
+                  // (nested interactive elements); the role keeps it reachable.
+                  // eslint-disable-next-line jsx-a11y/prefer-tag-over-role
                   role="button"
                   tabIndex={0}
                   onClick={() => setPeekTrack(track)}
@@ -682,7 +741,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
           genres={genres}
           companies={companies}
           releases={releases}
-          suspendClose={releaseOpen || resourcesOpen || importOpen || importAssetsOpen}
+          suspendClose={releaseOpen || resourcesOpen || importAssetsOpen}
           onClose={() => {
             setPeekTrack(undefined);
             setPeekCreateOpen(false);
@@ -717,22 +776,20 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         onClose={() => setResourcesOpen(false)}
         onChanged={refreshAll}
       />
-      <MusicImportModal
-        workspaceSlug={workspaceSlug}
-        isOpen={importOpen}
-        options={options}
-        parties={parties}
-        companies={companies}
-        genres={genres}
-        releases={releases}
-        onClose={() => setImportOpen(false)}
-        onImported={refreshAll}
-        onResourcesChanged={refreshResources}
-      />
       <MusicImportAssetsPanel
         workspaceSlug={workspaceSlug}
         isOpen={importAssetsOpen}
         onClose={() => setImportAssetsOpen(false)}
+        onViewRun={(runId) => {
+          setImportAssetsOpen(false);
+          setFilters({ songs_only: "true", import_run: runId });
+          setPage(1);
+        }}
+        onViewFile={(assetId) => {
+          setImportAssetsOpen(false);
+          setFilters({ songs_only: "true", import_file: assetId });
+          setPage(1);
+        }}
       />
       <AlertModalCore
         isOpen={Boolean(deletingTrack)}

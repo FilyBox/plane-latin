@@ -143,6 +143,7 @@ export const coreRoutes: RouteConfigEntry[] = [
         // Music catalog
         layout("./(all)/[workspaceSlug]/(projects)/music/layout.tsx", [
           route(":workspaceSlug/music", "./(all)/[workspaceSlug]/(projects)/music/page.tsx"),
+          route(":workspaceSlug/music/import", "./(all)/[workspaceSlug]/(projects)/music/import/page.tsx"),
         ]),
 
         // Notifications
