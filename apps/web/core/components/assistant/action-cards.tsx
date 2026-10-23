@@ -25,8 +25,8 @@ import { assistantService } from "@/services/assistant.service";
 import { AssistantLink } from "./links";
 import { TraceLine } from "./steps";
 
-const CARD = "min-w-0 rounded-lg border border-subtle bg-layer-1 p-3";
-const FIELD =
+export const CARD = "min-w-0 rounded-lg border border-subtle bg-layer-1 p-3";
+export const FIELD =
   "w-full rounded-md border border-subtle bg-transparent px-2 py-1.5 text-12 text-primary outline-none focus:border-accent-strong";
 
 type TOutcome = {
@@ -36,7 +36,7 @@ type TOutcome = {
 };
 
 /** Card outcome kept per tool call, so a reopened chat shows what happened. */
-function useOutcome(key: string) {
+export function useOutcome(key: string) {
   const [outcome, setOutcome] = useState<TOutcome>(() => {
     try {
       return JSON.parse(sessionStorage.getItem(key) ?? "null") ?? { state: "idle" };
@@ -55,12 +55,14 @@ function useOutcome(key: string) {
   return [outcome, remember] as const;
 }
 
-const errorText = (error: unknown, fallback: string) => {
+export const alreadyUndone = (error: unknown) => /already undone/i.test(errorText(error, ""));
+
+export const errorText = (error: unknown, fallback: string) => {
   const failure = error as { error?: string; response?: { data?: { error?: string } } };
   return failure?.response?.data?.error ?? failure?.error ?? fallback;
 };
 
-function Footer({
+export function Footer({
   outcome,
   busy,
   doneLabel,
@@ -174,8 +176,12 @@ export const TaggingCard = makeAssistantToolUI<Record<string, unknown>, TTagging
         remember({ state: "undone", id: outcome.id });
         void refreshTags();
       } catch (error) {
-        remember({ ...outcome, state: "applied" });
-        setToast({ type: TOAST_TYPE.ERROR, title: errorText(error, t("assistant.actions.failed")) });
+        // Already undone from the history view: the card just catches up.
+        if (alreadyUndone(error)) remember({ state: "undone", id: outcome.id });
+        else {
+          remember({ ...outcome, state: "applied" });
+          setToast({ type: TOAST_TYPE.ERROR, title: errorText(error, t("assistant.actions.failed")) });
+        }
       }
     };
 
@@ -262,7 +268,7 @@ type TWorkItemProposal = {
 };
 
 const PRIORITIES = ["none", "low", "medium", "high", "urgent"] as const;
-const fold = (value: string) =>
+export const fold = (value: string) =>
   value
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
@@ -347,8 +353,11 @@ const WorkItemForm = observer(function WorkItemForm({
       await assistantService.undoAction(slug, outcome.id);
       remember({ state: "undone", id: outcome.id });
     } catch (error) {
-      remember({ ...outcome, state: "applied" });
-      setToast({ type: TOAST_TYPE.ERROR, title: errorText(error, t("assistant.actions.failed")) });
+      if (alreadyUndone(error)) remember({ state: "undone", id: outcome.id });
+      else {
+        remember({ ...outcome, state: "applied" });
+        setToast({ type: TOAST_TYPE.ERROR, title: errorText(error, t("assistant.actions.failed")) });
+      }
     }
   };
 

@@ -17,7 +17,7 @@ import { observer } from "mobx-react";
 import { Popover, Transition } from "@headlessui/react";
 import { AssistantRuntimeProvider, CompositeAttachmentAdapter } from "@assistant-ui/react";
 import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/react-ai-sdk";
-import { Brain, ChevronDown, History, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { Brain, ChevronDown, History, Loader2, Plus, ScrollText, Sparkles, Trash2, X } from "lucide-react";
 import useSWR from "swr";
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
@@ -31,6 +31,8 @@ import { useUserPermissions } from "@/hooks/store/user";
 import { assistantService } from "@/services/assistant.service";
 import type { TAssistantChat, TAssistantStoredMessage } from "@/services/assistant.service";
 import { TaggingCard, WorkItemCard } from "./action-cards";
+import { ActionsView } from "./actions-view";
+import { PageCard, ReportCard } from "./page-card";
 import { AssistantAttachmentAdapter } from "./attachments";
 import {
   AskUserCard,
@@ -60,7 +62,8 @@ export const AssistantChat = observer(function AssistantChat({ workspaceSlug, on
   const [session, setSession] = useState<TSession>(newSession);
   const [loadingChat, setLoadingChat] = useState(false);
   const [model, setModel] = useState<string | null>(null);
-  const [showMemory, setShowMemory] = useState(false);
+  const [view, setView] = useState<"chat" | "memory" | "actions">("chat");
+  const toggleView = (next: "memory" | "actions") => setView((current) => (current === next ? "chat" : next));
 
   const { data: chats, mutate: mutateChats } = useSWR(["ASSISTANT_CHATS", workspaceSlug], () =>
     assistantService.getChats(workspaceSlug)
@@ -112,21 +115,34 @@ export const AssistantChat = observer(function AssistantChat({ workspaceSlug, on
         <div className="ml-auto flex items-center">
           <button
             type="button"
-            onClick={() => setShowMemory((value) => !value)}
+            onClick={() => toggleView("actions")}
             className={cn(
               "rounded-md p-1.5 hover:bg-layer-1-hover hover:text-secondary",
-              showMemory ? "bg-layer-1-hover text-accent-primary" : "text-tertiary"
+              view === "actions" ? "bg-layer-1-hover text-accent-primary" : "text-tertiary"
+            )}
+            title={t("assistant.history_view.title")}
+            aria-label={t("assistant.history_view.title")}
+            aria-pressed={view === "actions"}
+          >
+            <ScrollText className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleView("memory")}
+            className={cn(
+              "rounded-md p-1.5 hover:bg-layer-1-hover hover:text-secondary",
+              view === "memory" ? "bg-layer-1-hover text-accent-primary" : "text-tertiary"
             )}
             title={t("assistant.memory.title")}
             aria-label={t("assistant.memory.title")}
-            aria-pressed={showMemory}
+            aria-pressed={view === "memory"}
           >
             <Brain className="size-4" />
           </button>
           <button
             type="button"
             onClick={() => {
-              setShowMemory(false);
+              setView("chat");
               setSession(newSession());
             }}
             className="rounded-md p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-secondary"
@@ -146,13 +162,18 @@ export const AssistantChat = observer(function AssistantChat({ workspaceSlug, on
           </button>
         </div>
       </header>
-      {showMemory && (
+      {view === "memory" && (
         <div className="min-h-0 flex-1">
-          <MemoryView workspaceSlug={workspaceSlug} onBack={() => setShowMemory(false)} />
+          <MemoryView workspaceSlug={workspaceSlug} onBack={() => setView("chat")} />
         </div>
       )}
-      {/* Stays mounted under the memory view, so an answer keeps streaming. */}
-      <div className={cn("min-h-0 flex-1", showMemory && "hidden")}>
+      {view === "actions" && (
+        <div className="min-h-0 flex-1">
+          <ActionsView workspaceSlug={workspaceSlug} onBack={() => setView("chat")} />
+        </div>
+      )}
+      {/* Stays mounted under the other views, so an answer keeps streaming. */}
+      <div className={cn("min-h-0 flex-1", view !== "chat" && "hidden")}>
         <ChatSession
           key={session.key}
           session={session}
@@ -434,6 +455,8 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
       <ProposeMemoryCard />
       <TaggingCard />
       <WorkItemCard />
+      <PageCard />
+      <ReportCard />
       <StartTagMappingCard />
       <AskUserCard />
       <ShowDocumentsCard />

@@ -236,7 +236,7 @@ CONTRATOS (cientos de documentos)
     caps.music
       ? `
 CATÁLOGO MUSICAL
-- query_music_tracks para canciones (artista, año, ISRC, estado, con video). Devuelve pocas filas y el total.
+- query_music_tracks para canciones (artista, año, fechas, ISRC, estado, con video, con enlaces, y por los videos: fechas, ISRC o UPC del video). Cada canción trae sus videos (ISRC, UPC, fecha, URLs) y sus enlaces. Devuelve pocas filas y el total; para listados largos usa export_music_excel o propose_report.
 - export_music_excel cuando pidan un listado descargable, con los mismos filtros.
 - update_music_track para cambiar una canción (fechas, ISRC, agregar un video). Devuelve una propuesta que el usuario aprueba.
 - IMPORTAR un CSV/XLSX: 1) read_import_file con el asset_id (los adjuntos del chat ya lo traen; si no, list_music_files). 2) Decide tú el mapeo leyendo el CONTENIDO de cada columna (column_samples), no solo su nombre. 3) plan_music_import con ese mapeo: valida el archivo sin importar nada. 4) Resume el plan en una o dos frases y dile al usuario que pulse "Revisar e importar": se abre el importador de Música con tu mapeo para revisar valores, duplicados y confirmar. No intentes resolver ahí cada fila.`
@@ -252,7 +252,11 @@ ETIQUETAS Y REFERENCIAS
       : ""
   }
 TAREAS (elementos de trabajo)
-- "Crea una tarea / recuérdame / hay que…": propose_work_item con título claro y accionable, descripción breve, proyecto, responsable y fecha si los dijo, y como references los elementos de los que trata (contratos, canciones, archivos mencionados o encontrados). La tarjeta deja editar todo antes de crearla y se puede deshacer.${
+- "Crea una tarea / recuérdame / hay que…": propose_work_item con título claro y accionable, descripción breve, proyecto, responsable y fecha si los dijo, y como references los elementos de los que trata (contratos, canciones, archivos mencionados o encontrados). La tarjeta deja editar todo antes de crearla y se puede deshacer.
+
+PÁGINAS
+- "Escribe / redacta / hazme una página, un informe, un dossier, una minuta…": primero reúne los datos con las herramientas (nunca inventes cifras, fechas ni nombres) y luego llama propose_page con el documento completo en Markdown: títulos (#, ##), listas, negritas y citas. Menciona los elementos con el formato :tipo[Nombre]{name=id} usando ids reales (contract, file, music_track, music_release, music_artist, issue, page, budget, expense): en la página quedan como enlaces. La tarjeta deja revisar, editar y elegir proyecto antes de crearla, y se puede deshacer. En el chat solo resume en una frase qué contiene.
+- "Reporte / listado de todo lo de un artista, grupo o etiqueta" (contratos con sus fechas, canciones con lanzamiento, videos y enlaces, lanzamientos): propose_report con la etiqueta exacta (find_tags antes). Lo arma el servidor con los datos reales, en tablas y con cada fila enlazada; tú solo escribes una introducción breve (intro) con lo más relevante. No copies esas listas a mano en propose_page.${
     caps.tagAdmin
       ? `
 ORDENAR ETIQUETAS (el usuario es administrador)
@@ -278,6 +282,11 @@ const trackFilterSchema = {
   isrc: z.string().optional(),
   status: z.enum(["DRAFT", "READY", "SCHEDULED", "RELEASED", "TAKEN_DOWN"]).optional(),
   has_video: z.boolean().optional().describe("true = solo canciones con video musical"),
+  has_links: z.boolean().optional().describe("true = solo canciones con enlaces propios (plataformas, tiendas)"),
+  video_from: z.string().optional().describe("Video publicado desde, YYYY-MM-DD"),
+  video_to: z.string().optional().describe("Video publicado hasta, YYYY-MM-DD"),
+  video_isrc: z.string().optional().describe("ISRC (o parte) de un video de la canción"),
+  video_upc: z.string().optional().describe("UPC (o parte) de un video de la canción"),
 };
 
 /** Filters shared by count_contracts and scan_contracts (the contracts agent's terms). */
@@ -316,7 +325,14 @@ type TrackRow = {
   artists?: string[];
   featured?: string[];
   releases?: { title: string; upc?: string | null }[];
-  videos?: unknown[];
+  videos?: {
+    title: string;
+    isrc_video?: string | null;
+    upc?: string | null;
+    release_date?: string | null;
+    urls?: string[];
+  }[];
+  links?: { platform?: string; url: string; kind?: string }[];
 };
 
 function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
@@ -416,6 +432,21 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
           .max(10)
           .optional()
           .describe("Elementos de los que trata la tarea (ids reales)"),
+      }),
+      execute: async (input) => ({ ...compact(input), workspace_slug: slug }),
+    });
+
+    tools.propose_page = tool({
+      description:
+        "Propone crear una página de proyecto con un documento en Markdown (informe, dossier, minuta, guía). Devuelve una tarjeta para revisar, editar y elegir proyecto; se puede deshacer.",
+      inputSchema: z.object({
+        title: z.string().max(255),
+        markdown: z
+          .string()
+          .max(20_000)
+          .describe("El documento completo en Markdown; menciones como :tipo[Nombre]{name=id}"),
+        project: z.string().optional().describe("Nombre o identificador del proyecto, si lo dijo"),
+        private: z.boolean().optional().describe("true solo si pidió que sea privada"),
       }),
       execute: async (input) => ({ ...compact(input), workspace_slug: slug }),
     });
@@ -524,7 +555,20 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
               release_date: track.release_date,
               status: track.status,
               release: track.releases?.[0]?.title,
-              videos: track.videos?.length || undefined,
+              videos: track.videos?.length
+                ? track.videos.map((video) =>
+                    compact({
+                      title: video.title,
+                      isrc: video.isrc_video ?? undefined,
+                      upc: video.upc ?? undefined,
+                      date: video.release_date ?? undefined,
+                      urls: video.urls?.length ? video.urls : undefined,
+                    })
+                  )
+                : undefined,
+              links: track.links?.length
+                ? track.links.map((link) => `${link.platform || "Enlace"}: ${link.url}`)
+                : undefined,
               path: `/${slug}/music?track=${track.id}`,
             })
           ),
@@ -738,6 +782,41 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
         "Qué menciona o tiene adjunto un elemento (references) y qué tareas o páginas lo mencionan (referenced_by).",
       inputSchema: z.object({ entity_name: z.enum(ENTITY_TYPES), id: z.string() }),
       execute: async ({ entity_name, id }) => lookup(`references/${entity_name}/${id}/`),
+    });
+
+    tools.propose_report = tool({
+      description:
+        "Prepara una página-reporte de una etiqueta (artista, grupo, tipo): contratos (inicio, fin, fin efectivo, estatus), canciones (lanzamiento, ISRC, videos y enlaces) y lanzamientos, en tablas con cada fila enlazada. Los datos los arma el servidor; devuelve la tarjeta de página para revisar y crear.",
+      inputSchema: z.object({
+        tag: z.string().describe("Nombre exacto de la etiqueta (usa find_tags antes)"),
+        include: z
+          .array(z.enum(["contracts", "tracks", "releases"]))
+          .optional()
+          .describe("Secciones; por defecto todas"),
+        date_from: z.string().optional().describe("YYYY-MM-DD (filtra canciones y lanzamientos)"),
+        date_to: z.string().optional().describe("YYYY-MM-DD"),
+        title: z.string().optional(),
+        intro: z.string().max(2000).optional().describe("Introducción breve con lo más relevante"),
+        project: z.string().optional(),
+        private: z.boolean().optional(),
+      }),
+      execute: async ({ tag, include, date_from, date_to, title, intro, project, private: isPrivate }) => {
+        const report = await api.request<{ title: string; markdown: string; counts: Record<string, number> }>(
+          "POST",
+          `/internal/workspaces/${workspace}/assistant/report/`,
+          { user_id: body.user_id, tag, include, date_from, date_to }
+        );
+        const [heading, ...rest] = report.markdown.split("\n");
+        const markdown = intro ? [heading, "", intro.trim(), ...rest].join("\n") : report.markdown;
+        return compact({
+          title: title || report.title,
+          markdown,
+          counts: report.counts,
+          project,
+          private: isPrivate,
+          workspace_slug: slug,
+        });
+      },
     });
 
     tools.propose_tagging = tool({

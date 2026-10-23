@@ -181,6 +181,14 @@
       "propose_work_item": {
         "running": "Preparing the work item",
         "done": "Prepared the work item"
+      },
+      "propose_page": {
+        "running": "Writing the page",
+        "done": "Wrote the page"
+      },
+      "propose_report": {
+        "running": "Building the report",
+        "done": "Built the report"
       }
     },
     "export": {
@@ -357,7 +365,8 @@
         "no_assignee": "No assignee",
         "priority": "Priority",
         "due_date": "Due date",
-        "references": "References"
+        "references": "References",
+        "content": "Content (Markdown)"
       },
       "priorities": {
         "none": "No priority",
@@ -370,7 +379,22 @@
       "undone": "Undone",
       "discard": "Discard",
       "discarded": "Discarded",
-      "failed": "Couldn't apply the change."
+      "failed": "Couldn't apply the change.",
+      "page_title": "New page",
+      "create_page": "Create page",
+      "page_created": "Page created",
+      "preview": "Preview",
+      "edit_text": "Edit text",
+      "private": "Private"
+    },
+    "history_view": {
+      "title": "Assistant changes",
+      "intro": "What the assistant changed after someone approved it: tags, work items, pages and merges. Every change can be undone.",
+      "scope": {
+        "mine": "Mine",
+        "all": "Whole workspace"
+      },
+      "empty": "No changes made with the assistant yet."
     }
   }
 }

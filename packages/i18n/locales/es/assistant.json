@@ -181,6 +181,14 @@
       "propose_work_item": {
         "running": "Preparando la tarea",
         "done": "Preparó la tarea"
+      },
+      "propose_page": {
+        "running": "Redactando la página",
+        "done": "Redactó la página"
+      },
+      "propose_report": {
+        "running": "Armando el reporte",
+        "done": "Armó el reporte"
       }
     },
     "export": {
@@ -357,7 +365,8 @@
         "no_assignee": "Sin responsable",
         "priority": "Prioridad",
         "due_date": "Fecha límite",
-        "references": "Referencias"
+        "references": "Referencias",
+        "content": "Contenido (Markdown)"
       },
       "priorities": {
         "none": "Sin prioridad",
@@ -370,7 +379,22 @@
       "undone": "Deshecho",
       "discard": "Descartar",
       "discarded": "Descartado",
-      "failed": "No se pudo aplicar el cambio."
+      "failed": "No se pudo aplicar el cambio.",
+      "page_title": "Nueva página",
+      "create_page": "Crear página",
+      "page_created": "Página creada",
+      "preview": "Vista previa",
+      "edit_text": "Editar texto",
+      "private": "Privada"
+    },
+    "history_view": {
+      "title": "Cambios del asistente",
+      "intro": "Lo que el asistente cambió después de que alguien lo aprobara: etiquetas, tareas, páginas y unificaciones. Cada cambio se puede deshacer.",
+      "scope": {
+        "mine": "Míos",
+        "all": "Todo el workspace"
+      },
+      "empty": "Todavía no hay cambios hechos con el asistente."
     }
   }
 }

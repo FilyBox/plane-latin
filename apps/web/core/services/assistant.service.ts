@@ -13,12 +13,14 @@ export type TAssistantModels = { models: { id: string; provider: string }[]; def
 
 export type TAssistantAction = {
   id: string;
-  kind: "TAG_ITEMS" | "UNTAG_ITEMS" | "CREATE_WORK_ITEM";
+  kind: "TAG_ITEMS" | "UNTAG_ITEMS" | "CREATE_WORK_ITEM" | "CREATE_PAGE" | "MERGE_TAGS";
   status: "APPLIED" | "UNDONE";
   summary: string;
   result: Record<string, unknown>;
   created_at: string;
   undone_at: string | null;
+  /** Who made it (history across the workspace) */
+  actor?: string;
 };
 
 export type TAssistantMemoryKind = "FACT" | "RULE" | "GLOSSARY" | "OWNER" | "CONTEXT";
@@ -113,6 +115,15 @@ export class AssistantService extends APIService {
   /** Approved changes from the assistant's cards; each can be undone. */
   async createAction(workspaceSlug: string, data: Record<string, unknown>): Promise<TAssistantAction> {
     return this.post(`/api/workspaces/${workspaceSlug}/assistant/actions/`, data).then((response) => response.data);
+  }
+
+  async getActions(
+    workspaceSlug: string,
+    scope: "mine" | "all" = "mine"
+  ): Promise<{ actions: TAssistantAction[]; can_see_all: boolean }> {
+    return this.get(`/api/workspaces/${workspaceSlug}/assistant/actions/`, { params: { scope } }).then(
+      (response) => response.data
+    );
   }
 
   async undoAction(workspaceSlug: string, actionId: string): Promise<TAssistantAction> {
