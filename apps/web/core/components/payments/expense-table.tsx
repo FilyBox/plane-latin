@@ -1,12 +1,15 @@
 import { useMemo } from "react";
 import { useTranslation } from "@plane/i18n";
-import type { TExpense } from "@plane/types";
+import { setToast, TOAST_TYPE } from "@plane/propel/toast";
+import type { TExpense, TExpensePage } from "@plane/types";
 import { expenseTotals } from "@/lib/expense-ledger";
 import { FinanceGrid, type FinanceGridColumn, type FinanceGridRow } from "./finance-grid";
 import { formatMoney } from "./shared";
 
 type Props = {
   expenses: TExpense[];
+  /** Totals of the whole filtered ledger when only part of it is loaded */
+  totals?: TExpensePage["totals"];
   group?: string;
   onEdit: (expense: TExpense) => void;
   onDelete: (expense: TExpense) => void;
@@ -16,8 +19,15 @@ type Props = {
   emptyLabel?: string;
 };
 
+/** "1,234.50" or "1234.5" → "1234.50"; anything else is not an amount. */
+const parseAmount = (value: string): string | null => {
+  const clean = value.trim().replaceAll(",", "");
+  return /^\d+(\.\d{1,2})?$/.test(clean) ? clean : null;
+};
+
 export function ExpenseTable({
   expenses,
+  totals: serverTotals,
   group = "none",
   onEdit,
   onPreview,
@@ -56,7 +66,7 @@ export function ExpenseTable({
   // The closing line is pinned by the grid, so it must exist even for an empty
   // ledger — otherwise the sheet loses its footer exactly when it is emptiest.
   const totals = useMemo<FinanceGridRow[]>(() => {
-    const perCurrency = expenseTotals(expenses);
+    const perCurrency = serverTotals ?? expenseTotals(expenses);
     const lines = perCurrency.length ? perCurrency : [{ currency: "", total: "0" }];
     return lines.map((total) => ({
       id: `total-${total.currency || "none"}`,
@@ -65,7 +75,7 @@ export function ExpenseTable({
       amount: total.total,
       currency: total.currency,
     }));
-  }, [expenses, t]);
+  }, [expenses, serverTotals, t]);
   const expenseFor = (row: FinanceGridRow) => expenses.find((expense) => expense.id === row.id)!;
   const columns = useMemo<FinanceGridColumn[]>(
     () => [
@@ -83,6 +93,12 @@ export function ExpenseTable({
         prop: "category_name",
         name: t("payments.fields.category"),
         size: 140,
+        onClick: (row) => onEdit(expenseFor(row)),
+      },
+      {
+        prop: "budget_line_label",
+        name: t("payments.flow.budget_line"),
+        size: 170,
         onClick: (row) => onEdit(expenseFor(row)),
       },
       { prop: "tagsText", name: t("payments.ledger.tags"), size: 155, onClick: (row) => onEdit(expenseFor(row)) },
@@ -114,9 +130,9 @@ export function ExpenseTable({
         display: (row) => (row.amount === undefined ? "" : formatMoney(String(row.amount), String(row.currency))),
         flags: (row) => ({ isLocked: row.status === "CANCELLED", isLinked: row.status === "PAID" }),
       },
-      // `expenseFor` only reads `expenses`, which is already a dependency.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     ],
+    // `expenseFor` only reads `expenses`, which is already a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [expenses, t, onEdit, onPreview]
   );
   return (
@@ -127,8 +143,18 @@ export function ExpenseTable({
       emptyLabel={emptyLabel}
       onComment={(row, cell) => onComment?.(expenseFor(row), cell)}
       onEdit={async (row, prop, value) => {
+        let next: string | null = value;
+        if (prop === "amount") next = parseAmount(value);
+        if (prop === "expense_date") next = /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? value.trim() : null;
+        if (next === null) {
+          setToast({
+            type: TOAST_TYPE.ERROR,
+            title: t(prop === "amount" ? "payments.ledger.invalid_amount" : "payments.ledger.invalid_date"),
+          });
+          return;
+        }
         try {
-          await onQuickEdit(expenseFor(row), { [prop]: value });
+          await onQuickEdit(expenseFor(row), { [prop]: next });
         } catch {
           /* The ledger reports save errors. */
         }

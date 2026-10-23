@@ -10,7 +10,13 @@ from rest_framework.response import Response
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers.finance import ExpenseSerializer
 from plane.app.views.contract.internal import InternalBaseView
-from plane.db.models import ExpenseDocument, FileAsset, Workspace, BudgetScenario
+import unicodedata
+from datetime import timedelta
+from decimal import Decimal, InvalidOperation
+
+from django.db.models import Q
+
+from plane.db.models import BudgetScenario, Expense, ExpenseCategory, ExpenseDocument, FileAsset, Workspace
 from plane.db.models.finance import ExpenseImport
 from plane.settings.storage import S3Storage
 from plane.utils.expense_recurrence import materialize_expenses
@@ -26,6 +32,80 @@ class ImportSerializer(serializers.ModelSerializer):
 
     def get_name(self, obj):
         return (obj.asset.attributes or {}).get("name", "Document")
+
+
+# An analysis that never reported back within this window is treated as failed,
+# so it can be retried instead of spinning forever in the queue.
+STALE_AFTER = timedelta(minutes=30)
+
+
+def _plain(value):
+    text = unicodedata.normalize("NFKD", str(value or "").lower())
+    return "".join(char for char in text if not unicodedata.combining(char))
+
+
+def _suggestions(job, data):
+    """Budget and category the extracted expense most likely belongs to.
+
+    Deterministic on purpose: a budget whose period holds the expense date in
+    the same currency (an active one first), and a category whose name shows up
+    in the tags, concept or vendor. The reviewer confirms or changes both.
+    """
+    suggestion = {"scenario": str(job.scenario_id) if job.scenario_id else None, "category": None}
+    expense_date = data.get("expense_date")
+    currency = str(data.get("currency") or "").upper()
+    if not suggestion["scenario"] and expense_date:
+        scenarios = (
+            BudgetScenario.objects.filter(
+                workspace_id=job.workspace_id, period_start__lte=expense_date, period_end__gte=expense_date
+            )
+            .exclude(status=BudgetScenario.Status.ARCHIVED)
+            .order_by("-updated_at")
+        )
+        if currency:
+            scenarios = scenarios.filter(currency=currency)
+        ranked = sorted(scenarios[:20], key=lambda item: item.status != BudgetScenario.Status.ACTIVE)
+        if ranked:
+            suggestion["scenario"] = str(ranked[0].id)
+    words = " ".join(
+        [_plain(tag) for tag in data.get("tags") or []] + [_plain(data.get("concept")), _plain(data.get("vendor"))]
+    )
+    best, best_length = None, 0
+    for category in ExpenseCategory.objects.filter(workspace_id=job.workspace_id).only("id", "name"):
+        name = _plain(category.name).strip()
+        if len(name) >= 3 and name in words and len(name) > best_length:
+            best, best_length = category, len(name)
+    if best:
+        suggestion["category"] = str(best.id)
+    return suggestion
+
+
+def _duplicates(job, data):
+    """Expenses already in the ledger that look like this same invoice."""
+    reference = str(data.get("reference") or "").strip()
+    vendor = str(data.get("vendor") or "").strip()
+    match = Q()
+    if reference:
+        match |= Q(reference__iexact=reference)
+    try:
+        amount = Decimal(str(data.get("amount")))
+    except (InvalidOperation, TypeError, ValueError):
+        amount = None
+    if vendor and amount is not None and data.get("expense_date"):
+        match |= Q(vendor__iexact=vendor, amount=amount, expense_date=data.get("expense_date"))
+    if not match:
+        return []
+    rows = Expense.objects.filter(match, workspace_id=job.workspace_id).exclude(status="CANCELLED")[:5]
+    return [
+        {
+            "id": str(row.id),
+            "concept": row.concept or row.vendor,
+            "amount": str(row.amount),
+            "currency": row.currency,
+            "expense_date": row.expense_date.isoformat(),
+        }
+        for row in rows
+    ]
 
 
 def dispatch_import(job):
@@ -61,6 +141,9 @@ def cancel_worker(attempt):
 class ExpenseImportEndpoint(FinanceBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
+        ExpenseImport.objects.filter(
+            workspace__slug=slug, status__in=("QUEUED", "RUNNING"), updated_at__lt=timezone.now() - STALE_AFTER
+        ).update(status="FAILED", stage="", error="The analysis took too long. Retry it.")
         jobs = ExpenseImport.objects.filter(workspace__slug=slug).select_related("asset")[:200]
         return Response(ImportSerializer(jobs, many=True).data)
 
@@ -82,7 +165,20 @@ class ExpenseImportEndpoint(FinanceBaseView):
             get_object_or_404(BudgetScenario, id=scenario_id, workspace=workspace)
         jobs = []
         for asset in assets:
-            job, created = ExpenseImport.objects.get_or_create(workspace=workspace, asset=asset, defaults={"scenario_id": scenario_id, "created_by": request.user})
+            job = ExpenseImport.all_objects.filter(workspace=workspace, asset=asset).first()
+            created = job is None
+            if created:
+                job = ExpenseImport.objects.create(
+                    workspace=workspace, asset=asset, scenario_id=scenario_id, created_by=request.user
+                )
+            elif job.deleted_at is not None:
+                # The file was analysed before and that analysis was discarded:
+                # start it over instead of hitting the one-job-per-file rule.
+                job.deleted_at = None
+                job.status, job.stage, job.error, job.data, job.expense = "QUEUED", "", "", {}, None
+                job.attempt, job.scenario_id = uuid.uuid4(), scenario_id
+                job.save()
+                created = True
             if created:
                 dispatch_import(job)
             job.refresh_from_db()
@@ -171,17 +267,12 @@ class InternalExpenseImportEndpoint(InternalBaseView):
                     return Response({"error": "Invalid extraction"}, status=400)
                 allowed = ("concept", "vendor", "amount", "currency", "expense_date", "reference", "description", "tags", "warnings")
                 job.data = {key: data[key] for key in allowed if key in data}
-                payload = {key: value for key, value in job.data.items() if key != "warnings"}
-                for field in ("amount", "currency", "expense_date"):
-                    payload.setdefault(field, None)
-                payload.update(status="PENDING", scenario=job.scenario_id)
-                serializer = ExpenseSerializer(data=payload, context={"workspace_id": job.workspace_id})
-                if serializer.is_valid():
-                    expense = serializer.save(workspace_id=job.workspace_id, created_by_id=job.created_by_id)
-                    ExpenseDocument.objects.create(workspace_id=job.workspace_id, expense=expense, asset=job.asset)
-                    job.expense, job.status, job.stage = expense, "IMPORTED", ""
-                else:
-                    job.error = "Complete the missing fields to create this expense."
+                # Never registered on its own: the extraction waits as a draft
+                # for someone to review it, with the budget and category it most
+                # likely belongs to and any invoice that looks already recorded.
+                job.data["suggestions"] = _suggestions(job, job.data)
+                job.data["duplicates"] = _duplicates(job, job.data)
+                job.stage, job.error = "", ""
             if new_status == "FAILED":
                 job.error = "Analysis failed. Check the document and retry."
             job.save()

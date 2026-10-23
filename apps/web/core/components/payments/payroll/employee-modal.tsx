@@ -26,7 +26,8 @@ type Props = {
   onClose: () => void;
   /** Set when this opened from another panel, so it stacks over it. */
   nested?: boolean;
-  onSaved: () => void;
+  /** Gets the saved employee, so a caller can carry on with it (e.g. add a salary). */
+  onSaved: (employee?: TEmployee) => void;
 };
 
 type FormState = {
@@ -72,9 +73,11 @@ export function EmployeeModal(props: Props) {
             termination_date: employee.termination_date ?? "",
             notes: employee.notes,
           }
-        : emptyForm()
+        : { ...emptyForm(), office: offices[0]?.id ?? "" }
     );
     setHasTerminationDate(Boolean(employee?.termination_date));
+    // Only on open: a refreshed office list must not wipe what is being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, employee]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -89,10 +92,11 @@ export function EmployeeModal(props: Props) {
         // "" is not a date; the API wants null for someone still employed
         termination_date: form.termination_date || null,
       } as Partial<TEmployee>;
-      if (employee) await payrollService.updateEmployee(workspaceSlug, employee.id, payload);
-      else await payrollService.createEmployee(workspaceSlug, payload);
+      const saved = employee
+        ? await payrollService.updateEmployee(workspaceSlug, employee.id, payload)
+        : await payrollService.createEmployee(workspaceSlug, payload);
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("payroll.toasts.saved") });
-      onSaved();
+      onSaved(saved);
       onClose();
     } catch (error: any) {
       setToast({

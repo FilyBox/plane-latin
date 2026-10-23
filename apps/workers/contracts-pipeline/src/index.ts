@@ -13,8 +13,9 @@ import { listChatModels } from "./lib/ai";
 import { WorkerConfigurationError } from "./lib/internal-api";
 import { ContractPipelineWorkflow, type PipelineParams } from "./workflows/contract-pipeline";
 import { ContractQueryWorkflow, type QueryParams } from "./workflows/contract-query";
+import { TaggingWorkflow, type TaggingParams } from "./workflows/tagging";
 
-export { ContractPipelineWorkflow, ContractQueryWorkflow };
+export { ContractPipelineWorkflow, ContractQueryWorkflow, TaggingWorkflow };
 
 /** Constant-time secret comparison (hash first so length differences don't leak). */
 async function verifySecret(provided: string, expected: string): Promise<boolean> {
@@ -86,6 +87,17 @@ export default {
           params,
         });
         console.log(JSON.stringify({ message: "query instance created", id: instance.id, job: params.job_id }));
+        return Response.json({ workflow_instance_id: instance.id });
+      }
+
+      if (url.pathname === "/trigger/tagging") {
+        const params = await request.json<TaggingParams>();
+        if (!params.run_id || !params.workspace_id || !Array.isArray(params.types) || params.types.length === 0) {
+          return Response.json({ error: "run_id, workspace_id and types are required" }, { status: 400 });
+        }
+        // The run id makes a retried trigger reuse the same instance.
+        const instance = await env.TAGGING_RUN.create({ id: `tagging-${params.run_id}`, params });
+        console.log(JSON.stringify({ message: "tagging instance created", id: instance.id, run: params.run_id }));
         return Response.json({ workflow_instance_id: instance.id });
       }
 

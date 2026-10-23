@@ -40,7 +40,8 @@ export const SidebarItemBase = observer(function SidebarItemBase({
   const { isWorkspaceItemPinned } = useWorkspaceNavigationPreferences();
   const { data } = useUser();
 
-  const { toggleSidebar, isExtendedSidebarOpened, toggleExtendedSidebar } = useAppTheme();
+  const { toggleSidebar, isExtendedSidebarOpened, toggleExtendedSidebar, isAssistantPanelOpen, toggleAssistantPanel } =
+    useAppTheme();
 
   const handleLinkClick = () => {
     if (window.innerWidth < 768) toggleSidebar();
@@ -66,6 +67,29 @@ export const SidebarItemBase = observer(function SidebarItemBase({
   const itemHref =
     item.key === "your_work" && data?.id ? joinUrlPath(slug, item.href, data?.id) : joinUrlPath(slug, item.href);
   const icon = getSidebarNavigationItemIcon(item.key);
+
+  // The assistant is a panel beside the page, not a page: the item toggles it.
+  if (item.key === "assistant") {
+    return (
+      <button
+        type="button"
+        className="w-full text-left"
+        aria-pressed={isAssistantPanelOpen}
+        onClick={() => {
+          handleLinkClick();
+          toggleAssistantPanel();
+        }}
+      >
+        <SidebarNavItem isActive={isAssistantPanelOpen}>
+          <div className="flex items-center gap-1.5 py-[1px]">
+            {icon}
+            <p className="text-13 leading-5 font-medium">{t(item.labelTranslationKey)}</p>
+          </div>
+          {additionalRender?.(item.key, slug)}
+        </SidebarNavItem>
+      </button>
+    );
+  }
 
   return (
     <Link href={itemHref} onClick={handleLinkClick}>

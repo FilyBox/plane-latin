@@ -7,6 +7,8 @@ import { useMemo, useState } from "react";
 import {
   BriefcaseBusiness,
   CalendarDays,
+  ChevronDown,
+  Link2,
   Download,
   Edit3,
   FileSpreadsheet,
@@ -16,43 +18,36 @@ import {
   ReceiptText,
   Settings2,
   Trash2,
-  UserRoundPlus,
   Users,
   Variable,
+  Wallet,
 } from "lucide-react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { Menu } from "@plane/propel/menu";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type {
-  TBudgetScenario,
-  TBudgetScenarioEmployee,
-  TBudgetScenarioVariable,
-  TEmployee,
-  TFinancialVariable,
-  TOffice,
-} from "@plane/types";
-import { AlertModalCore } from "@plane/ui";
+import type { TBudgetScenario, TBudgetScenarioVariable, TExpense, TFinancialVariable, TOffice } from "@plane/types";
 import { cn } from "@plane/utils";
 import useDebounce from "@/hooks/use-debounce";
 import { financeService } from "@/services/finance.service";
 import { payrollService } from "@/services/payroll.service";
-import { BudgetBonusModal } from "./bonus-modal";
 import { BudgetPeekPanel } from "./budget-peek-panel";
-import { BudgetResourceComposer } from "./budget-resource-composer";
+import { BudgetResourceComposer, type ComposerTab } from "./budget-resource-composer";
 import { ExpensesTab } from "./expenses-tab";
+import { LinkExpensesPanel } from "./link-expenses-panel";
 import { EmployeesTab } from "./payroll/employees";
+import { PayrollSection } from "./payroll/payroll-section";
 import { OfficesModal } from "./payroll/offices-modal";
 import { BudgetScenarioModal } from "./scenario-modal";
-import { ScenarioEmployeeModal } from "./scenario-employee-modal";
-import { formatMoney, formatYearRange } from "./shared";
+import { formatMoney, formatYearRange, getApiErrorMessage } from "./shared";
 import { FinancialVariableModal } from "./variable-modal";
 import { BudgetSpreadsheet } from "./budget-spreadsheet";
 import { ResourceSearch } from "./resource-search";
+import { FinanceConfirmModal } from "./confirm-modal";
 
-type Panel = "compose" | "resources";
-type ResourceSection = "people" | "variables" | "expenses";
+type Panel = { kind: "compose"; tab: ComposerTab } | { kind: "resources" } | { kind: "link" };
+type ResourceSection = "people" | "variables" | "expenses" | "payroll";
 
 type Props = {
   workspaceSlug: string;
@@ -63,6 +58,7 @@ type Props = {
 
 export function BudgetScenarioDetail({ workspaceSlug, scenario, onChanged, onDeleted }: Props) {
   const { t } = useTranslation();
+  const { mutate: mutateGlobal } = useSWRConfig();
   const [panel, setPanel] = useState<Panel | null>(null);
   const [sheetRefreshToken, setSheetRefreshToken] = useState(0);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -103,6 +99,43 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onChanged, onDel
     setSheetRefreshToken((value) => value + 1);
   };
 
+  /** Files expenses already on the ledger against this budget, one by one so a
+   * failure leaves the rest untouched. */
+  const linkExpenses = async (expenses: TExpense[], budgetLine: string) => {
+    try {
+      for (const expense of expenses)
+        // eslint-disable-next-line no-await-in-loop
+        await financeService.updateExpense(workspaceSlug, expense.id, {
+          scenario: scenario.id,
+          budget_line: budgetLine || null,
+        });
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t("payments.flow.linked", { count: expenses.length }) });
+    } catch (error) {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
+    } finally {
+      void mutateGlobal((key) => Array.isArray(key) && ["PAYMENT_EXPENSES", "LINKABLE_EXPENSES"].includes(key[0]));
+      void mutateGlobal(`BUDGET_SCENARIOS_${workspaceSlug}_TOTALS`);
+      setSheetRefreshToken((value) => value + 1);
+    }
+  };
+
+  const openComposer = (tab: ComposerTab) => setPanel({ kind: "compose", tab });
+  const addOptions: { tab: ComposerTab | "link"; icon: typeof Users; title: string; help: string }[] = [
+    {
+      tab: "variables",
+      icon: Variable,
+      title: t("payments.composer.menu_item"),
+      help: t("payments.composer.menu_item_help"),
+    },
+    {
+      tab: "people",
+      icon: Users,
+      title: t("payments.composer.menu_people"),
+      help: t("payments.composer.menu_people_help"),
+    },
+    { tab: "link", icon: Link2, title: t("payments.composer.menu_link"), help: t("payments.composer.menu_link_help") },
+  ];
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface-1">
       <BudgetScenarioModal
@@ -110,9 +143,16 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onChanged, onDel
         isOpen={isEditOpen}
         scenario={scenario}
         onClose={() => setIsEditOpen(false)}
-        onSaved={onChanged}
+        onSaved={(next) => {
+          // A new period or currency changes every column of the sheet and the
+          // name in the breadcrumb: both are fetched again.
+          onChanged(next);
+          void mutateGlobal(`BUDGET_FORECAST_${workspaceSlug}_${scenario.id}`);
+          void mutateGlobal(`BUDGET_SCENARIO_${workspaceSlug}_${scenario.id}`);
+          void mutateGlobal(`BUDGET_SCENARIOS_${workspaceSlug}`);
+        }}
       />
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={isDeleteOpen}
         handleClose={() => setIsDeleteOpen(false)}
         handleSubmit={() => void handleDelete()}
@@ -125,6 +165,26 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onChanged, onDel
         workspaceSlug={workspaceSlug}
         scenario={scenario}
         refreshToken={sheetRefreshToken}
+        emptyState={
+          <div className="mx-auto flex max-w-3xl flex-col items-center px-6 py-16 text-center">
+            <h2 className="text-15 font-medium text-primary">{t("payments.sheet.empty_title")}</h2>
+            <p className="mt-1 max-w-md text-13 text-tertiary">{t("payments.sheet.empty_description")}</p>
+            <div className="mt-6 grid w-full gap-3 sm:grid-cols-3">
+              {addOptions.map(({ tab, icon: Icon, title, help }) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => (tab === "link" ? setPanel({ kind: "link" }) : openComposer(tab))}
+                  className="focus-visible:outline-accent-primary flex flex-col items-start gap-2 rounded-lg border border-subtle p-4 text-left hover:border-strong hover:bg-layer-1-hover focus-visible:outline-2"
+                >
+                  <Icon className="size-4 text-tertiary" />
+                  <span className="text-13 font-medium text-primary">{title}</span>
+                  <span className="text-12 text-tertiary">{help}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        }
         meta={
           <span className="hidden items-center gap-1.5 text-11 whitespace-nowrap text-tertiary md:flex">
             <CalendarDays className="size-3" />
@@ -133,11 +193,35 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onChanged, onDel
         }
         actions={
           <>
-            <Button variant="primary" size="sm" onClick={() => setPanel("compose")}>
-              <Plus className="size-3.5" />
-              {t("payments.composer.open")}
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => setPanel("resources")}>
+            {/* One entry point, and the first thing it asks is what is being
+                added: each kind has its own form and its own list. */}
+            <Menu
+              customButton={
+                <span className="flex h-6 items-center gap-1 rounded-md bg-accent-primary px-2 text-body-xs-medium text-on-color hover:bg-accent-primary-hover">
+                  <Plus className="size-3.5" />
+                  {t("payments.composer.open")}
+                  <ChevronDown className="size-3" />
+                </span>
+              }
+              optionsClassName="w-72"
+              ariaLabel={t("payments.composer.title")}
+            >
+              {addOptions.map(({ tab, icon: Icon, title, help }) => (
+                <Menu.MenuItem
+                  key={tab}
+                  onClick={() => (tab === "link" ? setPanel({ kind: "link" }) : openComposer(tab))}
+                >
+                  <span className="flex items-start gap-2.5 py-0.5">
+                    <Icon className="mt-0.5 size-4 shrink-0 text-tertiary" />
+                    <span className="min-w-0">
+                      <span className="block text-13 text-primary">{title}</span>
+                      <span className="block text-11 text-tertiary">{help}</span>
+                    </span>
+                  </span>
+                </Menu.MenuItem>
+              ))}
+            </Menu>
+            <Button variant="secondary" size="base" onClick={() => setPanel({ kind: "resources" })}>
               <Library className="size-3.5" />
               {t("payments.composer.resources")}
             </Button>
@@ -179,18 +263,27 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onChanged, onDel
         }
       />
 
-      {panel && (
+      <LinkExpensesPanel
+        workspaceSlug={workspaceSlug}
+        isOpen={panel?.kind === "link"}
+        scenario={scenario}
+        onClose={() => setPanel(null)}
+        onLink={linkExpenses}
+      />
+      {panel && panel.kind !== "link" && (
         <BudgetPeekPanel
-          title={t(panel === "compose" ? "payments.composer.title" : "payments.composer.resources_title")}
+          title={t(panel.kind === "compose" ? "payments.composer.title" : "payments.composer.resources_title")}
           description={t(
-            panel === "compose" ? "payments.composer.description" : "payments.composer.resources_description"
+            panel.kind === "compose" ? "payments.composer.description" : "payments.composer.resources_description"
           )}
           onClose={closePanel}
         >
-          {panel === "compose" ? (
+          {panel.kind === "compose" ? (
             <BudgetResourceComposer
+              key={panel.tab}
               workspaceSlug={workspaceSlug}
               scenario={scenario}
+              initialTab={panel.tab}
               onSaved={() => setSheetRefreshToken((value) => value + 1)}
             />
           ) : (
@@ -201,154 +294,6 @@ export function BudgetScenarioDetail({ workspaceSlug, scenario, onChanged, onDel
             />
           )}
         </BudgetPeekPanel>
-      )}
-    </div>
-  );
-}
-
-export function ScenarioTeam({ workspaceSlug, scenario }: { workspaceSlug: string; scenario: TBudgetScenario }) {
-  const { t } = useTranslation();
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [bonusTarget, setBonusTarget] = useState<TBudgetScenarioEmployee | null>(null);
-  const { data: assignments, mutate } = useSWR<TBudgetScenarioEmployee[]>(
-    `BUDGET_SCENARIO_EMPLOYEES_${workspaceSlug}_${scenario.id}`,
-    () => financeService.getScenarioEmployees(workspaceSlug, scenario.id),
-    { revalidateOnFocus: false }
-  );
-  const { data: employees } = useSWR<TEmployee[]>(
-    `PAYROLL_EMPLOYEES_${workspaceSlug}`,
-    () => payrollService.getEmployees(workspaceSlug),
-    { revalidateOnFocus: false }
-  );
-
-  const refresh = () => {
-    void mutate();
-  };
-
-  return (
-    <div className="mx-auto max-w-[1180px] p-4 sm:p-6">
-      <ScenarioEmployeeModal
-        nested
-        workspaceSlug={workspaceSlug}
-        scenario={scenario}
-        employees={employees ?? []}
-        isOpen={isAddOpen}
-        onClose={() => setIsAddOpen(false)}
-        onSaved={refresh}
-      />
-      <BudgetBonusModal
-        nested
-        workspaceSlug={workspaceSlug}
-        scenario={scenario}
-        assignment={bonusTarget}
-        isOpen={bonusTarget !== null}
-        onClose={() => setBonusTarget(null)}
-        onSaved={refresh}
-      />
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-15 font-semibold text-primary">{t("payments.scenarios.team_title")}</h2>
-          <p className="mt-1 text-12 text-tertiary">{t("payments.scenarios.team_description")}</p>
-        </div>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => setIsAddOpen(true)}
-          disabled={(employees?.length ?? 0) === 0}
-        >
-          <UserRoundPlus className="size-4" />
-          {t("payments.scenarios.add_employee")}
-        </Button>
-      </div>
-
-      {(assignments?.length ?? 0) === 0 ? (
-        <div className="mt-5 flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-subtle bg-layer-1 p-6 text-center">
-          <Users className="size-6 text-tertiary" />
-          <h3 className="mt-3 text-14 font-medium text-primary">{t("payments.scenarios.no_team_title")}</h3>
-          <p className="mt-1 max-w-sm text-12 text-tertiary">{t("payments.scenarios.no_team_description")}</p>
-        </div>
-      ) : (
-        <div className="mt-5 overflow-hidden rounded-xl border border-subtle bg-layer-1">
-          {(assignments ?? []).map((assignment, index) => (
-            <div key={assignment.id} className={cn("p-4", index > 0 && "border-t border-subtle")}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-layer-2 text-12 font-semibold text-secondary">
-                    {assignment.employee_name
-                      .split(" ")
-                      .slice(0, 2)
-                      .map((part) => part[0])
-                      .join("")}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-13 font-medium text-primary">{assignment.employee_name}</p>
-                    <p className="mt-0.5 text-11 text-tertiary">
-                      {assignment.position || t("payments.scenarios.no_position")} / {assignment.office_name}
-                    </p>
-                    <span className="mt-1 inline-flex rounded-full border border-subtle bg-layer-2 px-1.5 py-0.5 text-9 font-medium text-tertiary">
-                      {formatYearRange(assignment.effective_from, assignment.effective_to)}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <p className="text-13 font-semibold text-primary">
-                      {formatMoney(assignment.salary_amount, assignment.salary_currency)}
-                    </p>
-                    <p className="text-10 text-tertiary">
-                      {t(`payroll.periodicity.${assignment.salary_periodicity.toLowerCase()}`)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setBonusTarget(assignment)}
-                    className="flex h-8 items-center gap-1 rounded-sm border border-subtle px-2 text-11 text-secondary hover:bg-layer-1-hover"
-                  >
-                    <Plus className="size-3" /> {t("payments.bonuses.add")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void financeService
-                        .removeScenarioEmployee(workspaceSlug, scenario.id, assignment.id)
-                        .then(refresh);
-                    }}
-                    className="flex size-8 items-center justify-center rounded-sm text-tertiary hover:bg-danger-primary/10 hover:text-danger-primary"
-                    title={t("payments.actions.delete")}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              </div>
-              {assignment.bonuses.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2 pl-12">
-                  {assignment.bonuses.map((bonus) => (
-                    <span
-                      key={bonus.id}
-                      className="flex items-center gap-1.5 rounded-full bg-layer-2 px-2.5 py-1 text-10 text-secondary"
-                    >
-                      {bonus.name}: {bonus.calculation_type === "PERCENTAGE" ? `${bonus.value}%` : bonus.value}
-                      <span className="rounded-full border border-subtle px-1.5 py-0.5 text-9 text-tertiary">
-                        {formatYearRange(bonus.effective_from, bonus.effective_to)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void financeService
-                            .deleteBudgetBonus(workspaceSlug, scenario.id, assignment.id, bonus.id)
-                            .then(refresh)
-                        }
-                        className="text-tertiary hover:text-danger-primary"
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );
@@ -433,7 +378,7 @@ function ScenarioVariables({
           onChanged?.();
         }}
       />
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleteTarget !== null}
         handleClose={() => setDeleteTarget(null)}
         handleSubmit={() => void handleDelete()}
@@ -448,7 +393,7 @@ function ScenarioVariables({
         </div>
         <Button
           variant="primary"
-          size="xl"
+          size="sm"
           onClick={() => {
             if ((offices?.length ?? 0) === 0) setIsOfficesOpen(true);
             else {
@@ -476,77 +421,72 @@ function ScenarioVariables({
         className="mt-5"
       />
 
-      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {(variables ?? []).map((variable) => {
-          const assignment = assignedByVariable.get(variable.id);
-          return (
-            <div key={variable.id} className="rounded-lg border border-subtle bg-layer-1 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="truncate text-13 font-medium text-primary">{variable.name}</h3>
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-9 font-medium uppercase",
-                        variable.kind === "INCOME"
-                          ? "bg-success-primary/10 text-success-primary"
-                          : "bg-warning-primary/10 text-warning-primary"
-                      )}
-                    >
-                      {t(`payments.variables.kind.${variable.kind.toLowerCase()}`)}
-                    </span>
-                    <span className="rounded-full border border-subtle bg-layer-2 px-1.5 py-0.5 text-9 font-medium text-tertiary">
-                      {formatYearRange(variable.effective_from, variable.effective_to)}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-11 text-tertiary">
-                    {variable.office_name} / {t(`payments.variables.recurrence.${variable.recurrence.toLowerCase()}`)}
+      {(variables?.length ?? 0) > 0 && (
+        <ul className="mt-3 divide-y divide-subtle overflow-hidden rounded-lg border border-subtle">
+          {(variables ?? []).map((variable) => {
+            const assignment = assignedByVariable.get(variable.id);
+            return (
+              <li key={variable.id} className="flex items-center gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-13 font-medium text-primary">{variable.name}</p>
+                  <p className="mt-0.5 truncate text-11 text-tertiary">
+                    {[
+                      variable.office_name,
+                      t(`payments.variables.recurrence.${variable.recurrence.toLowerCase()}`),
+                      formatYearRange(variable.effective_from, variable.effective_to),
+                      variable.kind === "INCOME" ? t("payments.variables.kind.income") : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
-                <p className="shrink-0 text-14 font-semibold text-primary">
+                <span className="shrink-0 text-13 font-medium tabular-nums">
                   {formatMoney(variable.amount, variable.currency)}
-                </p>
-              </div>
-              {variable.description && (
-                <p className="mt-3 line-clamp-2 text-11 text-secondary">{variable.description}</p>
-              )}
-              <div className="mt-4 flex items-center justify-between border-t border-subtle pt-3">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditing(variable);
-                      setIsModalOpen(true);
-                    }}
-                    className="flex items-center gap-1 text-11 text-tertiary hover:text-primary"
-                  >
-                    <Edit3 className="size-3" /> {t("payments.actions.edit")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeleteTarget(variable)}
-                    className="flex items-center gap-1 text-11 text-tertiary hover:text-danger-primary"
-                  >
-                    <Trash2 className="size-3" /> {t("payments.actions.delete")}
-                  </button>
-                </div>
+                </span>
                 <Button
                   variant={assignment ? "secondary" : "primary"}
-                  size="sm"
+                  size="base"
                   onClick={() => {
                     const promise = assignment
                       ? financeService.removeScenarioVariable(workspaceSlug, scenario.id, assignment.id)
                       : financeService.addScenarioVariable(workspaceSlug, scenario.id, variable.id);
-                    void promise.then(refresh);
+                    void promise.then(refresh).catch((reason) =>
+                      setToast({
+                        type: TOAST_TYPE.ERROR,
+                        title: t("payments.toasts.error"),
+                        message: getApiErrorMessage(reason),
+                      })
+                    );
                   }}
                 >
                   {t(assignment ? "payments.variables.remove" : "payments.variables.add")}
                 </Button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(variable);
+                    setIsModalOpen(true);
+                  }}
+                  className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+                  aria-label={t("payments.variables.edit")}
+                  title={t("payments.variables.edit")}
+                >
+                  <Edit3 className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(variable)}
+                  className="rounded-sm p-1.5 text-tertiary hover:bg-danger-primary/10 hover:text-danger-primary"
+                  aria-label={t("payments.variables.delete_title")}
+                  title={t("payments.variables.delete_title")}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {(variables?.length ?? 0) === 0 && (offices?.length ?? 0) > 0 && (
         <div className="mt-5 rounded-xl border border-dashed border-subtle bg-layer-1 p-10 text-center">
           <Variable className="mx-auto size-6 text-tertiary" />
@@ -575,6 +515,7 @@ function BudgetResourcesPanel({
     { key: "people", icon: BriefcaseBusiness, label: t("payments.composer.people_and_entities") },
     { key: "variables", icon: Variable, label: t("payments.variables.title") },
     { key: "expenses", icon: ReceiptText, label: t("payments.expenses") },
+    { key: "payroll", icon: Wallet, label: t("payroll.title") },
   ];
 
   return (
@@ -604,6 +545,7 @@ function BudgetResourcesPanel({
         {section === "expenses" && (
           <ExpensesTab workspaceSlug={workspaceSlug} scenario={scenario} onChanged={onChanged} />
         )}
+        {section === "payroll" && <PayrollSection workspaceSlug={workspaceSlug} defaultYear={scenario.fiscal_year} />}
       </div>
     </div>
   );

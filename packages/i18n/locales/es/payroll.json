@@ -10,11 +10,11 @@
       "annual_cost": "Costo anual"
     },
     "employees": {
-      "form_help": "Solo el nombre y la fecha de ingreso son obligatorios. El identificador interno se genera automaticamente.",
+      "form_help": "Solo el nombre, la oficina y la fecha de ingreso son obligatorios.",
       "national_id_help": "Identificador fiscal o legal, no es el ID interno del sistema.",
-      "left_company": "Esta persona ya no trabaja aqui",
+      "left_company": "Esta persona ya no trabaja aquí",
       "termination_help": "Activalo unicamente al registrar una baja; no se solicita al crear al empleado.",
-      "delete_impact": "Se eliminara a {name} junto con {salaries} sueldos, {adjustments} movimientos y {payments} pagos. Tambien se quitara de {scenarios} presupuestos. Esta accion no se puede deshacer.",
+      "delete_impact": "Se eliminará a {name} junto con {salaries} sueldos, {adjustments} movimientos y {payments} pagos. También se quitará de {scenarios} presupuestos. Esta acción no se puede deshacer.",
       "delete_blocked_impact": "No se puede eliminar a {name} porque se utiliza en: {budgets}. Primero quitale de esos presupuestos.",
       "new": "Nuevo empleado",
       "edit": "Editar empleado",
@@ -25,10 +25,10 @@
       "new_salary": "Nuevo sueldo",
       "edit_salary": "Editar sueldo",
       "delete_salary_title": "Eliminar sueldo",
-      "delete_salary_impact": "Se eliminara esta entrada del historial salarial. Esta accion no se puede deshacer.",
+      "delete_salary_impact": "Se eliminará esta entrada del historial salarial. Esta acción no se puede deshacer.",
       "delete_salary_blocked": "No se puede eliminar este sueldo porque se utiliza en: {budgets}. Selecciona otro sueldo o quita al empleado de esos presupuestos primero.",
       "current": "Vigente",
-      "open_ended_salary_help": "Deja este campo vacio para mantener el salario activo indefinidamente.",
+      "open_ended_salary_help": "Deja este campo vacío para mantener el salario activo indefinidamente.",
       "adjustments": "Movimientos",
       "new_adjustment": "Nuevo movimiento",
       "empty": "Todavía no hay empleados.",
@@ -36,11 +36,11 @@
       "delete_description": "Se van con él su historial de sueldos, sus movimientos y sus pagos. Esta acción no se puede deshacer."
     },
     "offices": {
-      "form_help": "Las entidades agrupan personas, salarios y variables financieras. Plane genera sus identificadores automaticamente.",
+      "form_help": "Las oficinas agrupan personas, salarios y partidas.",
       "aguinaldo_help": "Mínimo legal: 15 días",
       "people": "personas",
-      "delete_impact": "Se eliminara la entidad {name}. No tiene sueldos, pagos ni variables vinculadas. Esta accion no se puede deshacer.",
-      "delete_blocked_impact": "No se puede eliminar {name}: contiene {employees} personas, {salaries} sueldos, {payments} pagos y {variables} variables. Reasigna o elimina esos recursos primero.",
+      "delete_impact": "Se eliminará la oficina {name}. No tiene sueldos, pagos ni partidas vinculadas. No se puede deshacer.",
+      "delete_blocked_impact": "No se puede eliminar {name}: tiene {employees} personas, {salaries} sueldos, {payments} pagos y {variables} partidas. Muévelos a otra oficina o elimínalos primero.",
       "title": "Oficinas",
       "manage": "Administrar oficinas",
       "new": "Nueva oficina",
@@ -68,7 +68,8 @@
       "empty": "Todavía no hay pagos registrados.",
       "empty_upcoming": "No hay pagos por realizar.",
       "delete_title": "Eliminar pago",
-      "delete_description": "El pago se quitará del registro. Esta acción no se puede deshacer."
+      "delete_description": "El pago se quitará del registro. Esta acción no se puede deshacer.",
+      "title": "Pagos"
     },
     "concepts": {
       "salary": "Sueldo",

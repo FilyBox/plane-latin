@@ -44,6 +44,13 @@ const PERSONAL_ITEMS: Array<{ key: TPersonalNavigationItemKey; labelTranslationK
   { key: "drafts", labelTranslationKey: "drafts" },
 ];
 
+// Project count takes whole numbers only: block e, E, +, - and .
+const blockNonIntegerKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (["e", "E", "+", "-", "."].includes(e.key)) {
+    e.preventDefault();
+  }
+};
+
 export const CustomizeNavigationDialog = observer(function CustomizeNavigationDialog(
   props: TCustomizeNavigationDialogProps
 ) {
@@ -91,6 +98,7 @@ export const CustomizeNavigationDialog = observer(function CustomizeNavigationDi
       // "payments" is likewise gated by its own per-workspace feature flag
       if (["payments", "expenses"].includes(item.key) && !isWorkspaceFeatureEnabled(slug, "payments")) return false;
       if (item.key === "music-catalog" && !isWorkspaceFeatureEnabled(slug, "music_catalog")) return false;
+      if (item.key === "tags" && !isWorkspaceFeatureEnabled(slug, "references")) return false;
       if (
         item.key === "assistant" &&
         !isWorkspaceFeatureEnabled(slug, "file_library") &&
@@ -165,13 +173,6 @@ export const CustomizeNavigationDialog = observer(function CustomizeNavigationDi
   }, [personalPreferences, filteredPersonalItems]);
 
   // Prevent typing invalid characters in number input
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Block: e, E, +, -, .
-    if (["e", "E", "+", "-", "."].includes(e.key)) {
-      e.preventDefault();
-    }
-  };
-
   // Handle project count input change
   const handleProjectCountChange = (value: string) => {
     // Strip any non-digit characters
@@ -277,37 +278,33 @@ export const CustomizeNavigationDialog = observer(function CustomizeNavigationDi
               <div className="space-y-3">
                 {/* Navigation Mode Radio Buttons */}
                 <div className="space-y-2">
-                  <label className="flex cursor-pointer gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2">
+                  <label className="grid cursor-pointer grid-cols-[auto_1fr] gap-x-2 rounded-md px-2 py-1.5 hover:bg-surface-2">
                     <input
                       type="radio"
                       name="navigation-mode"
                       value="ACCORDION"
                       checked={projectPreferences.navigationMode === "ACCORDION"}
                       onChange={() => updateNavigationMode("ACCORDION")}
-                      className="mt-1 size-4 text-accent-primary focus:ring-accent-strong"
+                      className="row-span-2 mt-1 size-4 text-accent-primary focus:ring-accent-strong"
                     />
-                    <div className="flex-1">
-                      <div className="text-13 text-primary">{t("accordion_navigation_control")}</div>
-                      <div className="text-11 text-secondary">
-                        Feature tabs will appear as nested items under project and acts as accordion.
-                      </div>
+                    <div className="text-13 text-primary">{t("accordion_navigation_control")}</div>
+                    <div className="text-11 text-secondary">
+                      Feature tabs will appear as nested items under project and acts as accordion.
                     </div>
                   </label>
 
-                  <label className="flex cursor-pointer gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2">
+                  <label className="grid cursor-pointer grid-cols-[auto_1fr] gap-x-2 rounded-md px-2 py-1.5 hover:bg-surface-2">
                     <input
                       type="radio"
                       name="navigation-mode"
                       value="TABBED"
                       checked={projectPreferences.navigationMode === "TABBED"}
                       onChange={() => updateNavigationMode("TABBED")}
-                      className="mt-1 size-4 text-accent-primary focus:ring-accent-strong"
+                      className="row-span-2 mt-1 size-4 text-accent-primary focus:ring-accent-strong"
                     />
-                    <div className="flex-1">
-                      <div className="text-13 text-primary">{t("horizontal_navigation_bar")}</div>
-                      <div className="text-11 text-secondary">
-                        Feature tabs will appear as horizontal tabs inside a project.
-                      </div>
+                    <div className="text-13 text-primary">{t("horizontal_navigation_bar")}</div>
+                    <div className="text-11 text-secondary">
+                      Feature tabs will appear as horizontal tabs inside a project.
                     </div>
                   </label>
                 </div>
@@ -332,7 +329,7 @@ export const CustomizeNavigationDialog = observer(function CustomizeNavigationDi
                             min="1"
                             step="1"
                             value={projectCountInput}
-                            onKeyDown={handleKeyDown}
+                            onKeyDown={blockNonIntegerKeys}
                             onChange={(e) => handleProjectCountChange(e.target.value)}
                             className={cn(
                               "w-full rounded-md px-2 py-1 text-13",

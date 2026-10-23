@@ -55,7 +55,7 @@ export const ExtendedSidebarItem = observer(function ExtendedSidebarItem(props: 
   const pathname = usePathname();
   const { workspaceSlug } = useParams();
   // store hooks
-  const { toggleExtendedSidebar } = useAppTheme();
+  const { toggleExtendedSidebar, toggleAssistantPanel } = useAppTheme();
   const { data } = useUser();
   const { allowPermissions } = useUserPermissions();
   const { preferences: workspacePreferences, toggleWorkspaceItem } = useWorkspaceNavigationPreferences();
@@ -88,13 +88,13 @@ export const ExtendedSidebarItem = observer(function ExtendedSidebarItem(props: 
         element,
         canDrop: ({ source }) =>
           !disableDrop && source?.data?.id !== item.key && source?.data?.dragInstanceId === "NAVIGATION",
-        getData: ({ input, element }) => {
-          const data = { id: item.key };
+        getData: ({ input, element: target }) => {
+          const payload = { id: item.key };
 
           // attach instruction for last in list
-          return attachInstruction(data, {
+          return attachInstruction(payload, {
             input,
-            element,
+            element: target,
             currentLevel: 0,
             indentPerLevel: 0,
             mode: isLastChild ? "last-in-group" : "standard",
@@ -192,12 +192,29 @@ export const ExtendedSidebarItem = observer(function ExtendedSidebarItem(props: 
           </Tooltip>
         )}
         <SidebarNavItem isActive={isActive}>
-          <Link href={itemHref} onClick={() => handleLinkClick()} className="group flex-grow">
-            <div className="flex items-center gap-1.5 py-[1px]">
-              {icon}
-              <p className="text-13 leading-5 font-medium">{t(item.labelTranslationKey)}</p>
-            </div>
-          </Link>
+          {item.key === "assistant" ? (
+            // The assistant is a panel, not a page.
+            <button
+              type="button"
+              onClick={() => {
+                handleLinkClick();
+                toggleAssistantPanel(true);
+              }}
+              className="group flex-grow text-left"
+            >
+              <div className="flex items-center gap-1.5 py-[1px]">
+                {icon}
+                <p className="text-13 leading-5 font-medium">{t(item.labelTranslationKey)}</p>
+              </div>
+            </button>
+          ) : (
+            <Link href={itemHref} onClick={() => handleLinkClick()} className="group flex-grow">
+              <div className="flex items-center gap-1.5 py-[1px]">
+                {icon}
+                <p className="text-13 leading-5 font-medium">{t(item.labelTranslationKey)}</p>
+              </div>
+            </Link>
+          )}
           <div className="flex items-center gap-2">
             {item.key === "active_cycles" && (
               <div className="flex-shrink-0">

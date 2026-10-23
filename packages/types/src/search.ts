@@ -9,10 +9,12 @@ import type { TIssue } from "./issues/issue";
 import type { IModule } from "./module";
 import type { TPage } from "./page";
 import type { IProject } from "./project";
+import type { TEntityName } from "./references";
 import type { IUser } from "./users";
 import type { IWorkspace } from "./workspace";
 
-export type TSearchEntities = "user_mention" | "issue" | "project" | "cycle" | "module" | "page";
+// Plane's own mentionables plus every registered workspace entity.
+export type TSearchEntities = "user_mention" | "issue" | "project" | "cycle" | "module" | "page" | TEntityName;
 
 export type TUserSearchResponse = {
   member__avatar_url: IUser["avatar_url"];

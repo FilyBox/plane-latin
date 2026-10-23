@@ -143,6 +143,12 @@ export const coreRoutes: RouteConfigEntry[] = [
         // Music catalog
         layout("./(all)/[workspaceSlug]/(projects)/music/layout.tsx", [
           route(":workspaceSlug/music", "./(all)/[workspaceSlug]/(projects)/music/page.tsx"),
+          route(":workspaceSlug/music/import", "./(all)/[workspaceSlug]/(projects)/music/import/page.tsx"),
+        ]),
+
+        // Shared tags: everything carrying a tag, across modules
+        layout("./(all)/[workspaceSlug]/(projects)/tags/layout.tsx", [
+          route(":workspaceSlug/tags/:tagId?", "./(all)/[workspaceSlug]/(projects)/tags/page.tsx"),
         ]),
 
         // Notifications

@@ -27,7 +27,8 @@ type Props = {
   onClose: () => void;
   /** Set when this opened from another panel, so it stacks over it. */
   nested?: boolean;
-  onSaved: () => void;
+  /** Gets the saved salary, so a caller can carry on with it. */
+  onSaved: (salary?: TSalary) => void;
 };
 
 export function SalaryModal(props: Props) {
@@ -64,10 +65,11 @@ export function SalaryModal(props: Props) {
         effective_from: effectiveFrom,
         ...(salary ? { effective_to: effectiveTo || null } : {}),
       } as Partial<TSalary>;
-      if (salary) await payrollService.updateSalary(workspaceSlug, employeeId, salary.id, payload);
-      else await payrollService.createSalary(workspaceSlug, employeeId, payload);
+      const saved = salary
+        ? await payrollService.updateSalary(workspaceSlug, employeeId, salary.id, payload)
+        : await payrollService.createSalary(workspaceSlug, employeeId, payload);
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("payroll.toasts.saved") });
-      onSaved();
+      onSaved(saved);
       onClose();
     } catch (error: any) {
       setToast({

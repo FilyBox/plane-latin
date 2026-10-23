@@ -37,8 +37,9 @@ def test_forecast_projects_series_without_double_counting_real_occurrences():
 
 @pytest.mark.django_db
 def test_materialization_is_idempotent_pending_and_does_not_restore_deleted_rows():
-    from plane.db.models import Expense, Workspace
-    workspace = Workspace.objects.create(name="Expense tests", slug="expense-workflow-tests")
+    from plane.db.models import Expense
+    from plane.tests.factories import WorkspaceFactory
+    workspace = WorkspaceFactory()
     root = Expense.objects.create(workspace=workspace, expense_date=date(2026, 1, 31), amount="100.00",
                                   currency="MXN", recurrence="MONTHLY", recurrence_end=date(2026, 3, 31),
                                   status="PAID", concept="Rent", tags=["Office"])
@@ -55,10 +56,11 @@ def test_materialization_is_idempotent_pending_and_does_not_restore_deleted_rows
 
 @pytest.mark.django_db
 def test_serializer_rejects_cross_workspace_categories_and_invalid_recurrence():
-    from plane.db.models import Workspace, ExpenseCategory
+    from plane.db.models import ExpenseCategory, Workspace
     from plane.app.serializers.finance import ExpenseSerializer
-    workspace = Workspace.objects.create(name="A", slug="expense-tests-a")
-    other = Workspace.objects.create(name="B", slug="expense-tests-b")
+    from plane.tests.factories import WorkspaceFactory
+    workspace = WorkspaceFactory()
+    other = Workspace.objects.create(name="B", slug="expense-tests-b", owner=workspace.owner)
     category = ExpenseCategory.objects.create(workspace=other, name="Private")
     payload = {"amount": "12.30", "expense_date": "2026-01-31", "category": str(category.id)}
     serializer = ExpenseSerializer(data=payload, context={"workspace_id": workspace.id})

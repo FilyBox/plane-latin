@@ -1,8 +1,14 @@
 import { lazy, Suspense, useMemo } from "react";
 import type { ColumnRegular } from "@revolist/react-datagrid";
+import useSize from "@/hooks/use-window-size";
 import { cellStyleKebab, ROW_HEIGHT, type CellFlags, type RowFamily } from "./cell-tokens";
 // eslint-disable-next-line import/no-unassigned-import -- stylesheet
 import "./finance-grid.css";
+
+/** Header row plus its bottom rule, as RevoGrid's compact theme draws it. */
+const HEADER_HEIGHT = 46;
+/** Rows kept visible on an empty sheet so its message has room. */
+const EMPTY_ROWS = 4;
 
 const RevoGrid = lazy(() => import("@revolist/react-datagrid").then((module) => ({ default: module.RevoGrid })));
 
@@ -44,15 +50,25 @@ export function FinanceGrid({
   /** A reference cell was clicked. `anchor` is its position on screen. */
   onPickCell?: (row: FinanceGridRow, prop: string, anchor: DOMRect) => void;
 }) {
+  // On a phone the two pinned columns would fill the screen and leave no room
+  // to scroll the figures: only the concept stays pinned, and narrower.
+  const [windowWidth] = useSize();
+  const narrow = windowWidth < 640;
   const gridColumns = useMemo<ColumnRegular[]>(
     () =>
       columns.map((column, index) => ({
         prop: column.prop,
         name: column.name,
-        size: column.size ?? 130,
-        pin: column.pin,
-        sortable: true,
-        readonly: (props) => !column.editable || !!column.pickable || !!props.model.family,
+        size: narrow && column.pin === "colPinStart" ? Math.min(column.size ?? 130, 140) : (column.size ?? 130),
+        pin: narrow && column.pin === "colPinEnd" ? undefined : column.pin,
+        // Order comes from the page's own sort menu: sorting here compared
+        // figures as text and pulled group headings away from their rows.
+        sortable: false,
+        readonly: (props) =>
+          !column.editable ||
+          !!column.pickable ||
+          !!props.model.family ||
+          !!column.flags?.(props.model as FinanceGridRow).isLocked,
         cellTemplate: (h, props) => {
           const row = props.model as FinanceGridRow;
           const pickable = column.pickable && !row.family;
@@ -78,15 +94,21 @@ export function FinanceGrid({
           );
         },
       })),
-    [columns]
+    [columns, narrow]
   );
+  // The grid is as tall as what it holds: a short sheet ends right under its
+  // last line instead of leaving a blank block above the totals. A long one is
+  // capped by the page (`shrink`) and scrolls inside.
+  const contentHeight =
+    HEADER_HEIGHT + (Math.max(rows.length, rows.length === 0 ? EMPTY_ROWS : 0) + totals.length) * ROW_HEIGHT + 1;
   // RevoGrid renders its cells through templates, not React, so the clicks and
   // the context menu are delegated here. The cells themselves are buttons and
   // carry the keyboard behaviour.
   /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */
   return (
     <div
-      className="finance-grid relative min-h-0 flex-1 overflow-hidden"
+      className="finance-grid relative min-h-0 shrink overflow-hidden"
+      style={{ height: contentHeight }}
       onClick={(event) => {
         const cell = (event.target as HTMLElement).closest<HTMLElement>("[data-pickable='true']");
         if (!cell || !onPickCell) return;
@@ -109,12 +131,16 @@ export function FinanceGrid({
           columns={gridColumns}
           pinnedBottomSource={totals}
           rowSize={ROW_HEIGHT}
+          // Spare width goes to the last column, not to a blank strip after it.
+          stretch
           resize
           range={false}
           onBeforeedit={(event) => {
             event.preventDefault();
             const { model, prop, val } = event.detail;
-            if (!model.family) void onEdit?.(model as FinanceGridRow, String(prop), String(val ?? ""));
+            const column = columns.find((item) => item.prop === prop);
+            if (model.family || column?.flags?.(model as FinanceGridRow).isLocked) return;
+            void onEdit?.(model as FinanceGridRow, String(prop), String(val ?? ""));
           }}
         />
       </Suspense>

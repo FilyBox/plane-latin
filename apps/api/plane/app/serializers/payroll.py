@@ -63,6 +63,11 @@ class SalarySerializer(BaseSerializer):
             raise serializers.ValidationError("The salary cannot be negative")
         return value
 
+    def validate_currency(self, value):
+        from plane.app.serializers.finance import normalize_currency
+
+        return normalize_currency(value)
+
     def validate(self, data):
         start = data.get("effective_from", getattr(self.instance, "effective_from", None))
         end = data.get("effective_to", getattr(self.instance, "effective_to", None))
@@ -203,3 +208,8 @@ class PayrollPaymentSerializer(BaseSerializer):
         if value < 0:
             raise serializers.ValidationError("The amount cannot be negative")
         return value
+
+    def validate_currency(self, value):
+        from plane.app.serializers.finance import normalize_currency
+
+        return normalize_currency(value)

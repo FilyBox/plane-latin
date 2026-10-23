@@ -38,6 +38,7 @@ export interface IWorkspace {
   is_file_library_enabled?: boolean;
   is_payments_enabled?: boolean;
   is_music_catalog_enabled?: boolean;
+  is_references_enabled?: boolean;
 }
 
 export interface IWorkspaceLite {

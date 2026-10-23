@@ -20,6 +20,14 @@ from plane.db.models import (
 from .base import BaseSerializer
 
 
+def normalize_currency(value):
+    """Three letters, uppercase: "usd" and "USD" must never become two currencies."""
+    value = (value or "").strip()
+    if len(value) != 3 or not value.isalpha():
+        raise serializers.ValidationError("Use a three-letter currency code")
+    return value.upper()
+
+
 class ExpenseCategorySerializer(BaseSerializer):
     expense_count = serializers.IntegerField(read_only=True, default=0)
 
@@ -106,6 +114,9 @@ class BudgetScenarioSerializer(BaseSerializer):
             raise serializers.ValidationError("Scenario name cannot be empty")
         return value
 
+    def validate_currency(self, value):
+        return normalize_currency(value)
+
     def validate(self, data):
         start = data.get("period_start", getattr(self.instance, "period_start", None))
         end = data.get("period_end", getattr(self.instance, "period_end", None))
@@ -121,6 +132,9 @@ class BudgetScenarioSerializer(BaseSerializer):
 
 class FinancialVariableSerializer(BaseSerializer):
     office_name = serializers.CharField(source="office.name", read_only=True)
+
+    def validate_currency(self, value):
+        return normalize_currency(value)
 
     class Meta:
         model = FinancialVariable
@@ -183,6 +197,10 @@ class BudgetBonusSerializer(BaseSerializer):
         end = data.get("effective_to", getattr(self.instance, "effective_to", None))
         if start and end and end < start:
             raise serializers.ValidationError({"effective_to": "The end date cannot be before the start date"})
+        calculation = data.get("calculation_type", getattr(self.instance, "calculation_type", None))
+        value = data.get("value", getattr(self.instance, "value", None))
+        if calculation == "PERCENTAGE" and value is not None and value > 100:
+            raise serializers.ValidationError({"value": "A percentage bonus cannot exceed 100%"})
         return data
 
 
@@ -243,6 +261,9 @@ class BudgetScenarioVariableSerializer(BaseSerializer):
 class ExpenseSerializer(BaseSerializer):
     # Denormalized for the table so it doesn't need a second round-trip
     category_name = serializers.CharField(source="category.name", read_only=True, default=None)
+    # The budget line, by the key the forecast gives it ("salary:<id>", …). Blank
+    # or null unassigns it; omitting it leaves the current line alone.
+    budget_line = serializers.CharField(required=False, allow_blank=True, allow_null=True, write_only=True)
     documents = serializers.SerializerMethodField()
     tags = serializers.ListField(child=serializers.CharField(max_length=50), max_length=20, required=False)
 
@@ -260,6 +281,7 @@ class ExpenseSerializer(BaseSerializer):
             "category_name",
             "project",
             "scenario",
+            "budget_line",
             "documents",
             "amount",
             "currency",
@@ -285,6 +307,7 @@ class ExpenseSerializer(BaseSerializer):
         end = data.get("recurrence_end", getattr(self.instance, "recurrence_end", None))
         if start and end and end < start:
             raise serializers.ValidationError({"recurrence_end": "Must be on or after the first expense"})
+        self._resolve_budget_line(data)
         if self.instance and self.instance.series_id and data.get("recurrence", "ONE_TIME") != "ONE_TIME":
             raise serializers.ValidationError({"recurrence": "Edit the original expense to change the series"})
         if self.instance and "recurrence" in data and data["recurrence"] != self.instance.recurrence:
@@ -294,11 +317,55 @@ class ExpenseSerializer(BaseSerializer):
             raise serializers.ValidationError({"expense_date": "The first date of a series cannot be changed"})
         if "tags" in data:
             data["tags"] = list(dict.fromkeys(tag.strip() for tag in data["tags"] if tag.strip()))
+        # Resuming a paused series starts again from today: the dates that fell
+        # inside the pause are not created as a pile of pending expenses.
+        if self.instance and self.instance.recurrence_paused and data.get("recurrence_paused") is False:
+            from plane.utils.expense_recurrence import _today_in
+
+            data["recurrence_resume_from"] = _today_in(getattr(self.instance.workspace, "timezone", "UTC"))
         currency = data.get("currency")
         if currency and (len(currency) != 3 or not currency.isalpha()):
             raise serializers.ValidationError({"currency": "Use a three-letter currency code"})
         if currency:
             data["currency"] = currency.upper()
+        return data
+
+    def _resolve_budget_line(self, data):
+        """Turns `budget_line` into the BudgetRow it names, and keeps the pair
+        consistent: a line always belongs to the expense's budget and shares its
+        currency, and moving the expense to another budget drops a line that
+        isn't part of it."""
+        from plane.utils.budget_lines import budget_row_for, line_source
+
+        scenario = data["scenario"] if "scenario" in data else getattr(self.instance, "scenario", None)
+        if "budget_line" not in data:
+            current = getattr(self.instance, "budget_row", None)
+            if current is not None and (scenario is None or current.scenario_id != scenario.id):
+                data["budget_row"] = None
+            return
+        key = data.pop("budget_line")
+        if not key:
+            data["budget_row"] = None
+            return
+        if scenario is None:
+            raise serializers.ValidationError({"budget_line": "Choose the budget before its line"})
+        source = line_source(scenario, key)
+        if source is None:
+            raise serializers.ValidationError({"budget_line": "This line is not part of the budget"})
+        currency = (data.get("currency") or getattr(self.instance, "currency", "") or "").upper()
+        if currency and source[1] and currency != source[1].upper():
+            raise serializers.ValidationError(
+                {"budget_line": f"This line is planned in {source[1]}; the expense is in {currency}"}
+            )
+        data["budget_row"] = budget_row_for(scenario, key)
+
+    def to_representation(self, instance):
+        from plane.utils.budget_lines import line_label
+
+        data = super().to_representation(instance)
+        row = getattr(instance, "budget_row", None)
+        data["budget_line"] = row.row_key if row else None
+        data["budget_line_label"] = line_label(row, self.context.setdefault("line_labels", {})) if row else None
         return data
 
     def get_documents(self, obj):

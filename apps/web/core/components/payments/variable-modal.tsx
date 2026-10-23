@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
@@ -34,12 +34,27 @@ type Props = {
   onClose: () => void;
   /** Set when this opened from another panel, so it stacks over it. */
   nested?: boolean;
+  /** Starting values for a new item, e.g. the budget's currency and period. */
+  defaults?: { currency?: string; effective_from?: string; effective_to?: string };
+  /** Names what saving does when it does more than save, e.g. also adds it to a budget. */
+  submitLabel?: string;
   onSaved: (variable: TFinancialVariable) => void;
 };
 
-export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpen, onClose, nested, onSaved }: Props) {
+export function FinancialVariableModal({
+  workspaceSlug,
+  offices,
+  variable,
+  isOpen,
+  onClose,
+  nested,
+  defaults,
+  submitLabel,
+  onSaved,
+}: Props) {
   const { t } = useTranslation();
   const year = new Date().getFullYear();
+  const fieldId = useId();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [office, setOffice] = useState("");
@@ -58,10 +73,12 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
     setOffice(variable?.office ?? offices[0]?.id ?? "");
     setKind(variable?.kind ?? "EXPENSE");
     setAmount(variable?.amount ?? "");
-    setCurrency(variable?.currency ?? "MXN");
+    setCurrency(variable?.currency ?? defaults?.currency ?? "MXN");
     setRecurrence(variable?.recurrence ?? "MONTHLY");
-    setEffectiveFrom(variable?.effective_from ?? `${year}-01-01`);
-    setEffectiveTo(variable?.effective_to ?? "");
+    setEffectiveFrom(variable?.effective_from ?? defaults?.effective_from ?? `${year}-01-01`);
+    setEffectiveTo(variable?.effective_to ?? defaults?.effective_to ?? "");
+    // `defaults` is read once on open; a new object each render must not reset the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, offices, variable, year]);
 
   const handleSubmit = async () => {
@@ -82,7 +99,8 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
       const saved = variable
         ? await financeService.updateFinancialVariable(workspaceSlug, variable.id, payload)
         : await financeService.createFinancialVariable(workspaceSlug, payload);
-      setToast({ type: TOAST_TYPE.SUCCESS, title: t("payments.variables.saved") });
+      // A caller that does more than save (submitLabel) reports the outcome itself.
+      if (!submitLabel) setToast({ type: TOAST_TYPE.SUCCESS, title: t("payments.variables.saved") });
       onSaved(saved);
       onClose();
     } catch (error: any) {
@@ -108,73 +126,60 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
         }}
       >
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label className={LABEL}>{t("payments.fields.name")}</label>
-              <Input
-                value={name}
-                // eslint-disable-next-line jsx-a11y/no-autofocus
-                autoFocus
-                onChange={(event) => setName(event.target.value)}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <label className={LABEL}>{t("payments.variables.entity")}</label>
-              <select className={FIELD} value={office} onChange={(event) => setOffice(event.target.value)}>
-                {offices.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
           <div>
-            <label className={LABEL}>
-              {t("payments.fields.description")}{" "}
-              <span className="font-normal text-tertiary">({t("payments.optional")})</span>
+            <label htmlFor={`${fieldId}-name`} className={LABEL}>
+              {t("payments.fields.name")}
             </label>
-            <TextArea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              className="min-h-16"
+            <Input
+              id={`${fieldId}-name`}
+              value={name}
+              placeholder={t("payments.variables.name_placeholder")}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              onChange={(event) => setName(event.target.value)}
+              className="w-full"
             />
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
             <div>
-              <label className={LABEL}>{t("payments.variables.kind_label")}</label>
-              <select
-                className={FIELD}
-                value={kind}
-                onChange={(event) => setKind(event.target.value as TFinancialVariableKind)}
-              >
-                <option value="EXPENSE">{t("payments.variables.kind.expense")}</option>
-                <option value="INCOME">{t("payments.variables.kind.income")}</option>
-              </select>
-            </div>
-            <div>
-              <label className={LABEL}>{t("payments.fields.amount")}</label>
+              <label htmlFor={`${fieldId}-amount`} className={LABEL}>
+                {t("payments.fields.amount")}
+              </label>
               <Input
+                id={`${fieldId}-amount`}
                 type="number"
                 min="0"
                 step="0.01"
+                inputMode="decimal"
+                placeholder="0.00"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
-                className="w-full"
+                className="w-full text-right tabular-nums"
               />
             </div>
             <div>
-              <label className={LABEL}>{t("payments.fields.currency")}</label>
-              <select className={FIELD} value={currency} onChange={(event) => setCurrency(event.target.value)}>
+              <label htmlFor={`${fieldId}-currency`} className={LABEL}>
+                {t("payments.fields.currency")}
+              </label>
+              <select
+                id={`${fieldId}-currency`}
+                className={FIELD}
+                value={currency}
+                onChange={(event) => setCurrency(event.target.value)}
+              >
                 {CURRENCIES.map((item) => (
                   <option key={item}>{item}</option>
                 ))}
               </select>
             </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className={LABEL}>{t("payments.variables.recurrence_label")}</label>
+              <label htmlFor={`${fieldId}-recurrence`} className={LABEL}>
+                {t("payments.variables.recurrence_label")}
+              </label>
               <select
+                id={`${fieldId}-recurrence`}
                 className={FIELD}
                 value={recurrence}
                 onChange={(event) => setRecurrence(event.target.value as TFinancialRecurrence)}
@@ -186,11 +191,42 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
                 ))}
               </select>
             </div>
+            <div>
+              <span id={`${fieldId}-kind`} className={LABEL}>
+                {t("payments.variables.kind_label")}
+              </span>
+              {/* Two choices read faster side by side than inside a dropdown. */}
+              <div
+                role="radiogroup"
+                aria-labelledby={`${fieldId}-kind`}
+                className="grid h-9 grid-cols-2 gap-0.5 rounded-sm bg-layer-2 p-0.5"
+              >
+                {(["EXPENSE", "INCOME"] as TFinancialVariableKind[]).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    role="radio"
+                    aria-checked={kind === item}
+                    onClick={() => setKind(item)}
+                    className={
+                      kind === item
+                        ? "rounded-sm bg-surface-1 text-13 font-medium text-primary shadow-raised-100"
+                        : "rounded-sm text-13 text-tertiary hover:text-primary"
+                    }
+                  >
+                    {t(`payments.variables.kind.${item.toLowerCase()}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className={LABEL}>{t("payments.fields.period_start")}</label>
+              <label htmlFor={`${fieldId}-from`} className={LABEL}>
+                {t("payments.fields.period_start")}
+              </label>
               <input
+                id={`${fieldId}-from`}
                 type="date"
                 className={FIELD}
                 value={effectiveFrom}
@@ -198,11 +234,12 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
               />
             </div>
             <div>
-              <label className={LABEL}>
+              <label htmlFor={`${fieldId}-to`} className={LABEL}>
                 {t("payments.fields.period_end")}{" "}
                 <span className="font-normal text-tertiary">({t("payments.optional")})</span>
               </label>
               <input
+                id={`${fieldId}-to`}
                 type="date"
                 className={FIELD}
                 value={effectiveTo}
@@ -210,6 +247,35 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
                 onChange={(event) => setEffectiveTo(event.target.value)}
               />
             </div>
+          </div>
+          <div>
+            <label htmlFor={`${fieldId}-office`} className={LABEL}>
+              {t("payments.variables.entity")}
+            </label>
+            <select
+              id={`${fieldId}-office`}
+              className={FIELD}
+              value={office}
+              onChange={(event) => setOffice(event.target.value)}
+            >
+              {offices.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor={`${fieldId}-description`} className={LABEL}>
+              {t("payments.fields.description")}{" "}
+              <span className="font-normal text-tertiary">({t("payments.optional")})</span>
+            </label>
+            <TextArea
+              id={`${fieldId}-description`}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              className="min-h-16"
+            />
           </div>
         </div>
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-subtle bg-surface-1 px-5 py-3">
@@ -223,7 +289,7 @@ export function FinancialVariableModal({ workspaceSlug, offices, variable, isOpe
             loading={isSubmitting}
             disabled={!name.trim() || !office || !amount || (!!effectiveTo && effectiveTo < effectiveFrom)}
           >
-            {t("payments.actions.save")}
+            {submitLabel ?? t("payments.actions.save")}
           </Button>
         </div>
       </form>

@@ -19,19 +19,19 @@ import type {
   TOffice,
   TSalary,
 } from "@plane/types";
-import { AlertModalCore, ToggleSwitch } from "@plane/ui";
 import { cn } from "@plane/utils";
 import useDebounce from "@/hooks/use-debounce";
 import { getSalaryBudgetAvailability } from "@/lib/budget-availability";
 import { financeService } from "@/services/finance.service";
 import { payrollService } from "@/services/payroll.service";
 import { BudgetBonusModal } from "./bonus-modal";
+import { FinanceConfirmModal } from "./confirm-modal";
 import { EmployeeModal } from "./payroll/employee-modal";
 import { OfficesModal } from "./payroll/offices-modal";
 import { SalaryModal } from "./payroll/salary-modal";
+import { ResourceSearch } from "./resource-search";
 import { formatMoney, formatYearRange, getApiErrorMessage } from "./shared";
 import { FinancialVariableModal } from "./variable-modal";
-import { ResourceSearch } from "./resource-search";
 
 type EmployeeSelection = {
   employee: string;
@@ -42,12 +42,14 @@ type EmployeeSelection = {
 
 type SalaryTarget = { employee: TEmployee; salary: TSalary | null };
 
-type ComposerTab = "people" | "variables" | "included";
+export type ComposerTab = "variables" | "people" | "included";
 
 type Props = {
   workspaceSlug: string;
   scenario: TBudgetScenario;
   onSaved: () => void;
+  /** Which list opens first: the header's "Add" menu says what the user came for. */
+  initialTab?: ComposerTab;
 };
 
 const latestDate = (...dates: (string | null | undefined)[]) =>
@@ -62,13 +64,23 @@ const earliestDate = (...dates: (string | null | undefined)[]) =>
     .sort()
     .at(0) ?? "";
 
-const YearBadge = ({ from, to }: { from: string; to?: string | null }) => (
-  <span className="shrink-0 rounded-full border border-subtle bg-layer-2 px-1.5 py-0.5 text-9 font-medium text-tertiary">
-    {formatYearRange(from, to)}
-  </span>
-);
+/** The stretch of a salary that falls inside the budget, clipped by hire and exit dates. */
+const salaryWindow = (scenario: TBudgetScenario, employee: TEmployee, salary: TSalary): EmployeeSelection => ({
+  employee: employee.id,
+  salary: salary.id,
+  effective_from: latestDate(scenario.period_start, employee.hire_date, salary.effective_from),
+  effective_to: earliestDate(
+    scenario.period_end,
+    employee.termination_date ?? scenario.period_end,
+    salary.effective_to ?? scenario.period_end
+  ),
+});
 
-export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Props) {
+const ICON_BUTTON = "rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary";
+const DATE_FIELD =
+  "h-8 w-full rounded-sm border border-subtle bg-surface-1 px-2 text-12 outline-none focus:border-accent-strong";
+
+export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved, initialTab = "variables" }: Props) {
   const { t } = useTranslation();
   const { mutate: mutateGlobal } = useSWRConfig();
   const [employeeSelections, setEmployeeSelections] = useState<Record<string, EmployeeSelection>>({});
@@ -88,10 +100,8 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
     | null
   >(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hideInapplicable, setHideInapplicable] = useState(true);
-  // One list at a time. The panel used to stack "what's in", "people" and
-  // "concepts" in a single scroll, which buried the section you came for.
-  const [tab, setTab] = useState<ComposerTab>("people");
+  const [onlyInPeriod, setOnlyInPeriod] = useState(true);
+  const [tab, setTab] = useState<ComposerTab>(initialTab);
   // Rows own the per-employee salary fetch; they report back the salaries that
   // would land in this budget so the header can offer to take them all at once.
   const [addableByEmployee, setAddableByEmployee] = useState<Record<string, EmployeeSelection[]>>({});
@@ -126,27 +136,19 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
     { revalidateOnFocus: false }
   );
 
+  const hasOffices = (offices?.length ?? 0) > 0;
   const assignedSalaryIds = new Set((assignments ?? []).map((assignment) => assignment.salary));
-  const assignedVariableIds = new Set((assignedVariables ?? []).map((assignment) => assignment.variable));
   const assignedVariableById = new Map(
     (assignedVariables ?? []).map((assignment) => [assignment.variable, assignment])
   );
   const selectedCount = Object.keys(employeeSelections).length + variableSelections.size;
   const includedCount = (assignments?.length ?? 0) + (assignedVariables?.length ?? 0);
-  // Without this the toggle looks broken whenever everything already fits the
-  // period: the number says whether it has anything to hide.
-  const outsidePeriodCount = (variables ?? []).filter(
-    (variable) =>
-      !assignedVariableIds.has(variable.id) &&
-      !(
-        variable.effective_from <= scenario.period_end &&
-        (!variable.effective_to || variable.effective_to >= scenario.period_start)
-      )
-  ).length;
-  const TABS: { key: ComposerTab; labelKey: string; count: number }[] = [
-    { key: "people", labelKey: "payments.composer.people", count: Object.keys(employeeSelections).length },
-    { key: "variables", labelKey: "payments.composer.variables", count: variableSelections.size },
-    { key: "included", labelKey: "payments.composer.included_title", count: includedCount },
+  const inPeriod = (from: string, to?: string | null) =>
+    from <= scenario.period_end && (!to || to >= scenario.period_start);
+  const TABS: { key: ComposerTab; label: string; count: number }[] = [
+    { key: "variables", label: t("payments.composer.variables"), count: variableSelections.size },
+    { key: "people", label: t("payments.composer.people"), count: Object.keys(employeeSelections).length },
+    { key: "included", label: t("payments.composer.included_title"), count: includedCount },
   ];
   // Salaries still running inside the budget window that nobody has picked yet.
   const addableSalaries = Object.values(addableByEmployee)
@@ -171,28 +173,74 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
     []
   );
 
+  const reportError = (error: unknown) =>
+    setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
+
+  /** Something created from this panel goes straight into the budget: the user
+   * opened the panel to add it, so a second "tick and add" step is busywork. */
+  const addCreatedVariable = async (variable: TFinancialVariable) => {
+    if (!inPeriod(variable.effective_from, variable.effective_to)) {
+      setToast({ type: TOAST_TYPE.INFO, title: t("payments.composer.outside_period") });
+      return;
+    }
+    try {
+      await financeService.addScenarioVariable(workspaceSlug, scenario.id, variable.id);
+      await mutateAssignedVariables();
+      onSaved();
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t("payments.composer.item_added", { name: variable.name }) });
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  const addCreatedSalary = async (employee: TEmployee, salary: TSalary) => {
+    const stretch = salaryWindow(scenario, employee, salary);
+    if (!stretch.effective_from || stretch.effective_from > stretch.effective_to) {
+      setToast({ type: TOAST_TYPE.INFO, title: t("payments.composer.salary_outside_period") });
+      return;
+    }
+    try {
+      await financeService.addScenarioEmployee(workspaceSlug, scenario.id, stretch);
+      await mutateAssignments();
+      onSaved();
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t("payments.composer.item_added", { name: employee.full_name }) });
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
   const handleSubmit = async () => {
     if (selectedCount === 0) return;
     setIsSubmitting(true);
-    try {
-      await Promise.all([
-        ...Object.values(employeeSelections).map((selection) =>
+    // Each item is added on its own: what went in leaves the selection, what
+    // failed stays selected to retry — so a retry never adds anything twice.
+    const employeeEntries = Object.entries(employeeSelections);
+    const variableIds = Array.from(variableSelections);
+    const [employeeResults, variableResults] = await Promise.all([
+      Promise.allSettled(
+        employeeEntries.map(([, selection]) =>
           financeService.addScenarioEmployee(workspaceSlug, scenario.id, selection)
-        ),
-        ...Array.from(variableSelections).map((variable) =>
-          financeService.addScenarioVariable(workspaceSlug, scenario.id, variable)
-        ),
-      ]);
-      setEmployeeSelections({});
-      setVariableSelections(new Set());
-      await Promise.all([mutateAssignments(), mutateAssignedVariables()]);
-      onSaved();
-      setToast({ type: TOAST_TYPE.SUCCESS, title: t("payments.composer.saved") });
-    } catch (error) {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
-    } finally {
-      setIsSubmitting(false);
-    }
+        )
+      ),
+      Promise.allSettled(
+        variableIds.map((variable) => financeService.addScenarioVariable(workspaceSlug, scenario.id, variable))
+      ),
+    ]);
+    setEmployeeSelections(
+      Object.fromEntries(employeeEntries.filter((_, index) => employeeResults[index].status === "rejected"))
+    );
+    setVariableSelections(new Set(variableIds.filter((_, index) => variableResults[index].status === "rejected")));
+    await Promise.all([mutateAssignments(), mutateAssignedVariables()]);
+    onSaved();
+    const failure = [...employeeResults, ...variableResults].find((result) => result.status === "rejected");
+    if (failure && failure.status === "rejected")
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: t("payments.composer.partial_error"),
+        message: getApiErrorMessage(failure.reason),
+      });
+    else setToast({ type: TOAST_TYPE.SUCCESS, title: t("payments.composer.saved") });
+    setIsSubmitting(false);
   };
 
   const handleRemove = async () => {
@@ -209,15 +257,10 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
       setRemoveTarget(null);
       onSaved();
     } catch (error) {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
+      reportError(error);
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const refreshAssignmentsAndSheet = async () => {
-    await mutateAssignments();
-    onSaved();
   };
 
   const handleDeleteBonus = async () => {
@@ -231,13 +274,18 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         deleteBonusTarget.bonus.id
       );
       setDeleteBonusTarget(null);
-      await refreshAssignmentsAndSheet();
+      await mutateAssignments();
+      onSaved();
     } catch (error) {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("payments.toasts.error"), message: getApiErrorMessage(error) });
+      reportError(error);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // A partida needs an office to belong to; with none yet, that comes first.
+  const startNewVariable = () => (hasOffices ? setEditingVariable(null) : setIsOfficesOpen(true));
+  const startNewPerson = () => setEditingEmployee(null);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -248,9 +296,14 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         isOpen={editingEmployee !== undefined}
         employee={editingEmployee ?? null}
         onClose={() => setEditingEmployee(undefined)}
-        onSaved={() => {
+        onSaved={(saved) => {
           void mutateEmployees();
           onSaved();
+          // A new person is only useful here with a salary: ask for it next.
+          if (editingEmployee === null && saved) {
+            if (hasOffices) setSalaryTarget({ employee: saved, salary: null });
+            else setIsOfficesOpen(true);
+          }
         }}
       />
       <SalaryModal
@@ -259,17 +312,18 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         employeeId={salaryTarget?.employee.id ?? ""}
         salary={salaryTarget?.salary ?? null}
         offices={offices ?? []}
-        defaultEffectiveFrom={scenario.period_start}
+        defaultEffectiveFrom={latestDate(scenario.period_start, salaryTarget?.employee.hire_date)}
         isOpen={salaryTarget !== null}
         onClose={() => setSalaryTarget(null)}
-        onSaved={() => {
+        onSaved={(saved) => {
           if (salaryTarget) {
             void mutateGlobal(`BUDGET_COMPOSER_SALARIES_${workspaceSlug}_${salaryTarget.employee.id}`);
-            setEmployeeSelections((current) => {
-              return Object.fromEntries(
+            setEmployeeSelections((current) =>
+              Object.fromEntries(
                 Object.entries(current).filter(([, selection]) => selection.employee !== salaryTarget.employee.id)
-              );
-            });
+              )
+            );
+            if (!salaryTarget.salary && saved) void addCreatedSalary(salaryTarget.employee, saved);
           }
           void mutateEmployees();
           onSaved();
@@ -292,11 +346,13 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         offices={offices ?? []}
         variable={editingVariable ?? null}
         isOpen={editingVariable !== undefined}
+        defaults={{ currency: scenario.currency, effective_from: scenario.period_start }}
+        submitLabel={editingVariable === null ? t("payments.composer.create_and_add") : undefined}
         onClose={() => setEditingVariable(undefined)}
-        onSaved={() => {
+        onSaved={(saved) => {
           void mutateVariables();
-          setVariableSelections(new Set());
-          onSaved();
+          if (editingVariable === null) void addCreatedVariable(saved);
+          else onSaved();
         }}
       />
       <BudgetBonusModal
@@ -306,13 +362,17 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
         assignment={bonusTarget}
         isOpen={bonusTarget !== null}
         onClose={() => setBonusTarget(null)}
-        onSaved={() => void refreshAssignmentsAndSheet()}
+        onSaved={() => {
+          void mutateAssignments();
+          onSaved();
+        }}
       />
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={removeTarget !== null}
         handleClose={() => setRemoveTarget(null)}
         handleSubmit={() => void handleRemove()}
         isSubmitting={isSubmitting}
+        primaryButtonText={{ default: t("payments.variables.remove"), loading: t("payments.ledger.loading") }}
         title={t("payments.composer.remove_title")}
         content={
           removeTarget
@@ -325,7 +385,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
             : ""
         }
       />
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleteBonusTarget !== null}
         handleClose={() => setDeleteBonusTarget(null)}
         handleSubmit={() => void handleDeleteBonus()}
@@ -341,7 +401,7 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
           className="flex items-center gap-0.5 rounded-md bg-layer-2 p-0.5"
           aria-label={t("payments.composer.title")}
         >
-          {TABS.map(({ key, labelKey, count }) => (
+          {TABS.map(({ key, label, count }) => (
             <button
               key={key}
               type="button"
@@ -354,368 +414,342 @@ export function BudgetResourceComposer({ workspaceSlug, scenario, onSaved }: Pro
                   : "text-tertiary hover:text-primary"
               )}
             >
-              {t(labelKey)}
-              {count > 0 && <span className="text-11 text-tertiary">{count}</span>}
+              {label}
+              {count > 0 && <span className="text-11 text-tertiary tabular-nums">{count}</span>}
             </button>
           ))}
         </nav>
-        <label
-          className="flex items-center gap-2 text-11 text-tertiary"
-          title={t(
-            hideInapplicable ? "payments.composer.period_filter_help" : "payments.composer.period_filter_all_help",
-            { from: scenario.period_start, to: scenario.period_end }
-          )}
-        >
-          {t("payments.composer.period_filter")}
-          {hideInapplicable && outsidePeriodCount > 0 && (
-            <span className="rounded-full bg-layer-2 px-1.5 text-10 text-secondary">{outsidePeriodCount}</span>
-          )}
-          <ToggleSwitch
-            value={hideInapplicable}
-            onChange={() => setHideInapplicable((current) => !current)}
-            label={t("payments.composer.period_filter")}
-            size="sm"
-          />
-        </label>
-      </div>
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
-        {tab === "included" && (
-          <section>
-            <div>
-              <h3 className="text-13 font-semibold text-primary">{t("payments.composer.included_title")}</h3>
-              <p className="mt-1 text-11 text-tertiary">{t("payments.composer.included_help")}</p>
-            </div>
-            <div
-              className={cn(
-                "mt-3 divide-y divide-subtle overflow-hidden rounded-lg",
-                includedCount > 0 && "border border-subtle"
-              )}
-            >
-              {(assignments ?? []).map((assignment) => (
-                <div key={assignment.id} className="px-3 py-2.5">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Users className="size-4 shrink-0 text-tertiary" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-11 font-medium text-primary">{assignment.employee_name}</p>
-                      <p className="mt-0.5 truncate text-9 text-tertiary">
-                        {assignment.office_name} / {formatMoney(assignment.salary_amount, assignment.salary_currency)}
-                      </p>
-                    </div>
-                    <span className="hidden text-9 text-tertiary sm:inline">
-                      {assignment.effective_from} / {assignment.effective_to ?? scenario.period_end}
-                    </span>
-                    <YearBadge from={assignment.effective_from} to={assignment.effective_to ?? scenario.period_end} />
-                    <Button variant="secondary" size="base" onClick={() => setBonusTarget(assignment)}>
-                      <Plus className="size-3" /> {t("payments.bonuses.add")}
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={() => setRemoveTarget({ type: "employee", assignment })}
-                      className="rounded-sm p-1.5 text-tertiary hover:bg-danger-primary/10 hover:text-danger-primary"
-                      aria-label={t("payments.actions.delete")}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-                  {assignment.bonuses.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5 pl-7">
-                      {assignment.bonuses.map((bonus) => (
-                        <span
-                          key={bonus.id}
-                          className="flex items-center gap-1.5 rounded-md bg-layer-2 px-2 py-1 text-9 text-secondary"
-                        >
-                          <span className="font-medium text-primary">{bonus.name}</span>
-                          <YearBadge from={bonus.effective_from} to={bonus.effective_to} />
-                          <span>
-                            {bonus.calculation_type === "PERCENTAGE" ? `${bonus.value}%` : bonus.value} /{" "}
-                            {bonus.effective_from}
-                            {bonus.effective_to ? ` - ${bonus.effective_to}` : ""}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setDeleteBonusTarget({ assignment, bonus })}
-                            className="text-tertiary hover:text-danger-primary"
-                            aria-label={t("payments.actions.delete")}
-                          >
-                            <Trash2 className="size-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {(assignedVariables ?? []).map((assignment) => (
-                <div key={assignment.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
-                  <Variable className="size-4 shrink-0 text-tertiary" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-11 font-medium text-primary">{assignment.variable_detail.name}</p>
-                    <p className="mt-0.5 truncate text-9 text-tertiary">
-                      {assignment.variable_detail.office_name} /{" "}
-                      {formatMoney(assignment.variable_detail.amount, assignment.variable_detail.currency)}
-                    </p>
-                  </div>
-                  <YearBadge
-                    from={assignment.variable_detail.effective_from}
-                    to={assignment.variable_detail.effective_to}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setRemoveTarget({ type: "variable", assignment })}
-                    className="rounded-sm p-1.5 text-tertiary hover:bg-danger-primary/10 hover:text-danger-primary"
-                    aria-label={t("payments.actions.delete")}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            {includedCount === 0 && (
-              <p className="mt-3 rounded-lg border border-dashed border-subtle px-4 py-8 text-center text-11 text-tertiary">
-                {t("payments.sheet.empty_description")}
-              </p>
-            )}
-          </section>
-        )}
-        {tab === "people" && (
-          <section>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="flex items-center gap-2 text-13 font-semibold text-primary">
-                  <Users className="size-4" /> {t("payments.composer.people")}
-                </h3>
-                <p className="mt-1 text-11 text-tertiary">{t("payments.composer.people_help")}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {addableSalaries.length > 0 && (
-                  <Button
-                    variant="secondary"
-                    size="lg"
-                    onClick={() =>
-                      setEmployeeSelections((current) => ({
-                        ...current,
-                        ...Object.fromEntries(addableSalaries.map((selection) => [selection.salary, selection])),
-                      }))
-                    }
-                  >
-                    <Check className="size-3.5" />
-                    {t("payments.composer.select_active", { count: addableSalaries.length })}
-                  </Button>
-                )}
-                <Button variant="secondary" size="lg" onClick={() => setIsOfficesOpen(true)}>
-                  <Building2 className="size-3.5" /> {t("payroll.offices.title")}
-                </Button>
-                <Button variant="secondary" size="lg" onClick={() => setEditingEmployee(null)}>
-                  <Plus className="size-3.5" /> {t("payroll.employees.new")}
-                </Button>
-              </div>
-            </div>
-
-            <ResourceSearch
-              value={employeeSearch}
-              onChange={setEmployeeSearch}
-              placeholder={t("payments.composer.search_people")}
-              clearLabel={t("payments.composer.clear_search")}
-              className="mt-3"
+        {tab !== "included" && (
+          <label
+            className="flex items-center gap-2 text-12 text-secondary"
+            title={t("payments.composer.period_filter_help", {
+              from: scenario.period_start,
+              to: scenario.period_end,
+            })}
+          >
+            <input
+              type="checkbox"
+              className="accent-accent-primary size-3.5"
+              checked={onlyInPeriod}
+              onChange={(event) => setOnlyInPeriod(event.target.checked)}
             />
-
-            <div className="mt-3 space-y-2">
-              {(employees ?? []).map((employee) => (
-                <EmployeeComposerRow
-                  key={employee.id}
-                  workspaceSlug={workspaceSlug}
-                  scenario={scenario}
-                  employee={employee}
-                  offices={offices ?? []}
-                  assignedSalaryIds={assignedSalaryIds}
-                  selections={employeeSelections}
-                  onChange={(salaryId, selection) =>
-                    setEmployeeSelections((current) => {
-                      const next = { ...current };
-                      if (selection) next[salaryId] = selection;
-                      else delete next[salaryId];
-                      return next;
-                    })
-                  }
-                  onEdit={() => setEditingEmployee(employee)}
-                  onAddSalary={() => setSalaryTarget({ employee, salary: null })}
-                  onEditSalary={(salary) => setSalaryTarget({ employee, salary })}
-                  onAddOffice={() => setIsOfficesOpen(true)}
-                  hideInapplicable={hideInapplicable}
-                  onAddableChange={reportAddable}
-                />
-              ))}
-              {(employees?.length ?? 0) === 0 && (
-                <EmptyComposerState
-                  icon={Users}
-                  title={t(
-                    employeeSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_people"
-                  )}
-                  action={t(employeeSearch.trim() ? "payments.composer.clear_search" : "payroll.employees.new")}
-                  onAction={() => (employeeSearch.trim() ? setEmployeeSearch("") : setEditingEmployee(null))}
-                />
-              )}
-            </div>
-          </section>
+            {t("payments.composer.period_filter")}
+          </label>
         )}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {tab === "variables" && (
-          <section>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="flex items-center gap-2 text-13 font-semibold text-primary">
-                  <Variable className="size-4" /> {t("payments.composer.variables")}
-                </h3>
-                <p className="mt-1 text-11 text-tertiary">{t("payments.composer.variables_help")}</p>
-              </div>
-              <Button
-                variant="secondary"
-                size="lg"
-                onClick={() => (offices?.length ? setEditingVariable(null) : setIsOfficesOpen(true))}
-              >
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <ResourceSearch
+                value={variableSearch}
+                onChange={setVariableSearch}
+                placeholder={t("payments.composer.search_variables")}
+                clearLabel={t("payments.composer.clear_search")}
+                className="min-w-0 flex-1"
+              />
+              <Button variant="primary" size="lg" onClick={startNewVariable}>
                 <Plus className="size-3.5" />
-                {t(offices?.length ? "payments.variables.create" : "payroll.offices.new")}
+                {t(hasOffices ? "payments.composer.new_item" : "payroll.offices.new")}
               </Button>
             </div>
+            <p className="text-12 text-tertiary">{t("payments.composer.variables_help")}</p>
 
-            <ResourceSearch
-              value={variableSearch}
-              onChange={setVariableSearch}
-              placeholder={t("payments.composer.search_variables")}
-              clearLabel={t("payments.composer.clear_search")}
-              className="mt-3"
-            />
-
-            <div className="mt-3 space-y-2">
-              {(variables ?? []).map((variable) => {
-                const isAssigned = assignedVariableIds.has(variable.id);
-                const isSelected = variableSelections.has(variable.id);
-                const isEligible =
-                  variable.effective_from <= scenario.period_end &&
-                  (!variable.effective_to || variable.effective_to >= scenario.period_start);
-                if (hideInapplicable && !isEligible && !isAssigned) return null;
-                return (
-                  <div
-                    key={variable.id}
-                    className={cn(
-                      "rounded-lg border border-subtle p-3",
-                      isSelected && "border-accent-primary bg-accent-primary/5",
-                      isAssigned && "bg-layer-2/60"
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Variable className="size-4 text-tertiary" />
+            {(variables?.length ?? 0) > 0 && (
+              <ul className="divide-y divide-subtle overflow-hidden rounded-lg border border-subtle">
+                {(variables ?? []).map((variable) => {
+                  const assignment = assignedVariableById.get(variable.id);
+                  const isSelected = variableSelections.has(variable.id);
+                  const isEligible = inPeriod(variable.effective_from, variable.effective_to);
+                  if (onlyInPeriod && !isEligible && !assignment) return null;
+                  return (
+                    <li
+                      key={variable.id}
+                      className={cn("flex items-center gap-3 px-3 py-2.5", isSelected && "bg-accent-primary/5")}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected || Boolean(assignment)}
+                        disabled={!isEligible && !assignment}
+                        onChange={(event) => {
+                          if (!event.target.checked && assignment) {
+                            setRemoveTarget({ type: "variable", assignment });
+                            return;
+                          }
+                          setVariableSelections((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(variable.id);
+                            else next.delete(variable.id);
+                            return next;
+                          });
+                        }}
+                        className="accent-accent-primary size-4 shrink-0"
+                        aria-label={variable.name}
+                      />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-12 font-medium text-primary">{variable.name}</p>
-                        <p className="mt-0.5 truncate text-10 text-tertiary">
-                          {variable.office_name} / {t(`payments.variables.kind.${variable.kind.toLowerCase()}`)}
+                        <p className="truncate text-13 font-medium text-primary">{variable.name}</p>
+                        <p className="mt-0.5 truncate text-11 text-tertiary">
+                          {[
+                            variable.office_name,
+                            t(`payments.variables.recurrence.${variable.recurrence.toLowerCase()}`),
+                            formatYearRange(variable.effective_from, variable.effective_to),
+                            variable.kind === "INCOME" ? t("payments.variables.kind.income") : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </p>
                       </div>
-                      {isAssigned && (
-                        <span className="flex items-center gap-1 text-10 text-success-primary">
+                      {assignment ? (
+                        <span className="flex shrink-0 items-center gap-1 text-11 text-secondary">
                           <Check className="size-3" /> {t("payments.composer.in_budget")}
                         </span>
+                      ) : (
+                        !isEligible && (
+                          <span className="shrink-0 text-11 text-tertiary">
+                            {t("payments.composer.outside_period")}
+                          </span>
+                        )
                       )}
+                      <span className="shrink-0 text-13 font-medium text-primary tabular-nums">
+                        {formatMoney(variable.amount, variable.currency)}
+                      </span>
                       <button
                         type="button"
                         onClick={() => setEditingVariable(variable)}
-                        className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
-                        aria-label={t("payments.actions.edit")}
+                        className={ICON_BUTTON}
+                        aria-label={t("payments.variables.edit")}
+                        title={t("payments.variables.edit")}
                       >
                         <Pencil className="size-3.5" />
                       </button>
-                    </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {(variables?.length ?? 0) === 0 && (
+              <EmptyComposerState
+                icon={Variable}
+                title={t(
+                  variableSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_variables"
+                )}
+                action={t(
+                  variableSearch.trim()
+                    ? "payments.composer.clear_search"
+                    : hasOffices
+                      ? "payments.composer.new_item"
+                      : "payroll.offices.new"
+                )}
+                onAction={() => (variableSearch.trim() ? setVariableSearch("") : startNewVariable())}
+              />
+            )}
+          </section>
+        )}
 
-                    <div className="mt-3 space-y-2 border-t border-subtle pt-3">
-                      <div
-                        className={cn(
-                          "rounded-lg border border-subtle bg-layer-1 p-3",
-                          isSelected && "border-accent-primary bg-accent-primary/5",
-                          (isAssigned || !isEligible) && "bg-layer-2/60"
-                        )}
-                      >
-                        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
-                          <input
-                            type="checkbox"
-                            checked={isSelected || isAssigned}
-                            disabled={!isEligible && !isAssigned}
-                            onChange={(event) => {
-                              const assignedVariable = assignedVariableById.get(variable.id);
-                              if (!event.target.checked && assignedVariable) {
-                                setRemoveTarget({ type: "variable", assignment: assignedVariable });
-                                return;
-                              }
-                              setVariableSelections((current) => {
-                                const next = new Set(current);
-                                if (event.target.checked) next.add(variable.id);
-                                else next.delete(variable.id);
-                                return next;
-                              });
-                            }}
-                            className="accent-accent-primary size-4"
-                            aria-label={variable.name}
-                          />
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-11 font-medium text-primary">
-                                {t(`payments.variables.recurrence.${variable.recurrence.toLowerCase()}`)}
-                              </span>
-                              <span className="text-11 font-semibold text-primary">
-                                {formatMoney(variable.amount, variable.currency)}
-                              </span>
-                              <YearBadge from={variable.effective_from} to={variable.effective_to} />
-                            </div>
-                            <p className="mt-1 text-9 text-tertiary">
-                              {variable.effective_from} / {variable.effective_to ?? t("payments.ledger.no_end")}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {!isEligible && !isAssigned && (
-                              <span className="text-9 text-tertiary">{t("payments.composer.outside_period")}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              {(variables?.length ?? 0) === 0 && (
-                <EmptyComposerState
-                  icon={Variable}
-                  title={t(
-                    variableSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_variables"
-                  )}
-                  action={t(
-                    variableSearch.trim()
-                      ? "payments.composer.clear_search"
-                      : offices?.length
-                        ? "payments.variables.create"
-                        : "payroll.offices.new"
-                  )}
-                  onAction={() => {
-                    if (variableSearch.trim()) setVariableSearch("");
-                    else if (offices?.length) setEditingVariable(null);
-                    else setIsOfficesOpen(true);
-                  }}
-                />
+        {tab === "people" && (
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <ResourceSearch
+                value={employeeSearch}
+                onChange={setEmployeeSearch}
+                placeholder={t("payments.composer.search_people")}
+                clearLabel={t("payments.composer.clear_search")}
+                className="min-w-48 flex-1"
+              />
+              <Button variant="secondary" size="lg" onClick={() => setIsOfficesOpen(true)}>
+                <Building2 className="size-3.5" /> {t("payroll.offices.title")}
+              </Button>
+              <Button variant="primary" size="lg" onClick={startNewPerson}>
+                <Plus className="size-3.5" /> {t("payments.composer.new_person")}
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-12 text-tertiary">{t("payments.composer.people_help")}</p>
+              {addableSalaries.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEmployeeSelections((current) => ({
+                      ...current,
+                      ...Object.fromEntries(addableSalaries.map((selection) => [selection.salary, selection])),
+                    }))
+                  }
+                  className="flex items-center gap-1 text-12 font-medium text-accent-primary hover:underline"
+                >
+                  <Check className="size-3.5" />
+                  {t("payments.composer.select_active", { count: addableSalaries.length })}
+                </button>
               )}
             </div>
+
+            {(employees?.length ?? 0) > 0 && (
+              <ul className="divide-y divide-subtle overflow-hidden rounded-lg border border-subtle">
+                {(employees ?? []).map((employee) => (
+                  <EmployeeComposerRow
+                    key={employee.id}
+                    workspaceSlug={workspaceSlug}
+                    scenario={scenario}
+                    employee={employee}
+                    hasOffices={hasOffices}
+                    assignedSalaryIds={assignedSalaryIds}
+                    selections={employeeSelections}
+                    onChange={(salaryId, selection) =>
+                      setEmployeeSelections((current) => {
+                        const next = { ...current };
+                        if (selection) next[salaryId] = selection;
+                        else delete next[salaryId];
+                        return next;
+                      })
+                    }
+                    onEdit={() => setEditingEmployee(employee)}
+                    onAddSalary={() => setSalaryTarget({ employee, salary: null })}
+                    onEditSalary={(salary) => setSalaryTarget({ employee, salary })}
+                    onAddOffice={() => setIsOfficesOpen(true)}
+                    onlyInPeriod={onlyInPeriod}
+                    onAddableChange={reportAddable}
+                  />
+                ))}
+              </ul>
+            )}
+            {(employees?.length ?? 0) === 0 && (
+              <EmptyComposerState
+                icon={Users}
+                title={t(employeeSearch.trim() ? "payments.composer.no_search_results" : "payments.composer.no_people")}
+                action={t(employeeSearch.trim() ? "payments.composer.clear_search" : "payments.composer.new_person")}
+                onAction={() => (employeeSearch.trim() ? setEmployeeSearch("") : startNewPerson())}
+              />
+            )}
+          </section>
+        )}
+
+        {tab === "included" && (
+          <section className="space-y-3">
+            <p className="text-12 text-tertiary">{t("payments.composer.included_help")}</p>
+            {includedCount > 0 ? (
+              <ul className="divide-y divide-subtle overflow-hidden rounded-lg border border-subtle">
+                {(assignedVariables ?? []).map((assignment) => (
+                  <li key={assignment.id} className="flex items-center gap-3 px-3 py-2.5">
+                    <Variable className="size-4 shrink-0 text-tertiary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-13 font-medium text-primary">{assignment.variable_detail.name}</p>
+                      <p className="mt-0.5 truncate text-11 text-tertiary">
+                        {[
+                          assignment.variable_detail.office_name,
+                          formatYearRange(
+                            assignment.variable_detail.effective_from,
+                            assignment.variable_detail.effective_to
+                          ),
+                        ].join(" · ")}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-13 font-medium tabular-nums">
+                      {formatMoney(assignment.variable_detail.amount, assignment.variable_detail.currency)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRemoveTarget({ type: "variable", assignment })}
+                      className="rounded-sm p-1.5 text-tertiary hover:bg-danger-primary/10 hover:text-danger-primary"
+                      aria-label={t("payments.composer.remove_title")}
+                      title={t("payments.composer.remove_title")}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </li>
+                ))}
+                {(assignments ?? []).map((assignment) => (
+                  <li key={assignment.id} className="px-3 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <Users className="size-4 shrink-0 text-tertiary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-13 font-medium text-primary">{assignment.employee_name}</p>
+                        <p className="mt-0.5 truncate text-11 text-tertiary">
+                          {[
+                            assignment.office_name,
+                            `${assignment.effective_from} → ${assignment.effective_to ?? scenario.period_end}`,
+                          ].join(" · ")}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-13 font-medium tabular-nums">
+                        {formatMoney(assignment.salary_amount, assignment.salary_currency)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setBonusTarget(assignment)}
+                        className={ICON_BUTTON}
+                        aria-label={t("payments.bonuses.add")}
+                        title={t("payments.bonuses.add")}
+                      >
+                        <Plus className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRemoveTarget({ type: "employee", assignment })}
+                        className="rounded-sm p-1.5 text-tertiary hover:bg-danger-primary/10 hover:text-danger-primary"
+                        aria-label={t("payments.composer.remove_title")}
+                        title={t("payments.composer.remove_title")}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                    {assignment.bonuses.length > 0 && (
+                      <ul className="mt-2 space-y-1 pl-7">
+                        {assignment.bonuses.map((bonus) => (
+                          <li key={bonus.id} className="flex items-center gap-2 text-12 text-secondary">
+                            <span className="min-w-0 flex-1 truncate">
+                              {bonus.name} ·{" "}
+                              {bonus.calculation_type === "PERCENTAGE"
+                                ? `${bonus.value}%`
+                                : formatMoney(bonus.value, assignment.salary_currency)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteBonusTarget({ assignment, bonus })}
+                              className="rounded-sm p-1 text-tertiary hover:text-danger-primary"
+                              aria-label={t("payments.bonuses.delete_title")}
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyComposerState
+                icon={Variable}
+                title={t("payments.sheet.empty_title")}
+                action={t("payments.composer.new_item")}
+                onAction={() => {
+                  setTab("variables");
+                  startNewVariable();
+                }}
+              />
+            )}
           </section>
         )}
       </div>
 
-      <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-subtle bg-surface-1 px-5 py-3">
-        <p className="text-11 text-tertiary">{t("payments.composer.selected", { count: selectedCount })}</p>
-        <Button
-          variant="primary"
-          size="xl"
-          disabled={selectedCount === 0}
-          loading={isSubmitting}
-          onClick={() => void handleSubmit()}
-        >
-          <Plus className="size-4" /> {t("payments.composer.add_selected")}
-        </Button>
-      </footer>
+      {tab !== "included" && (
+        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-subtle bg-surface-1 px-5 py-3">
+          <p className="text-12 text-tertiary">
+            {selectedCount > 0
+              ? t("payments.composer.selected", { count: selectedCount })
+              : t("payments.composer.select_hint")}
+          </p>
+          <Button
+            variant="primary"
+            size="lg"
+            disabled={selectedCount === 0}
+            loading={isSubmitting}
+            onClick={() => void handleSubmit()}
+          >
+            {t("payments.composer.add_selected")}
+          </Button>
+        </footer>
+      )}
     </div>
   );
 }
@@ -724,7 +758,7 @@ type EmployeeRowProps = {
   workspaceSlug: string;
   scenario: TBudgetScenario;
   employee: TEmployee;
-  offices: TOffice[];
+  hasOffices: boolean;
   assignedSalaryIds: Set<string>;
   selections: Record<string, EmployeeSelection>;
   onChange: (salaryId: string, selection?: EmployeeSelection) => void;
@@ -732,16 +766,17 @@ type EmployeeRowProps = {
   onAddSalary: () => void;
   onEditSalary: (salary: TSalary) => void;
   onAddOffice: () => void;
-  hideInapplicable: boolean;
+  onlyInPeriod: boolean;
   onAddableChange: (employeeId: string, selections: EmployeeSelection[]) => void;
 };
 
+/** One person and, under them, each salary that can go into the budget. */
 function EmployeeComposerRow(props: EmployeeRowProps) {
   const {
     workspaceSlug,
     scenario,
     employee,
-    offices,
+    hasOffices,
     assignedSalaryIds,
     selections,
     onChange,
@@ -749,7 +784,7 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
     onAddSalary,
     onEditSalary,
     onAddOffice,
-    hideInapplicable,
+    onlyInPeriod,
     onAddableChange,
   } = props;
   const { t } = useTranslation();
@@ -768,65 +803,44 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
       employeeEnd: employee.termination_date,
     });
   const eligibleSalaries = (salaries ?? []).filter((salary) => salaryAvailability(salary).isEligible);
-  const visibleSalaries = hideInapplicable ? eligibleSalaries : (salaries ?? []);
-  const assignedCount = eligibleSalaries.filter((salary) => assignedSalaryIds.has(salary.id)).length;
-  const selectedCount = eligibleSalaries.filter((salary) => Boolean(selections[salary.id])).length;
-  const isFullyAssigned = eligibleSalaries.length > 0 && assignedCount === eligibleSalaries.length;
-
-  const selectionForSalary = (salary: TSalary): EmployeeSelection => ({
-    employee: employee.id,
-    salary: salary.id,
-    effective_from: latestDate(scenario.period_start, employee.hire_date, salary.effective_from),
-    effective_to: earliestDate(
-      scenario.period_end,
-      employee.termination_date ?? scenario.period_end,
-      salary.effective_to ?? scenario.period_end
-    ),
-  });
+  const visibleSalaries = onlyInPeriod ? eligibleSalaries : (salaries ?? []);
 
   // The row is the only place that knows this employee's salaries; hand the
   // eligible ones upward so the section header can offer them in bulk.
   useEffect(() => {
     onAddableChange(
       employee.id,
-      (salaries ?? []).filter((salary) => salaryAvailability(salary).isEligible).map(selectionForSalary)
+      (salaries ?? [])
+        .filter((salary) => salaryAvailability(salary).isEligible)
+        .map((salary) => salaryWindow(scenario, employee, salary))
     );
-    // `salaryAvailability` and `selectionForSalary` are pure over these inputs.
+    // `salaryAvailability` is pure over these inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [salaries, employee, scenario.period_start, scenario.period_end, onAddableChange]);
+  }, [salaries, employee, scenario, onAddableChange]);
 
-  if (hideInapplicable && !isLoading && (salaries?.length ?? 0) > 0 && visibleSalaries.length === 0) return null;
+  if (onlyInPeriod && !isLoading && (salaries?.length ?? 0) > 0 && visibleSalaries.length === 0) return null;
+
+  const addSalary = hasOffices ? onAddSalary : onAddOffice;
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border border-subtle p-3",
-        selectedCount > 0 && "border-accent-primary bg-accent-primary/5",
-        isFullyAssigned && "bg-layer-2/60"
-      )}
-    >
+    <li className="px-3 py-2.5">
       <div className="flex items-center gap-3">
         {isLoading ? (
-          <Loader2 className="size-4 animate-spin text-tertiary" />
+          <Loader2 className="size-4 shrink-0 animate-spin text-tertiary" />
         ) : (
-          <Users className="size-4 text-tertiary" />
+          <Users className="size-4 shrink-0 text-tertiary" />
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-12 font-medium text-primary">{employee.full_name}</p>
-          <p className="mt-0.5 truncate text-10 text-tertiary">
+          <p className="truncate text-13 font-medium text-primary">{employee.full_name}</p>
+          <p className="mt-0.5 truncate text-11 text-tertiary">
             {employee.position || t("payments.scenarios.no_position")}
           </p>
         </div>
-        {assignedCount > 0 && (
-          <span className="flex items-center gap-1 text-10 text-success-primary">
-            <Check className="size-3" /> {t("payments.composer.in_budget")}
-          </span>
-        )}
         {(salaries?.length ?? 0) > 0 && (
           <button
             type="button"
-            onClick={offices.length ? onAddSalary : onAddOffice}
-            className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+            onClick={addSalary}
+            className={ICON_BUTTON}
             aria-label={t("payroll.employees.new_salary")}
             title={t("payroll.employees.new_salary")}
           >
@@ -836,129 +850,109 @@ function EmployeeComposerRow(props: EmployeeRowProps) {
         <button
           type="button"
           onClick={onEdit}
-          className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+          className={ICON_BUTTON}
           aria-label={t("payments.actions.edit")}
+          title={t("payments.actions.edit")}
         >
           <Pencil className="size-3.5" />
         </button>
       </div>
 
       {!isLoading && (salaries?.length ?? 0) === 0 && (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-md bg-layer-2 px-3 py-2">
-          <p className="text-10 text-tertiary">{t("payments.composer.salary_required")}</p>
-          <Button variant="secondary" size="base" onClick={offices.length ? onAddSalary : onAddOffice}>
-            <Plus className="size-3" /> {t(offices.length ? "payroll.employees.new_salary" : "payroll.offices.new")}
+        <div className="mt-2 flex items-center justify-between gap-3 pl-7">
+          <p className="text-12 text-tertiary">{t("payments.composer.salary_required")}</p>
+          <Button variant="secondary" size="base" onClick={addSalary}>
+            <Plus className="size-3" /> {t(hasOffices ? "payroll.employees.new_salary" : "payroll.offices.new")}
           </Button>
         </div>
       )}
 
       {!isLoading && visibleSalaries.length > 0 && (
-        <div className="mt-3 space-y-2 border-t border-subtle pt-3">
+        <ul className="mt-2 space-y-1 pl-7">
           {visibleSalaries.map((salary) => {
             const availability = salaryAvailability(salary);
             const isEligible = availability.isEligible;
-            const unavailabilityMessage = availability.isEligible
-              ? null
-              : t(`payments.composer.availability.${availability.reason.toLowerCase()}`, {
-                  date: availability.conflictingDate,
-                });
             const isAssigned = assignedSalaryIds.has(salary.id);
             const selection = selections[salary.id];
-            const maximumDate = earliestDate(
-              scenario.period_end,
-              employee.termination_date ?? scenario.period_end,
-              salary.effective_to ?? scenario.period_end
-            );
+            const stretch = salaryWindow(scenario, employee, salary);
             return (
-              <div
-                key={salary.id}
-                className={cn(
-                  "rounded-lg border border-subtle bg-layer-1 p-3",
-                  selection && "border-accent-primary bg-accent-primary/5",
-                  (isAssigned || !isEligible) && "bg-layer-2/60"
-                )}
-              >
-                <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+              <li key={salary.id} className={cn("rounded-md px-2 py-1.5", selection && "bg-accent-primary/5")}>
+                <div className="flex items-center gap-3">
                   <input
                     type="checkbox"
                     checked={isAssigned || Boolean(selection)}
                     disabled={isAssigned || !isEligible}
-                    onChange={(event) =>
-                      onChange(salary.id, event.target.checked ? selectionForSalary(salary) : undefined)
-                    }
-                    className="accent-accent-primary size-4"
-                    aria-label={`${employee.full_name} - ${salary.office_name}`}
+                    onChange={(event) => onChange(salary.id, event.target.checked ? stretch : undefined)}
+                    className="accent-accent-primary size-4 shrink-0"
+                    aria-label={`${employee.full_name} · ${salary.office_name}`}
                   />
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-11 font-medium text-primary">{salary.office_name}</span>
-                      <span className="text-11 font-semibold text-primary">
-                        {formatMoney(salary.amount, salary.currency)}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-12 text-primary">
+                      {salary.office_name}
+                      <span className="text-tertiary">
+                        {" · "}
+                        {salary.effective_from} → {salary.effective_to ?? t("payroll.employees.current")}
                       </span>
-                      <YearBadge from={salary.effective_from} to={salary.effective_to} />
-                    </div>
-                    <p className="mt-1 text-9 text-tertiary">
-                      {salary.effective_from} / {salary.effective_to ?? t("payroll.employees.current")}
                     </p>
-                    {unavailabilityMessage && (
-                      <p className="mt-1 text-9 text-warning-primary sm:hidden">{unavailabilityMessage}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isAssigned && (
-                      <span className="hidden items-center gap-1 text-9 text-success-primary sm:flex">
-                        <Check className="size-3" /> {t("payments.composer.in_budget")}
-                      </span>
-                    )}
                     {!isEligible && (
-                      <span className="hidden text-9 text-tertiary sm:inline">{unavailabilityMessage}</span>
+                      <p className="mt-0.5 text-11 text-tertiary">
+                        {t(`payments.composer.availability.${availability.reason.toLowerCase()}`, {
+                          date: availability.conflictingDate,
+                        })}
+                      </p>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => onEditSalary(salary)}
-                      className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
-                      aria-label={t("payroll.employees.edit_salary")}
-                    >
-                      <Pencil className="size-3.5" />
-                    </button>
                   </div>
+                  {isAssigned && (
+                    <span className="flex shrink-0 items-center gap-1 text-11 text-secondary">
+                      <Check className="size-3" /> {t("payments.composer.in_budget")}
+                    </span>
+                  )}
+                  <span className="shrink-0 text-12 font-medium tabular-nums">
+                    {formatMoney(salary.amount, salary.currency)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onEditSalary(salary)}
+                    className={ICON_BUTTON}
+                    aria-label={t("payroll.employees.edit_salary")}
+                    title={t("payroll.employees.edit_salary")}
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
                 </div>
                 {selection && (
-                  <div className="mt-3 grid grid-cols-1 gap-3 border-t border-subtle pt-3 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-10 font-medium text-secondary">
-                        {t("payments.fields.period_start")}
-                      </label>
+                  // Picked salaries can start late or end early in this budget.
+                  <div className="mt-2 grid grid-cols-2 gap-2 pl-7">
+                    <label className="text-11 text-secondary">
+                      {t("payments.fields.period_start")}
                       <input
                         type="date"
-                        min={latestDate(scenario.period_start, employee.hire_date, salary.effective_from)}
-                        max={maximumDate}
-                        className="h-8 w-full rounded-sm border border-subtle bg-layer-1 px-2 text-11"
+                        min={stretch.effective_from}
+                        max={stretch.effective_to}
+                        className={cn(DATE_FIELD, "mt-1")}
                         value={selection.effective_from}
                         onChange={(event) => onChange(salary.id, { ...selection, effective_from: event.target.value })}
                       />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-10 font-medium text-secondary">
-                        {t("payments.fields.period_end")}
-                      </label>
+                    </label>
+                    <label className="text-11 text-secondary">
+                      {t("payments.fields.period_end")}
                       <input
                         type="date"
                         min={selection.effective_from}
-                        max={maximumDate}
-                        className="h-8 w-full rounded-sm border border-subtle bg-layer-1 px-2 text-11"
+                        max={stretch.effective_to}
+                        className={cn(DATE_FIELD, "mt-1")}
                         value={selection.effective_to}
                         onChange={(event) => onChange(salary.id, { ...selection, effective_to: event.target.value })}
                       />
-                    </div>
+                    </label>
                   </div>
                 )}
-              </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
-    </div>
+    </li>
   );
 }
 
@@ -971,9 +965,9 @@ type EmptyProps = {
 
 function EmptyComposerState({ icon: Icon, title, action, onAction }: EmptyProps) {
   return (
-    <div className="flex flex-col items-center rounded-lg border border-dashed border-subtle px-4 py-8 text-center">
+    <div className="flex flex-col items-center rounded-lg border border-dashed border-subtle px-4 py-10 text-center">
       <Icon className="size-5 text-tertiary" />
-      <p className="mt-2 text-11 text-secondary">{title}</p>
+      <p className="mt-2 max-w-sm text-13 text-secondary">{title}</p>
       <Button variant="secondary" size="lg" onClick={onAction} className="mt-3">
         <Plus className="size-3.5" /> {action}
       </Button>

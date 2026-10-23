@@ -19,6 +19,8 @@ export interface IThemeStore {
   epicDetailSidebarCollapsed: boolean | undefined;
   initiativesSidebarCollapsed: boolean | undefined;
   projectOverviewSidebarCollapsed: boolean | undefined;
+  /** The workspace assistant's right-hand panel */
+  isAssistantPanelOpen: boolean;
   // actions
   toggleAnySidebarDropdown: (open?: boolean) => void;
   toggleSidebar: (collapsed?: boolean) => void;
@@ -31,6 +33,7 @@ export interface IThemeStore {
   toggleEpicDetailSidebar: (collapsed?: boolean) => void;
   toggleInitiativesSidebar: (collapsed?: boolean) => void;
   toggleProjectOverviewSidebar: (collapsed?: boolean) => void;
+  toggleAssistantPanel: (open?: boolean) => void;
 }
 
 export class ThemeStore implements IThemeStore {
@@ -46,6 +49,9 @@ export class ThemeStore implements IThemeStore {
   epicDetailSidebarCollapsed: boolean | undefined = undefined;
   initiativesSidebarCollapsed: boolean | undefined = undefined;
   projectOverviewSidebarCollapsed: boolean | undefined = undefined;
+  // Restored from the last session so the panel stays where the user left it.
+  isAssistantPanelOpen: boolean =
+    typeof window !== "undefined" && window.localStorage?.getItem("assistant_panel_open") === "true";
 
   constructor() {
     makeObservable(this, {
@@ -61,6 +67,7 @@ export class ThemeStore implements IThemeStore {
       epicDetailSidebarCollapsed: observable.ref,
       initiativesSidebarCollapsed: observable.ref,
       projectOverviewSidebarCollapsed: observable.ref,
+      isAssistantPanelOpen: observable.ref,
       // action
       toggleAnySidebarDropdown: action,
       toggleSidebar: action,
@@ -73,8 +80,18 @@ export class ThemeStore implements IThemeStore {
       toggleEpicDetailSidebar: action,
       toggleInitiativesSidebar: action,
       toggleProjectOverviewSidebar: action,
+      toggleAssistantPanel: action,
     });
   }
+
+  toggleAssistantPanel = (open?: boolean) => {
+    this.isAssistantPanelOpen = open === undefined ? !this.isAssistantPanelOpen : open;
+    try {
+      localStorage.setItem("assistant_panel_open", String(this.isAssistantPanelOpen));
+    } catch {
+      // Private mode or blocked storage: the panel still opens for this session.
+    }
+  };
 
   toggleAnySidebarDropdown = (open?: boolean) => {
     if (open === undefined) {

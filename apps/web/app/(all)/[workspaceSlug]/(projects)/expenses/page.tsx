@@ -8,6 +8,7 @@ import { observer } from "mobx-react";
 import { Navigate } from "react-router";
 // plane imports
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
+import { useTranslation } from "@plane/i18n";
 // components
 import { PageHead } from "@/components/core/page-title";
 import { ExpensesTab } from "@/components/payments/expenses-tab";
@@ -18,6 +19,7 @@ import type { Route } from "./+types/page";
 
 const ExpensesPage = observer(function ExpensesPage({ params }: Route.ComponentProps) {
   const { workspaceSlug } = params;
+  const { t } = useTranslation();
   // store hooks
   const { isWorkspaceFeatureEnabled, featureFlagsMap } = useWorkspace();
   const { allowPermissions, workspaceInfoBySlug } = useUserPermissions();
@@ -38,7 +40,7 @@ const ExpensesPage = observer(function ExpensesPage({ params }: Route.ComponentP
 
   return (
     <>
-      <PageHead title="Gastos" />
+      <PageHead title={t("payments.expenses")} />
       <div className="relative h-full w-full overflow-hidden">
         <ExpensesTab workspaceSlug={workspaceSlug} />
       </div>

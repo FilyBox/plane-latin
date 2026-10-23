@@ -58,13 +58,17 @@ def _compact_track(track):
         "videos": [
             {
                 "title": video.title,
-                "isrc_video": video.isrc_video or None,
+                "isrc_video": video.isrc_video or video.isrc or None,
+                "upc": video.upc or None,
                 "release_date": video.release_date.isoformat() if video.release_date else None,
-                "urls": [
-                    link.url for link in video.links.all() if link.kind == MusicLink.Kind.MUSIC_VIDEO
-                ],
+                "urls": [link.url for link in video.links.all()],
             }
             for video in videos
+        ],
+        # The song's own links (streaming, stores, socials).
+        "links": [
+            {"platform": link.platform or link.name, "url": link.url, "kind": link.kind}
+            for link in track.links.all()
         ],
     }
 
@@ -79,7 +83,7 @@ class InternalMusicTracksEndpoint(InternalMusicBaseView):
         params = request.query_params
         queryset = MusicTrack.objects.filter(
             workspace_id=workspace_id, parent_track__isnull=True
-        ).prefetch_related("credits__party", "release_links__release", "videos__links")
+        ).prefetch_related("credits__party", "release_links__release", "videos__links", "links")
         artist_name = params.get("artist_name")
         if artist_name:
             queryset = queryset.filter(credits__party__display_name__icontains=artist_name)
@@ -239,40 +243,40 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
 
         from django.db import transaction
 
-        from .base import _apply_overrides, _apply_row_overrides, _collect_unparsed, _record_import_run
+        from .base import SUMMARY_KEYS, _record_import_run
+        from .importer import AMBIGUOUS_STRATEGIES, BLANK_CELL_MODES, run_import
 
-        importer = MusicImportEndpoint()
+        ambiguous_strategy = request.data.get("ambiguous_strategy", "create")
+        if ambiguous_strategy not in AMBIGUOUS_STRATEGIES:
+            ambiguous_strategy = "create"
+        blank_cells = request.data.get("blank_cells", "keep")
+        if blank_cells not in BLANK_CELL_MODES:
+            blank_cells = "keep"
         workspace = asset.workspace
-        result = {"total": len(rows), "created": 0, "updated": 0, "skipped": 0, "errors": []}
-        unparseable = {}
-        touched = []
-        run_created_ids = set()
         with transaction.atomic():
-            for index, row in enumerate(rows, start=header_row + 1):
-                row, mapping_for_row = _apply_row_overrides(row, mapping, row_overrides.get(str(index), {}))
-                effective_row, skip_row = _apply_overrides(row, mapping_for_row, value_overrides)
-                if skip_row:
-                    result["skipped"] += 1
-                    continue
-                if dry_run:
-                    for field, token in _collect_unparsed(effective_row, mapping_for_row).items():
-                        tokens = unparseable.setdefault(field, {})
-                        tokens[token] = tokens.get(token, 0) + 1
-                try:
-                    with transaction.atomic():
-                        outcome, track = importer._import_row(
-                            workspace, effective_row, mapping_for_row, strategy, defaults, dedupe_by,
-                            relations_mode=relations_mode if relations_mode in ("merge", "replace") else "merge",
-                            exclude_ids=None if dedupe_within_file else run_created_ids,
-                        )
-                    result[outcome] += 1
-                    if outcome == "created" and track is not None:
-                        run_created_ids.add(track.id)
-                    if track is not None:
-                        touched.append((track.id, outcome, index))
-                except Exception as exc:
-                    result["errors"].append({"row": index, "message": str(exc)[:300]})
-            aborted = result["errors"] and invalid_row_strategy == "abort"
+            result, touched = None, []
+            for event in run_import(
+                MusicImportEndpoint(),
+                workspace,
+                rows,
+                header_row,
+                mapping,
+                strategy=strategy,
+                dedupe_by=dedupe_by,
+                relations_mode=relations_mode if relations_mode in ("merge", "replace") else "merge",
+                dedupe_within_file=dedupe_within_file,
+                defaults=defaults,
+                row_overrides=row_overrides,
+                value_overrides=value_overrides,
+                ambiguous_strategy=ambiguous_strategy,
+                blank_cells=blank_cells,
+                dry_run=dry_run,
+            ):
+                if event[0] == "result":
+                    _, result, touched = event
+            # The assistant reads a lean result: no per-row outcome list.
+            result.pop("rows", None)
+            aborted = bool(result["errors"]) and invalid_row_strategy == "abort"
             result["aborted"] = bool(aborted and not dry_run)
             if not dry_run and not aborted:
                 run = _record_import_run(
@@ -287,18 +291,15 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
                         "dedupe_by": dedupe_by,
                         "relations_mode": relations_mode,
                         "dedupe_within_file": dedupe_within_file,
+                        "ambiguous_strategy": ambiguous_strategy,
+                        "blank_cells": blank_cells,
                         "value_overrides": value_overrides,
                     },
-                    summary={k: result[k] for k in ("total", "created", "updated", "skipped")},
+                    summary={key: result.get(key, 0) for key in SUMMARY_KEYS},
                     touched=touched,
                 )
                 result["import_run_id"] = str(run.id)
             if dry_run or aborted:
                 transaction.set_rollback(True)
         result["dry_run"] = dry_run
-        if dry_run:
-            result["unparseable"] = {
-                field: [{"value": token, "count": count} for token, count in tokens.items()]
-                for field, tokens in unparseable.items()
-            }
         return Response(result, status=status.HTTP_200_OK)

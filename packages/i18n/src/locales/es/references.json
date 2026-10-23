@@ -1,0 +1,162 @@
+{
+  "references": {
+    "types": {
+      "issue": "Elemento de trabajo",
+      "page": "Página",
+      "file": "Archivo",
+      "contract": "Contrato",
+      "music_track": "Canción",
+      "music_release": "Lanzamiento",
+      "music_artist": "Artista",
+      "budget": "Presupuesto",
+      "expense": "Gasto"
+    },
+    "groups": {
+      "issue": "Elementos de trabajo",
+      "page": "Páginas",
+      "file": "Archivos",
+      "contract": "Contratos",
+      "music_track": "Canciones",
+      "music_release": "Lanzamientos",
+      "music_artist": "Artistas",
+      "budget": "Presupuestos",
+      "expense": "Gastos"
+    },
+    "restricted": "Elemento restringido",
+    "restricted_help": "Existe, pero no tienes acceso a ese módulo.",
+    "missing": "Elemento eliminado",
+    "missing_help": "Ya no existe.",
+    "attach": "Referenciar",
+    "detach": "Quitar adjunto",
+    "in_comment": "en un comentario",
+    "kind": {
+      "mention": "Mencionado",
+      "attachment": "Adjunto"
+    },
+    "picker": {
+      "placeholder": "Busca contratos, canciones, archivos, tareas…",
+      "all": "Todo",
+      "no_results": "Nada coincide con esta búsqueda.",
+      "start": "Escribe para buscar en todo el espacio de trabajo.",
+      "attached": "Adjunto"
+    },
+    "section": {
+      "title": "Referencias",
+      "outgoing": "Menciona y adjunta",
+      "backlinks": "Referenciado en",
+      "empty": "Sin referencias todavía."
+    },
+    "toasts": {
+      "attached": "{name} quedó referenciado",
+      "error": "No se pudo guardar. Intenta de nuevo."
+    },
+    "tags": {
+      "title": "Etiquetas",
+      "workspace_tag": "etiqueta del espacio de trabajo",
+      "remove": "Quitar {name}",
+      "project_group": "Del proyecto",
+      "workspace_group": "Del espacio de trabajo",
+      "create_workspace": "+ Crear «{name}» como etiqueta del espacio de trabajo",
+      "add": "Agregar etiqueta",
+      "search": "Buscar etiquetas…",
+      "empty": "Aún no hay etiquetas.",
+      "delete_title": "Eliminar etiqueta",
+      "delete_body": "Se quitará de todo lo que la tiene. Los elementos no se borran.",
+      "pick_title": "Elige una etiqueta",
+      "pick_body": "Verás todo lo que la tiene en contratos, archivos, música, tareas y gastos, listo para descargar.",
+      "total": "{count} elementos",
+      "narrow": "Tipo:",
+      "nothing_tagged": "Nada tiene esta etiqueta todavía.",
+      "more": "y {count} más",
+      "mentioned_in": "Mencionado en",
+      "search_in": "Buscar en {name}…",
+      "any_date": "Cualquier fecha",
+      "custom_range": "Rango de fechas…",
+      "date_label": "Fecha",
+      "date_help": "Música usa la fecha de lanzamiento, gastos la fecha del gasto, contratos la fecha de inicio y lo demás la fecha de creación.",
+      "from": "Desde",
+      "to": "Hasta",
+      "clear": "Limpiar",
+      "matching": "{count} de {total} coinciden",
+      "no_matches": "Nada coincide con la búsqueda o las fechas.",
+      "see_all": "Ver {count}",
+      "load_more": "Cargar más",
+      "showing": "Mostrando {shown} de {count}"
+    },
+    "tag_kinds": {
+      "artist": "Artista",
+      "group": "Grupo",
+      "person": "Persona",
+      "type": "Tipo",
+      "custom": "Libre"
+    },
+    "export": {
+      "all": "Descargar todo",
+      "type": "Descargar {type}",
+      "started": "Preparando la descarga…",
+      "ready": "Descarga lista",
+      "failed": "No se pudo preparar la descarga.",
+      "filtered": "Descargar resultados"
+    },
+    "ai": {
+      "open": "Mapear con IA",
+      "title": "Mapear con IA",
+      "description": "La IA lee contratos, archivos, tareas y gastos, y propone de quién es cada cosa y qué es. Tú revisas antes de aplicar.",
+      "what": "Qué revisar",
+      "music_note": "La música no hace falta: canciones y lanzamientos ya se relacionan con su artista por los créditos.",
+      "how": "Varios agentes revisan cada tipo al mismo tiempo. Proponen etiquetas de artista y de tipo (portada, contrato editorial, factura…) y detectan nombres repetidos con distinta escritura. Nada se aplica sin tu revisión, y cada mapeo aplicado se puede deshacer.",
+      "start": "Revisar {count} elementos",
+      "start_failed": "No se pudo iniciar el mapeo.",
+      "reading": "Leyendo elementos… {done} de {total}",
+      "normalizing": "Unificando nombres…",
+      "can_close": "Puedes cerrar este panel: el mapeo sigue y aquí verás el resultado para revisarlo.",
+      "nothing": "La IA no encontró nada nuevo que proponer.",
+      "merges": "Unificar nombres",
+      "merges_help": "Etiquetas que parecen ser el mismo artista escrito de varias formas. Al unificarlas, todo queda bajo un solo nombre.",
+      "absorbs": "Absorbe: {names}",
+      "apply": "Aplicar {count} cambios",
+      "discard": "Descartar",
+      "applied": "Mapeo aplicado",
+      "discarded": "Mapeo descartado",
+      "history": "Mapeos anteriores",
+      "applied_count": "{count} etiquetas aplicadas",
+      "undo": "Deshacer",
+      "undone": "Mapeo deshecho",
+      "status": {
+        "queued": "En cola",
+        "running": "En curso",
+        "review": "Listo para revisar",
+        "completed": "Aplicado",
+        "failed": "Falló",
+        "cancelled": "Descartado",
+        "undone": "Deshecho"
+      },
+      "auto_review": "Propuestas para los {count} archivos subidos recientemente. Revisa y aplica lo que esté bien.",
+      "auto_label": "archivos nuevos",
+      "to_review": "Por revisar",
+      "assistant_label": "desde el asistente",
+      "merge_summary": "{variants} → {keep}"
+    },
+    "preview": {
+      "details": "Etiquetas y referencias"
+    },
+    "filters": {
+      "workspace_tag": "Etiqueta del espacio de trabajo"
+    },
+    "bulk": {
+      "trigger": "Etiquetar",
+      "add_mode": "Agregar",
+      "remove_mode": "Quitar",
+      "added": "«{name}» agregada a {count} {items}",
+      "removed": "«{name}» quitada de {count} {items}",
+      "already": "{count} ya estaban como pediste.",
+      "create_and_add": "+ Crear «{name}» y agregarla a {count}",
+      "hint_add": "Se agrega a las {count} {items} seleccionadas.",
+      "hint_remove": "Se quita de las {count} {items} seleccionadas.",
+      "items": {
+        "music_track": "canciones",
+        "music_release": "lanzamientos"
+      }
+    }
+  }
+}

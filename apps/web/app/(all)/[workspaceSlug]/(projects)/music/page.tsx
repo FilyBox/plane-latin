@@ -1,6 +1,7 @@
 import { observer } from "mobx-react";
 import { Navigate } from "react-router";
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
+import { useTranslation } from "@plane/i18n";
 import { PageHead } from "@/components/core/page-title";
 import { MusicCatalogRoot } from "@/components/music-catalog/root";
 import { useUserPermissions } from "@/hooks/store/user";
@@ -9,6 +10,7 @@ import type { Route } from "./+types/page";
 
 const MusicCatalogPage = observer(function MusicCatalogPage({ params }: Route.ComponentProps) {
   const { workspaceSlug } = params;
+  const { t } = useTranslation();
   const { isWorkspaceFeatureEnabled, featureFlagsMap } = useWorkspace();
   const { allowPermissions, workspaceInfoBySlug } = useUserPermissions();
   const flagsLoaded = featureFlagsMap[workspaceSlug] !== undefined;
@@ -20,7 +22,7 @@ const MusicCatalogPage = observer(function MusicCatalogPage({ params }: Route.Co
 
   return (
     <>
-      <PageHead title="Music catalog" />
+      <PageHead title={t("music_import.catalog")} />
       <div className="relative h-full w-full overflow-hidden">
         <MusicCatalogRoot workspaceSlug={workspaceSlug} />
       </div>

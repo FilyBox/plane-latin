@@ -120,3 +120,7 @@ packages/i18n/src/types/keys.generated.ts
 
 # Artefacto generado por manage.py collabora_test_page
 collabora-test.html
+
+.agents/*
+
+files_example/

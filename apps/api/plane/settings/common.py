@@ -354,6 +354,8 @@ CELERY_IMPORTS = (
     "plane.bgtasks.issue_description_version_sync",
     # collabora: keep the derived PDF in step with the edited document
     "plane.bgtasks.collabora_task",
+    # cross-module references: mention sync, tag export, AI tagging runs
+    "plane.bgtasks.reference_task",
 )
 
 FILE_SIZE_LIMIT = int(os.environ.get("FILE_SIZE_LIMIT", 5242880))

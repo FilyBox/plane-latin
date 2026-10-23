@@ -17,6 +17,9 @@ import { useLabel } from "@/hooks/store/use-label";
 import { useProjectInbox } from "@/hooks/store/use-project-inbox";
 // ui
 // types
+import { SharedTagChip } from "@/components/references/shared-tag-chip";
+import { createSharedTag, useEntityTags, useSharedTags } from "@/components/references/use-shared-tags";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 import { LabelList, IssueLabelSelectRoot } from "./";
 // TODO: Fix this import statement, as core should not import from ee
 
@@ -55,13 +58,30 @@ export const IssueLabel = observer(function IssueLabel(props: TIssueLabel) {
   const { getIssueInboxByIssueId } = useProjectInbox();
 
   const issue = isInboxIssue ? getIssueInboxByIssueId(issueId)?.issue : getIssueById(issueId);
+  // Workspace tags sit beside project labels in the same field, saved on
+  // their own: project labels stay exactly as Plane stores them.
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  const sharedEnabled = !onLabelUpdate && isWorkspaceFeatureEnabled(workspaceSlug, "references");
+  const { data: workspaceTags = [] } = useSharedTags(workspaceSlug, sharedEnabled && !disabled);
+  const { data: issueTags = [], setTags } = useEntityTags(workspaceSlug, "issue", issueId, sharedEnabled);
+  const saveTags = async (tagIds: string[]) => {
+    try {
+      await setTags(tagIds);
+    } catch {
+      setToast({
+        title: t("toast.error"),
+        type: TOAST_TYPE.ERROR,
+        message: t("entity.update.failed", { entity: t("issue.label", { count: 1 }) }),
+      });
+    }
+  };
 
   const labelOperations: TLabelOperations = useMemo(
     () => ({
-      updateIssue: async (workspaceSlug: string, projectId: string, issueId: string, data: Partial<TIssue>) => {
+      updateIssue: async (slug: string, project: string, itemId: string, data: Partial<TIssue>) => {
         try {
           if (onLabelUpdate) onLabelUpdate(data.label_ids || []);
-          else await updateIssue(workspaceSlug, projectId, issueId, data);
+          else await updateIssue(slug, project, itemId, data);
         } catch (_error) {
           setToast({
             title: t("toast.error"),
@@ -70,9 +90,9 @@ export const IssueLabel = observer(function IssueLabel(props: TIssueLabel) {
           });
         }
       },
-      createLabel: async (workspaceSlug: string, projectId: string, data: Partial<IIssueLabel>) => {
+      createLabel: async (slug: string, project: string, data: Partial<IIssueLabel>) => {
         try {
-          const labelResponse = await createLabel(workspaceSlug, projectId, data);
+          const labelResponse = await createLabel(slug, project, data);
           if (!isInboxIssue)
             setToast({
               title: t("toast.success"),
@@ -94,7 +114,7 @@ export const IssueLabel = observer(function IssueLabel(props: TIssueLabel) {
         }
       },
     }),
-    [updateIssue, createLabel, onLabelUpdate]
+    [updateIssue, createLabel, onLabelUpdate, isInboxIssue, t]
   );
 
   return (
@@ -107,6 +127,17 @@ export const IssueLabel = observer(function IssueLabel(props: TIssueLabel) {
         labelOperations={labelOperations}
         disabled={disabled}
       />
+      {issueTags.map((tag) => (
+        <SharedTagChip
+          key={tag.id}
+          tag={tag}
+          onRemove={
+            disabled
+              ? undefined
+              : () => void saveTags(issueTags.filter((item) => item.id !== tag.id).map((item) => item.id))
+          }
+        />
+      ))}
 
       {!disabled && (
         <IssueLabelSelectRoot
@@ -115,6 +146,16 @@ export const IssueLabel = observer(function IssueLabel(props: TIssueLabel) {
           issueId={issueId}
           values={issue?.label_ids || []}
           labelOperations={labelOperations}
+          shared={
+            sharedEnabled
+              ? {
+                  tags: workspaceTags,
+                  values: issueTags.map((tag) => tag.id),
+                  onChange: (tagIds) => void saveTags(tagIds),
+                  onCreate: (name) => createSharedTag(workspaceSlug, name),
+                }
+              : undefined
+          }
         />
       )}
     </div>

@@ -3,3 +3,8 @@
 # See the LICENSE file for details.
 
 from .base import AssistantChatEndpoint, AssistantModelsEndpoint, AssistantMusicImportEndpoint
+from .chats import AssistantChatDetailEndpoint, AssistantChatMessagesEndpoint, AssistantChatsEndpoint
+from .memory import AssistantMemoriesEndpoint, AssistantMemoryDetailEndpoint, InternalAssistantMemorySearchEndpoint
+from .files import InternalAssistantFileReadEndpoint
+from .actions import AssistantActionUndoEndpoint, AssistantActionsEndpoint
+from .reports import InternalAssistantReportEndpoint

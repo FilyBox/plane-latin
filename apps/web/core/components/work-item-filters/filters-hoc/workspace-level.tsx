@@ -17,9 +17,11 @@ import { removeNillKeys } from "@/components/issues/issue-layouts/utils";
 import { CreateUpdateWorkspaceViewModal } from "@/components/workspace/views/modal";
 // hooks
 import { useGlobalView } from "@/hooks/store/use-global-view";
+import { useSharedTags } from "@/components/references/use-shared-tags";
 import { useLabel } from "@/hooks/store/use-label";
 import { useMember } from "@/hooks/store/use-member";
 import { useProject } from "@/hooks/store/use-project";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 // local imports
 import { WorkItemFiltersHOC } from "./base";
@@ -46,6 +48,10 @@ export const WorkspaceLevelWorkItemFiltersHOC = observer(function WorkspaceLevel
     workspace: { getWorkspaceMemberIds },
   } = useMember();
   const { getWorkspaceLabelIds } = useLabel();
+  // Workspace tags shared with contracts, files and music, when enabled.
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
+  const { data: sharedTags } = useSharedTags(workspaceSlug, referencesEnabled);
   // derived values
   const hasWorkspaceMemberLevelPermissions = allowPermissions(
     [EUserProjectRoles.ADMIN, EUserProjectRoles.MEMBER],
@@ -145,6 +151,7 @@ export const WorkspaceLevelWorkItemFiltersHOC = observer(function WorkspaceLevel
             title: "Success!",
             message: "Your view has been updated successfully.",
           });
+          return undefined;
         })
         .catch(() => {
           setToast({
@@ -190,6 +197,7 @@ export const WorkspaceLevelWorkItemFiltersHOC = observer(function WorkspaceLevel
         {...props}
         memberIds={getWorkspaceMemberIds(workspaceSlug)}
         labelIds={getWorkspaceLabelIds(workspaceSlug)}
+        sharedTags={referencesEnabled ? sharedTags : undefined}
         projectIds={joinedProjectIds}
         saveViewOptions={saveViewOptions}
         updateViewOptions={updateViewOptions}

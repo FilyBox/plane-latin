@@ -145,3 +145,11 @@ from .device import Device, DeviceSession
 from .sticky import Sticky
 
 from .description import Description, DescriptionVersion
+from .reference import EntityReference, EntityTagLink, TaggingRun
+from .assistant import (
+    AssistantAction,
+    AssistantChat,
+    AssistantChatMessage,
+    AssistantMemory,
+    AssistantMemoryRevision,
+)

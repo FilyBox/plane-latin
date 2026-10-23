@@ -14,10 +14,12 @@ import { EUserPermissionsLevel, getRandomLabelColor } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { CheckIcon, SearchIcon, PlusIcon } from "@plane/propel/icons";
-import type { IIssueLabel } from "@plane/types";
+import type { IIssueLabel, TSharedTag } from "@plane/types";
 import { EUserProjectRoles } from "@plane/types";
 // helpers
 import { getTabIndex } from "@plane/utils";
+// references
+import { TAG_KIND_ICONS } from "@/components/references/shared-tag-chip";
 // hooks
 import { useLabel } from "@/hooks/store/use-label";
 import { useUserPermissions } from "@/hooks/store/user";
@@ -30,10 +32,20 @@ export interface IIssueLabelSelect {
   values: string[];
   onSelect: (_labelIds: string[]) => void;
   onAddLabel: (workspaceSlug: string, projectId: string, data: Partial<IIssueLabel>) => Promise<any>;
+  /** Workspace tags shown under the project labels, in the same picker. */
+  shared?: {
+    tags: TSharedTag[];
+    values: string[];
+    onChange: (tagIds: string[]) => void;
+    onCreate?: (name: string) => Promise<TSharedTag>;
+  };
 }
 
+// Shared tag ids travel through the same combobox value, told apart by prefix.
+const TAG_PREFIX = "tag:";
+
 export const IssueLabelSelect = observer(function IssueLabelSelect(props: IIssueLabelSelect) {
-  const { workspaceSlug, projectId, issueId, values, onSelect, onAddLabel } = props;
+  const { workspaceSlug, projectId, issueId, values, onSelect, onAddLabel, shared } = props;
   const { t } = useTranslation();
   // store hooks
   const { isMobile } = usePlatformOS();
@@ -78,6 +90,25 @@ export const IssueLabelSelect = observer(function IssueLabelSelect(props: IIssue
   const filteredOptions =
     query === "" ? options : options?.filter((option) => option.query.toLowerCase().includes(query.toLowerCase()));
 
+  const sharedOptions = (shared?.tags ?? [])
+    .filter((tag) => query === "" || tag.name.toLowerCase().includes(query.toLowerCase()))
+    .map((tag) => {
+      const Icon = TAG_KIND_ICONS[tag.kind];
+      return {
+        value: `${TAG_PREFIX}${tag.id}`,
+        query: tag.name,
+        content: (
+          <div className="flex items-center justify-start gap-2 overflow-hidden">
+            <Icon className="size-3 flex-shrink-0 text-secondary" aria-hidden />
+            <div className="line-clamp-1 inline-block truncate">{tag.name}</div>
+          </div>
+        ),
+      };
+    });
+  const exactMatch = [...(projectLabels ?? []), ...(shared?.tags ?? [])].some(
+    (item) => item.name.toLowerCase() === query.trim().toLowerCase()
+  );
+
   const { styles, attributes } = usePopper(referenceElement, popperElement, {
     placement: "bottom-start",
     modifiers: [
@@ -90,7 +121,7 @@ export const IssueLabelSelect = observer(function IssueLabelSelect(props: IIssue
     ],
   });
 
-  const issueLabels = values ?? [];
+  const issueLabels = [...(values ?? []), ...(shared?.values ?? []).map((id) => `${TAG_PREFIX}${id}`)];
 
   const label = <span className="text-body-xs-medium text-placeholder">{t("label.select")}</span>;
 
@@ -109,8 +140,8 @@ export const IssueLabelSelect = observer(function IssueLabelSelect(props: IIssue
 
   const handleAddLabel = async (labelName: string) => {
     setSubmitting(true);
-    const label = await onAddLabel(workspaceSlug, projectId, { name: labelName, color: getRandomLabelColor() });
-    onSelect([...values, label.id]);
+    const created = await onAddLabel(workspaceSlug, projectId, { name: labelName, color: getRandomLabelColor() });
+    onSelect([...values, created.id]);
     setQuery("");
     setSubmitting(false);
   };
@@ -123,7 +154,13 @@ export const IssueLabelSelect = observer(function IssueLabelSelect(props: IIssue
         as="div"
         className="size-full flex-shrink-0 text-left"
         value={issueLabels}
-        onChange={(value) => onSelect(value)}
+        onChange={(value: string[]) => {
+          const labels = value.filter((item) => !item.startsWith(TAG_PREFIX));
+          const tags = value.filter((item) => item.startsWith(TAG_PREFIX)).map((item) => item.slice(TAG_PREFIX.length));
+          if (labels.length !== values.length || labels.some((id) => !values.includes(id))) onSelect(labels);
+          if (shared && (tags.length !== shared.values.length || tags.some((id) => !shared.values.includes(id))))
+            shared.onChange(tags);
+        }}
         multiple
       >
         <Combobox.Button as={Fragment}>
@@ -141,7 +178,7 @@ export const IssueLabelSelect = observer(function IssueLabelSelect(props: IIssue
 
         <Combobox.Options className="fixed z-10">
           <div
-            className={`z-10 my-1 w-48 rounded-sm border border-strong bg-surface-1 py-2.5 text-11 whitespace-nowrap shadow-raised-200 focus:outline-none`}
+            className={`z-10 my-1 ${shared ? "w-60" : "w-48"} rounded-sm border border-strong bg-surface-1 py-2.5 text-11 whitespace-nowrap shadow-raised-200 focus:outline-none`}
             ref={setPopperElement}
             style={styles.popper}
             {...attributes.popper}
@@ -161,6 +198,9 @@ export const IssueLabelSelect = observer(function IssueLabelSelect(props: IIssue
               </div>
             </div>
             <div className={`vertical-scrollbar mt-2 scrollbar-sm max-h-48 space-y-1 overflow-y-scroll px-2 pr-0`}>
+              {shared && filteredOptions.length > 0 && (
+                <p className="px-1 pt-0.5 text-10 font-medium text-tertiary">{t("references.tags.project_group")}</p>
+              )}
               {isLoading ? (
                 <p className="text-center text-secondary">{t("common.loading")}</p>
               ) : filteredOptions.length > 0 ? (
@@ -208,8 +248,46 @@ export const IssueLabelSelect = observer(function IssueLabelSelect(props: IIssue
                     t("label.create.type")
                   )}
                 </Combobox.Option>
-              ) : (
+              ) : sharedOptions.length === 0 ? (
                 <p className="text-left text-secondary">{t("common.search.no_matching_results")}</p>
+              ) : null}
+              {shared && sharedOptions.length > 0 && (
+                <>
+                  <p className="px-1 pt-2 text-10 font-medium text-tertiary">{t("references.tags.workspace_group")}</p>
+                  {sharedOptions.map((option) => (
+                    <Combobox.Option
+                      key={option.value}
+                      value={option.value}
+                      className={({ selected }) =>
+                        `flex cursor-pointer items-center justify-between gap-2 truncate rounded-sm px-1 py-1.5 select-none hover:bg-layer-1 ${
+                          selected ? "text-primary" : "text-secondary"
+                        }`
+                      }
+                    >
+                      {({ selected }) => (
+                        <>
+                          {option.content}
+                          {selected && <CheckIcon className="h-3.5 w-3.5 flex-shrink-0" />}
+                        </>
+                      )}
+                    </Combobox.Option>
+                  ))}
+                </>
+              )}
+              {shared?.onCreate && query.trim() && !exactMatch && (
+                <button
+                  type="button"
+                  onClick={async (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const tag = await shared.onCreate?.(query.trim());
+                    if (tag) shared.onChange([...shared.values, tag.id]);
+                    setQuery("");
+                  }}
+                  className="mt-1 w-full truncate rounded-sm px-1 py-1.5 text-left text-secondary hover:bg-layer-1"
+                >
+                  {t("references.tags.create_workspace", { name: query.trim() })}
+                </button>
               )}
             </div>
           </div>

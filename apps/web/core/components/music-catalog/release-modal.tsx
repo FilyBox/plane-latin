@@ -1,8 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
+import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TMusicCatalogOptions, TMusicParty, TMusicRelease } from "@plane/types";
+import { EntityBacklinks } from "@/components/references/references-section";
+import { SharedTagPicker } from "@/components/references/shared-tag-picker";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 import { musicService } from "@/services/music.service";
 import { BudgetPeekPanel } from "../payments/budget-peek-panel";
 import { MusicResourcePickerModal } from "./resource-picker-modal";
@@ -47,9 +51,18 @@ export function MusicReleaseModal({
   onSaved,
   onResourcesChanged,
 }: Props) {
+  const { t } = useTranslation();
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
   const [form, setForm] = useState(EMPTY);
   const [isSaving, setIsSaving] = useState(false);
   const [artistPickerOpen, setArtistPickerOpen] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  // Start typing the title as soon as the panel opens.
+  useEffect(() => {
+    if (isOpen) titleRef.current?.focus();
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -110,17 +123,23 @@ export function MusicReleaseModal({
       <div className="vertical-scrollbar h-full overflow-y-auto bg-surface-1 p-5">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <label className={MUSIC_LABEL}>Title</label>
+            <label htmlFor="release-title" className={MUSIC_LABEL}>
+              Title
+            </label>
             <input
+              id="release-title"
+              ref={titleRef}
               className={MUSIC_FIELD}
               value={form.title}
               onChange={(e) => set("title", e.target.value)}
-              autoFocus
             />
           </div>
           <div>
-            <label className={MUSIC_LABEL}>Release type</label>
+            <label htmlFor="release-release-type" className={MUSIC_LABEL}>
+              Release type
+            </label>
             <select
+              id="release-release-type"
               className={MUSIC_FIELD}
               value={form.release_type}
               onChange={(e) => set("release_type", e.target.value)}
@@ -133,8 +152,15 @@ export function MusicReleaseModal({
             </select>
           </div>
           <div>
-            <label className={MUSIC_LABEL}>Status</label>
-            <select className={MUSIC_FIELD} value={form.status} onChange={(e) => set("status", e.target.value)}>
+            <label htmlFor="release-status" className={MUSIC_LABEL}>
+              Status
+            </label>
+            <select
+              id="release-status"
+              className={MUSIC_FIELD}
+              value={form.status}
+              onChange={(e) => set("status", e.target.value)}
+            >
               {options?.release_statuses.map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
@@ -143,8 +169,11 @@ export function MusicReleaseModal({
             </select>
           </div>
           <div>
-            <label className={MUSIC_LABEL}>Release date (optional)</label>
+            <label htmlFor="release-release-date" className={MUSIC_LABEL}>
+              Release date (optional)
+            </label>
             <input
+              id="release-release-date"
               type="date"
               className={MUSIC_FIELD}
               value={form.release_date}
@@ -152,8 +181,11 @@ export function MusicReleaseModal({
             />
           </div>
           <div>
-            <label className={MUSIC_LABEL}>Original release date (optional)</label>
+            <label htmlFor="release-original-release-date" className={MUSIC_LABEL}>
+              Original release date (optional)
+            </label>
             <input
+              id="release-original-release-date"
               type="date"
               className={MUSIC_FIELD}
               value={form.original_release_date}
@@ -161,20 +193,33 @@ export function MusicReleaseModal({
             />
           </div>
           <div>
-            <label className={MUSIC_LABEL}>UPC (optional)</label>
-            <input className={MUSIC_FIELD} value={form.upc} onChange={(e) => set("upc", e.target.value)} />
+            <label htmlFor="release-upc" className={MUSIC_LABEL}>
+              UPC (optional)
+            </label>
+            <input
+              id="release-upc"
+              className={MUSIC_FIELD}
+              value={form.upc}
+              onChange={(e) => set("upc", e.target.value)}
+            />
           </div>
           <div>
-            <label className={MUSIC_LABEL}>Catalog number (optional)</label>
+            <label htmlFor="release-catalog-number" className={MUSIC_LABEL}>
+              Catalog number (optional)
+            </label>
             <input
+              id="release-catalog-number"
               className={MUSIC_FIELD}
               value={form.catalog_number}
               onChange={(e) => set("catalog_number", e.target.value)}
             />
           </div>
           <div>
-            <label className={MUSIC_LABEL}>Version (optional)</label>
+            <label htmlFor="release-version" className={MUSIC_LABEL}>
+              Version (optional)
+            </label>
             <input
+              id="release-version"
               className={MUSIC_FIELD}
               value={form.version}
               onChange={(e) => set("version", e.target.value)}
@@ -182,8 +227,11 @@ export function MusicReleaseModal({
             />
           </div>
           <div>
-            <label className={MUSIC_LABEL}>Label (optional)</label>
+            <label htmlFor="release-label-name" className={MUSIC_LABEL}>
+              Label (optional)
+            </label>
             <input
+              id="release-label-name"
               className={MUSIC_FIELD}
               value={form.label_name}
               onChange={(e) => set("label_name", e.target.value)}
@@ -191,7 +239,7 @@ export function MusicReleaseModal({
           </div>
           <div className="sm:col-span-2">
             <div className="flex items-center justify-between gap-3">
-              <label className={MUSIC_LABEL}>Artists (optional)</label>
+              <span className={MUSIC_LABEL}>Artists (optional)</span>
               <Button variant="secondary" size="sm" onClick={() => setArtistPickerOpen(true)}>
                 <Plus className="mr-1 size-3.5" /> Select artists
               </Button>
@@ -206,25 +254,54 @@ export function MusicReleaseModal({
             </div>
           </div>
           <div>
-            <label className={MUSIC_LABEL}>P line (optional)</label>
-            <input className={MUSIC_FIELD} value={form.p_line} onChange={(e) => set("p_line", e.target.value)} />
+            <label htmlFor="release-p-line" className={MUSIC_LABEL}>
+              P line (optional)
+            </label>
+            <input
+              id="release-p-line"
+              className={MUSIC_FIELD}
+              value={form.p_line}
+              onChange={(e) => set("p_line", e.target.value)}
+            />
           </div>
           <div>
-            <label className={MUSIC_LABEL}>C line (optional)</label>
-            <input className={MUSIC_FIELD} value={form.c_line} onChange={(e) => set("c_line", e.target.value)} />
+            <label htmlFor="release-c-line" className={MUSIC_LABEL}>
+              C line (optional)
+            </label>
+            <input
+              id="release-c-line"
+              className={MUSIC_FIELD}
+              value={form.c_line}
+              onChange={(e) => set("c_line", e.target.value)}
+            />
           </div>
           <div className="sm:col-span-2">
-            <label className={MUSIC_LABEL}>Cover URL (optional)</label>
+            <label htmlFor="release-cover-url" className={MUSIC_LABEL}>
+              Cover URL (optional)
+            </label>
             <input
+              id="release-cover-url"
               type="url"
               className={MUSIC_FIELD}
               value={form.cover_url}
               onChange={(e) => set("cover_url", e.target.value)}
             />
           </div>
+          {release && referencesEnabled && (
+            <div className="space-y-4 sm:col-span-2">
+              <div>
+                <span className={MUSIC_LABEL}>{t("references.tags.title")}</span>
+                <SharedTagPicker workspaceSlug={workspaceSlug} entityName="music_release" entityId={release.id} />
+              </div>
+              <EntityBacklinks workspaceSlug={workspaceSlug} entityName="music_release" entityId={release.id} />
+            </div>
+          )}
           <div className="sm:col-span-2">
-            <label className={MUSIC_LABEL}>Notes (optional)</label>
+            <label htmlFor="release-notes" className={MUSIC_LABEL}>
+              Notes (optional)
+            </label>
             <textarea
+              id="release-notes"
               className={`${MUSIC_FIELD} min-h-20`}
               value={form.notes}
               onChange={(e) => set("notes", e.target.value)}

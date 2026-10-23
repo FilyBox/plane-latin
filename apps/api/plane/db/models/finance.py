@@ -337,11 +337,20 @@ class Expense(BaseModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     paid_at = models.DateField(null=True, blank=True)
     scenario = models.ForeignKey("db.BudgetScenario", on_delete=models.SET_NULL, null=True, blank=True, related_name="actual_expenses")
+    # The line of that budget the money went to, so the sheet can put the real
+    # figure next to the planned one. Optional: an expense can be filed against
+    # the budget as a whole and assigned to a line later.
+    budget_row = models.ForeignKey(
+        "db.BudgetRow", on_delete=models.SET_NULL, null=True, blank=True, related_name="expenses"
+    )
     concept = models.CharField(max_length=255, blank=True)
     tags = models.JSONField(default=list, blank=True)
     recurrence = models.CharField(max_length=20, choices=FinancialVariable.Recurrence.choices, default="ONE_TIME")
     recurrence_end = models.DateField(null=True, blank=True)
     recurrence_paused = models.BooleanField(default=False)
+    # Set when a paused series resumes: the occurrences that fell inside the
+    # pause were skipped on purpose and are never backfilled.
+    recurrence_resume_from = models.DateField(null=True, blank=True)
     series = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="occurrences")
 
     class Meta:

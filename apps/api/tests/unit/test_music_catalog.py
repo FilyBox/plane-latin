@@ -233,7 +233,7 @@ def test_csv_row_creates_release_credits_genres_and_distribution():
         "Aggregator": "Example Distribution",
     }
 
-    outcome = MusicImportEndpoint()._import_row(workspace, row, mapping, "skip")
+    outcome, _track, _match = MusicImportEndpoint()._import_row(workspace, row, mapping, "skip")
 
     track = MusicTrack.objects.get(workspace=workspace, isrc="MXABC2600001")
     release = MusicRelease.objects.get(workspace=workspace, upc="750000000001")
@@ -257,8 +257,8 @@ def test_csv_duplicate_strategy_skips_without_duplicating_relations():
     row = {"Title": "Same Song", "ISRC": "US-AAA-26-00001", "Artists": "Solo Artist"}
     importer = MusicImportEndpoint()
 
-    assert importer._import_row(workspace, row, mapping, "skip") == "created"
-    assert importer._import_row(workspace, row, mapping, "skip") == "skipped"
+    assert importer._import_row(workspace, row, mapping, "skip")[0] == "created"
+    assert importer._import_row(workspace, row, mapping, "skip")[0] == "skipped"
     assert MusicTrack.objects.filter(workspace=workspace).count() == 1
     assert MusicCredit.objects.filter(track__workspace=workspace).count() == 1
 
@@ -272,7 +272,7 @@ def test_import_applies_workspace_defaults_to_every_created_track():
     genre = MusicGenre.objects.create(workspace=workspace, name="Shared Genre")
     release = MusicRelease.objects.create(workspace=workspace, title="Shared Release", release_type="ALBUM")
 
-    outcome = MusicImportEndpoint()._import_row(
+    outcome, _track, _match = MusicImportEndpoint()._import_row(
         workspace,
         {"Song": "Imported with defaults"},
         {"track.title": "Song"},

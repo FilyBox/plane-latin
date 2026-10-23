@@ -8,7 +8,7 @@ export { CURRENCIES, formatMoney, formatYearRange, getApiErrorMessage, todayIso,
 
 export const FIELD =
   "w-full rounded-sm border border-subtle bg-layer-1 px-2 py-1.5 text-13 outline-none focus:border-accent-primary";
-export const LABEL = "mb-1 block text-11 font-medium uppercase text-tertiary";
+export const LABEL = "mb-1.5 block text-11 font-medium text-secondary";
 
 export const PERIODICITIES = ["MONTHLY", "BIWEEKLY", "WEEKLY", "DAILY"] as const;
 export const ADJUSTMENT_KINDS = ["BONUS", "DEBT", "SUPPORT"] as const;

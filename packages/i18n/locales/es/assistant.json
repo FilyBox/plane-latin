@@ -1,0 +1,400 @@
+{
+  "assistant": {
+    "title": "Asistente",
+    "open": "Abrir asistente",
+    "close": "Cerrar asistente",
+    "shortcut": "Ctrl J",
+    "new_chat": "Nuevo chat",
+    "history": "Conversaciones",
+    "no_chats": "Aún no hay conversaciones.",
+    "untitled": "Conversación sin título",
+    "delete_chat": "Eliminar conversación",
+    "resize": "Arrastra para cambiar el ancho",
+    "load_failed": "No se pudo abrir la conversación.",
+    "not_saved": "La respuesta no se guardó en el historial.",
+    "copy": "Copiar respuesta",
+    "retry": "Reintentar",
+    "edit": "Editar mensaje",
+    "thinking": "Pensando…",
+    "reasoning": "Razonamiento",
+    "empty": {
+      "title": "¿En qué te ayudo?",
+      "description": "Busca en contratos, música, etiquetas y tareas, o adjunta un archivo para importarlo al catálogo."
+    },
+    "suggestions": {
+      "contracts_expiring": "¿Qué contratos vencen este año?",
+      "contracts_by_status": "¿Cuántos contratos hay por estatus?",
+      "contracts_mention": "¿Qué contratos mencionan regalías?",
+      "music_year": "Canciones lanzadas este año",
+      "music_videos": "¿Qué canciones no tienen video?",
+      "tag_summary": "Resume todo lo que tiene la etiqueta {name}",
+      "tag_releases": "¿Qué lanzamientos tiene {name} este año?",
+      "item_summary": "Resume {name}",
+      "item_references": "¿Dónde se menciona {name}?",
+      "selection": "¿Qué tienen en común estas {count} canciones?",
+      "workspace": "¿Qué etiquetas son las más usadas?"
+    },
+    "composer": {
+      "placeholder": "Pregunta o pide algo… usa @ para mencionar",
+      "attach": "Adjuntar un archivo",
+      "send": "Enviar (Enter)",
+      "stop": "Detener",
+      "model": "Modelo",
+      "remove_context": "Quitar {name} del contexto",
+      "context_hint": "El asistente sabe qué estás viendo"
+    },
+    "context": {
+      "tag": "Etiqueta",
+      "work_item": "Elemento de trabajo",
+      "selection": "{count} seleccionados"
+    },
+    "attachments": {
+      "download": "Descargar archivo",
+      "remove": "Quitar archivo",
+      "upload": "Subir desde tu equipo",
+      "pick": "Elegir del workspace"
+    },
+    "steps": {
+      "working": "Trabajando…",
+      "summary": "{count, plural, one {# paso} other {# pasos}} · {duration}",
+      "failed": "falló",
+      "results": "{count, plural, one {# resultado} other {# resultados}}",
+      "of_total": "{shown} de {total}",
+      "groups": "{count, plural, one {# grupo} other {# grupos}} · {total} contratos",
+      "scan": "{matched} de {scanned} coinciden",
+      "file": "{rows} filas · {columns} columnas",
+      "documents": "{count, plural, one {# documento} other {# documentos}}",
+      "fragments": "{count, plural, one {# fragmento} other {# fragmentos}}",
+      "tags": "{count, plural, one {# etiqueta} other {# etiquetas}}",
+      "references": "{refs} mencionados · {backlinks} lo mencionan",
+      "list_known_names": {
+        "running": "Revisando cómo se escriben los nombres",
+        "done": "Revisó los nombres"
+      },
+      "find_contracts": {
+        "running": "Buscando contratos",
+        "done": "Buscó contratos"
+      },
+      "search_contract_text": {
+        "running": "Buscando en el texto",
+        "done": "Buscó en el texto"
+      },
+      "read_contract_excerpts": {
+        "running": "Leyendo fragmentos",
+        "done": "Leyó fragmentos"
+      },
+      "get_contract_details": {
+        "running": "Abriendo fichas",
+        "done": "Abrió fichas"
+      },
+      "summarize_contracts": {
+        "running": "Resumiendo documentos",
+        "done": "Resumió documentos"
+      },
+      "count_contracts": {
+        "running": "Contando contratos",
+        "done": "Contó contratos"
+      },
+      "scan_contracts": {
+        "running": "Leyendo contratos",
+        "done": "Leyó contratos"
+      },
+      "show_documents": {
+        "running": "Preparando documentos",
+        "done": "Documentos"
+      },
+      "query_music_tracks": {
+        "running": "Consultando el catálogo",
+        "done": "Consultó el catálogo"
+      },
+      "export_music_excel": {
+        "running": "Preparando el Excel",
+        "done": "Preparó el Excel"
+      },
+      "list_music_files": {
+        "running": "Buscando archivos",
+        "done": "Buscó archivos"
+      },
+      "read_import_file": {
+        "running": "Leyendo el archivo",
+        "done": "Leyó el archivo"
+      },
+      "plan_music_import": {
+        "running": "Validando el archivo",
+        "done": "Validó el archivo"
+      },
+      "update_music_track": {
+        "running": "Preparando el cambio",
+        "done": "Preparó el cambio"
+      },
+      "find_tags": {
+        "running": "Buscando etiquetas",
+        "done": "Buscó etiquetas"
+      },
+      "find_by_tag": {
+        "running": "Reuniendo la etiqueta",
+        "done": "Reunió la etiqueta"
+      },
+      "search_workspace": {
+        "running": "Buscando en el espacio de trabajo",
+        "done": "Buscó en el espacio de trabajo"
+      },
+      "get_references": {
+        "running": "Revisando referencias",
+        "done": "Revisó referencias"
+      },
+      "ask_user": {
+        "running": "Preguntando",
+        "done": "Preguntó"
+      },
+      "fallback": {
+        "running": "Usando una herramienta",
+        "done": "Usó una herramienta"
+      },
+      "count": "{count, plural, one {# paso} other {# pasos}}",
+      "propose_tag_merge": {
+        "running": "Preparando la unificación",
+        "done": "Preparó la unificación"
+      },
+      "start_tag_mapping": {
+        "running": "Preparando el mapeo",
+        "done": "Preparó el mapeo"
+      },
+      "search_memory": {
+        "running": "Revisando la memoria",
+        "done": "Revisó la memoria"
+      },
+      "propose_memory": {
+        "running": "Preparando la memoria",
+        "done": "Preparó la memoria"
+      },
+      "memories": "{count, plural, =0 {Sin coincidencias} one {# memoria} other {# memorias}}",
+      "read_file": {
+        "running": "Leyendo el archivo",
+        "done": "Leyó el archivo"
+      },
+      "file_read": "{name}{pages, plural, =0 {} one { · # página} other { · # páginas}}",
+      "propose_tagging": {
+        "running": "Preparando el etiquetado",
+        "done": "Preparó el etiquetado"
+      },
+      "propose_work_item": {
+        "running": "Preparando la tarea",
+        "done": "Preparó la tarea"
+      },
+      "propose_page": {
+        "running": "Redactando la página",
+        "done": "Redactó la página"
+      },
+      "propose_report": {
+        "running": "Armando el reporte",
+        "done": "Armó el reporte"
+      }
+    },
+    "export": {
+      "title": "Excel listo",
+      "body": "{count, plural, one {# canción} other {# canciones}} con estos filtros",
+      "download": "Descargar"
+    },
+    "import_plan": {
+      "title": "Plan de importación",
+      "rows": "{count, plural, one {# fila} other {# filas}}",
+      "created": "Nuevas",
+      "updated": "Actualizadas",
+      "unchanged": "Sin cambios",
+      "skipped": "Omitidas",
+      "errors": "Con problemas",
+      "possible_duplicates": "Posibles duplicados",
+      "mapping": "Columnas asignadas",
+      "more": "+{count} más",
+      "first_errors": "Primeros problemas",
+      "row": "Fila {row}",
+      "review": "Revisar e importar",
+      "note": "Nada se importa hasta que lo confirmes en Música, donde puedes ajustar columnas, reglas y duplicados.",
+      "admin_only": "Solo un administrador puede importar al catálogo."
+    },
+    "update": {
+      "title": "Cambio propuesto",
+      "field": "Campo",
+      "before": "Antes",
+      "after": "Después",
+      "approve": "Aplicar cambio",
+      "discard": "Descartar",
+      "applied": "Cambio aplicado",
+      "discarded": "Descartado",
+      "failed": "No se pudo aplicar el cambio.",
+      "multiple": "Coinciden varias canciones",
+      "not_found": "No se encontró la canción",
+      "video_added": "Se agrega un video; los existentes no cambian.",
+      "fields": {
+        "release_date": "Fecha de lanzamiento",
+        "original_release_date": "Fecha original",
+        "isrc": "ISRC",
+        "videos": "Videos",
+        "video_url": "Video nuevo",
+        "video_release_date": "Fecha del video",
+        "video_isrc": "ISRC del video"
+      }
+    },
+    "ask": {
+      "other": "Otra respuesta…",
+      "send": "Responder",
+      "answered": "Respondiste: {answer}"
+    },
+    "errors": {
+      "unavailable": "El asistente no está disponible en este momento. Reintenta en unos segundos.",
+      "forbidden": "El asistente no está activado en este espacio de trabajo.",
+      "generic": "No se pudo enviar el mensaje. Reintenta."
+    },
+    "merge": {
+      "title": "Unificar etiquetas",
+      "count": "{count, plural, one {# variante} other {# variantes}}",
+      "receives": "Recibe hasta {count, plural, one {# elemento} other {# elementos}} de las variantes",
+      "empty_tag": "Sin elementos",
+      "skipped": "No existen y se omiten: {names}",
+      "note": "Todo lo que llevan las variantes pasa a la etiqueta de abajo y las variantes desaparecen. Se puede deshacer.",
+      "approve": "Unificar",
+      "discard": "Descartar",
+      "merged": "Unificadas en {name}",
+      "undo": "Deshacer",
+      "undone": "Unificación deshecha",
+      "discarded": "Descartado",
+      "failed": "No se pudieron unificar las etiquetas.",
+      "undo_failed": "No se pudo deshacer la unificación.",
+      "not_found": "No se encontraron esas etiquetas."
+    },
+    "mapping": {
+      "title": "Mapeo con IA",
+      "loading": "Revisando qué hay por mapear…",
+      "note": "La IA propone etiquetas y une nombres repetidos con distinta escritura. Nada se aplica hasta que lo revises en Etiquetas, y se puede deshacer. Las canciones ya llegan a su artista por los créditos.",
+      "start": "Iniciar mapeo ({count})",
+      "start_failed": "No se pudo iniciar el mapeo.",
+      "running": "Mapeando… {done} de {total}",
+      "running_note": "Puedes seguir trabajando; avisa aquí cuando esté listo para revisar.",
+      "ready": "Listo para revisar: {tags, plural, one {# etiqueta} other {# etiquetas}} y {merges, plural, one {# unificación} other {# unificaciones}} propuestas.",
+      "review": "Revisar en Etiquetas"
+    },
+    "mentions": {
+      "title": "Mencionar",
+      "hint": "Etiquetas más usadas · escribe para buscar contratos, canciones, archivos y más",
+      "searching": "Resultados para «{query}»",
+      "empty": "Sin resultados",
+      "filter_placeholder": "Buscar para mencionar…",
+      "all": "Todo",
+      "loading": "Buscando…",
+      "type_to_search": "Escribe para buscar",
+      "chip_hint": "Abrir · Retroceso para quitar"
+    },
+    "memory": {
+      "title": "Memoria del workspace",
+      "back": "Volver al chat",
+      "card_title": "Guardar en la memoria",
+      "content": "Qué debe recordar",
+      "content_placeholder": "Ej.: 3BallMTY es la grafía oficial del artista",
+      "aliases": "También se dice",
+      "aliases_placeholder": "Otras formas de decirlo, separadas por comas",
+      "kind": "Tipo",
+      "kinds": {
+        "fact": "Dato",
+        "rule": "Regla",
+        "glossary": "Glosario",
+        "owner": "Responsable",
+        "context": "Temporal"
+      },
+      "valid_until": "Vale hasta (opcional)",
+      "valid_until_value": "Vale hasta {date}",
+      "expired": "Venció el {date}",
+      "used": "{count, plural, =0 {Aún sin usar} one {Usada # vez} other {Usada # veces}}",
+      "similar": "Ya hay memorias parecidas:",
+      "replace": "Reemplaza a",
+      "note_admin": "Todos los que usan el asistente en este workspace lo tendrán en cuenta. Puedes editar el texto antes de guardar y deshacerlo después.",
+      "note_member": "Lo revisará un administrador antes de que el asistente lo use.",
+      "save": "Guardar en memoria",
+      "suggest": "Sugerir a los admins",
+      "discard": "Descartar",
+      "saved": "Guardado en la memoria",
+      "suggested": "Enviado a los administradores",
+      "undo": "Deshacer",
+      "undone": "Memoria deshecha",
+      "discarded": "Descartado",
+      "failed": "No se pudo guardar la memoria.",
+      "add": "Agregar",
+      "pin_always": "Tenerla siempre presente",
+      "pinned": "Siempre presente",
+      "pin": "Fijar",
+      "unpin": "Quitar de fijas",
+      "approve": "Aprobar",
+      "reject": "Rechazar",
+      "archive": "Archivar",
+      "restore": "Restaurar",
+      "intro_admin": "Lo que el asistente tiene en cuenta para todos en este workspace: grafías oficiales, responsables, reglas y glosario. Las fijas van en cada respuesta; el resto se usa cuando el mensaje trata de ese tema.",
+      "intro_member": "Lo que el asistente tiene en cuenta para todos en este workspace. Puedes sugerir memorias; un administrador las aprueba.",
+      "tabs": {
+        "active": "Activas",
+        "proposed": "Sugeridas",
+        "archived": "Archivadas"
+      },
+      "empty": {
+        "active": "Todavía no hay memorias. Dile al asistente «recuerda que…» o agrégalas aquí.",
+        "proposed": "No hay sugerencias pendientes.",
+        "archived": "No hay memorias archivadas."
+      },
+      "details": "Detalles",
+      "details_placeholder": "Detalles (opcional): contexto, excepciones, pasos… El asistente los lee cuando busca en la memoria.",
+      "add_details": "Agregar detalles"
+    },
+    "ask_ai": "Preguntar a la IA",
+    "actions": {
+      "tag_title": "Poner «{tag}»",
+      "untag_title": "Quitar «{tag}»",
+      "new_tag": "Etiqueta nueva",
+      "tag_apply": "Etiquetar {count, plural, one {# elemento} other {# elementos}}",
+      "untag_apply": "Quitar de {count, plural, one {# elemento} other {# elementos}}",
+      "tagged": "{count, plural, =0 {Sin cambios: ya estaban así} one {# elemento cambiado} other {# elementos cambiados}}",
+      "work_item_title": "Nueva tarea",
+      "create": "Crear tarea",
+      "created": "Creada {key}",
+      "open": "Abrir",
+      "no_projects": "No perteneces a ningún proyecto",
+      "remove_reference": "Quitar referencia",
+      "fields": {
+        "name": "Título",
+        "description": "Descripción (opcional)",
+        "project": "Proyecto",
+        "assignee": "Responsable",
+        "no_assignee": "Sin responsable",
+        "priority": "Prioridad",
+        "due_date": "Fecha límite",
+        "references": "Referencias",
+        "content": "Contenido (Markdown)"
+      },
+      "priorities": {
+        "none": "Sin prioridad",
+        "low": "Baja",
+        "medium": "Media",
+        "high": "Alta",
+        "urgent": "Urgente"
+      },
+      "undo": "Deshacer",
+      "undone": "Deshecho",
+      "discard": "Descartar",
+      "discarded": "Descartado",
+      "failed": "No se pudo aplicar el cambio.",
+      "page_title": "Nueva página",
+      "create_page": "Crear página",
+      "page_created": "Página creada",
+      "preview": "Vista previa",
+      "edit_text": "Editar texto",
+      "private": "Privada"
+    },
+    "history_view": {
+      "title": "Cambios del asistente",
+      "intro": "Lo que el asistente cambió después de que alguien lo aprobara: etiquetas, tareas, páginas y unificaciones. Cada cambio se puede deshacer.",
+      "scope": {
+        "mine": "Míos",
+        "all": "Todo el workspace"
+      },
+      "empty": "Todavía no hay cambios hechos con el asistente."
+    }
+  }
+}

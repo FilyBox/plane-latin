@@ -12,12 +12,13 @@ import { Button } from "@plane/propel/button";
 import { EmptyStateCompact } from "@plane/propel/empty-state";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TOffice } from "@plane/types";
-import { AlertModalCore, Input } from "@plane/ui";
+import { Input } from "@plane/ui";
 // services
 import { payrollService } from "@/services/payroll.service";
 import { PaymentsSidePanel } from "../side-panel";
 // local imports
 import { FIELD, LABEL } from "./shared";
+import { FinanceConfirmModal } from "../confirm-modal";
 
 type Props = {
   workspaceSlug: string;
@@ -95,7 +96,7 @@ export function OfficesModal(props: Props) {
 
   return (
     <>
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleteTarget !== null}
         handleClose={() => setDeleteTarget(null)}
         handleSubmit={() => (hasDependencies ? setDeleteTarget(null) : void handleDelete())}

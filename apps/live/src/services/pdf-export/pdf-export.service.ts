@@ -47,6 +47,23 @@ export class PdfExportService extends Effect.Service<PdfExportService>()("PdfExp
     /**
      * Extracts image asset IDs from document content
      */
+    /** Mentions of workspace entities (anything but users), deduplicated. */
+    extractEntityMentions: (doc: TipTapNode): Array<{ entity_name: string; id: string }> => {
+      const found = new Map<string, { entity_name: string; id: string }>();
+      const traverse = (node: TipTapNode) => {
+        if (node.type === "mention") {
+          const entityName = (node.attrs?.entity_name as string) || "";
+          const id = (node.attrs?.entity_identifier as string) || "";
+          if (entityName && id && entityName !== "user_mention" && entityName !== "user") {
+            found.set(`${entityName}:${id}`, { entity_name: entityName, id });
+          }
+        }
+        for (const child of node.content ?? []) traverse(child);
+      };
+      traverse(doc);
+      return [...found.values()];
+    },
+
     extractImageAssetIds: (doc: TipTapNode): string[] => {
       const assetIds: string[] = [];
 
@@ -166,6 +183,7 @@ export class PdfExportService extends Effect.Service<PdfExportService>()("PdfExp
           async () => {
             const urlMap = new Map<string, string>();
             for (const assetId of assetIds) {
+              // eslint-disable-next-line no-await-in-loop -- one asset at a time keeps the API load low
               const url = await pageService.resolveImageAssetUrl?.(workspaceSlug, assetId, projectId);
               if (url) urlMap.set(assetId, url);
             }
@@ -330,6 +348,13 @@ export const exportToPdf = (
 
     // Fetch user mentions
     let metadata = yield* service.fetchUserMentions(pageService, pageId, requestId);
+
+    // Titles of mentioned contracts, songs, files… (never fails the export)
+    const entityMentions = service.extractEntityMentions(content.contentJSON as TipTapNode);
+    if (entityMentions.length > 0) {
+      const titles = yield* Effect.promise(() => pageService.fetchEntityTitles(workspaceSlug, entityMentions));
+      metadata = { ...metadata, entityMentions: titles };
+    }
 
     // Process images if needed
     if (!noAssets && imageAssetIds.length > 0) {

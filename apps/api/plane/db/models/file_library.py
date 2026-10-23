@@ -18,6 +18,8 @@ class WorkspaceFeature(BaseModel):
         FILE_LIBRARY = "file_library"
         PAYMENTS = "payments"
         MUSIC_CATALOG = "music_catalog"
+        # Cross-module mentions, references and shared tags
+        REFERENCES = "references"
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="feature_flags")
     key = models.CharField(max_length=100, choices=FeatureKey.choices)
@@ -87,12 +89,19 @@ class FileTag(BaseModel):
         ARTIST = "ARTIST", "Artist"
         GROUP = "GROUP", "Group"
         PERSON = "PERSON", "Person"
+        # What something is: cover art, service contract, master audio…
+        TYPE = "TYPE", "Type"
         CUSTOM = "CUSTOM", "Custom"
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="file_tags")
     name = models.CharField(max_length=255)
     color = models.CharField(max_length=255, blank=True)
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.CUSTOM)
+    # The catalog artist this tag stands for, so a song credited to them shows
+    # up under their tag without tagging it by hand.
+    party = models.ForeignKey(
+        "db.MusicParty", on_delete=models.SET_NULL, null=True, blank=True, related_name="shared_tags"
+    )
 
     class Meta:
         constraints = [

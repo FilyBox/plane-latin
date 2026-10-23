@@ -6,6 +6,7 @@
 
 export const NAMESPACES = [
   "accessibility",
+  "assistant",
   "auth",
   "automation",
   "common",
@@ -25,6 +26,7 @@ export const NAMESPACES = [
   "power-k",
   "project",
   "project-settings",
+  "references",
   "settings",
   "stickies",
   "template",

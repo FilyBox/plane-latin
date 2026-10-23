@@ -5,7 +5,8 @@
  */
 
 import { useCallback, useMemo } from "react";
-import { AtSign, Briefcase } from "lucide-react";
+import { AtSign, Briefcase, Tags } from "lucide-react";
+import { useTranslation } from "@plane/i18n";
 // plane imports
 import { Logo } from "@plane/propel/emoji-icon-picker";
 import {
@@ -31,6 +32,7 @@ import type {
   IIssueLabel,
   IModule,
   IProject,
+  TSharedTag,
   TWorkItemFilterProperty,
 } from "@plane/types";
 import { Avatar } from "@plane/ui";
@@ -45,6 +47,7 @@ import {
   getModuleFilterConfig,
   getPriorityFilterConfig,
   getProjectFilterConfig,
+  getSharedTagFilterConfig,
   getStartDateFilterConfig,
   getStateFilterConfig,
   getStateGroupFilterConfig,
@@ -62,6 +65,7 @@ import { useProject } from "@/hooks/store/use-project";
 import { useProjectState } from "@/hooks/store/use-project-state";
 // plane web imports
 import { useFiltersOperatorConfigs } from "@/hooks/rich-filters/use-filters-operator-configs";
+import { TAG_KIND_ICONS } from "@/components/references/shared-tag-chip";
 
 export type TWorkItemFiltersEntityProps = {
   workspaceSlug: string;
@@ -72,6 +76,8 @@ export type TWorkItemFiltersEntityProps = {
   projectId?: string;
   projectIds?: string[];
   stateIds?: string[];
+  /** Workspace tags shared across modules; undefined when references are off. */
+  sharedTags?: TSharedTag[];
 };
 
 export type TUseWorkItemFiltersConfigProps = {
@@ -89,8 +95,19 @@ export type TWorkItemFiltersConfig = {
 };
 
 export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps): TWorkItemFiltersConfig => {
-  const { allowedFilters, cycleIds, labelIds, memberIds, moduleIds, projectId, projectIds, stateIds, workspaceSlug } =
-    props;
+  const {
+    allowedFilters,
+    cycleIds,
+    labelIds,
+    memberIds,
+    moduleIds,
+    projectId,
+    projectIds,
+    sharedTags,
+    stateIds,
+    workspaceSlug,
+  } = props;
+  const { t } = useTranslation();
   // store hooks
   const { loader: projectLoader, getProjectById } = useProject();
   const { getCycleById } = useCycle();
@@ -131,10 +148,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
     [moduleIds, getModuleById]
   );
   const projects = useMemo(
-    () =>
-      projectIds
-        ? (projectIds.map((projectId) => getProjectById(projectId)).filter((project) => project) as IProject[])
-        : [],
+    () => (projectIds ? (projectIds.map((id) => getProjectById(id)).filter((item) => item) as IProject[]) : []),
     [projectIds, getProjectById]
   );
   const areAllConfigsInitialized = useMemo(() => isLoaderReady(projectLoader), [projectLoader]);
@@ -185,6 +199,23 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
         ...operatorConfigs,
       }),
     [isFilterEnabled, workItemLabels, operatorConfigs]
+  );
+
+  // workspace (shared) tag filter config
+  const sharedTagFilterConfig = useMemo(
+    () =>
+      getSharedTagFilterConfig<TWorkItemFilterProperty>("shared_tag_id")({
+        isEnabled: isFilterEnabled("shared_tag_id") && sharedTags !== undefined,
+        label: t("references.filters.workspace_tag"),
+        filterIcon: Tags,
+        sharedTags: sharedTags ?? [],
+        getOptionIcon: (kind) => {
+          const Icon = TAG_KIND_ICONS[kind];
+          return <Icon className="size-3 flex-shrink-0 text-tertiary" />;
+        },
+        ...operatorConfigs,
+      }),
+    [isFilterEnabled, sharedTags, operatorConfigs, t]
   );
 
   // cycle filter config
@@ -356,7 +387,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
         isEnabled: isFilterEnabled("project_id") && projects !== undefined,
         filterIcon: Briefcase,
         projects: projects,
-        getOptionIcon: (project) => <Logo logo={project.logo_props} size={12} />,
+        getOptionIcon: (item) => <Logo logo={item.logo_props} size={12} />,
         ...operatorConfigs,
       }),
     [isFilterEnabled, projects, operatorConfigs]
@@ -372,6 +403,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
       projectFilterConfig,
       mentionFilterConfig,
       labelFilterConfig,
+      sharedTagFilterConfig,
       cycleFilterConfig,
       moduleFilterConfig,
       startDateFilterConfig,
@@ -386,6 +418,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
       state_group: stateGroupFilterConfig,
       state_id: stateFilterConfig,
       label_id: labelFilterConfig,
+      shared_tag_id: sharedTagFilterConfig,
       cycle_id: cycleFilterConfig,
       module_id: moduleFilterConfig,
       assignee_id: assigneeFilterConfig,

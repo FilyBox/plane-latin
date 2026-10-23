@@ -39,4 +39,5 @@ export interface PageContent {
 export interface MetadataResult {
   readonly userMentions: PDFUserMention[];
   readonly resolvedImageUrls?: Record<string, string>;
+  readonly entityMentions?: Record<string, string>;
 }

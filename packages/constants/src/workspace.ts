@@ -264,6 +264,14 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS: Record<string, IWorkspa
     access: [EUserWorkspaceRoles.ADMIN],
     highlight: (pathname: string, url: string) => pathname.includes(url),
   },
+  // Shared tags across every module — gated by the "references" flag
+  tags: {
+    key: "tags",
+    labelTranslationKey: "references.tags.title",
+    href: `/tags/`,
+    access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
+    highlight: (pathname: string, url: string) => pathname.includes(url),
+  },
   // Workspace AI assistant — shown when file_library OR music_catalog is on
   assistant: {
     key: "assistant",
@@ -283,6 +291,7 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS: IWorkspaceSidebar
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["payments"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["expenses"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["music-catalog"],
+  WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["tags"],
   WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS["assistant"],
 ];
 

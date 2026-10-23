@@ -1,0 +1,400 @@
+{
+  "assistant": {
+    "title": "Assistant",
+    "open": "Open assistant",
+    "close": "Close assistant",
+    "shortcut": "Ctrl J",
+    "new_chat": "New chat",
+    "history": "Conversations",
+    "no_chats": "No conversations yet.",
+    "untitled": "Untitled conversation",
+    "delete_chat": "Delete conversation",
+    "resize": "Drag to resize",
+    "load_failed": "Could not open the conversation.",
+    "not_saved": "The answer was not saved to history.",
+    "copy": "Copy answer",
+    "retry": "Retry",
+    "edit": "Edit message",
+    "thinking": "Thinking…",
+    "reasoning": "Reasoning",
+    "empty": {
+      "title": "How can I help?",
+      "description": "Search contracts, music, tags and work items, or attach a file to import it into the catalog."
+    },
+    "suggestions": {
+      "contracts_expiring": "Which contracts expire this year?",
+      "contracts_by_status": "How many contracts are there by status?",
+      "contracts_mention": "Which contracts mention royalties?",
+      "music_year": "Songs released this year",
+      "music_videos": "Which songs have no video?",
+      "tag_summary": "Summarize everything tagged {name}",
+      "tag_releases": "Which releases does {name} have this year?",
+      "item_summary": "Summarize {name}",
+      "item_references": "Where is {name} mentioned?",
+      "selection": "What do these {count} songs have in common?",
+      "workspace": "Which tags are used the most?"
+    },
+    "composer": {
+      "placeholder": "Ask or request something… use @ to mention",
+      "attach": "Attach a file",
+      "send": "Send (Enter)",
+      "stop": "Stop",
+      "model": "Model",
+      "remove_context": "Remove {name} from context",
+      "context_hint": "The assistant knows what you're looking at"
+    },
+    "context": {
+      "tag": "Tag",
+      "work_item": "Work item",
+      "selection": "{count} selected"
+    },
+    "attachments": {
+      "download": "Download file",
+      "remove": "Remove file",
+      "upload": "Upload from your computer",
+      "pick": "Pick from the workspace"
+    },
+    "steps": {
+      "working": "Working…",
+      "summary": "{count, plural, one {# step} other {# steps}} · {duration}",
+      "failed": "failed",
+      "results": "{count, plural, one {# result} other {# results}}",
+      "of_total": "{shown} of {total}",
+      "groups": "{count, plural, one {# group} other {# groups}} · {total} contracts",
+      "scan": "{matched} of {scanned} match",
+      "file": "{rows} rows · {columns} columns",
+      "documents": "{count, plural, one {# document} other {# documents}}",
+      "fragments": "{count, plural, one {# fragment} other {# fragments}}",
+      "tags": "{count, plural, one {# tag} other {# tags}}",
+      "references": "{refs} referenced · {backlinks} mention it",
+      "list_known_names": {
+        "running": "Checking how names are spelled",
+        "done": "Checked names"
+      },
+      "find_contracts": {
+        "running": "Searching contracts",
+        "done": "Searched contracts"
+      },
+      "search_contract_text": {
+        "running": "Searching the text",
+        "done": "Searched the text"
+      },
+      "read_contract_excerpts": {
+        "running": "Reading excerpts",
+        "done": "Read excerpts"
+      },
+      "get_contract_details": {
+        "running": "Opening records",
+        "done": "Opened records"
+      },
+      "summarize_contracts": {
+        "running": "Summarizing documents",
+        "done": "Summarized documents"
+      },
+      "count_contracts": {
+        "running": "Counting contracts",
+        "done": "Counted contracts"
+      },
+      "scan_contracts": {
+        "running": "Reading contracts",
+        "done": "Read contracts"
+      },
+      "show_documents": {
+        "running": "Preparing documents",
+        "done": "Documents"
+      },
+      "query_music_tracks": {
+        "running": "Querying the catalog",
+        "done": "Queried the catalog"
+      },
+      "export_music_excel": {
+        "running": "Preparing the Excel",
+        "done": "Prepared the Excel"
+      },
+      "list_music_files": {
+        "running": "Looking for files",
+        "done": "Looked for files"
+      },
+      "read_import_file": {
+        "running": "Reading the file",
+        "done": "Read the file"
+      },
+      "plan_music_import": {
+        "running": "Validating the file",
+        "done": "Validated the file"
+      },
+      "update_music_track": {
+        "running": "Preparing the change",
+        "done": "Prepared the change"
+      },
+      "find_tags": {
+        "running": "Looking for tags",
+        "done": "Looked for tags"
+      },
+      "find_by_tag": {
+        "running": "Gathering the tag",
+        "done": "Gathered the tag"
+      },
+      "search_workspace": {
+        "running": "Searching the workspace",
+        "done": "Searched the workspace"
+      },
+      "get_references": {
+        "running": "Checking references",
+        "done": "Checked references"
+      },
+      "ask_user": {
+        "running": "Asking",
+        "done": "Asked"
+      },
+      "fallback": {
+        "running": "Using a tool",
+        "done": "Used a tool"
+      },
+      "count": "{count, plural, one {# step} other {# steps}}",
+      "propose_tag_merge": {
+        "running": "Preparing the merge",
+        "done": "Prepared the merge"
+      },
+      "start_tag_mapping": {
+        "running": "Preparing the mapping",
+        "done": "Prepared the mapping"
+      },
+      "search_memory": {
+        "running": "Checking memory",
+        "done": "Checked memory"
+      },
+      "propose_memory": {
+        "running": "Preparing memory",
+        "done": "Prepared memory"
+      },
+      "memories": "{count, plural, =0 {No matches} one {# memory} other {# memories}}",
+      "read_file": {
+        "running": "Reading the file",
+        "done": "Read the file"
+      },
+      "file_read": "{name}{pages, plural, =0 {} one { · # page} other { · # pages}}",
+      "propose_tagging": {
+        "running": "Preparing the tagging",
+        "done": "Prepared the tagging"
+      },
+      "propose_work_item": {
+        "running": "Preparing the work item",
+        "done": "Prepared the work item"
+      },
+      "propose_page": {
+        "running": "Writing the page",
+        "done": "Wrote the page"
+      },
+      "propose_report": {
+        "running": "Building the report",
+        "done": "Built the report"
+      }
+    },
+    "export": {
+      "title": "Excel ready",
+      "body": "{count, plural, one {# song} other {# songs}} with these filters",
+      "download": "Download"
+    },
+    "import_plan": {
+      "title": "Import plan",
+      "rows": "{count, plural, one {# row} other {# rows}}",
+      "created": "New",
+      "updated": "Updated",
+      "unchanged": "Unchanged",
+      "skipped": "Skipped",
+      "errors": "With problems",
+      "possible_duplicates": "Possible duplicates",
+      "mapping": "Mapped columns",
+      "more": "+{count} more",
+      "first_errors": "First problems",
+      "row": "Row {row}",
+      "review": "Review and import",
+      "note": "Nothing is imported until you confirm in Music, where you can adjust columns, rules and duplicates.",
+      "admin_only": "Only an admin can import into the catalog."
+    },
+    "update": {
+      "title": "Proposed change",
+      "field": "Field",
+      "before": "Before",
+      "after": "After",
+      "approve": "Apply change",
+      "discard": "Discard",
+      "applied": "Change applied",
+      "discarded": "Discarded",
+      "failed": "Could not apply the change.",
+      "multiple": "Several songs match",
+      "not_found": "Song not found",
+      "video_added": "A video is added; existing ones don't change.",
+      "fields": {
+        "release_date": "Release date",
+        "original_release_date": "Original date",
+        "isrc": "ISRC",
+        "videos": "Videos",
+        "video_url": "New video",
+        "video_release_date": "Video date",
+        "video_isrc": "Video ISRC"
+      }
+    },
+    "ask": {
+      "other": "Another answer…",
+      "send": "Answer",
+      "answered": "You answered: {answer}"
+    },
+    "errors": {
+      "unavailable": "The assistant is unavailable right now. Try again in a few seconds.",
+      "forbidden": "The assistant is not enabled in this workspace.",
+      "generic": "The message could not be sent. Try again."
+    },
+    "merge": {
+      "title": "Merge tags",
+      "count": "{count, plural, one {# variant} other {# variants}}",
+      "receives": "Receives up to {count, plural, one {# item} other {# items}} from the variants",
+      "empty_tag": "No items",
+      "skipped": "Not found, skipped: {names}",
+      "note": "Everything under the variants moves to the tag below and the variants go away. You can undo it.",
+      "approve": "Merge",
+      "discard": "Discard",
+      "merged": "Merged into {name}",
+      "undo": "Undo",
+      "undone": "Merge undone",
+      "discarded": "Discarded",
+      "failed": "Couldn't merge the tags.",
+      "undo_failed": "Couldn't undo the merge.",
+      "not_found": "Those tags weren't found."
+    },
+    "mapping": {
+      "title": "AI mapping",
+      "loading": "Checking what there is to map…",
+      "note": "AI suggests tags and merges names spelled differently. Nothing is applied until you review it in Tags, and it can be undone. Songs already reach their artist through credits.",
+      "start": "Start mapping ({count})",
+      "start_failed": "Couldn't start the mapping.",
+      "running": "Mapping… {done} of {total}",
+      "running_note": "Keep working; this card updates when it's ready to review.",
+      "ready": "Ready to review: {tags, plural, one {# tag} other {# tags}} and {merges, plural, one {# merge} other {# merges}} suggested.",
+      "review": "Review in Tags"
+    },
+    "mentions": {
+      "title": "Mention",
+      "hint": "Most used tags · type to search contracts, songs, files and more",
+      "searching": "Results for “{query}”",
+      "empty": "No results",
+      "filter_placeholder": "Search to mention…",
+      "all": "All",
+      "loading": "Searching…",
+      "type_to_search": "Type to search",
+      "chip_hint": "Open · Backspace to remove"
+    },
+    "memory": {
+      "title": "Workspace memory",
+      "back": "Back to chat",
+      "card_title": "Save to memory",
+      "content": "What to remember",
+      "content_placeholder": "E.g.: 3BallMTY is the artist's official spelling",
+      "aliases": "Also said as",
+      "aliases_placeholder": "Other ways to say it, comma separated",
+      "kind": "Type",
+      "kinds": {
+        "fact": "Fact",
+        "rule": "Rule",
+        "glossary": "Glossary",
+        "owner": "Owner",
+        "context": "Temporary"
+      },
+      "valid_until": "Valid until (optional)",
+      "valid_until_value": "Valid until {date}",
+      "expired": "Expired on {date}",
+      "used": "{count, plural, =0 {Not used yet} one {Used # time} other {Used # times}}",
+      "similar": "Similar memories already exist:",
+      "replace": "Replaces",
+      "note_admin": "Everyone using the assistant in this workspace will take it into account. You can edit the text before saving and undo it later.",
+      "note_member": "An admin will review it before the assistant uses it.",
+      "save": "Save to memory",
+      "suggest": "Suggest to admins",
+      "discard": "Discard",
+      "saved": "Saved to memory",
+      "suggested": "Sent to admins",
+      "undo": "Undo",
+      "undone": "Memory undone",
+      "discarded": "Discarded",
+      "failed": "Couldn't save the memory.",
+      "add": "Add",
+      "pin_always": "Always keep in mind",
+      "pinned": "Always in mind",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "approve": "Approve",
+      "reject": "Reject",
+      "archive": "Archive",
+      "restore": "Restore",
+      "intro_admin": "What the assistant keeps in mind for everyone in this workspace: official spellings, owners, rules and glossary. Pinned ones go into every answer; the rest are used when a message is about that topic.",
+      "intro_member": "What the assistant keeps in mind for everyone in this workspace. You can suggest memories; an admin approves them.",
+      "tabs": {
+        "active": "Active",
+        "proposed": "Suggested",
+        "archived": "Archived"
+      },
+      "empty": {
+        "active": "No memories yet. Tell the assistant “remember that…” or add them here.",
+        "proposed": "No pending suggestions.",
+        "archived": "No archived memories."
+      },
+      "details": "Details",
+      "details_placeholder": "Details (optional): context, exceptions, steps… The assistant reads them when it searches the memory.",
+      "add_details": "Add details"
+    },
+    "ask_ai": "Ask AI",
+    "actions": {
+      "tag_title": "Add “{tag}”",
+      "untag_title": "Remove “{tag}”",
+      "new_tag": "New tag",
+      "tag_apply": "Tag {count, plural, one {# item} other {# items}}",
+      "untag_apply": "Remove from {count, plural, one {# item} other {# items}}",
+      "tagged": "{count, plural, =0 {No changes: already like that} one {# item changed} other {# items changed}}",
+      "work_item_title": "New work item",
+      "create": "Create work item",
+      "created": "Created {key}",
+      "open": "Open",
+      "no_projects": "You're not in any project",
+      "remove_reference": "Remove reference",
+      "fields": {
+        "name": "Title",
+        "description": "Description (optional)",
+        "project": "Project",
+        "assignee": "Assignee",
+        "no_assignee": "No assignee",
+        "priority": "Priority",
+        "due_date": "Due date",
+        "references": "References",
+        "content": "Content (Markdown)"
+      },
+      "priorities": {
+        "none": "No priority",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "urgent": "Urgent"
+      },
+      "undo": "Undo",
+      "undone": "Undone",
+      "discard": "Discard",
+      "discarded": "Discarded",
+      "failed": "Couldn't apply the change.",
+      "page_title": "New page",
+      "create_page": "Create page",
+      "page_created": "Page created",
+      "preview": "Preview",
+      "edit_text": "Edit text",
+      "private": "Private"
+    },
+    "history_view": {
+      "title": "Assistant changes",
+      "intro": "What the assistant changed after someone approved it: tags, work items, pages and merges. Every change can be undone.",
+      "scope": {
+        "mine": "Mine",
+        "all": "Whole workspace"
+      },
+      "empty": "No changes made with the assistant yet."
+    }
+  }
+}

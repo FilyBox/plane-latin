@@ -39,6 +39,7 @@ export * from "./issues/issue-property-values";
 export * from "./layout";
 export * from "./module";
 export * from "./music";
+export * from "./references";
 export * from "./navigation-preferences";
 export * from "./page";
 export * from "./payment";

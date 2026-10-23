@@ -44,6 +44,8 @@ export interface CellFlags {
   isFirst?: boolean;
   /** Row background the caller computed, when it beats the family's own. */
   background?: string;
+  /** A figure that needs attention, like spending above what was planned. */
+  tone?: "danger";
 }
 
 /* ─────────── the palette, traced from the design document ─────────── */
@@ -54,11 +56,12 @@ export const THREAD_CORNER = "inset -5px 5px 0 -3px #B9651F";
 /** Purple corner of a figure typed by hand over a calculation. */
 export const OVERRIDE_CORNER = "inset 4px -4px 0 -3px #6B44A0";
 
-/** Distinguimos los renglones propios de los reservados por otra persona. */
-export const BG_LOCKED = "#F6F7F9";
+/** Row backgrounds come from the theme tokens, so they follow light and dark
+ * mode instead of painting light squares on a dark sheet. */
+export const BG_LOCKED = "var(--background-color-layer-2)";
 export const BG_MINE = "var(--accent-tint)";
-export const BG_EMPTY = "#FCFCFD";
-export const BG_REFERENCE = "#FBFCFD";
+export const BG_EMPTY = "transparent";
+export const BG_REFERENCE = "var(--background-color-layer-1)";
 
 /** Height of a data row. The design draws it the same in every table. */
 export const ROW_HEIGHT = 30;
@@ -102,6 +105,7 @@ function backgroundFor(family: RowFamily, m: CellFlags): string | undefined {
 }
 
 function colorFor(family: RowFamily, content: CellContent, m: CellFlags): string {
+  if (m.tone === "danger") return "var(--text-color-danger-primary)";
   if (family === "strip") return "var(--muted)";
   if (family === "reference") return "var(--muted)";
   if (family === "subtotal" && content === "amount") return "var(--ink-4)";
@@ -156,15 +160,13 @@ export function cellStyle(family: RowFamily, content: CellContent, m: CellFlags 
 
   if (family === "group") {
     s.fontWeight = 600;
-    if (content === "concept") s.letterSpacing = ".05em";
   }
   if (family === "subtotal") {
     s.fontWeight = s.fontWeight ?? 500;
     s.borderTop = "1px solid var(--line-input)";
   }
   if (family === "strip" && content === "concept") {
-    s.textTransform = "uppercase";
-    s.letterSpacing = ".04em";
+    s.letterSpacing = ".02em";
   }
   if (family === "reference") s.fontFamily = "var(--font-mono)";
 

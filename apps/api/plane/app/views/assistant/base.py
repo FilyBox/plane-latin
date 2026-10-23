@@ -9,13 +9,16 @@ assistant-ui's transport can consume it with the user's normal session —
 no CORS, no browser-held worker secrets.
 """
 
+import re
+
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
-from plane.db.models import Workspace, WorkspaceFeature
+from plane.db.models import Workspace, WorkspaceFeature, WorkspaceMember
 from plane.utils.exception_logger import log_exception
 from plane.utils.streaming import proxy_stream
 from plane.utils.worker_client import WorkerTriggerError, get_assistant_models, stream_assistant_chat
@@ -105,9 +108,7 @@ class AssistantMusicImportEndpoint(BaseAPIView):
         run_created_ids = set()
         with transaction.atomic():
             for index, row in enumerate(rows, start=header_row + 1):
-                effective_row, effective_mapping = _apply_row_overrides(
-                    row, mapping, row_overrides.get(str(index), {})
-                )
+                effective_row, effective_mapping = _apply_row_overrides(row, mapping, row_overrides.get(str(index), {}))
                 effective_row, skip_row = _apply_overrides(effective_row, effective_mapping, value_overrides)
                 if skip_row:
                     result["skipped"] += 1
@@ -118,7 +119,8 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                         tokens[token] = tokens.get(token, 0) + 1
                 try:
                     with transaction.atomic():
-                        outcome, track = importer._import_row(
+                        # _import_row also returns how the row matched (unused here).
+                        outcome, track, *_ = importer._import_row(
                             workspace,
                             effective_row,
                             effective_mapping,
@@ -128,15 +130,13 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                             relations_mode=relations_mode if relations_mode in ("merge", "replace") else "merge",
                             exclude_ids=None if dedupe_within_file else run_created_ids,
                         )
-                    result[outcome] += 1
+                    result[outcome] = result.get(outcome, 0) + 1
                     if outcome == "created" and track is not None:
                         run_created_ids.add(track.id)
                     if track is not None:
                         touched.append((track.id, outcome, index))
                 except Exception as exc:
-                    result["errors"].append(
-                        _import_error_detail(index, exc, effective_row, effective_mapping)
-                    )
+                    result["errors"].append(_import_error_detail(index, exc, effective_row, effective_mapping))
             aborted = result["errors"] and invalid_row_strategy == "abort"
             if not dry_run and not aborted:
                 asset = FileAsset.objects.get(id=asset_id, workspace=workspace)
@@ -170,6 +170,146 @@ class AssistantMusicImportEndpoint(BaseAPIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
+def _page_context(request, slug, references_enabled):
+    """What the user is looking at, so "this song" or "these contracts" make
+    sense. The item's name is resolved here as this user, never taken from
+    the client."""
+    raw = request.data.get("context")
+    if not isinstance(raw, dict):
+        return None
+    page = str(raw.get("page") or "")[:40]
+    context = {"page": page} if page else {}
+    items = raw.get("items") if isinstance(raw.get("items"), list) else []
+    items = [
+        {"entity_name": str(item.get("entity_name") or ""), "id": str(item.get("id") or "")}
+        for item in items[:30]
+        if isinstance(item, dict)
+    ]
+    if not references_enabled:
+        return context or None
+    from plane.db.models import FileTag, Issue
+    from plane.utils.entities import AccessContext, resolve_entities
+
+    ctx = AccessContext.build(slug, request.user)
+    if ctx is None:
+        return context or None
+    # A work item opened by key (YO-1) and the open shared tag.
+    issue_key = str(raw.get("issue_key") or "")
+    if "-" in issue_key:
+        identifier, _, sequence = issue_key.rpartition("-")
+        issue = (
+            Issue.issue_objects.filter(
+                workspace_id=ctx.workspace_id, project__identifier__iexact=identifier, sequence_id=sequence
+            ).first()
+            if sequence.isdigit()
+            else None
+        )
+        if issue is not None:
+            items.insert(0, {"entity_name": "issue", "id": str(issue.id)})
+    tag_id = str(raw.get("tag_id") or "")
+    if tag_id:
+        try:
+            tag = FileTag.objects.filter(workspace_id=ctx.workspace_id, id=tag_id).first()
+        except Exception:
+            tag = None
+        if tag is not None:
+            context["tag"] = {"id": str(tag.id), "name": tag.name, "path": f"/{slug}/tags/{tag.id}"}
+    if items:
+        context["items"] = [
+            {key: card.get(key) for key in ("entity_name", "id", "title", "subtitle", "path")}
+            for card in resolve_entities(ctx, items)
+            if card.get("status") == "ok"
+        ]
+    return context or None
+
+
+# A mention written by the composer: :type[label]{name=uuid}
+MENTION_RE = re.compile(r":([a-z_]{2,20})\[([^\]\n]{1,160})\]\{name=([0-9a-fA-F-]{36})\}")
+MAX_MENTIONS = 10
+
+
+def _mentions(request, slug, messages, references_enabled):
+    """The items the user mentioned with @ in their latest message, resolved
+    as this user: what they can't open is dropped, names come from the
+    database, never from the message."""
+    if not references_enabled:
+        return []
+    last = next((message for message in reversed(messages) if isinstance(message, dict) and message.get("role") == "user"), None)
+    if last is None:
+        return []
+    text = " ".join(
+        str(part.get("text") or "") for part in last.get("parts") or [] if isinstance(part, dict) and part.get("type") == "text"
+    )
+    found = []
+    for kind, _label, item_id in MENTION_RE.findall(text):
+        if (kind, item_id) not in found:
+            found.append((kind, item_id))
+    if not found:
+        return []
+    from plane.db.models import FileTag
+    from plane.utils.entities import AccessContext, resolve_entities
+
+    ctx = AccessContext.build(slug, request.user)
+    if ctx is None:
+        return []
+    found = found[:MAX_MENTIONS]
+    tags = {
+        str(tag.id): tag
+        for tag in FileTag.objects.filter(
+            workspace_id=ctx.workspace_id, id__in=[item_id for kind, item_id in found if kind == "tag"]
+        )
+    }
+    cards = {
+        (card["entity_name"], str(card["id"])): card
+        for card in resolve_entities(
+            ctx, [{"entity_name": kind, "id": item_id} for kind, item_id in found if kind != "tag"]
+        )
+        if card.get("status") == "ok"
+    }
+    resolved = []
+    for kind, item_id in found:
+        if kind == "tag":
+            tag = tags.get(item_id.lower())
+            if tag is not None:
+                resolved.append(
+                    {"entity_name": "tag", "id": str(tag.id), "title": tag.name, "subtitle": tag.kind, "path": f"/{slug}/tags/{tag.id}"}
+                )
+            continue
+        card = cards.get((kind, item_id.lower())) or cards.get((kind, item_id))
+        if card is not None:
+            resolved.append({key: card.get(key) for key in ("entity_name", "id", "title", "subtitle", "path")})
+    return resolved
+
+
+def _last_user_text(messages) -> str:
+    last = next((m for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "user"), None)
+    if last is None:
+        return ""
+    text = " ".join(
+        str(part.get("text") or "")
+        for part in last.get("parts") or []
+        if isinstance(part, dict) and part.get("type") == "text"
+    )
+    # Mentions read as their names.
+    return MENTION_RE.sub(lambda match: match.group(2), text)
+
+
+def _memory(request, slug, messages, context, mentions):
+    """Workspace memory for this turn: the pinned block plus what this message
+    is about (aliases said, items on screen or mentioned, keywords)."""
+    from plane.utils.assistant_memory import memory_context
+    from plane.utils.entities import AccessContext
+
+    ctx = AccessContext.build(slug, request.user)
+    if ctx is None:
+        return {"pinned": [], "relevant": []}
+    keys = {(item["entity_name"], str(item["id"])) for item in (context or {}).get("items") or []}
+    keys |= {(item["entity_name"], str(item["id"])) for item in mentions}
+    if (context or {}).get("tag"):
+        keys.add(("tag", context["tag"]["id"]))
+    return memory_context(ctx.workspace_id, ctx, _last_user_text(messages), keys)
+
+
 class AssistantChatEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
@@ -184,23 +324,39 @@ class AssistantChatEndpoint(BaseAPIView):
         if not isinstance(messages, list) or not messages:
             return Response({"error": "messages must be a non-empty list"}, status=status.HTTP_400_BAD_REQUEST)
 
+        enabled = set(
+            WorkspaceFeature.objects.filter(workspace=workspace, is_enabled=True).values_list("key", flat=True)
+        )
+        member = WorkspaceMember.objects.filter(workspace=workspace, member=request.user, is_active=True).first()
+        is_admin = bool(member and member.role >= ROLE.ADMIN.value)
         payload = {
             "workspace_id": str(workspace.id),
             "workspace_slug": slug,
             "messages": messages,
             "model": (request.data.get("model") or "").strip() or None,
             "locale": (request.data.get("locale") or "").strip() or None,
-            # Which tool families the agent may use, derived from the flags —
-            # a workspace with only contracts must not expose music tools.
+            # Lookups across modules are answered as this user (their role
+            # decides what the assistant may name).
+            "user_id": str(request.user.id),
+            "user_name": request.user.display_name or request.user.first_name or "",
+            "today": timezone.localdate().isoformat(),
+            # Which tool families the agent may use, from the flags and the
+            # user's role: the music catalog is admin-only everywhere else, so
+            # members never get its tools (or buttons they cannot use).
             "capabilities": {
-                "contracts": WorkspaceFeature.objects.filter(
-                    workspace=workspace, key=WorkspaceFeature.FeatureKey.FILE_LIBRARY, is_enabled=True
-                ).exists(),
-                "music": WorkspaceFeature.objects.filter(
-                    workspace=workspace, key=WorkspaceFeature.FeatureKey.MUSIC_CATALOG, is_enabled=True
-                ).exists(),
+                "contracts": WorkspaceFeature.FeatureKey.FILE_LIBRARY in enabled,
+                "music": WorkspaceFeature.FeatureKey.MUSIC_CATALOG in enabled and is_admin,
+                "references": WorkspaceFeature.FeatureKey.REFERENCES in enabled,
+                # Merging tags and starting an AI mapping are admin actions
+                # on the tags page too.
+                "tag_admin": WorkspaceFeature.FeatureKey.REFERENCES in enabled and is_admin,
+                # Admins save memories; members can only suggest them.
+                "memory_admin": is_admin,
             },
+            "context": _page_context(request, slug, WorkspaceFeature.FeatureKey.REFERENCES in enabled),
+            "mentions": _mentions(request, slug, messages, WorkspaceFeature.FeatureKey.REFERENCES in enabled),
         }
+        payload["memory"] = _memory(request, slug, messages, payload["context"], payload["mentions"])
 
         try:
             upstream = stream_assistant_chat(payload)

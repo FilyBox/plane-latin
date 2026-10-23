@@ -12,11 +12,12 @@ import { Button } from "@plane/propel/button";
 import { EmptyStateCompact } from "@plane/propel/empty-state";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TExpenseCategory } from "@plane/types";
-import { AlertModalCore, Input } from "@plane/ui";
+import { Input } from "@plane/ui";
 // services
 import { financeService } from "@/services/finance.service";
 // local imports
 import { PaymentsSidePanel } from "./side-panel";
+import { FinanceConfirmModal } from "./confirm-modal";
 
 type Props = {
   workspaceSlug: string;
@@ -71,7 +72,7 @@ export function CategoriesModal(props: Props) {
 
   return (
     <>
-      <AlertModalCore
+      <FinanceConfirmModal
         isOpen={deleteTarget !== null}
         handleClose={() => setDeleteTarget(null)}
         handleSubmit={() => void handleDelete()}

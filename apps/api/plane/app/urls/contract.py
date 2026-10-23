@@ -4,6 +4,8 @@
 
 from django.urls import path
 
+from plane.app.views.contract.assistant_internal import InternalContractGroupEndpoint, InternalContractScanEndpoint
+
 from plane.app.views import (
     ContractAssetPdfPreviewEndpoint,
     ContractAssetThumbnailEndpoint,
@@ -264,6 +266,17 @@ urlpatterns = [
         "internal/workspaces/<uuid:workspace_id>/contracts/excerpts/",
         InternalContractExcerptsEndpoint.as_view(),
         name="internal-contract-excerpts",
+    ),
+    # Workspace assistant: counts and full-set scans over many contracts
+    path(
+        "internal/workspaces/<uuid:workspace_id>/contracts/group/",
+        InternalContractGroupEndpoint.as_view(),
+        name="internal-contract-group",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/contracts/scan/",
+        InternalContractScanEndpoint.as_view(),
+        name="internal-contract-scan",
     ),
     path(
         "internal/workspaces/<uuid:workspace_id>/contracts/facets/",

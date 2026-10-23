@@ -113,6 +113,15 @@ def scenario_forecast(
         assignment_end = min(active_ends)
         if assignment_start > assignment_end:
             continue
+        # Aguinaldo accrues over the days this salary was actually earned in the
+        # calendar year — not only the days inside this budget's window. A
+        # July–June budget still owes January–June in its December, and a
+        # salary replaced mid-year keeps its share (it is paid in December even
+        # though another salary is the one running then).
+        earned_starts = [day for day in (employee_hire_date, salary_start) if day]
+        earned_start = max(earned_starts) if earned_starts else assignment.effective_from
+        earned_ends = [day for day in (assignment.effective_to, employee_termination_date, salary_end) if day]
+        earned_end = min(earned_ends) if earned_ends else None
 
         office_id = getattr(salary, "office_id", None)
         salary_line = _line(
@@ -146,20 +155,21 @@ def scenario_forecast(
                 salary_line["values"][(year, month)] += _salary_amount_for_month(
                     salary, active_days, month_days
                 )
-            termination_month = bool(
-                employee_termination_date
-                and assignment_end == employee_termination_date
-                and employee_termination_date.year == year
-                and employee_termination_date.month == month
-            )
-            if (month == 12 and active_days) or termination_month:
-                calendar_start = max(assignment_start, date(year, 1, 1))
-                calendar_end = min(assignment_end, date(year, 12, 31))
-                worked_days = Decimal((calendar_end - calendar_start).days + 1)
-                days_in_year = Decimal((date(year, 12, 31) - date(year, 1, 1)).days + 1)
-                benefit_line["values"][(year, month)] += (
-                    salary.daily_amount() * Decimal(salary.office.aguinaldo_days) * worked_days / days_in_year
-                )
+            # Paid in December, or in the month the person leaves: a departure
+            # settles every salary's share of that year, so December doesn't
+            # book it again.
+            terminated_this_year = bool(employee_termination_date and employee_termination_date.year == year)
+            payment_month = employee_termination_date.month if terminated_this_year else 12
+            if month == payment_month:
+                worked_days = _overlap_days(earned_start, earned_end, date(year, 1, 1), date(year, 12, 31))
+                if worked_days:
+                    days_in_year = Decimal((date(year, 12, 31) - date(year, 1, 1)).days + 1)
+                    benefit_line["values"][(year, month)] += (
+                        salary.daily_amount()
+                        * Decimal(salary.office.aguinaldo_days)
+                        * Decimal(worked_days)
+                        / days_in_year
+                    )
 
         lines.extend((salary_line, benefit_line))
 
@@ -209,26 +219,33 @@ def scenario_forecast(
         active_end = min(variable.effective_to or scenario.period_end, scenario.period_end)
         if active_start > active_end:
             continue
+        # One-time, quarterly and annual items keep the calendar of their own
+        # start date: a payment dated March 2025 is not charged again when a
+        # 2026 budget opens, an annual fee lands on its anniversary month, and
+        # quarters count from the first payment.
+        anchor = variable.effective_from
         for year, month in scenario_months:
             month_start, month_end = _month_bounds(year, month)
             active_days = _overlap_days(active_start, active_end, month_start, month_end)
             if not active_days:
                 continue
+            months_from_anchor = (year * 12 + month) - (anchor.year * 12 + anchor.month)
             if variable.recurrence == "ONE_TIME":
-                occurrences = Decimal(active_start.year == year and active_start.month == month)
+                occurrences = Decimal(months_from_anchor == 0)
             elif variable.recurrence == "DAILY":
                 occurrences = Decimal(active_days)
             elif variable.recurrence == "WEEKLY":
                 occurrences = Decimal(active_days) / Decimal(7)
             elif variable.recurrence == "BIWEEKLY":
-                occurrences = Decimal(active_days) / Decimal(15)
+                # Quincenal: two payments a month, prorated for partial months
+                month_days = Decimal((month_end - month_start).days + 1)
+                occurrences = Decimal(2) * Decimal(active_days) / month_days
             elif variable.recurrence == "MONTHLY":
                 occurrences = Decimal(1)
             elif variable.recurrence == "QUARTERLY":
-                offset = (year * 12 + month) - (active_start.year * 12 + active_start.month)
-                occurrences = Decimal(offset % 3 == 0)
+                occurrences = Decimal(months_from_anchor >= 0 and months_from_anchor % 3 == 0)
             else:
-                occurrences = Decimal(year == active_start.year and month == active_start.month)
+                occurrences = Decimal(months_from_anchor >= 0 and months_from_anchor % 12 == 0)
             variable_line["values"][(year, month)] += variable.amount * occurrences
         lines.append(variable_line)
 

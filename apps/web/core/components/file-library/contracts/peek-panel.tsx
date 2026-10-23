@@ -24,6 +24,9 @@ import type { TContractJob, TContractRetryOptions, TContractUpdatePayload } from
 import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
+import { EntityBacklinks } from "@/components/references/references-section";
+import { SharedTagPicker } from "@/components/references/shared-tag-picker";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 import { contractService } from "@/services/contract.service";
 import { fileLibraryService } from "@/services/file-library.service";
 // local imports
@@ -31,6 +34,7 @@ import { ContractChatPanel } from "./chat/chat-panel";
 import { CONTRACT_STATUS_OPTIONS, CONTRACT_TYPE_OPTIONS, YES_NO_UNSPECIFIED_OPTIONS } from "./constants";
 import { ProcessingBadge } from "./processing-badge";
 import { RetryOptionsModal } from "./retry-options-modal";
+import { AskAssistantButton } from "@/components/assistant/ask";
 
 type Props = {
   workspaceSlug: string;
@@ -107,6 +111,8 @@ const SELECT_FIELDS: {
 
 export function ContractPeekPanel(props: Props) {
   const { workspaceSlug, contractId, onClose, onMutate, onDeleted } = props;
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
   const { t } = useTranslation();
   // states
   const [peekMode, setPeekMode] = useState<TPeekModes>("side-peek");
@@ -388,6 +394,15 @@ export function ContractPeekPanel(props: Props) {
           )}
         </label>
       ))}
+      {contract && referencesEnabled && (
+        <div className="space-y-4 border-t border-subtle pt-3">
+          <div className="space-y-1">
+            <span className="text-11 font-medium text-tertiary">{t("references.tags.title")}</span>
+            <SharedTagPicker workspaceSlug={workspaceSlug} entityName="contract" entityId={contract.id} />
+          </div>
+          <EntityBacklinks workspaceSlug={workspaceSlug} entityName="contract" entityId={contract.id} />
+        </div>
+      )}
       {contract?.ai_model_used && (
         <p className="text-11 text-tertiary">
           {t("file_library.contracts.ai_model", { model: contract.ai_model_used })}
@@ -511,6 +526,14 @@ export function ContractPeekPanel(props: Props) {
             {contract && <ProcessingBadge contract={contract} activeJob={activeJob} />}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <AskAssistantButton
+              compact
+              mentions={
+                contract
+                  ? [{ type: "contract", id: contract.id, label: contract.titulo || contract.file_name || contract.id }]
+                  : []
+              }
+            />
             {/* Retry: opens the shared full-or-partial options dialog */}
             <button
               type="button"

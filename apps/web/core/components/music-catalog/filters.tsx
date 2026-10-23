@@ -70,13 +70,7 @@ function OptionList({ options, selected, searchQuery, onToggle }: TOptionListPro
   );
 }
 
-function FilterSection({
-  title,
-  options,
-  selected,
-  searchQuery,
-  onToggle,
-}: TOptionListProps & { title: string }) {
+function FilterSection({ title, options, selected, searchQuery, onToggle }: TOptionListProps & { title: string }) {
   const [isPreviewEnabled, setIsPreviewEnabled] = useState(true);
   return (
     <div className="py-1">
@@ -97,11 +91,14 @@ function DateSection({
   fields,
   filters,
   onSet,
+  inputType = "date",
 }: {
   title: string;
-  fields: { key: keyof TMusicFilters; label: string }[];
+  fields: { key: keyof TMusicFilters; label: string; placeholder?: string }[];
   filters: TMusicFilters;
   onSet: (key: keyof TMusicFilters, value: string) => void;
+  /** "text" for identifiers (ISRC, UPC), matched partially */
+  inputType?: "date" | "text";
 }) {
   const [isPreviewEnabled, setIsPreviewEnabled] = useState(false);
   const appliedCount = fields.filter((field) => filters[field.key]).length;
@@ -118,10 +115,13 @@ function DateSection({
             <label key={String(field.key)} className="text-10 text-tertiary">
               {field.label}
               <input
-                type="date"
+                type={inputType}
+                placeholder={field.placeholder}
                 className={`${MUSIC_FIELD} mt-1`}
                 value={(filters[field.key] as string | undefined) ?? ""}
-                onChange={(event) => onSet(field.key, event.target.value)}
+                onChange={(event) =>
+                  onSet(field.key, inputType === "text" ? event.target.value.trim() : event.target.value)
+                }
               />
             </label>
           ))}
@@ -142,6 +142,9 @@ export type TMusicFiltersData = {
 };
 
 /** Multi-select (comma list) filter keys and their option list + label */
+/** Focuses a picker's search box when it opens (stable, so it runs once). */
+const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
+
 const LIST_FILTERS: { key: keyof TMusicFilters; label: string; list: keyof TMusicFiltersData }[] = [
   { key: "status", label: "Estado", list: "statuses" },
   { key: "artist", label: "Artista", list: "artists" },
@@ -181,7 +184,7 @@ export function MusicFiltersDropdown({ filters, data, hasActiveFilters, onSet }:
   return (
     <FiltersDropdown menuButton={trigger} placement="bottom-start">
       <div className="flex h-full w-full flex-col overflow-hidden">
-        <div className="bg-surface-1 sticky top-0 z-10 p-2.5 pb-0">
+        <div className="sticky top-0 z-10 bg-surface-1 p-2.5 pb-0">
           <div className="flex items-center gap-1.5 rounded-sm border-[0.5px] border-strong bg-surface-1 px-1.5 py-1 text-11">
             <Search className="size-3 text-tertiary" />
             <input
@@ -189,7 +192,7 @@ export function MusicFiltersDropdown({ filters, data, hasActiveFilters, onSet }:
               placeholder="Buscar artistas, géneros, releases…"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              autoFocus
+              ref={focusOnMount}
             />
             {searchQuery !== "" && (
               <button type="button" onClick={() => setSearchQuery("")} aria-label="Limpiar búsqueda">
@@ -207,7 +210,10 @@ export function MusicFiltersDropdown({ filters, data, hasActiveFilters, onSet }:
               selected={parseFilterList(filters[entry.key] as string | undefined)}
               searchQuery={searchQuery}
               onToggle={(value) =>
-                onSet(entry.key, joinFilterList(toggleValue(parseFilterList(filters[entry.key] as string | undefined), value)))
+                onSet(
+                  entry.key,
+                  joinFilterList(toggleValue(parseFilterList(filters[entry.key] as string | undefined), value))
+                )
               }
             />
           ))}
@@ -227,6 +233,16 @@ export function MusicFiltersDropdown({ filters, data, hasActiveFilters, onSet }:
               { key: "to", label: "Canción hasta" },
               { key: "video_from", label: "Video desde" },
               { key: "video_to", label: "Video hasta" },
+            ]}
+          />
+          <DateSection
+            title="Identificadores del video"
+            filters={filters}
+            onSet={onSet}
+            inputType="text"
+            fields={[
+              { key: "video_isrc", label: "ISRC del video", placeholder: "MXA3Y24…" },
+              { key: "video_upc", label: "UPC del video", placeholder: "1987…" },
             ]}
           />
           <div className="py-1">
@@ -260,6 +276,8 @@ const SCALAR_LABELS: Partial<Record<keyof TMusicFilters, string>> = {
   to: "Hasta",
   video_from: "Video desde",
   video_to: "Video hasta",
+  video_isrc: "ISRC del video",
+  video_upc: "UPC del video",
   has_video: "Con video",
   has_links: "Con links",
   has_lyrics: "Con letra",
@@ -288,13 +306,16 @@ function AppliedListFilterGroup({
       <FiltersDropdown
         placement="bottom-start"
         menuButton={
-          <span className="text-11 text-tertiary underline-offset-2 hover:text-primary hover:underline" title="Editar este filtro">
+          <span
+            className="text-11 text-tertiary underline-offset-2 hover:text-primary hover:underline"
+            title="Editar este filtro"
+          >
             {label}
           </span>
         }
       >
         <div className="flex h-full w-full flex-col overflow-hidden">
-          <div className="bg-surface-1 sticky top-0 z-10 p-2.5 pb-0">
+          <div className="sticky top-0 z-10 bg-surface-1 p-2.5 pb-0">
             <div className="flex items-center gap-1.5 rounded-sm border-[0.5px] border-strong bg-surface-1 px-1.5 py-1 text-11">
               <Search className="size-3 text-tertiary" />
               <input
@@ -302,7 +323,7 @@ function AppliedListFilterGroup({
                 placeholder={`Buscar ${label.toLowerCase()}…`}
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                autoFocus
+                ref={focusOnMount}
               />
             </div>
           </div>
@@ -329,7 +350,12 @@ function AppliedListFilterGroup({
           </button>
         </div>
       ))}
-      <button type="button" className="text-tertiary hover:text-primary" onClick={onClear} aria-label={`Limpiar ${label}`}>
+      <button
+        type="button"
+        className="text-tertiary hover:text-primary"
+        onClick={onClear}
+        aria-label={`Limpiar ${label}`}
+      >
         <CloseIcon height={12} width={12} strokeWidth={2} />
       </button>
     </Tag>
@@ -345,13 +371,15 @@ type TAppliedProps = {
 
 /** Chip row mirroring the work-items applied filters, with quick edit per group */
 export function MusicAppliedFilters({ filters, data, onSet, onClearAll }: TAppliedProps) {
-  const listEntries = LIST_FILTERS.map((entry) => ({
-    ...entry,
-    selected: parseFilterList(filters[entry.key] as string | undefined),
+  const listEntries = LIST_FILTERS.map(({ key, label, list }) => ({
+    key,
+    label,
+    list,
+    selected: parseFilterList(filters[key] as string | undefined),
   })).filter((entry) => entry.selected.length > 0);
 
-  const scalarEntries = (Object.entries(SCALAR_LABELS) as [keyof TMusicFilters, string][]).filter(
-    ([key]) => Boolean(filters[key])
+  const scalarEntries = (Object.entries(SCALAR_LABELS) as [keyof TMusicFilters, string][]).filter(([key]) =>
+    Boolean(filters[key])
   );
   const yearSelected = parseFilterList(filters.year);
 
