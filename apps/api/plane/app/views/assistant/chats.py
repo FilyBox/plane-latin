@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
 from plane.db.models import AssistantChat, AssistantChatMessage, Workspace
+from plane.app.views.assistant.base import MENTION_RE
 
 # A tool result bigger than this is kept as a short stub: the card it drew is
 # rebuilt from the stub, and long tables do not bloat every saved chat.
@@ -144,6 +145,8 @@ class AssistantChatMessagesEndpoint(BaseAPIView):
                     (row for row in rows if row.role == AssistantChatMessage.Role.USER and row.content), None
                 )
                 if first_user:
-                    chat.title = " ".join(first_user.content.split())[:80]
+                    # "@3BallMTY", not the mention's :tag[3BallMTY]{name=…} form.
+                    readable = MENTION_RE.sub(lambda match: match.group(2), first_user.content)
+                    chat.title = " ".join(readable.split())[:80]
             chat.save(update_fields=["title", "updated_at"])
         return Response(_chat_payload(chat), status=status.HTTP_200_OK)

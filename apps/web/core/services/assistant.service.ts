@@ -11,6 +11,32 @@ export type TAssistantChat = { id: string; title: string; created_at: string; up
 export type TAssistantStoredMessage = { id: string; role: "user" | "assistant"; parts: { type: string }[] };
 export type TAssistantModels = { models: { id: string; provider: string }[]; default_model: string };
 
+export type TAssistantMemoryKind = "FACT" | "RULE" | "GLOSSARY" | "OWNER" | "CONTEXT";
+export type TAssistantMemoryStatus = "PROPOSED" | "ACTIVE" | "REJECTED" | "ARCHIVED";
+export type TAssistantMemory = {
+  id: string;
+  kind: TAssistantMemoryKind;
+  content: string;
+  aliases: string[];
+  entities: { entity_name: string; id: string }[];
+  status: TAssistantMemoryStatus;
+  pinned: boolean;
+  valid_until: string | null;
+  supersedes: string | null;
+  source: "MANUAL" | "ASSISTANT";
+  evidence: string;
+  created_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  use_count: number;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type TAssistantMemoryInput = Partial<
+  Pick<TAssistantMemory, "kind" | "content" | "aliases" | "entities" | "pinned" | "valid_until" | "evidence">
+> & { status?: TAssistantMemoryStatus; supersedes?: string | null; source?: "MANUAL" | "ASSISTANT" };
+
 /** Workspace assistant: per-user conversations and the models to run on. */
 export class AssistantService extends APIService {
   constructor() {
@@ -48,6 +74,26 @@ export class AssistantService extends APIService {
 
   async deleteChat(workspaceSlug: string, chatId: string): Promise<void> {
     return this.delete(`/api/workspaces/${workspaceSlug}/assistant/chats/${chatId}/`).then(() => undefined);
+  }
+
+  /** The workspace's shared memory: admins write it, members suggest. */
+  async getMemories(
+    workspaceSlug: string,
+    status: "active" | "proposed" | "archived" = "active"
+  ): Promise<{ memories: TAssistantMemory[]; can_edit: boolean }> {
+    return this.get(`/api/workspaces/${workspaceSlug}/assistant/memories/`, { params: { status } }).then(
+      (response) => response.data
+    );
+  }
+
+  async createMemory(workspaceSlug: string, data: TAssistantMemoryInput): Promise<TAssistantMemory> {
+    return this.post(`/api/workspaces/${workspaceSlug}/assistant/memories/`, data).then((response) => response.data);
+  }
+
+  async updateMemory(workspaceSlug: string, memoryId: string, data: TAssistantMemoryInput): Promise<TAssistantMemory> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/assistant/memories/${memoryId}/`, data).then(
+      (response) => response.data
+    );
   }
 
   async saveMessages(

@@ -57,6 +57,7 @@ export const TRACE_TOOLS = new Set([
   "find_by_tag",
   "search_workspace",
   "get_references",
+  "search_memory",
 ]);
 
 const formatDuration = (seconds: number) =>
@@ -484,6 +485,19 @@ export function buildTraceToolUIs(slug: string) {
           rows={[...((result.references as TCard[]) ?? []), ...((result.referenced_by as TCard[]) ?? [])]
             .slice(0, 10)
             .map((card) => cardRow(card, card.entity_name))}
+        />
+      ),
+    }),
+    traceTool("search_memory", {
+      icon: Brain,
+      input: (args) => text(args?.query),
+      output: (result, t) => t("assistant.steps.memories", { count: ((result.results as unknown[]) ?? []).length }),
+      body: (result) => (
+        <ResultRows
+          rows={((result.results as { id: string; content: string; kind: string }[]) ?? []).map((memory) => ({
+            key: memory.id,
+            title: memory.content,
+          }))}
         />
       ),
     }),

@@ -9,6 +9,9 @@ from plane.app.views.assistant import (
     AssistantChatDetailEndpoint,
     AssistantChatMessagesEndpoint,
     AssistantChatsEndpoint,
+    AssistantMemoriesEndpoint,
+    AssistantMemoryDetailEndpoint,
+    InternalAssistantMemorySearchEndpoint,
 )
 
 urlpatterns = [
@@ -37,5 +40,17 @@ urlpatterns = [
         "workspaces/<str:slug>/assistant/chats/<uuid:chat_id>/messages/",
         AssistantChatMessagesEndpoint.as_view(),
         name="assistant-chat-messages",
+    ),
+    path("workspaces/<str:slug>/assistant/memories/", AssistantMemoriesEndpoint.as_view(), name="assistant-memories"),
+    path(
+        "workspaces/<str:slug>/assistant/memories/<uuid:memory_id>/",
+        AssistantMemoryDetailEndpoint.as_view(),
+        name="assistant-memory-detail",
+    ),
+    # Worker callback (shared secret), answered as the asking user
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/memories/search/",
+        InternalAssistantMemorySearchEndpoint.as_view(),
+        name="internal-assistant-memory-search",
     ),
 ]

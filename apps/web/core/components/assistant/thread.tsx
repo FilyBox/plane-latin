@@ -24,6 +24,7 @@ import { useTranslation } from "@plane/i18n";
 import { cn } from "@plane/utils";
 import { ComposerAttachmentsRow, MessageAttachmentsRow } from "./attachments";
 import { AssistantLink } from "./links";
+import { MentionText, useComposerMentions } from "./mentions";
 import { FallbackStep, groupThought, ReasoningStep, ThinkingBlock, useIsMessageRunning } from "./steps";
 
 const MARKDOWN_COMPONENTS = {
@@ -90,23 +91,37 @@ function UserMessage() {
           </ActionBarPrimitive.Edit>
         </ActionBarPrimitive.Root>
         <div className="min-w-0 rounded-xl rounded-br-sm bg-accent-primary/10 px-3 py-2 text-13 break-words whitespace-pre-wrap text-primary">
-          <MessagePrimitive.Parts />
+          <MessagePrimitive.Parts components={USER_PARTS} />
         </div>
       </div>
     </MessagePrimitive.Root>
   );
 }
 
+const USER_PARTS = { Text: MentionText };
+
 function EditComposer() {
   const { t } = useTranslation();
+  const mentions = useComposerMentions({ decodeOnMount: true });
   return (
-    <ComposerPrimitive.Root className="mx-4 my-2 rounded-lg border border-accent-strong bg-layer-1 p-2">
-      <ComposerPrimitive.Input className="max-h-40 w-full resize-none bg-transparent text-13 outline-none" />
+    <ComposerPrimitive.Root
+      onSubmit={mentions.beforeSend}
+      className="relative mx-4 my-2 rounded-lg border border-accent-strong bg-layer-1 p-2"
+    >
+      {mentions.popover}
+      <ComposerPrimitive.Input
+        ref={mentions.inputRef}
+        {...mentions.inputProps}
+        className="max-h-40 w-full resize-none bg-transparent text-13 outline-none"
+      />
       <div className="mt-1.5 flex justify-end gap-1.5">
         <ComposerPrimitive.Cancel className="rounded-md px-2 py-1 text-12 text-tertiary hover:bg-layer-1-hover">
           {t("cancel")}
         </ComposerPrimitive.Cancel>
-        <ComposerPrimitive.Send className="rounded-md bg-accent-primary px-2 py-1 text-12 text-on-color">
+        <ComposerPrimitive.Send
+          onClick={mentions.beforeSend}
+          className="rounded-md bg-accent-primary px-2 py-1 text-12 text-on-color"
+        >
           {t("assistant.composer.send")}
         </ComposerPrimitive.Send>
       </div>
@@ -179,6 +194,7 @@ type Props = {
 
 export function AssistantThread({ suggestions, contextBar, composerAccessory, allowAttachments }: Props) {
   const { t } = useTranslation();
+  const mentions = useComposerMentions();
   return (
     <ThreadPrimitive.Root className="flex h-full min-h-0 min-w-0 flex-col">
       <ThreadPrimitive.Viewport className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto py-2">
@@ -209,10 +225,16 @@ export function AssistantThread({ suggestions, contextBar, composerAccessory, al
       </ThreadPrimitive.Viewport>
 
       <div className="shrink-0 px-3 pt-1 pb-3">
-        <ComposerPrimitive.Root className="rounded-xl border border-subtle bg-layer-1 transition-colors focus-within:border-accent-strong">
+        <ComposerPrimitive.Root
+          onSubmit={mentions.beforeSend}
+          className="relative rounded-xl border border-subtle bg-layer-1 transition-colors focus-within:border-accent-strong"
+        >
+          {mentions.popover}
           {contextBar}
           <ComposerAttachmentsRow />
           <ComposerPrimitive.Input
+            ref={mentions.inputRef}
+            {...mentions.inputProps}
             rows={1}
             placeholder={t("assistant.composer.placeholder")}
             aria-label={t("assistant.composer.placeholder")}
@@ -231,6 +253,7 @@ export function AssistantThread({ suggestions, contextBar, composerAccessory, al
             <div className="min-w-0 flex-1">{composerAccessory}</div>
             <ThreadPrimitive.If running={false}>
               <ComposerPrimitive.Send
+                onClick={mentions.beforeSend}
                 className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary text-on-color disabled:opacity-40"
                 title={t("assistant.composer.send")}
                 aria-label={t("assistant.composer.send")}

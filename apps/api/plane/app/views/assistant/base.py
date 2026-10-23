@@ -9,6 +9,8 @@ assistant-ui's transport can consume it with the user's normal session —
 no CORS, no browser-held worker secrets.
 """
 
+import re
+
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from rest_framework import status
@@ -221,6 +223,93 @@ def _page_context(request, slug, references_enabled):
     return context or None
 
 
+# A mention written by the composer: :type[label]{name=uuid}
+MENTION_RE = re.compile(r":([a-z_]{2,20})\[([^\]\n]{1,160})\]\{name=([0-9a-fA-F-]{36})\}")
+MAX_MENTIONS = 10
+
+
+def _mentions(request, slug, messages, references_enabled):
+    """The items the user mentioned with @ in their latest message, resolved
+    as this user: what they can't open is dropped, names come from the
+    database, never from the message."""
+    if not references_enabled:
+        return []
+    last = next((message for message in reversed(messages) if isinstance(message, dict) and message.get("role") == "user"), None)
+    if last is None:
+        return []
+    text = " ".join(
+        str(part.get("text") or "") for part in last.get("parts") or [] if isinstance(part, dict) and part.get("type") == "text"
+    )
+    found = []
+    for kind, _label, item_id in MENTION_RE.findall(text):
+        if (kind, item_id) not in found:
+            found.append((kind, item_id))
+    if not found:
+        return []
+    from plane.db.models import FileTag
+    from plane.utils.entities import AccessContext, resolve_entities
+
+    ctx = AccessContext.build(slug, request.user)
+    if ctx is None:
+        return []
+    found = found[:MAX_MENTIONS]
+    tags = {
+        str(tag.id): tag
+        for tag in FileTag.objects.filter(
+            workspace_id=ctx.workspace_id, id__in=[item_id for kind, item_id in found if kind == "tag"]
+        )
+    }
+    cards = {
+        (card["entity_name"], str(card["id"])): card
+        for card in resolve_entities(
+            ctx, [{"entity_name": kind, "id": item_id} for kind, item_id in found if kind != "tag"]
+        )
+        if card.get("status") == "ok"
+    }
+    resolved = []
+    for kind, item_id in found:
+        if kind == "tag":
+            tag = tags.get(item_id.lower())
+            if tag is not None:
+                resolved.append(
+                    {"entity_name": "tag", "id": str(tag.id), "title": tag.name, "subtitle": tag.kind, "path": f"/{slug}/tags/{tag.id}"}
+                )
+            continue
+        card = cards.get((kind, item_id.lower())) or cards.get((kind, item_id))
+        if card is not None:
+            resolved.append({key: card.get(key) for key in ("entity_name", "id", "title", "subtitle", "path")})
+    return resolved
+
+
+def _last_user_text(messages) -> str:
+    last = next((m for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "user"), None)
+    if last is None:
+        return ""
+    text = " ".join(
+        str(part.get("text") or "")
+        for part in last.get("parts") or []
+        if isinstance(part, dict) and part.get("type") == "text"
+    )
+    # Mentions read as their names.
+    return MENTION_RE.sub(lambda match: match.group(2), text)
+
+
+def _memory(request, slug, messages, context, mentions):
+    """Workspace memory for this turn: the pinned block plus what this message
+    is about (aliases said, items on screen or mentioned, keywords)."""
+    from plane.utils.assistant_memory import memory_context
+    from plane.utils.entities import AccessContext
+
+    ctx = AccessContext.build(slug, request.user)
+    if ctx is None:
+        return {"pinned": [], "relevant": []}
+    keys = {(item["entity_name"], str(item["id"])) for item in (context or {}).get("items") or []}
+    keys |= {(item["entity_name"], str(item["id"])) for item in mentions}
+    if (context or {}).get("tag"):
+        keys.add(("tag", context["tag"]["id"]))
+    return memory_context(ctx.workspace_id, ctx, _last_user_text(messages), keys)
+
+
 class AssistantChatEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
@@ -258,9 +347,16 @@ class AssistantChatEndpoint(BaseAPIView):
                 "contracts": WorkspaceFeature.FeatureKey.FILE_LIBRARY in enabled,
                 "music": WorkspaceFeature.FeatureKey.MUSIC_CATALOG in enabled and is_admin,
                 "references": WorkspaceFeature.FeatureKey.REFERENCES in enabled,
+                # Merging tags and starting an AI mapping are admin actions
+                # on the tags page too.
+                "tag_admin": WorkspaceFeature.FeatureKey.REFERENCES in enabled and is_admin,
+                # Admins save memories; members can only suggest them.
+                "memory_admin": is_admin,
             },
             "context": _page_context(request, slug, WorkspaceFeature.FeatureKey.REFERENCES in enabled),
+            "mentions": _mentions(request, slug, messages, WorkspaceFeature.FeatureKey.REFERENCES in enabled),
         }
+        payload["memory"] = _memory(request, slug, messages, payload["context"], payload["mentions"])
 
         try:
             upstream = stream_assistant_chat(payload)

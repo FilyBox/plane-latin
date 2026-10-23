@@ -35,7 +35,7 @@
       "workspace": "Which tags are used the most?"
     },
     "composer": {
-      "placeholder": "Ask or request something…",
+      "placeholder": "Ask or request something… use @ to mention",
       "attach": "Attach a CSV or Excel to import",
       "send": "Send (Enter)",
       "stop": "Stop",
@@ -149,7 +149,24 @@
         "running": "Using a tool",
         "done": "Used a tool"
       },
-      "count": "{count, plural, one {# step} other {# steps}}"
+      "count": "{count, plural, one {# step} other {# steps}}",
+      "propose_tag_merge": {
+        "running": "Preparing the merge",
+        "done": "Prepared the merge"
+      },
+      "start_tag_mapping": {
+        "running": "Preparing the mapping",
+        "done": "Prepared the mapping"
+      },
+      "search_memory": {
+        "running": "Checking memory",
+        "done": "Checked memory"
+      },
+      "propose_memory": {
+        "running": "Preparing memory",
+        "done": "Prepared memory"
+      },
+      "memories": "{count, plural, =0 {No matches} one {# memory} other {# memories}}"
     },
     "export": {
       "title": "Excel ready",
@@ -205,6 +222,95 @@
       "unavailable": "The assistant is unavailable right now. Try again in a few seconds.",
       "forbidden": "The assistant is not enabled in this workspace.",
       "generic": "The message could not be sent. Try again."
+    },
+    "merge": {
+      "title": "Merge tags",
+      "count": "{count, plural, one {# variant} other {# variants}}",
+      "receives": "Receives up to {count, plural, one {# item} other {# items}} from the variants",
+      "empty_tag": "No items",
+      "skipped": "Not found, skipped: {names}",
+      "note": "Everything under the variants moves to the tag below and the variants go away. You can undo it.",
+      "approve": "Merge",
+      "discard": "Discard",
+      "merged": "Merged into {name}",
+      "undo": "Undo",
+      "undone": "Merge undone",
+      "discarded": "Discarded",
+      "failed": "Couldn't merge the tags.",
+      "undo_failed": "Couldn't undo the merge.",
+      "not_found": "Those tags weren't found."
+    },
+    "mapping": {
+      "title": "AI mapping",
+      "loading": "Checking what there is to map…",
+      "note": "AI suggests tags and merges names spelled differently. Nothing is applied until you review it in Tags, and it can be undone. Songs already reach their artist through credits.",
+      "start": "Start mapping ({count})",
+      "start_failed": "Couldn't start the mapping.",
+      "running": "Mapping… {done} of {total}",
+      "running_note": "Keep working; this card updates when it's ready to review.",
+      "ready": "Ready to review: {tags, plural, one {# tag} other {# tags}} and {merges, plural, one {# merge} other {# merges}} suggested.",
+      "review": "Review in Tags"
+    },
+    "mentions": {
+      "title": "Mention",
+      "hint": "Most used tags · type to search contracts, songs, files and more",
+      "searching": "Results for “{query}”",
+      "empty": "No results"
+    },
+    "memory": {
+      "title": "Workspace memory",
+      "back": "Back to chat",
+      "card_title": "Save to memory",
+      "content": "What to remember",
+      "content_placeholder": "E.g.: 3BallMTY is the artist's official spelling",
+      "aliases": "Also said as",
+      "aliases_placeholder": "Other ways to say it, comma separated",
+      "kind": "Type",
+      "kinds": {
+        "fact": "Fact",
+        "rule": "Rule",
+        "glossary": "Glossary",
+        "owner": "Owner",
+        "context": "Temporary"
+      },
+      "valid_until": "Valid until (optional)",
+      "valid_until_value": "Valid until {date}",
+      "expired": "Expired on {date}",
+      "used": "{count, plural, =0 {Not used yet} one {Used # time} other {Used # times}}",
+      "similar": "Similar memories already exist:",
+      "replace": "Replaces",
+      "note_admin": "Everyone using the assistant in this workspace will take it into account. You can edit the text before saving and undo it later.",
+      "note_member": "An admin will review it before the assistant uses it.",
+      "save": "Save to memory",
+      "suggest": "Suggest to admins",
+      "discard": "Discard",
+      "saved": "Saved to memory",
+      "suggested": "Sent to admins",
+      "undo": "Undo",
+      "undone": "Memory undone",
+      "discarded": "Discarded",
+      "failed": "Couldn't save the memory.",
+      "add": "Add",
+      "pin_always": "Always keep in mind",
+      "pinned": "Always in mind",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "approve": "Approve",
+      "reject": "Reject",
+      "archive": "Archive",
+      "restore": "Restore",
+      "intro_admin": "What the assistant keeps in mind for everyone in this workspace: official spellings, owners, rules and glossary. Pinned ones go into every answer; the rest are used when a message is about that topic.",
+      "intro_member": "What the assistant keeps in mind for everyone in this workspace. You can suggest memories; an admin approves them.",
+      "tabs": {
+        "active": "Active",
+        "proposed": "Suggested",
+        "archived": "Archived"
+      },
+      "empty": {
+        "active": "No memories yet. Tell the assistant “remember that…” or add them here.",
+        "proposed": "No pending suggestions.",
+        "archived": "No archived memories."
+      }
     }
   }
 }

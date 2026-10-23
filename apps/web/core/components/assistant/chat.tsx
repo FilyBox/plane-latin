@@ -17,7 +17,7 @@ import { observer } from "mobx-react";
 import { Popover, Transition } from "@headlessui/react";
 import { AssistantRuntimeProvider, CompositeAttachmentAdapter } from "@assistant-ui/react";
 import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/react-ai-sdk";
-import { ChevronDown, History, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { Brain, ChevronDown, History, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
 import useSWR from "swr";
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
@@ -38,6 +38,8 @@ import {
   ShowDocumentsCard,
   UpdateMusicTrackCard,
 } from "./cards";
+import { MemoryView, ProposeMemoryCard } from "./memory";
+import { MergeTagsCard, StartTagMappingCard } from "./tag-cards";
 import { useAssistantPageContext } from "./page-context";
 import type { TAssistantPageContext, TContextItem } from "./page-context";
 import { buildTraceToolUIs } from "./steps";
@@ -57,6 +59,7 @@ export const AssistantChat = observer(function AssistantChat({ workspaceSlug, on
   const [session, setSession] = useState<TSession>(newSession);
   const [loadingChat, setLoadingChat] = useState(false);
   const [model, setModel] = useState<string | null>(null);
+  const [showMemory, setShowMemory] = useState(false);
 
   const { data: chats, mutate: mutateChats } = useSWR(["ASSISTANT_CHATS", workspaceSlug], () =>
     assistantService.getChats(workspaceSlug)
@@ -108,7 +111,23 @@ export const AssistantChat = observer(function AssistantChat({ workspaceSlug, on
         <div className="ml-auto flex items-center">
           <button
             type="button"
-            onClick={() => setSession(newSession())}
+            onClick={() => setShowMemory((value) => !value)}
+            className={cn(
+              "rounded-md p-1.5 hover:bg-layer-1-hover hover:text-secondary",
+              showMemory ? "bg-layer-1-hover text-accent-primary" : "text-tertiary"
+            )}
+            title={t("assistant.memory.title")}
+            aria-label={t("assistant.memory.title")}
+            aria-pressed={showMemory}
+          >
+            <Brain className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowMemory(false);
+              setSession(newSession());
+            }}
             className="rounded-md p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-secondary"
             title={t("assistant.new_chat")}
             aria-label={t("assistant.new_chat")}
@@ -126,7 +145,13 @@ export const AssistantChat = observer(function AssistantChat({ workspaceSlug, on
           </button>
         </div>
       </header>
-      <div className="min-h-0 flex-1">
+      {showMemory && (
+        <div className="min-h-0 flex-1">
+          <MemoryView workspaceSlug={workspaceSlug} onBack={() => setShowMemory(false)} />
+        </div>
+      )}
+      {/* Stays mounted under the memory view, so an answer keeps streaming. */}
+      <div className={cn("min-h-0 flex-1", showMemory && "hidden")}>
         <ChatSession
           key={session.key}
           session={session}
@@ -321,12 +346,29 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
     [workspaceSlug]
   );
 
+  // Answers that already resumed the run. The continuation is appended to the
+  // same message, which still holds the answered question: without this every
+  // finished continuation would look like a fresh answer and send again.
+  const resumed = useRef(
+    new Set(
+      // A stored chat's answered questions resumed long ago; an unanswered
+      // one still may, once the user answers it.
+      (session.messages as { parts?: { toolCallId?: string; state?: string }[] }[]).flatMap((message) =>
+        (message.parts ?? []).flatMap((part) =>
+          part.toolCallId && (part.state === "output-available" || part.state === "output-error")
+            ? [part.toolCallId]
+            : []
+        )
+      )
+    )
+  );
+
   const runtime = useChatRuntime({
     transport,
     adapters,
     messages: session.messages as never,
-    // Only a human answer resumes a paused run; resuming after server tools
-    // would loop with empty requests.
+    // Only a human answer resumes a paused run, and each answer only once;
+    // resuming after server tools would loop with empty requests.
     sendAutomaticallyWhen: ({ messages }) => {
       const last = messages[messages.length - 1];
       if (!last || last.role !== "assistant") return false;
@@ -334,11 +376,13 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
         HUMAN_INPUT_TOOLS.some(
           (name) => part.type === `tool-${name}` || (part.type === "dynamic-tool" && part.toolName === name)
         )
-      );
+      ) as { state?: string; toolCallId: string }[];
       if (human.length === 0) return false;
-      return human.every(
-        (part) => "state" in part && (part.state === "output-available" || part.state === "output-error")
-      );
+      const answered = human.every((part) => part.state === "output-available" || part.state === "output-error");
+      const fresh = human.filter((part) => !resumed.current.has(part.toolCallId));
+      if (!answered || fresh.length === 0) return false;
+      for (const part of fresh) resumed.current.add(part.toolCallId);
+      return true;
     },
     onFinish: ({ messages, isError, isAbort }) => {
       if (isError || isAbort) return;
@@ -379,6 +423,9 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
       <ExportMusicExcelCard />
       <PlanMusicImportCard />
       <UpdateMusicTrackCard />
+      <MergeTagsCard />
+      <ProposeMemoryCard />
+      <StartTagMappingCard />
       <AskUserCard />
       <ShowDocumentsCard />
       <AssistantThread
