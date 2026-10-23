@@ -128,11 +128,19 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
                         <span className="block text-13 text-primary">
                           {t(`references.ai.status.${run.status.toLowerCase()}`)}
                           {run.scope.auto && <span className="text-tertiary"> · {t("references.ai.auto_label")}</span>}
+                          {run.scope.source === "assistant" && (
+                            <span className="text-tertiary"> · {t("references.ai.assistant_label")}</span>
+                          )}
                         </span>
                         <span className="block text-11 text-tertiary">
                           {new Date(run.created_at).toLocaleString()}
-                          {run.status === "COMPLETED" &&
-                            ` · ${t("references.ai.applied_count", { count: run.counts.applied_links })}`}
+                          {run.scope.merge
+                            ? ` · ${t("references.ai.merge_summary", {
+                                variants: run.scope.merge.variants.join(", "),
+                                keep: run.scope.merge.keep,
+                              })}`
+                            : run.status === "COMPLETED" &&
+                              ` · ${t("references.ai.applied_count", { count: run.counts.applied_links })}`}
                           {run.error && ` · ${run.error}`}
                         </span>
                       </span>

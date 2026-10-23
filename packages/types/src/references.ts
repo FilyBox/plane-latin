@@ -97,14 +97,21 @@ export type TTaggingMergeProposal = { keep: string; variants: string[]; reason: 
 export type TTaggingRun = {
   id: string;
   status: TTaggingRunStatus;
-  /** auto: started by new uploads; ids: the items it read. */
-  scope: { types?: TEntityName[]; ids?: string[]; auto?: boolean };
+  /** auto: started by new uploads; ids: the items it read; source "assistant":
+   * a merge confirmed from the assistant's card. */
+  scope: {
+    types?: TEntityName[];
+    ids?: string[];
+    auto?: boolean;
+    source?: "assistant";
+    merge?: { keep: string; variants: string[] };
+  };
   progress: Record<string, number | string>;
   error: string;
   provider: string;
   created_at: string;
   finished_at: string | null;
-  counts: { tags: number; merges: number; applied_links: number };
+  counts: { tags: number; merges: number; applied_links: number; applied_merges?: number };
   proposals?: { tags: TTaggingTagProposal[]; merges: TTaggingMergeProposal[] };
 };
 

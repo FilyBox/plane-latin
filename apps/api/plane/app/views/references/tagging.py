@@ -10,22 +10,26 @@ Runs are admin-only: they can touch every module's tags at once.
 import logging
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.contract.internal import InternalBaseView
-from plane.db.models import TaggingRun, Workspace
+from plane.db.models import EntityTagLink, FileTag, TaggingRun, Workspace
+from plane.utils.shared_tags import merge_into, tag_payload
 from plane.utils.tagging import SCANNABLE, apply_run, context, count_scannable, inventory, undo_run
 from plane.utils.worker_client import WorkerTriggerError, trigger_tagging_run
 
-from .base import ReferenceBaseView
+from .base import ReferenceBaseView, _is_uuid
 
 logger = logging.getLogger("plane.api")
 
 # A run that never reported back is given up on after this long.
 STALE_MINUTES = 60
+# Variants one merge request may fold at once.
+MAX_MERGE_VARIANTS = 10
 
 
 def run_payload(run: TaggingRun, full: bool = False) -> dict:
@@ -43,6 +47,9 @@ def run_payload(run: TaggingRun, full: bool = False) -> dict:
             "tags": len((summary.get("proposals") or {}).get("tags") or []),
             "merges": len((summary.get("proposals") or {}).get("merges") or []),
             "applied_links": len((summary.get("applied") or {}).get("links") or []),
+            "applied_merges": sum(
+                len(merge.get("variants") or []) for merge in (summary.get("applied") or {}).get("merges") or []
+            ),
         },
     }
     if full:
@@ -142,6 +149,53 @@ class TaggingRunDetailEndpoint(ReferenceBaseView):
             return Response({"error": "Unknown action"}, status=status.HTTP_400_BAD_REQUEST)
         run.refresh_from_db()
         return Response(run_payload(run, full=True), status=status.HTTP_200_OK)
+
+
+class SharedTagMergeEndpoint(ReferenceBaseView):
+    """Folds variant tags into one on request (the assistant's merge card).
+
+    Recorded as an already-applied run, so it shows in the mapping history
+    and is undone exactly like a merge an AI mapping proposed.
+    """
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug):
+        ctx = self.context(slug)
+        keep_id = request.data.get("keep_id")
+        variant_ids = [str(value) for value in request.data.get("variant_ids") or []]
+        if (
+            not _is_uuid(keep_id)
+            or not variant_ids
+            or len(variant_ids) > MAX_MERGE_VARIANTS
+            or not all(_is_uuid(value) for value in variant_ids)
+        ):
+            return Response(
+                {"error": f"keep_id and 1-{MAX_MERGE_VARIANTS} variant_ids are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        tags = FileTag.objects.filter(workspace_id=ctx.workspace_id)
+        keep = tags.filter(id=keep_id).first()
+        variants = list(tags.filter(id__in=variant_ids).exclude(id=keep_id))
+        if keep is None or not variants:
+            return Response({"error": "Tags not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        with transaction.atomic():
+            record = {"keep_id": str(keep.id), "variants": []}
+            for variant in variants:
+                record["variants"].append(
+                    merge_into(ctx.workspace_id, keep, variant, source=EntityTagLink.Source.MANUAL)
+                )
+                keep.refresh_from_db()
+            now = timezone.now()
+            run = TaggingRun.objects.create(
+                workspace_id=ctx.workspace_id,
+                status=TaggingRun.Status.COMPLETED,
+                scope={"source": "assistant", "merge": {"keep": keep.name, "variants": [tag.name for tag in variants]}},
+                summary={"applied": {"links": [], "created_tags": [], "merges": [record]}},
+                started_at=now,
+                finished_at=now,
+            )
+        return Response({**run_payload(run), "keep": tag_payload(keep)}, status=status.HTTP_201_CREATED)
 
 
 # ------------------------------------------------------------ worker callbacks

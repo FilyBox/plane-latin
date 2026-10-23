@@ -200,6 +200,14 @@ export class TaggingService extends APIService {
     );
   }
 
+  /** Folds variant tags into one; recorded as an applied run, so `act(…, "undo")` reverts it. */
+  async merge(workspaceSlug: string, keepId: string, variantIds: string[]): Promise<TTaggingRun> {
+    return this.post(`/api/workspaces/${workspaceSlug}/shared-tags/merge/`, {
+      keep_id: keepId,
+      variant_ids: variantIds,
+    }).then((response) => response.data);
+  }
+
   async act(workspaceSlug: string, runId: string, action: "undo" | "discard"): Promise<TTaggingRun> {
     return this.post(`/api/workspaces/${workspaceSlug}/tagging-runs/${runId}/`, { action }).then(
       (response) => response.data

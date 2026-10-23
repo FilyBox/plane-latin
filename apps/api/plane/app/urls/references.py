@@ -16,6 +16,7 @@ from plane.app.views.references import (
     SharedTagEndpoint,
     SharedTagEntitiesEndpoint,
     SharedTagExportEndpoint,
+    SharedTagMergeEndpoint,
     InternalAssistantReferencesEndpoint,
     InternalAssistantSearchEndpoint,
     InternalAssistantTaggedEndpoint,
@@ -47,6 +48,7 @@ urlpatterns = [
         name="entity-tags",
     ),
     path("workspaces/<str:slug>/shared-tags/", SharedTagEndpoint.as_view(), name="shared-tags"),
+    path("workspaces/<str:slug>/shared-tags/merge/", SharedTagMergeEndpoint.as_view(), name="shared-tags-merge"),
     path(
         "workspaces/<str:slug>/shared-tags/<uuid:tag_id>/",
         SharedTagDetailEndpoint.as_view(),

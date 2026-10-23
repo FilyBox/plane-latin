@@ -25,6 +25,7 @@ from .tagging import (
     InternalTaggingContextEndpoint,
     InternalTaggingInventoryEndpoint,
     InternalTaggingRunEndpoint,
+    SharedTagMergeEndpoint,
     TaggingRunDetailEndpoint,
     TaggingRunEndpoint,
 )

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { observer } from "mobx-react";
-import { Navigate } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { PageHead } from "@/components/core/page-title";
@@ -18,7 +18,13 @@ const SharedTagsPage = observer(function SharedTagsPage({ params }: Route.Compon
   // The AI mapping touches every module's tags at once: admins only.
   const { allowPermissions } = useUserPermissions();
   const isAdmin = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
-  const [aiOpen, setAiOpen] = useState(false);
+  // ?mapping=1 (the assistant's "review" button) opens the AI mapping panel.
+  const [searchParams] = useSearchParams();
+  const openMapping = searchParams.get("mapping") === "1";
+  const [aiOpen, setAiOpen] = useState(openMapping);
+  useEffect(() => {
+    if (openMapping) setAiOpen(true);
+  }, [openMapping, searchParams]);
 
   if (flagsLoaded && !isWorkspaceFeatureEnabled(workspaceSlug, "references"))
     return <Navigate to={`/${workspaceSlug}`} replace />;

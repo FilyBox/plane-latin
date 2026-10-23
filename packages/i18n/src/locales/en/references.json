@@ -133,7 +133,9 @@
       },
       "auto_review": "Proposals for the {count} files uploaded recently. Review and apply what is right.",
       "auto_label": "new files",
-      "to_review": "To review"
+      "to_review": "To review",
+      "assistant_label": "from the assistant",
+      "merge_summary": "{variants} → {keep}"
     },
     "preview": {
       "details": "Tags and references"

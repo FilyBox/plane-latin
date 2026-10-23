@@ -133,7 +133,9 @@
       },
       "auto_review": "Propuestas para los {count} archivos subidos recientemente. Revisa y aplica lo que esté bien.",
       "auto_label": "archivos nuevos",
-      "to_review": "Por revisar"
+      "to_review": "Por revisar",
+      "assistant_label": "desde el asistente",
+      "merge_summary": "{variants} → {keep}"
     },
     "preview": {
       "details": "Etiquetas y referencias"
