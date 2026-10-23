@@ -30,7 +30,8 @@ import { useWorkspace } from "@/hooks/store/use-workspace";
 import { useUserPermissions } from "@/hooks/store/user";
 import { assistantService } from "@/services/assistant.service";
 import type { TAssistantChat, TAssistantStoredMessage } from "@/services/assistant.service";
-import { FileLibraryAttachmentAdapter } from "./attachments";
+import { TaggingCard, WorkItemCard } from "./action-cards";
+import { AssistantAttachmentAdapter } from "./attachments";
 import {
   AskUserCard,
   ExportMusicExcelCard,
@@ -281,6 +282,8 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
   const { allowPermissions } = useUserPermissions();
   const isAdmin = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
   const musicEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "music_catalog");
+  const libraryEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "file_library");
+  const musicImport = musicEnabled && isAdmin;
   const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
 
   // What the user is looking at, minus anything they removed from it.
@@ -342,8 +345,12 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
     [workspaceSlug]
   );
   const adapters = useMemo(
-    () => ({ attachments: new CompositeAttachmentAdapter([new FileLibraryAttachmentAdapter(workspaceSlug)]) }),
-    [workspaceSlug]
+    () => ({
+      attachments: new CompositeAttachmentAdapter([
+        new AssistantAttachmentAdapter(workspaceSlug, { musicImport, library: libraryEnabled }),
+      ]),
+    }),
+    [workspaceSlug, musicImport, libraryEnabled]
   );
 
   // Answers that already resumed the run. The continuation is appended to the
@@ -425,12 +432,14 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
       <UpdateMusicTrackCard />
       <MergeTagsCard />
       <ProposeMemoryCard />
+      <TaggingCard />
+      <WorkItemCard />
       <StartTagMappingCard />
       <AskUserCard />
       <ShowDocumentsCard />
       <AssistantThread
         suggestions={suggestions}
-        allowAttachments={musicEnabled && isAdmin}
+        allowAttachments={libraryEnabled || musicImport}
         composerAccessory={modelPicker}
         contextBar={
           <ContextBar

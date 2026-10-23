@@ -36,7 +36,7 @@
     },
     "composer": {
       "placeholder": "Pregunta o pide algo… usa @ para mencionar",
-      "attach": "Adjuntar CSV o Excel para importar",
+      "attach": "Adjuntar un archivo",
       "send": "Enviar (Enter)",
       "stop": "Detener",
       "model": "Modelo",
@@ -50,7 +50,9 @@
     },
     "attachments": {
       "download": "Descargar archivo",
-      "remove": "Quitar archivo"
+      "remove": "Quitar archivo",
+      "upload": "Subir desde tu equipo",
+      "pick": "Elegir del workspace"
     },
     "steps": {
       "working": "Trabajando…",
@@ -166,7 +168,20 @@
         "running": "Preparando la memoria",
         "done": "Preparó la memoria"
       },
-      "memories": "{count, plural, =0 {Sin coincidencias} one {# memoria} other {# memorias}}"
+      "memories": "{count, plural, =0 {Sin coincidencias} one {# memoria} other {# memorias}}",
+      "read_file": {
+        "running": "Leyendo el archivo",
+        "done": "Leyó el archivo"
+      },
+      "file_read": "{name}{pages, plural, =0 {} one { · # página} other { · # páginas}}",
+      "propose_tagging": {
+        "running": "Preparando el etiquetado",
+        "done": "Preparó el etiquetado"
+      },
+      "propose_work_item": {
+        "running": "Preparando la tarea",
+        "done": "Preparó la tarea"
+      }
     },
     "export": {
       "title": "Excel listo",
@@ -255,7 +270,12 @@
       "title": "Mencionar",
       "hint": "Etiquetas más usadas · escribe para buscar contratos, canciones, archivos y más",
       "searching": "Resultados para «{query}»",
-      "empty": "Sin resultados"
+      "empty": "Sin resultados",
+      "filter_placeholder": "Buscar para mencionar…",
+      "all": "Todo",
+      "loading": "Buscando…",
+      "type_to_search": "Escribe para buscar",
+      "chip_hint": "Abrir · Retroceso para quitar"
     },
     "memory": {
       "title": "Memoria del workspace",
@@ -310,7 +330,47 @@
         "active": "Todavía no hay memorias. Dile al asistente «recuerda que…» o agrégalas aquí.",
         "proposed": "No hay sugerencias pendientes.",
         "archived": "No hay memorias archivadas."
-      }
+      },
+      "details": "Detalles",
+      "details_placeholder": "Detalles (opcional): contexto, excepciones, pasos… El asistente los lee cuando busca en la memoria.",
+      "add_details": "Agregar detalles"
+    },
+    "ask_ai": "Preguntar a la IA",
+    "actions": {
+      "tag_title": "Poner «{tag}»",
+      "untag_title": "Quitar «{tag}»",
+      "new_tag": "Etiqueta nueva",
+      "tag_apply": "Etiquetar {count, plural, one {# elemento} other {# elementos}}",
+      "untag_apply": "Quitar de {count, plural, one {# elemento} other {# elementos}}",
+      "tagged": "{count, plural, =0 {Sin cambios: ya estaban así} one {# elemento cambiado} other {# elementos cambiados}}",
+      "work_item_title": "Nueva tarea",
+      "create": "Crear tarea",
+      "created": "Creada {key}",
+      "open": "Abrir",
+      "no_projects": "No perteneces a ningún proyecto",
+      "remove_reference": "Quitar referencia",
+      "fields": {
+        "name": "Título",
+        "description": "Descripción (opcional)",
+        "project": "Proyecto",
+        "assignee": "Responsable",
+        "no_assignee": "Sin responsable",
+        "priority": "Prioridad",
+        "due_date": "Fecha límite",
+        "references": "Referencias"
+      },
+      "priorities": {
+        "none": "Sin prioridad",
+        "low": "Baja",
+        "medium": "Media",
+        "high": "Alta",
+        "urgent": "Urgente"
+      },
+      "undo": "Deshacer",
+      "undone": "Deshecho",
+      "discard": "Descartar",
+      "discarded": "Descartado",
+      "failed": "No se pudo aplicar el cambio."
     }
   }
 }

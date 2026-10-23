@@ -34,6 +34,7 @@ import { ContractChatPanel } from "./chat/chat-panel";
 import { CONTRACT_STATUS_OPTIONS, CONTRACT_TYPE_OPTIONS, YES_NO_UNSPECIFIED_OPTIONS } from "./constants";
 import { ProcessingBadge } from "./processing-badge";
 import { RetryOptionsModal } from "./retry-options-modal";
+import { AskAssistantButton } from "@/components/assistant/ask";
 
 type Props = {
   workspaceSlug: string;
@@ -525,6 +526,14 @@ export function ContractPeekPanel(props: Props) {
             {contract && <ProcessingBadge contract={contract} activeJob={activeJob} />}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <AskAssistantButton
+              compact
+              mentions={
+                contract
+                  ? [{ type: "contract", id: contract.id, label: contract.titulo || contract.file_name || contract.id }]
+                  : []
+              }
+            />
             {/* Retry: opens the shared full-or-partial options dialog */}
             <button
               type="button"

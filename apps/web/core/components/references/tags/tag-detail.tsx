@@ -18,6 +18,7 @@ import { referencesService } from "@/services/references.service";
 import { ENTITY_ICONS, ENTITY_ORDER, entityGroupKey, tagKindKey } from "../entity-meta";
 import { EntityRow } from "../entity-row";
 import { SharedTagChip, TAG_KIND_ICONS } from "../shared-tag-chip";
+import { AskAssistantButton } from "@/components/assistant/ask";
 
 /** Items shown per type in "All"; each group links to its full list. */
 const PREVIEW = 8;
@@ -200,16 +201,19 @@ export function TagDetail({ workspaceSlug, tagId }: { workspaceSlug: string; tag
               : t("references.tags.total", { count: total })}
           </p>
         </div>
-        <Button
-          variant="primary"
-          size="lg"
-          loading={exporting}
-          disabled={(type === "all" ? total : typedCount) === 0}
-          onClick={() => void download()}
-        >
-          <Download className="size-3.5" />
-          {exportLabel}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <AskAssistantButton mentions={[{ type: "tag", id: tagId, label: data.tag.name }]} className="py-1.5" />
+          <Button
+            variant="primary"
+            size="lg"
+            loading={exporting}
+            disabled={(type === "all" ? total : typedCount) === 0}
+            onClick={() => void download()}
+          >
+            <Download className="size-3.5" />
+            {exportLabel}
+          </Button>
+        </div>
       </header>
 
       {(baseTotal ?? total) > 0 && (

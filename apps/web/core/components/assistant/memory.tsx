@@ -25,6 +25,10 @@ const KINDS: TAssistantMemoryKind[] = ["FACT", "RULE", "GLOSSARY", "OWNER", "CON
 const CARD = "min-w-0 rounded-lg border border-subtle bg-layer-1 p-3";
 const FIELD =
   "w-full rounded-md border border-subtle bg-transparent px-2 py-1.5 text-12 text-primary outline-none focus:border-accent-strong";
+// Grows with what is typed (field-sizing), between these heights.
+const NOTE = "resize-y [field-sizing:content] leading-5";
+const MAX_CONTENT = 500;
+const MAX_DETAILS = 4000;
 
 const refreshMemories = () =>
   mutateGlobal((key) => Array.isArray(key) && key[0] === "ASSISTANT_MEMORIES", undefined, { revalidate: true });
@@ -49,6 +53,7 @@ function KindBadge({ kind }: { kind: TAssistantMemoryKind }) {
 type TProposal = {
   kind?: TAssistantMemoryKind;
   content?: string;
+  details?: string;
   aliases?: string[];
   entities?: { entity_name: string; id: string }[];
   valid_until?: string;
@@ -74,6 +79,8 @@ export const ProposeMemoryCard = makeAssistantToolUI<Record<string, unknown>, TP
       }
     });
     const [content, setContent] = useState<string | null>(null);
+    const [details, setDetails] = useState<string | null>(null);
+    const [showDetails, setShowDetails] = useState(false);
     const [replaces, setReplaces] = useState<string | null>(null);
     const remember = (next: TCardState) => {
       setOutcome(next);
@@ -92,6 +99,7 @@ export const ProposeMemoryCard = makeAssistantToolUI<Record<string, unknown>, TP
     }
     const slug = result.workspace_slug;
     const text = content ?? result.content;
+    const notes = details ?? result.details ?? "";
     const busy = outcome.state === "busy";
 
     const save = async () => {
@@ -100,6 +108,7 @@ export const ProposeMemoryCard = makeAssistantToolUI<Record<string, unknown>, TP
         const saved = await assistantService.createMemory(slug, {
           kind: result.kind,
           content: text,
+          details: notes,
           aliases: result.aliases,
           entities: result.entities,
           valid_until: result.valid_until ?? null,
@@ -136,16 +145,40 @@ export const ProposeMemoryCard = makeAssistantToolUI<Record<string, unknown>, TP
           {result.kind && <KindBadge kind={result.kind} />}
         </div>
         {done ? (
-          <p className="mt-2 text-13 text-primary">{text}</p>
+          <>
+            <p className="mt-2 text-13 break-words text-primary">{text}</p>
+            {notes && <p className="mt-1 text-12 break-words whitespace-pre-wrap text-secondary">{notes}</p>}
+          </>
         ) : (
-          <textarea
-            value={text}
-            maxLength={300}
-            rows={2}
-            onChange={(event) => setContent(event.target.value)}
-            aria-label={t("assistant.memory.content")}
-            className={cn(FIELD, "mt-2 resize-none text-13")}
-          />
+          <>
+            <textarea
+              value={text}
+              maxLength={MAX_CONTENT}
+              rows={3}
+              onChange={(event) => setContent(event.target.value)}
+              aria-label={t("assistant.memory.content")}
+              className={cn(FIELD, NOTE, "mt-2 max-h-48 min-h-20 text-13")}
+            />
+            {notes || showDetails ? (
+              <textarea
+                value={notes}
+                maxLength={MAX_DETAILS}
+                rows={4}
+                onChange={(event) => setDetails(event.target.value)}
+                placeholder={t("assistant.memory.details_placeholder")}
+                aria-label={t("assistant.memory.details")}
+                className={cn(FIELD, NOTE, "mt-1.5 max-h-72 min-h-24")}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowDetails(true)}
+                className="mt-1 text-11 text-accent-primary hover:underline"
+              >
+                {t("assistant.memory.add_details")}
+              </button>
+            )}
+          </>
         )}
         {(result.aliases?.length ?? 0) > 0 && (
           <p className="mt-1 text-11 text-tertiary">
@@ -242,6 +275,7 @@ function MemoryForm({
   const { t } = useTranslation();
   const [kind, setKind] = useState<TAssistantMemoryKind>(initial?.kind ?? "FACT");
   const [content, setContent] = useState(initial?.content ?? "");
+  const [details, setDetails] = useState(initial?.details ?? "");
   const [aliases, setAliases] = useState((initial?.aliases ?? []).join(", "));
   const [validUntil, setValidUntil] = useState(initial?.valid_until ?? "");
   const [pinned, setPinned] = useState(initial?.pinned ?? false);
@@ -252,6 +286,7 @@ function MemoryForm({
       await onSubmit({
         kind,
         content,
+        details,
         aliases: splitAliases(aliases),
         valid_until: validUntil || null,
         ...(canEdit ? { pinned } : {}),
@@ -292,12 +327,21 @@ function MemoryForm({
       </div>
       <textarea
         value={content}
-        maxLength={300}
-        rows={2}
+        maxLength={MAX_CONTENT}
+        rows={3}
         onChange={(event) => setContent(event.target.value)}
         placeholder={t("assistant.memory.content_placeholder")}
         aria-label={t("assistant.memory.content")}
-        className={cn(FIELD, "resize-none text-13")}
+        className={cn(FIELD, NOTE, "max-h-48 min-h-20 text-13")}
+      />
+      <textarea
+        value={details}
+        maxLength={MAX_DETAILS}
+        rows={4}
+        onChange={(event) => setDetails(event.target.value)}
+        placeholder={t("assistant.memory.details_placeholder")}
+        aria-label={t("assistant.memory.details")}
+        className={cn(FIELD, NOTE, "max-h-72 min-h-24")}
       />
       <input
         value={aliases}
@@ -306,9 +350,9 @@ function MemoryForm({
         aria-label={t("assistant.memory.aliases")}
         className={FIELD}
       />
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {canEdit && (
-          <label className="flex cursor-pointer items-center gap-1.5 text-12 text-secondary">
+          <label className="flex cursor-pointer items-center gap-1.5 text-12 whitespace-nowrap text-secondary">
             <input
               type="checkbox"
               className="accent-accent-primary"
@@ -388,6 +432,14 @@ function MemoryRow({
           .filter(Boolean)
           .join(" · ")}
       </p>
+      {memory.details && (
+        <details className="mt-1 text-12 text-secondary">
+          <summary className="cursor-pointer text-11 text-tertiary hover:text-secondary">
+            {t("assistant.memory.details")}
+          </summary>
+          <p className="mt-1 break-words whitespace-pre-wrap">{memory.details}</p>
+        </details>
+      )}
       {memory.evidence && (
         <p className="mt-1 flex items-start gap-1 text-11 text-tertiary">
           <Quote className="mt-0.5 size-3 shrink-0" aria-hidden />

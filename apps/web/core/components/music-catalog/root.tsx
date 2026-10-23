@@ -34,6 +34,7 @@ import { formatDate } from "./import/constants";
 import { getApiError, musicDate } from "./shared";
 import { actionButton, actionLabel, MusicTableActionBar } from "./table-action-bar";
 import { MusicTrackPeekPanel } from "./track-peek-panel";
+import { AskAssistantButton } from "@/components/assistant/ask";
 
 type Props = { workspaceSlug: string };
 const PAGE_SIZE = 25;
@@ -771,17 +772,27 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                 onNext={() => setPage((current) => current + 1)}
                 onGoTo={(nextPage) => setPage(nextPage)}
                 selectionActions={
-                  referencesEnabled ? (
-                    <BulkTagMenu
-                      workspaceSlug={workspaceSlug}
-                      entityName="music_track"
-                      ids={selectedTrackIds}
-                      itemsLabel={t("references.bulk.items.music_track")}
-                      disabled={isBulkDeleting}
-                      triggerClassName={cn(actionButton, "text-secondary hover:bg-layer-1-hover")}
-                      labelClassName={actionLabel}
+                  <>
+                    {/* The selected songs on this page (at most 10) go to the assistant as mentions. */}
+                    <AskAssistantButton
+                      className={cn(actionButton, "border-0 text-secondary")}
+                      mentions={tracks
+                        .filter((track) => selectedTrackIds.includes(track.id))
+                        .slice(0, 10)
+                        .map((track) => ({ type: "music_track" as const, id: track.id, label: track.title }))}
                     />
-                  ) : undefined
+                    {referencesEnabled && (
+                      <BulkTagMenu
+                        workspaceSlug={workspaceSlug}
+                        entityName="music_track"
+                        ids={selectedTrackIds}
+                        itemsLabel={t("references.bulk.items.music_track")}
+                        disabled={isBulkDeleting}
+                        triggerClassName={cn(actionButton, "text-secondary hover:bg-layer-1-hover")}
+                        labelClassName={actionLabel}
+                      />
+                    )}
+                  </>
                 }
               />
             )}

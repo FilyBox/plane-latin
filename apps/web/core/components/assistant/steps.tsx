@@ -25,6 +25,7 @@ import {
   BookText,
   FileSearch,
   FileSpreadsheet,
+  FileText,
   FolderSearch,
   Layers,
   Link2,
@@ -58,6 +59,7 @@ export const TRACE_TOOLS = new Set([
   "search_workspace",
   "get_references",
   "search_memory",
+  "read_file",
 ]);
 
 const formatDuration = (seconds: number) =>
@@ -487,6 +489,15 @@ export function buildTraceToolUIs(slug: string) {
             .map((card) => cardRow(card, card.entity_name))}
         />
       ),
+    }),
+    traceTool("read_file", {
+      icon: FileText,
+      input: (args) => text(args?.question),
+      output: (result, t) =>
+        t("assistant.steps.file_read", {
+          name: String(result.name ?? ""),
+          pages: Number(result.pages ?? 0),
+        }),
     }),
     traceTool("search_memory", {
       icon: Brain,

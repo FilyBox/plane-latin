@@ -27,6 +27,7 @@ import { fileLibraryService } from "@/services/file-library.service";
 // local imports
 import { CollaboraEditorModal } from "./collabora-editor-modal";
 import { ProcessingBadge } from "./contracts/processing-badge";
+import { AskAssistantButton } from "@/components/assistant/ask";
 
 // Office formats Collabora can edit. Everything else is view-only.
 const EDITABLE_EXTS = new Set(["docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "odp"]);
@@ -250,6 +251,11 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                     <span className="hidden sm:inline">{t("file_library.collabora.edit")}</span>
                   </button>
                 )}
+                <AskAssistantButton
+                  compact
+                  onAsk={onClose}
+                  mentions={[{ type: "file", id: file.assetId, label: file.name }]}
+                />
                 <a
                   href={downloadUrl}
                   className="rounded-sm p-1.5 hover:bg-layer-1-hover"

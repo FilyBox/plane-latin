@@ -11,12 +11,23 @@ export type TAssistantChat = { id: string; title: string; created_at: string; up
 export type TAssistantStoredMessage = { id: string; role: "user" | "assistant"; parts: { type: string }[] };
 export type TAssistantModels = { models: { id: string; provider: string }[]; default_model: string };
 
+export type TAssistantAction = {
+  id: string;
+  kind: "TAG_ITEMS" | "UNTAG_ITEMS" | "CREATE_WORK_ITEM";
+  status: "APPLIED" | "UNDONE";
+  summary: string;
+  result: Record<string, unknown>;
+  created_at: string;
+  undone_at: string | null;
+};
+
 export type TAssistantMemoryKind = "FACT" | "RULE" | "GLOSSARY" | "OWNER" | "CONTEXT";
 export type TAssistantMemoryStatus = "PROPOSED" | "ACTIVE" | "REJECTED" | "ARCHIVED";
 export type TAssistantMemory = {
   id: string;
   kind: TAssistantMemoryKind;
   content: string;
+  details: string;
   aliases: string[];
   entities: { entity_name: string; id: string }[];
   status: TAssistantMemoryStatus;
@@ -34,7 +45,10 @@ export type TAssistantMemory = {
   updated_at: string;
 };
 export type TAssistantMemoryInput = Partial<
-  Pick<TAssistantMemory, "kind" | "content" | "aliases" | "entities" | "pinned" | "valid_until" | "evidence">
+  Pick<
+    TAssistantMemory,
+    "kind" | "content" | "details" | "aliases" | "entities" | "pinned" | "valid_until" | "evidence"
+  >
 > & { status?: TAssistantMemoryStatus; supersedes?: string | null; source?: "MANUAL" | "ASSISTANT" };
 
 /** Workspace assistant: per-user conversations and the models to run on. */
@@ -92,6 +106,17 @@ export class AssistantService extends APIService {
 
   async updateMemory(workspaceSlug: string, memoryId: string, data: TAssistantMemoryInput): Promise<TAssistantMemory> {
     return this.patch(`/api/workspaces/${workspaceSlug}/assistant/memories/${memoryId}/`, data).then(
+      (response) => response.data
+    );
+  }
+
+  /** Approved changes from the assistant's cards; each can be undone. */
+  async createAction(workspaceSlug: string, data: Record<string, unknown>): Promise<TAssistantAction> {
+    return this.post(`/api/workspaces/${workspaceSlug}/assistant/actions/`, data).then((response) => response.data);
+  }
+
+  async undoAction(workspaceSlug: string, actionId: string): Promise<TAssistantAction> {
+    return this.post(`/api/workspaces/${workspaceSlug}/assistant/actions/${actionId}/undo/`, {}).then(
       (response) => response.data
     );
   }

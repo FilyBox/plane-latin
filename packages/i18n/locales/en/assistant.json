@@ -36,7 +36,7 @@
     },
     "composer": {
       "placeholder": "Ask or request something… use @ to mention",
-      "attach": "Attach a CSV or Excel to import",
+      "attach": "Attach a file",
       "send": "Send (Enter)",
       "stop": "Stop",
       "model": "Model",
@@ -50,7 +50,9 @@
     },
     "attachments": {
       "download": "Download file",
-      "remove": "Remove file"
+      "remove": "Remove file",
+      "upload": "Upload from your computer",
+      "pick": "Pick from the workspace"
     },
     "steps": {
       "working": "Working…",
@@ -166,7 +168,20 @@
         "running": "Preparing memory",
         "done": "Prepared memory"
       },
-      "memories": "{count, plural, =0 {No matches} one {# memory} other {# memories}}"
+      "memories": "{count, plural, =0 {No matches} one {# memory} other {# memories}}",
+      "read_file": {
+        "running": "Reading the file",
+        "done": "Read the file"
+      },
+      "file_read": "{name}{pages, plural, =0 {} one { · # page} other { · # pages}}",
+      "propose_tagging": {
+        "running": "Preparing the tagging",
+        "done": "Prepared the tagging"
+      },
+      "propose_work_item": {
+        "running": "Preparing the work item",
+        "done": "Prepared the work item"
+      }
     },
     "export": {
       "title": "Excel ready",
@@ -255,7 +270,12 @@
       "title": "Mention",
       "hint": "Most used tags · type to search contracts, songs, files and more",
       "searching": "Results for “{query}”",
-      "empty": "No results"
+      "empty": "No results",
+      "filter_placeholder": "Search to mention…",
+      "all": "All",
+      "loading": "Searching…",
+      "type_to_search": "Type to search",
+      "chip_hint": "Open · Backspace to remove"
     },
     "memory": {
       "title": "Workspace memory",
@@ -310,7 +330,47 @@
         "active": "No memories yet. Tell the assistant “remember that…” or add them here.",
         "proposed": "No pending suggestions.",
         "archived": "No archived memories."
-      }
+      },
+      "details": "Details",
+      "details_placeholder": "Details (optional): context, exceptions, steps… The assistant reads them when it searches the memory.",
+      "add_details": "Add details"
+    },
+    "ask_ai": "Ask AI",
+    "actions": {
+      "tag_title": "Add “{tag}”",
+      "untag_title": "Remove “{tag}”",
+      "new_tag": "New tag",
+      "tag_apply": "Tag {count, plural, one {# item} other {# items}}",
+      "untag_apply": "Remove from {count, plural, one {# item} other {# items}}",
+      "tagged": "{count, plural, =0 {No changes: already like that} one {# item changed} other {# items changed}}",
+      "work_item_title": "New work item",
+      "create": "Create work item",
+      "created": "Created {key}",
+      "open": "Open",
+      "no_projects": "You're not in any project",
+      "remove_reference": "Remove reference",
+      "fields": {
+        "name": "Title",
+        "description": "Description (optional)",
+        "project": "Project",
+        "assignee": "Assignee",
+        "no_assignee": "No assignee",
+        "priority": "Priority",
+        "due_date": "Due date",
+        "references": "References"
+      },
+      "priorities": {
+        "none": "No priority",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "urgent": "Urgent"
+      },
+      "undo": "Undo",
+      "undone": "Undone",
+      "discard": "Discard",
+      "discarded": "Discarded",
+      "failed": "Couldn't apply the change."
     }
   }
 }

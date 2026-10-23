@@ -53,6 +53,7 @@ import { AudioPreviewRange } from "./audio-preview-range";
 import { EditableField } from "./editable-field";
 import { MusicResourcePickerModal } from "./resource-picker-modal";
 import { SearchableSelect } from "./searchable-select";
+import { AskAssistantButton } from "@/components/assistant/ask";
 
 type Props = {
   workspaceSlug: string;
@@ -823,6 +824,13 @@ export function MusicTrackPeekPanel(props: Props) {
           <div className="flex shrink-0 items-center gap-1">
             {!isCreate && (
               <>
+                {track.id && (
+                  <AskAssistantButton
+                    compact
+                    className={iconButton}
+                    mentions={[{ type: "music_track", id: track.id, label: track.title || track.id }]}
+                  />
+                )}
                 <button type="button" onClick={copySummary} className={iconButton} title="Copiar resumen">
                   <Copy className="size-3.5" />
                 </button>

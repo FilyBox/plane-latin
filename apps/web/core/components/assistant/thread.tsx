@@ -18,13 +18,14 @@ import {
   useThread,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { AlertTriangle, ArrowUp, Copy, Paperclip, Pencil, RefreshCw, Sparkles, Square } from "lucide-react";
+import { AlertTriangle, ArrowUp, Copy, Pencil, RefreshCw, Sparkles, Square } from "lucide-react";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "@plane/i18n";
 import { cn } from "@plane/utils";
-import { ComposerAttachmentsRow, MessageAttachmentsRow } from "./attachments";
+import { AttachMenu, ComposerAttachmentsRow, MessageAttachmentsRow } from "./attachments";
 import { AssistantLink } from "./links";
-import { MentionText, useComposerMentions } from "./mentions";
+import { useComposerMentions } from "./mention-composer";
+import { MentionText } from "./mentions";
 import { FallbackStep, groupThought, ReasoningStep, ThinkingBlock, useIsMessageRunning } from "./steps";
 
 const MARKDOWN_COMPONENTS = {
@@ -100,20 +101,24 @@ function UserMessage() {
 
 const USER_PARTS = { Text: MentionText };
 
+// Shared by each textarea and the chips layer drawn over it (same box metrics).
+const COMPOSER_INPUT =
+  "block max-h-40 min-h-10 w-full resize-none bg-transparent px-3 pt-2.5 text-13 leading-5 outline-none placeholder:text-placeholder";
+const EDIT_INPUT = "block max-h-40 w-full resize-none bg-transparent text-13 leading-5 outline-none";
+
 function EditComposer() {
   const { t } = useTranslation();
-  const mentions = useComposerMentions({ decodeOnMount: true });
+  const mentions = useComposerMentions({ decodeOnMount: true, inputClassName: EDIT_INPUT });
   return (
     <ComposerPrimitive.Root
       onSubmit={mentions.beforeSend}
       className="relative mx-4 my-2 rounded-lg border border-accent-strong bg-layer-1 p-2"
     >
       {mentions.popover}
-      <ComposerPrimitive.Input
-        ref={mentions.inputRef}
-        {...mentions.inputProps}
-        className="max-h-40 w-full resize-none bg-transparent text-13 outline-none"
-      />
+      <div className="relative">
+        <ComposerPrimitive.Input ref={mentions.inputRef} {...mentions.inputProps} />
+        {mentions.overlay}
+      </div>
       <div className="mt-1.5 flex justify-end gap-1.5">
         <ComposerPrimitive.Cancel className="rounded-md px-2 py-1 text-12 text-tertiary hover:bg-layer-1-hover">
           {t("cancel")}
@@ -194,7 +199,7 @@ type Props = {
 
 export function AssistantThread({ suggestions, contextBar, composerAccessory, allowAttachments }: Props) {
   const { t } = useTranslation();
-  const mentions = useComposerMentions();
+  const mentions = useComposerMentions({ inputClassName: COMPOSER_INPUT, listenForAsk: true });
   return (
     <ThreadPrimitive.Root className="flex h-full min-h-0 min-w-0 flex-col">
       <ThreadPrimitive.Viewport className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto py-2">
@@ -224,32 +229,31 @@ export function AssistantThread({ suggestions, contextBar, composerAccessory, al
         <Waiting />
       </ThreadPrimitive.Viewport>
 
-      <div className="shrink-0 px-3 pt-1 pb-3">
+      {/* Drop files anywhere on the composer to attach them. */}
+      <ComposerPrimitive.AttachmentDropzone disabled={!allowAttachments} className="group/drop shrink-0 px-3 pt-1 pb-3">
         <ComposerPrimitive.Root
           onSubmit={mentions.beforeSend}
-          className="relative rounded-xl border border-subtle bg-layer-1 transition-colors focus-within:border-accent-strong"
+          className="relative rounded-xl border border-subtle bg-layer-1 transition-colors group-data-[dragging=true]/drop:border-dashed group-data-[dragging=true]/drop:border-accent-strong group-data-[dragging=true]/drop:bg-accent-primary/5 focus-within:border-accent-strong"
         >
           {mentions.popover}
           {contextBar}
           <ComposerAttachmentsRow />
-          <ComposerPrimitive.Input
-            ref={mentions.inputRef}
-            {...mentions.inputProps}
-            rows={1}
-            placeholder={t("assistant.composer.placeholder")}
-            aria-label={t("assistant.composer.placeholder")}
-            className="block max-h-40 min-h-10 w-full resize-none bg-transparent px-3 pt-2.5 text-13 outline-none placeholder:text-placeholder"
-          />
+          <div className="relative">
+            <ComposerPrimitive.Input
+              ref={mentions.inputRef}
+              {...mentions.inputProps}
+              rows={1}
+              placeholder={t("assistant.composer.placeholder")}
+              aria-label={t("assistant.composer.placeholder")}
+            />
+            {mentions.overlay}
+          </div>
           <div className="flex items-center gap-1 px-2 pb-2">
-            {allowAttachments && (
-              <ComposerPrimitive.AddAttachment
-                className={ICON_BUTTON}
-                title={t("assistant.composer.attach")}
-                aria-label={t("assistant.composer.attach")}
-              >
-                <Paperclip className="size-4" />
-              </ComposerPrimitive.AddAttachment>
-            )}
+            <AttachMenu
+              allowUpload={allowAttachments}
+              onPickFromWorkspace={() => mentions.startMention("file")}
+              className={ICON_BUTTON}
+            />
             <div className="min-w-0 flex-1">{composerAccessory}</div>
             <ThreadPrimitive.If running={false}>
               <ComposerPrimitive.Send
@@ -272,7 +276,7 @@ export function AssistantThread({ suggestions, contextBar, composerAccessory, al
             </ThreadPrimitive.If>
           </div>
         </ComposerPrimitive.Root>
-      </div>
+      </ComposerPrimitive.AttachmentDropzone>
     </ThreadPrimitive.Root>
   );
 }
