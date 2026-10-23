@@ -58,13 +58,17 @@ def _compact_track(track):
         "videos": [
             {
                 "title": video.title,
-                "isrc_video": video.isrc_video or None,
+                "isrc_video": video.isrc_video or video.isrc or None,
+                "upc": video.upc or None,
                 "release_date": video.release_date.isoformat() if video.release_date else None,
-                "urls": [
-                    link.url for link in video.links.all() if link.kind == MusicLink.Kind.MUSIC_VIDEO
-                ],
+                "urls": [link.url for link in video.links.all()],
             }
             for video in videos
+        ],
+        # The song's own links (streaming, stores, socials).
+        "links": [
+            {"platform": link.platform or link.name, "url": link.url, "kind": link.kind}
+            for link in track.links.all()
         ],
     }
 
@@ -79,7 +83,7 @@ class InternalMusicTracksEndpoint(InternalMusicBaseView):
         params = request.query_params
         queryset = MusicTrack.objects.filter(
             workspace_id=workspace_id, parent_track__isnull=True
-        ).prefetch_related("credits__party", "release_links__release", "videos__links")
+        ).prefetch_related("credits__party", "release_links__release", "videos__links", "links")
         artist_name = params.get("artist_name")
         if artist_name:
             queryset = queryset.filter(credits__party__display_name__icontains=artist_name)

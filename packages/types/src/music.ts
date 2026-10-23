@@ -176,6 +176,9 @@ export type TMusicFilters = {
   has_lyrics?: string;
   video_from?: string;
   video_to?: string;
+  /** A video's own ISRC or UPC (partial match) */
+  video_isrc?: string;
+  video_upc?: string;
   company?: string;
   songs_only?: string;
   page?: string;

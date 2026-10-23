@@ -883,6 +883,12 @@ def _filter_tracks(queryset, params):
         queryset = queryset.filter(Exists(videos))
     if params.get("has_links") == "true":
         queryset = queryset.filter(Exists(MusicLink.objects.filter(track_id=OuterRef("pk"))))
+    # A video's own identifiers (videos are child tracks with their ISRC/UPC).
+    if params.get("video_isrc"):
+        value = params["video_isrc"].strip()
+        queryset = queryset.filter(Q(videos__isrc_video__icontains=value) | Q(videos__isrc__icontains=value))
+    if params.get("video_upc"):
+        queryset = queryset.filter(videos__upc__icontains=params["video_upc"].strip())
     if params.get("video_from"):
         queryset = queryset.filter(videos__release_date__gte=params["video_from"])
     if params.get("video_to"):
