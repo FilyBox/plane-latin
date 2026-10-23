@@ -25,7 +25,8 @@ from django.utils import timezone
 
 from plane.db.models import AssistantMemory, AssistantMemoryRevision
 
-MAX_CONTENT = 300
+MAX_CONTENT = 500
+MAX_DETAILS = 4000
 MAX_ALIASES = 10
 MAX_ENTITIES = 10
 MAX_ACTIVE = 200
@@ -63,6 +64,14 @@ def clean_content(text: str) -> str:
     return " ".join(text.split())[:MAX_CONTENT]
 
 
+def clean_details(text: str) -> str:
+    """Longer notes keep their line breaks, still without markup or links."""
+    text = _TAG_RE.sub("", str(text or ""))
+    text = _URL_RE.sub("", text)
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    return "\n".join(lines).strip()[:MAX_DETAILS]
+
+
 def clean_aliases(values) -> list[str]:
     if not isinstance(values, list):
         return []
@@ -92,6 +101,7 @@ def memory_payload(memory: AssistantMemory) -> dict:
         "id": str(memory.id),
         "kind": memory.kind,
         "content": memory.content,
+        "details": memory.details,
         "aliases": memory.aliases or [],
         "entities": memory.entities or [],
         "status": memory.status,

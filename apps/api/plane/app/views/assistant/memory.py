@@ -24,6 +24,7 @@ from plane.utils.assistant_memory import (
     archive,
     clean_aliases,
     clean_content,
+    clean_details,
     clean_entities,
     memory_payload,
     record,
@@ -105,6 +106,7 @@ class AssistantMemoriesEndpoint(BaseAPIView):
             workspace=workspace,
             kind=kind,
             content=content,
+            details=clean_details(data.get("details")),
             aliases=clean_aliases(data.get("aliases")),
             entities=clean_entities(data.get("entities")),
             pinned=pinned,
@@ -144,6 +146,9 @@ class AssistantMemoryDetailEndpoint(BaseAPIView):
                 return Response({"error": "content can't be empty"}, status=status.HTTP_400_BAD_REQUEST)
             memory.content = content
             changed.append("content")
+        if "details" in data:
+            memory.details = clean_details(data.get("details"))
+            changed.append("details")
         if data.get("kind") in AssistantMemory.Kind.values:
             memory.kind = data["kind"]
             changed.append("kind")
@@ -201,7 +206,7 @@ class InternalAssistantMemorySearchEndpoint(InternalBaseView):
         return Response(
             {
                 "results": [
-                    {key: row[key] for key in ("id", "kind", "content", "aliases", "valid_until", "pinned")}
+                    {key: row[key] for key in ("id", "kind", "content", "details", "aliases", "valid_until", "pinned")}
                     for row in results
                 ]
             },

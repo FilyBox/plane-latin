@@ -79,8 +79,11 @@ class AssistantMemory(BaseModel):
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="assistant_memories")
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.FACT)
-    # The sentence injected into the prompt; kept short on purpose.
-    content = models.CharField(max_length=300)
+    # The note injected into the prompt; kept short on purpose.
+    content = models.CharField(max_length=500)
+    # Longer notes: never injected on their own, read when the assistant
+    # searches the memory (keeps every turn cheap).
+    details = models.TextField(blank=True)
     # Other ways people say it ("el sello", "LMR"): matched against each
     # message without an LLM call.
     aliases = models.JSONField(default=list, blank=True)
@@ -131,4 +134,41 @@ class AssistantMemoryRevision(BaseModel):
         verbose_name = "Assistant Memory Revision"
         verbose_name_plural = "Assistant Memory Revisions"
         db_table = "assistant_memory_revisions"
+        ordering = ("-created_at",)
+
+
+class AssistantAction(BaseModel):
+    """A change the assistant made after the user approved it in a card.
+
+    Stores what was asked and exactly what changed, so "Undo" reverts only
+    that (and refuses when someone edited the result since). This is the
+    shared log for every write the assistant can do.
+    """
+
+    class Kind(models.TextChoices):
+        TAG_ITEMS = "TAG_ITEMS", "Tag items"
+        UNTAG_ITEMS = "UNTAG_ITEMS", "Untag items"
+        CREATE_WORK_ITEM = "CREATE_WORK_ITEM", "Create work item"
+
+    class Status(models.TextChoices):
+        APPLIED = "APPLIED", "Applied"
+        UNDONE = "UNDONE", "Undone"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="assistant_actions")
+    kind = models.CharField(max_length=30, choices=Kind.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.APPLIED)
+    # One line for the history ("Etiquetó 12 canciones con 3BallMTY").
+    summary = models.CharField(max_length=300, blank=True)
+    # What the user approved, and what actually changed (used to undo).
+    payload = models.JSONField(default=dict)
+    result = models.JSONField(default=dict)
+    undone_at = models.DateTimeField(null=True, blank=True)
+    undone_by = models.ForeignKey(
+        "db.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="undone_assistant_actions"
+    )
+
+    class Meta:
+        verbose_name = "Assistant Action"
+        verbose_name_plural = "Assistant Actions"
+        db_table = "assistant_actions"
         ordering = ("-created_at",)
