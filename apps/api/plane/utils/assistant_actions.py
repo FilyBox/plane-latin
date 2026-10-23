@@ -21,6 +21,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from plane.db.models import AssistantAction, FileTag, Issue, Project, ProjectMember
+from plane.utils.assistant_markdown import MENTION_RE
 from plane.utils.entities import REGISTRY
 from plane.utils.shared_tags import add_tag, find_or_create_tag, get_tags, remove_tag, tag_payload
 
@@ -222,6 +223,91 @@ def _undo_work_item(action: AssistantAction, user, origin: str):
 
 
 @transaction.atomic
+def create_page(ctx, user, data: dict, payload=None) -> AssistantAction:
+    """A project page written by the assistant (Markdown → editor HTML).
+
+    Mentions become the editor's mention nodes (only for items the user can
+    open), so the page links to them and shows up in their references.
+    """
+    from plane.app.serializers import PageSerializer
+    from plane.bgtasks.page_transaction_task import page_transaction
+    from plane.utils.assistant_markdown import markdown_to_html, plain_text
+    from plane.utils.references import sync_mentions
+
+    project = Project.objects.filter(workspace_id=ctx.workspace_id, id=data.get("project_id")).first()
+    if project is None:
+        raise ActionError("Project not found.")
+    if not ProjectMember.objects.filter(project=project, member=user, is_active=True, role__gte=15).exists():
+        raise ActionError("You can't create pages in this project.")
+    if not getattr(project, "page_view", True):
+        raise ActionError("Pages are turned off in this project.")
+    name = " ".join(str(data.get("name") or "").split())[:255]
+    if not name:
+        raise ActionError("The page needs a title.")
+
+    visible_cache: dict[str, set[str]] = {}
+
+    def allowed(kind: str, identifier: str) -> bool:
+        if kind not in visible_cache:
+            ids = [match.group(3) for match in MENTION_RE.finditer(str(data.get("markdown") or "")) if match.group(1) == kind]
+            visible_cache[kind] = set(_visible(ctx, kind, ids))
+        return identifier.lower() in {value.lower() for value in visible_cache[kind]}
+
+    description_html = markdown_to_html(
+        str(data.get("markdown") or "")[:120_000],
+        set(REGISTRY),
+        allowed,
+        tag_href=lambda identifier: f"/{ctx.slug}/tags/{identifier}/",
+    )
+    serializer = PageSerializer(
+        data={"name": name, "access": 1 if data.get("private") else 0},
+        context={
+            "project_id": project.id,
+            "owned_by_id": user.id,
+            "description_json": {},
+            "description_binary": None,
+            "description_html": description_html,
+        },
+    )
+    if not serializer.is_valid():
+        raise ActionError(json.dumps(serializer.errors)[:300])
+    serializer.save()
+    page_id = str(serializer.data["id"])
+    page_transaction.delay(new_description_html=description_html, old_description_html=None, page_id=page_id)
+    sync_mentions(ctx.workspace_id, "page", page_id, description_html, user.id)
+    return AssistantAction.objects.create(
+        workspace_id=ctx.workspace_id,
+        kind=AssistantAction.Kind.CREATE_PAGE,
+        summary=f"Creó la página «{name}»"[:300],
+        payload=payload or {},
+        result={
+            "page_id": page_id,
+            "project_id": str(project.id),
+            "name": name,
+            "path": f"/{ctx.slug}/projects/{project.id}/pages/{page_id}/",
+            # Words as created: undo refuses once someone changed them.
+            "text": plain_text(description_html)[:20_000],
+        },
+    )
+
+
+def _undo_page(action: AssistantAction):
+    from plane.db.models import Page
+    from plane.utils.assistant_markdown import plain_text
+
+    result = action.result or {}
+    page = Page.objects.filter(id=result.get("page_id")).first()
+    if page is None:
+        return
+    # Opening the page re-saves it in the editor's format, so compare the
+    # words rather than timestamps.
+    edited = page.name != result.get("name") or plain_text(page.description_html)[:20_000] != result.get("text")
+    if edited:
+        raise ActionError("Someone edited this page after it was created; delete it from the page itself.")
+    page.delete()
+
+
+@transaction.atomic
 def undo(action: AssistantAction, user, origin: str) -> AssistantAction:
     if action.status != AssistantAction.Status.APPLIED:
         raise ActionError("This change was already undone.")
@@ -229,6 +315,8 @@ def undo(action: AssistantAction, user, origin: str) -> AssistantAction:
         _undo_tagging(action)
     elif action.kind == AssistantAction.Kind.CREATE_WORK_ITEM:
         _undo_work_item(action, user, origin)
+    elif action.kind == AssistantAction.Kind.CREATE_PAGE:
+        _undo_page(action)
     action.status = AssistantAction.Status.UNDONE
     action.undone_at = timezone.now()
     action.undone_by = user

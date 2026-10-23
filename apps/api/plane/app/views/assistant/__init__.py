@@ -7,3 +7,4 @@ from .chats import AssistantChatDetailEndpoint, AssistantChatMessagesEndpoint, A
 from .memory import AssistantMemoriesEndpoint, AssistantMemoryDetailEndpoint, InternalAssistantMemorySearchEndpoint
 from .files import InternalAssistantFileReadEndpoint
 from .actions import AssistantActionUndoEndpoint, AssistantActionsEndpoint
+from .reports import InternalAssistantReportEndpoint

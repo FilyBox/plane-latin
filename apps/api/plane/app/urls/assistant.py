@@ -15,6 +15,7 @@ from plane.app.views.assistant import (
     AssistantMemoryDetailEndpoint,
     InternalAssistantFileReadEndpoint,
     InternalAssistantMemorySearchEndpoint,
+    InternalAssistantReportEndpoint,
 )
 
 urlpatterns = [
@@ -66,5 +67,10 @@ urlpatterns = [
         "workspaces/<str:slug>/assistant/actions/<uuid:action_id>/undo/",
         AssistantActionUndoEndpoint.as_view(),
         name="assistant-action-undo",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/report/",
+        InternalAssistantReportEndpoint.as_view(),
+        name="internal-assistant-report",
     ),
 ]
