@@ -11,7 +11,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Columns2, Loader2, Maximize2, RefreshCcw, Sparkles, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Columns2,
+  Download,
+  Loader2,
+  Maximize2,
+  MoreHorizontal,
+  RefreshCcw,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import useSWR from "swr";
 // plane imports
 import { PDFViewer } from "@plane/extend-ui";
@@ -21,7 +32,7 @@ import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/prop
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";
 import type { TContractJob, TContractRetryOptions, TContractUpdatePayload } from "@plane/types";
-import { AlertModalCore } from "@plane/ui";
+import { AlertModalCore, CustomMenu } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
 import { EntityBacklinks } from "@/components/references/references-section";
@@ -36,6 +47,7 @@ import { ProcessingBadge } from "./processing-badge";
 import { RetryOptionsModal } from "./retry-options-modal";
 import { AskAssistantButton } from "@/components/assistant/ask";
 import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
+import { downloadAssets } from "../download";
 
 type Props = {
   workspaceSlug: string;
@@ -48,6 +60,10 @@ type Props = {
   /** Set when opened outside the contracts list: go to it there */
   onOpenInSection?: () => void;
 };
+
+/** The header's icon buttons, one size so the row reads as a toolbar */
+const HEADER_ICON =
+  "flex size-7 items-center justify-center rounded-sm text-tertiary hover:bg-layer-1-hover hover:text-secondary disabled:opacity-50";
 
 type TPeekModes = "side-peek" | "modal" | "full-screen";
 /** "document" is mobile-only (desktop always shows the PDF beside the tabs) */
@@ -229,6 +245,24 @@ export function ContractPeekPanel(props: Props) {
       setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.retry.failed") });
     } finally {
       setIsActing(false);
+    }
+  };
+
+  const [isDownloading, setIsDownloading] = useState(false);
+  const handleDownload = async () => {
+    if (!contract?.file_asset_id) return;
+    setIsDownloading(true);
+    try {
+      await downloadAssets(
+        workspaceSlug,
+        [{ assetId: contract.file_asset_id, name: contract.file_name ?? `${contract.titulo ?? contract.id}.pdf` }],
+        "contrato",
+        "contract"
+      );
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.download_failed") });
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -503,77 +537,103 @@ export function ContractPeekPanel(props: Props) {
             "0px 4px 8px 0px rgba(0, 0, 0, 0.12), 0px 6px 12px 0px rgba(16, 24, 40, 0.12), 0px 1px 16px 0px rgba(16, 24, 40, 0.12)",
         }}
       >
-        {/* header */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-subtle px-3 py-2.5 sm:px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            {/* peek mode switcher (desktop) */}
-            <div className="hidden items-center gap-0.5 rounded-md border border-subtle p-0.5 lg:flex">
-              {PEEK_OPTIONS.map((option) => (
-                <Tooltip key={option.key} tooltipContent={t(option.i18nKey)}>
-                  <button
-                    type="button"
-                    onClick={() => setPeekMode(option.key)}
-                    className={cn(
-                      "rounded-sm p-1",
-                      peekMode === option.key ? "bg-layer-1 text-primary" : "text-tertiary hover:bg-layer-1-hover"
-                    )}
-                  >
-                    <option.icon className="size-3.5" />
-                  </button>
-                </Tooltip>
-              ))}
-            </div>
-            <span className="truncate text-14 font-medium">
-              {contract?.titulo ?? contract?.file_name ?? t("file_library.contracts.title")}
-            </span>
-            {contract && <ProcessingBadge contract={contract} activeJob={activeJob} />}
+        {/* header: title and status on the left; quick actions, the rest in a menu */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 py-2 sm:px-4">
+          {/* peek mode switcher (desktop) */}
+          <div className="hidden shrink-0 items-center gap-0.5 rounded-md border border-subtle p-0.5 lg:flex">
+            {PEEK_OPTIONS.map((option) => (
+              <Tooltip key={option.key} tooltipContent={t(option.i18nKey)}>
+                <button
+                  type="button"
+                  onClick={() => setPeekMode(option.key)}
+                  aria-label={t(option.i18nKey)}
+                  className={cn(
+                    "rounded-sm p-1",
+                    peekMode === option.key ? "bg-layer-1 text-primary" : "text-tertiary hover:bg-layer-1-hover"
+                  )}
+                >
+                  <option.icon className="size-3.5" />
+                </button>
+              </Tooltip>
+            ))}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-14 leading-5 font-medium" title={contract?.titulo ?? contract?.file_name ?? ""}>
+              {contract?.titulo ?? contract?.file_name ?? t("file_library.contracts.title")}
+            </p>
+            {contract && (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <ProcessingBadge contract={contract} activeJob={activeJob} />
+                {contract.file_name && contract.titulo && (
+                  <span className="min-w-0 truncate text-11 text-tertiary" title={contract.file_name}>
+                    {contract.file_name}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
             <AskAssistantButton
               compact
+              className={HEADER_ICON}
+              iconClassName="size-4"
               mentions={
                 contract
                   ? [{ type: "contract", id: contract.id, label: contract.titulo || contract.file_name || contract.id }]
                   : []
               }
             />
-            {/* Retry: opens the shared full-or-partial options dialog */}
-            <button
-              type="button"
-              onClick={() => setIsRetryModalOpen(true)}
-              disabled={isActing || !!activeJob}
-              className="flex items-center gap-1 rounded-sm border border-subtle px-2 py-1 text-12 hover:bg-layer-1-hover disabled:opacity-50"
-              title={t("file_library.contracts.retry.hint")}
-            >
-              <RefreshCcw className="size-3.5" />
-              <span className="hidden sm:inline">{t("file_library.contracts.retry.button")}</span>
-            </button>
-            {/* Reanalyze (proposes, doesn't overwrite) */}
-            <button
-              type="button"
-              onClick={handleReanalyze}
-              disabled={isActing || !!activeJob || !contract?.text_extracted_at}
-              className="flex items-center gap-1 rounded-sm border border-subtle px-2 py-1 text-12 hover:bg-layer-1-hover disabled:opacity-50"
-              title={t("file_library.contracts.reanalyze.hint")}
-            >
-              <Sparkles className="size-3.5" />
-              <span className="hidden sm:inline">{t("file_library.contracts.reanalyze.button")}</span>
-            </button>
-            <Tooltip tooltipContent={t("file_library.contracts.delete.button")}>
+            <Tooltip tooltipContent={t("file_library.download")}>
               <button
                 type="button"
-                onClick={() => setIsDeleteModalOpen(true)}
-                disabled={isActing || !contract}
-                aria-label={t("file_library.contracts.delete.button")}
-                className="rounded-sm p-1.5 text-tertiary hover:bg-layer-1-hover hover:text-danger-primary disabled:opacity-50"
+                onClick={() => void handleDownload()}
+                disabled={!contract?.file_asset_id || isDownloading}
+                aria-label={t("file_library.download")}
+                className={HEADER_ICON}
               >
-                <Trash2 className="size-4" />
+                {isDownloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
               </button>
             </Tooltip>
-            <PeekLinkActions onOpenInSection={onOpenInSection} />
-            <button type="button" onClick={onClose} className="rounded-sm p-1.5 hover:bg-layer-1-hover">
-              <X className="size-4" />
-            </button>
+            <PeekLinkActions onOpenInSection={onOpenInSection} className={HEADER_ICON} />
+            <CustomMenu
+              customButton={
+                <span className={HEADER_ICON} aria-hidden>
+                  <MoreHorizontal className="size-4" />
+                </span>
+              }
+              customButtonClassName="rounded-sm"
+              placement="bottom-end"
+              ariaLabel={t("file_library.contracts.workflow.common.actions")}
+              closeOnSelect
+            >
+              <CustomMenu.MenuItem onClick={() => setIsRetryModalOpen(true)} disabled={isActing || !!activeJob}>
+                <span className="flex items-start gap-2" title={t("file_library.contracts.retry.hint")}>
+                  <RefreshCcw className="mt-0.5 size-3.5 shrink-0" />
+                  {t("file_library.contracts.retry.button")}
+                </span>
+              </CustomMenu.MenuItem>
+              <CustomMenu.MenuItem
+                onClick={() => void handleReanalyze()}
+                disabled={isActing || !!activeJob || !contract?.text_extracted_at}
+              >
+                <span className="flex items-start gap-2" title={t("file_library.contracts.reanalyze.hint")}>
+                  <Sparkles className="mt-0.5 size-3.5 shrink-0" />
+                  {t("file_library.contracts.reanalyze.button")}
+                </span>
+              </CustomMenu.MenuItem>
+              <CustomMenu.MenuItem onClick={() => setIsDeleteModalOpen(true)} disabled={isActing || !contract}>
+                <span className="flex items-center gap-2 text-danger-primary">
+                  <Trash2 className="size-3.5" />
+                  {t("file_library.contracts.delete.button")}
+                </span>
+              </CustomMenu.MenuItem>
+            </CustomMenu>
+            <span className="mx-1 h-4 shrink-0 border-l border-subtle" aria-hidden />
+            <Tooltip tooltipContent={t("close")}>
+              <button type="button" onClick={onClose} aria-label={t("close")} className={HEADER_ICON}>
+                <X className="size-4" />
+              </button>
+            </Tooltip>
           </div>
         </div>
 

@@ -12,6 +12,7 @@ import { useCallback } from "react";
 import { Sparkles } from "lucide-react";
 import { useParams } from "react-router";
 import { useTranslation } from "@plane/i18n";
+import { Tooltip } from "@plane/propel/tooltip";
 import { cn } from "@plane/utils";
 import { useAppTheme } from "@/hooks/store/use-app-theme";
 import type { TMention } from "./mentions";
@@ -56,23 +57,24 @@ type Props = {
   className?: string;
   /** Runs first, e.g. to close a modal covering the panel. */
   onAsk?: () => void;
+  /** Icon size, to match the header's other buttons */
+  iconClassName?: string;
 };
 
-export function AskAssistantButton({ mentions, compact = false, className, onAsk }: Props) {
+export function AskAssistantButton({ mentions, compact = false, className, onAsk, iconClassName }: Props) {
   const { t } = useTranslation();
   const { workspaceSlug } = useParams();
   const available = useAssistantAvailable(workspaceSlug?.toString());
   const ask = useAskAssistant();
   if (!available || mentions.length === 0) return null;
   const label = t("assistant.ask_ai");
-  return (
+  const button = (
     <button
       type="button"
       onClick={() => {
         onAsk?.();
         ask({ mentions });
       }}
-      title={label}
       aria-label={label}
       className={cn(
         "flex shrink-0 items-center gap-1.5 rounded-md text-12 text-secondary hover:bg-layer-1-hover hover:text-accent-primary",
@@ -80,8 +82,10 @@ export function AskAssistantButton({ mentions, compact = false, className, onAsk
         className
       )}
     >
-      <Sparkles className="size-3.5 shrink-0" />
+      <Sparkles className={cn("size-3.5 shrink-0", iconClassName)} />
       {!compact && <span className="whitespace-nowrap">{label}</span>}
     </button>
   );
+  // Icon only: the same tooltip as the buttons beside it (the label is visible otherwise)
+  return compact ? <Tooltip tooltipContent={label}>{button}</Tooltip> : button;
 }
