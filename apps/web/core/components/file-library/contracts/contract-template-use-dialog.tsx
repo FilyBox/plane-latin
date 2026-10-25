@@ -32,11 +32,24 @@ type Props = {
   onClose: () => void;
   onPrepared: (request: TContractSignatureRequest) => void;
   initialRevisionId?: string;
+  /** Prefills the contract title; defaults to the template name. */
+  initialTitle?: string;
 };
 
 type PreparedRecipient = Partial<TContractAuthoringRecipient> & { clientKey: string };
 
 const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/**
+ * A variant (or one of its saved versions) can be used once it has signature
+ * fields placed and participants defined — without them the contract has
+ * nowhere to be signed.
+ */
+export function isTemplateSourceReady(
+  source: Pick<TContractTemplateVariant, "signature_blueprint" | "recipient_blueprint"> | undefined
+) {
+  return Boolean(source && source.signature_blueprint.length > 0 && source.recipient_blueprint.length > 0);
+}
 
 const roleLabelKey: Record<TContractAuthoringRecipient["role"], string> = {
   SIGNER: "file_library.contracts.workflow.roles.signer",
@@ -54,10 +67,11 @@ export function ContractTemplateUseDialog({
   onClose,
   onPrepared,
   initialRevisionId,
+  initialTitle,
 }: Props) {
   const { t } = useTranslation();
   const selectedSource = initialRevisionId ?? "CURRENT";
-  const [title, setTitle] = useState(templateName);
+  const [title, setTitle] = useState(initialTitle ?? templateName);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [omittedVariableKeys, setOmittedVariableKeys] = useState<string[]>([]);
   const [recipients, setRecipients] = useState<PreparedRecipient[]>([]);

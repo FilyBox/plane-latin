@@ -33,6 +33,7 @@ import type { TAssistantChat, TAssistantStoredMessage } from "@/services/assista
 import { TaggingCard, WorkItemCard } from "./action-cards";
 import { ActionsView } from "./actions-view";
 import { DeepReviewCard } from "./deep-review-card";
+import { AssistantHelp } from "./help";
 import { PageCard, ReportCard } from "./page-card";
 import { AssistantAttachmentAdapter } from "./attachments";
 import {
@@ -476,9 +477,10 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
         allowAttachments={libraryEnabled || musicImport}
         composerAccessory={modelPicker}
         composerTrailing={
-          isAdmin ? (
-            <AssistantUsageMeter workspaceSlug={workspaceSlug} turns={turns} finishedRuns={finishedRuns} />
-          ) : undefined
+          <>
+            <AssistantHelp music={musicEnabled} />
+            {isAdmin && <AssistantUsageMeter workspaceSlug={workspaceSlug} turns={turns} finishedRuns={finishedRuns} />}
+          </>
         }
         contextBar={
           <ContextBar

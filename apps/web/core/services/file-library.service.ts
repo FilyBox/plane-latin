@@ -235,7 +235,9 @@ export class FileLibraryService extends APIService {
     uploadProgressHandler?: AxiosRequestConfig["onUploadProgress"],
     folderId?: string | null,
     scope?: "music",
-    attributes?: Record<string, string>
+    attributes?: Record<string, string>,
+    /** sha256 hex of the file, used to spot duplicate contracts */
+    contentHash?: string
   ): Promise<TLibraryFileUploadResponse> {
     const fileMetaData = await getFileMetaDataForUpload(file);
     return this.post(`/api/workspaces/${workspaceSlug}/file-library/files/`, {
@@ -243,6 +245,7 @@ export class FileLibraryService extends APIService {
       folder_id: folderId ?? undefined,
       scope,
       attributes,
+      content_hash: contentHash,
     })
       .then(async (response) => {
         const uploadResponse: TLibraryFileUploadResponse = response?.data;

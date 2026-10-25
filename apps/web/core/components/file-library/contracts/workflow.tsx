@@ -35,6 +35,7 @@ import { AlertModalCore, CustomMenu, EModalPosition, EModalWidth, ModalCore } fr
 import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
 import { downloadAssets } from "../download";
+import { ContractTemplateDetailsDialog } from "./contract-template-details-dialog";
 import { ContractBulkActionsBar, ContractSelectionCheckbox } from "./list-controls";
 import { ContractEmptyState, ContractField, ContractInput, ContractLoading, ContractTextarea } from "./ui";
 
@@ -60,6 +61,7 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [created, setCreated] = useState<CreatedTemplate>();
   const [deletingTemplate, setDeletingTemplate] = useState<TContractTemplate>();
+  const [editingTemplate, setEditingTemplate] = useState<TContractTemplate>();
   const [isDeleting, setIsDeleting] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -328,6 +330,9 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
                           <CustomMenu.MenuItem onClick={() => goToTemplate(template.id)}>
                             {t("file_library.contracts.workflow.templates.open_named", { name: template.name })}
                           </CustomMenu.MenuItem>
+                          <CustomMenu.MenuItem onClick={() => setEditingTemplate(template)}>
+                            {t("file_library.contracts.workflow.templates.edit_details")}
+                          </CustomMenu.MenuItem>
                           <CustomMenu.MenuItem onClick={() => void downloadTemplates([template])}>
                             {t("file_library.download")}
                           </CustomMenu.MenuItem>
@@ -473,6 +478,15 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
         )}
       </ModalCore>
 
+      <ContractTemplateDetailsDialog
+        workspaceSlug={workspaceSlug}
+        template={editingTemplate}
+        onClose={() => setEditingTemplate(undefined)}
+        onSaved={() => {
+          setEditingTemplate(undefined);
+          void mutate();
+        }}
+      />
       <AlertModalCore
         isOpen={Boolean(deletingTemplate)}
         handleClose={() => setDeletingTemplate(undefined)}

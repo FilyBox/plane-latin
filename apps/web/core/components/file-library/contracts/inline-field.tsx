@@ -12,7 +12,7 @@
  */
 
 import { useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { PencilLine } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { cn } from "@plane/utils";
@@ -29,6 +29,10 @@ type Common = {
   label: string;
   /** Edited and not saved yet */
   changed?: boolean;
+  /** Shows the value without the editor (guests) */
+  readOnly?: boolean;
+  /** Next to the label, e.g. "see in document" */
+  labelExtra?: ReactNode;
 };
 
 type Props = Common &
@@ -59,7 +63,7 @@ function fit(element: HTMLTextAreaElement | null) {
 
 export function InlineField(props: Props) {
   const { t, currentLocale } = useTranslation();
-  const { label, changed } = props;
+  const { label, changed, readOnly, labelExtra } = props;
   const [editing, setEditing] = useState(false);
   // What the field held when editing started, for Escape
   const before = useRef<string | null>(null);
@@ -122,9 +126,14 @@ export function InlineField(props: Props) {
             {t("file_library.contracts.fields.unsaved")}
           </span>
         )}
+        {labelExtra ? <span className="ml-auto flex items-center gap-1">{labelExtra}</span> : null}
       </div>
 
-      {!editing ? (
+      {readOnly ? (
+        <p className={cn(BOX, "border-transparent break-words whitespace-pre-wrap")}>
+          <span className={cn(!shown && "text-placeholder")}>{shown || "—"}</span>
+        </p>
+      ) : !editing ? (
         <button
           type="button"
           onClick={start}

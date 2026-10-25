@@ -9,7 +9,7 @@
  * embedding resources.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Loader2, RefreshCcw } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
@@ -27,15 +27,29 @@ type Props = {
   onConfirm: (options: TContractRetryOptions) => Promise<void> | void;
   /** How many contracts this retry applies to (bulk) — 1 for the peek panel */
   count?: number;
+  /** Opens on "specific stages" with these ticked (e.g. the stage that failed) */
+  initialSelection?: TContractRetryOptions;
+  /** The contract already has its text: a full retry reuses it */
+  hasText?: boolean;
 };
 
 export function RetryOptionsModal(props: Props) {
-  const { isOpen, onClose, onConfirm, count = 1 } = props;
+  const { isOpen, onClose, onConfirm, count = 1, initialSelection, hasText = false } = props;
   const { t } = useTranslation();
   // states
   const [mode, setMode] = useState<"full" | "partial">("full");
   const [selection, setSelection] = useState<TContractRetryOptions>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Preselect on open (the failed stage, from the error banner)
+  const initialKey = JSON.stringify(initialSelection ?? null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const hasInitial = initialSelection && Object.values(initialSelection).some(Boolean);
+    setMode(hasInitial ? "partial" : "full");
+    setSelection(hasInitial ? { ...initialSelection } : {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialKey]);
 
   const hasPartialSelection = Object.values(selection).some(Boolean);
 
@@ -92,7 +106,13 @@ export function RetryOptionsModal(props: Props) {
             </span>
             <span>
               <span className="block text-13 font-medium">{t("file_library.contracts.retry.full_title")}</span>
-              <span className="block text-11 text-tertiary">{t("file_library.contracts.retry.full_description")}</span>
+              <span className="block text-11 text-tertiary">
+                {t(
+                  hasText
+                    ? "file_library.contracts.retry.full_description_reuse"
+                    : "file_library.contracts.retry.full_description"
+                )}
+              </span>
             </span>
           </button>
 

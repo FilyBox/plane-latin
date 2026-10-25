@@ -8,7 +8,24 @@
 
 export type TContractProcessingStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "ERROR";
 export type TContractStatus = "VIGENTE" | "FINALIZADO" | "NO_ESPECIFICADO";
-export type TContractType = "ARRENDAMIENTOS" | "ALQUILERES" | "VEHICULOS" | "SERVICIOS" | "ARTISTAS";
+export type TContractType =
+  | "ARRENDAMIENTOS"
+  | "ALQUILERES"
+  | "VEHICULOS"
+  | "SERVICIOS"
+  | "ARTISTAS"
+  | "REPRESENTACION"
+  | "PRODUCCION"
+  | "EDICION"
+  | "LICENCIA"
+  | "DISTRIBUCION"
+  | "CESION_DERECHOS"
+  | "COLABORACION"
+  | "EVENTOS"
+  | "PATROCINIO"
+  | "CONFIDENCIALIDAD"
+  | "LABORAL"
+  | "OTRO";
 export type TYesNoUnspecified = "SI" | "NO" | "NO_ESPECIFICADO";
 /** The sidebar subsets of the analyzed list. Vigente/vencido is decided by the
  * effective end date on the server; editorial contracts live only in their own. */
@@ -50,9 +67,64 @@ export type TContract = {
   periodo_retencion: TYesNoUnspecified | null;
   retention_period_description: string | null;
   retention_period_duration: string | null;
+  /** Re-analysis proposal waiting for review */
+  has_proposal?: boolean;
+  /** Days until fecha_fin_efectiva (negative once past), null when undated */
+  days_to_expiry?: number | null;
   created_at: string;
   updated_at: string;
 };
+
+/** Where a field's value appears in the document (detail only) */
+export type TContractEvidence = {
+  quote: string;
+  page: number | null;
+  /** e.g. a year-only date */
+  approximate?: boolean;
+  /** derived, e.g. the end date from a stated duration */
+  computed?: boolean;
+};
+
+export type TContractProposedChange = {
+  field: string;
+  current: unknown;
+  proposed: unknown;
+};
+
+/** GET contracts/{id}/ */
+export type TContractDetail = TContract & {
+  evidence?: Record<string, TContractEvidence>;
+  proposed_changes?: TContractProposedChange[];
+  source_request_id?: string | null;
+  source_template_id?: string | null;
+  content_hash?: string | null;
+};
+
+/** List response when `per_page` is sent */
+export type TContractPage = {
+  results: TContract[];
+  next_cursor: string | null;
+  total: number;
+};
+
+export type TContractDuplicateCheck = {
+  results: { name: string; duplicate_of: { id: string; titulo: string | null; file_name: string | null } | null }[];
+};
+
+/** Fields the bulk "update" action accepts */
+export type TContractBulkUpdateFields = Partial<
+  Pick<
+    TContract,
+    | "tipo_contrato"
+    | "estatus_contrato"
+    | "es_editorial"
+    | "es_notariado"
+    | "artistas"
+    | "nombre_grupo"
+    | "fecha_inicio"
+    | "fecha_fin"
+  >
+>;
 
 export type TContractUpdatePayload = Partial<
   Pick<
@@ -82,7 +154,53 @@ export type TContractUpdatePayload = Partial<
   >
 >;
 
-export type TContractJobStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+export type TContractJobStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+
+/** Pipeline step codes in job.current_stage (legacy rows may hold free text) */
+export type TContractStageCode =
+  | "queued"
+  | "starting"
+  | "extracting_text"
+  | "waiting_ocr"
+  | "collecting_text"
+  | "embedding"
+  | "analyzing"
+  | "saving"
+  | "classifying"
+  | "syncing_tags"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | "timeout";
+
+export type TContractJobStep = {
+  code: string;
+  started_at: string | null;
+  finished_at: string | null;
+  status: "running" | "done" | "failed";
+};
+
+export type TContractUsageCall = {
+  prompt: string;
+  model: string;
+  input_tokens: number;
+  cached_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+};
+
+export type TContractJobUsage = {
+  calls: TContractUsageCall[];
+  total_cost_usd: number;
+};
+
+export type TContractJobMetadata = {
+  steps?: TContractJobStep[];
+  usage?: TContractJobUsage;
+  detail?: string;
+  detail_data?: Record<string, number>;
+  [key: string]: unknown;
+};
 export type TContractJobTaskType = "EXTRACT_FULL" | "RETRY_PARTIAL" | "REANALYZE" | "QUERY";
 
 export type TContractJob = {
@@ -96,7 +214,7 @@ export type TContractJob = {
   current_stage: string | null;
   workflow_instance_id: string | null;
   error: { message?: string; stage?: string } | null;
-  metadata: Record<string, unknown> | null;
+  metadata: TContractJobMetadata | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -132,6 +250,8 @@ export type TContractRetryOptions = {
   extract_thumbnail?: boolean;
   /** AI-free: resyncs ARTIST/GROUP/PERSON tags from the contract's stored fields */
   tags?: boolean;
+  /** Re-runs only the type/editorial classification */
+  classify?: boolean;
 };
 
 export type TContractChatMode = "GENERAL" | "CONTRACT";
@@ -195,6 +315,8 @@ export type TContractFilters = {
   tags?: string[];
   fecha_fin_efectiva_after?: string;
   fecha_fin_efectiva_before?: string;
+  /** Effective end within the next N days */
+  vence_en?: number;
   order?:
     | "-created_at"
     | "-updated_at"
@@ -204,7 +326,9 @@ export type TContractFilters = {
     | "fecha_inicio"
     | "-fecha_inicio"
     | "fecha_fin"
-    | "-fecha_fin";
+    | "-fecha_fin"
+    | "fin_efectiva"
+    | "-fin_efectiva";
 };
 
 export type TContractFieldType =
@@ -503,4 +627,25 @@ export type TContractSignatureRequest = {
   signing_details: TContractSigningDetails | null;
   created_at: string;
   updated_at: string;
+};
+
+/** PATCH contract-templates/{id}/ — only the fields being changed. */
+export type TContractTemplateUpdatePayload = {
+  name?: string;
+  description?: string;
+};
+
+/** PATCH contract-variants/{id}/ */
+export type TContractVariantUpdatePayload = {
+  name: string;
+};
+
+/**
+ * Error thrown by template / signature-request actions: the API body plus the
+ * HTTP status, so callers can tell "not implemented yet" (501) apart.
+ */
+export type TContractActionError = {
+  error?: string;
+  detail?: string;
+  status?: number;
 };

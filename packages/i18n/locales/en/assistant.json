@@ -61,6 +61,23 @@
       "gauge": "{percent}% left of the highest balance seen",
       "error": "Could not read the balance"
     },
+    "help": {
+      "label": "What the assistant can do",
+      "all_contracts": "Analyze every contract",
+      "all_contracts_example": "Analyze all contracts and tell me which ones expire this year",
+      "all_contracts_note": "It shows a cost estimate and asks you to confirm first. Admins only.",
+      "also": "It can also",
+      "search": "Find and summarize contracts",
+      "search_example": "Find the distribution contracts and summarize them",
+      "pages": "Create pages with linked tables",
+      "pages_example": "Create a page with a table of the contracts that expire this year",
+      "tasks": "Create tasks",
+      "tasks_example": "Create a task to renew the contracts that expire next month",
+      "tags": "Tag items",
+      "tags_example": "Tag the license contracts with “Licenses”",
+      "music": "Look up the music catalog",
+      "music_example": "Which songs released in 2024 have no ISRC?"
+    },
     "context": {
       "tag": "Tag",
       "work_item": "Work item",

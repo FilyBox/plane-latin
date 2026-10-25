@@ -99,6 +99,8 @@ export type PDFViewerHandle = {
     options?: ScrollToOptions
   ) => void;
   getViewportElement: () => HTMLDivElement | null;
+  /** Highlights the first match of `query` and scrolls to it; resolves false when there is none. */
+  searchText: (query: string) => Promise<boolean>;
 };
 
 export type PDFViewerProps = {
@@ -1636,6 +1638,7 @@ function PDFViewerInner({
 }: PDFViewerInnerProps) {
   const { registry } = useRegistry();
   const { state: scrollState, provides: scroll } = useScroll(documentId);
+  const { provides: search } = useSearch(documentId);
   const { state: zoomState, provides: zoom } = useZoom(documentId);
   const { provides: thumbnails } = useThumbnailCapability();
   const { plugin: thumbnailPlugin } = useThumbnailPlugin();
@@ -1811,8 +1814,36 @@ function PDFViewerInner({
         });
       },
       getViewportElement: () => viewportElementRef.current,
+      searchText: (query) =>
+        new Promise<boolean>((resolve) => {
+          const text = query.trim();
+          if (!search || !text) {
+            resolve(false);
+            return;
+          }
+          search.startSearch();
+          search.searchAllPages(text).wait(
+            (result) => {
+              const first = result.results[0];
+              if (!first) {
+                search.stopSearch();
+                resolve(false);
+                return;
+              }
+              search.goToResult(0);
+              const rect = first.rects[0];
+              scroll?.scrollToPage({
+                pageNumber: first.pageIndex + 1,
+                ...(rect ? { pageCoordinates: { x: rect.origin.x, y: rect.origin.y }, alignY: 30 } : {}),
+                behavior: "smooth",
+              });
+              resolve(true);
+            },
+            () => resolve(false)
+          );
+        }),
     }),
-    [pdfDocument, scroll, scrollToPage]
+    [pdfDocument, scroll, scrollToPage, search]
   );
 
   const handleDownload = React.useCallback(async () => {

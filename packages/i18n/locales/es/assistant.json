@@ -61,6 +61,23 @@
       "gauge": "Queda el {percent} % del saldo más alto registrado",
       "error": "No se pudo leer el saldo"
     },
+    "help": {
+      "label": "Qué puede hacer el asistente",
+      "all_contracts": "Analizar todos los contratos",
+      "all_contracts_example": "Analiza todos los contratos y dime cuáles vencen este año",
+      "all_contracts_note": "Primero muestra un costo estimado y pide confirmar. Solo administradores.",
+      "also": "También puede",
+      "search": "Buscar y resumir contratos",
+      "search_example": "Busca los contratos de distribución y resúmelos",
+      "pages": "Crear páginas con tablas enlazadas",
+      "pages_example": "Crea una página con una tabla de los contratos que vencen este año",
+      "tasks": "Crear tareas",
+      "tasks_example": "Crea una tarea para renovar los contratos que vencen el próximo mes",
+      "tags": "Etiquetar",
+      "tags_example": "Etiqueta los contratos de licencia con «Licencias»",
+      "music": "Consultar el catálogo musical",
+      "music_example": "¿Qué canciones lanzadas en 2024 no tienen ISRC?"
+    },
     "context": {
       "tag": "Etiqueta",
       "work_item": "Elemento de trabajo",

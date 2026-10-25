@@ -11,6 +11,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Ban,
+  BellRing,
+  Copy,
   Download,
   FileCheck2,
   Link2,
@@ -26,26 +29,35 @@ import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TContractSignatureRequest } from "@plane/types";
-import { CustomMenu } from "@plane/ui";
+import type { TContractActionError, TContractSignatureRequest } from "@plane/types";
+import { AlertModalCore, CustomMenu } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
 import { downloadAssets } from "../download";
 import { ContractDeleteDialog } from "./contract-delete-dialog";
 import { ContractRequestPeek } from "./contract-request-peek";
-import {
-  ContractBulkActionsBar,
-  ContractSelectionCheckbox,
-} from "./list-controls";
+import { ContractBulkActionsBar, ContractSelectionCheckbox } from "./list-controls";
 import { ContractEmptyState, ContractLoading, RequestStatusBadge } from "./ui";
 
 type Props = { workspaceSlug: string };
-type StatusFilter =
-  | "ALL"
-  | "IN_PROGRESS"
-  | "COMPLETED"
-  | "DRAFTS"
-  | "ATTENTION";
+type RequestAction = "cancel" | "remind" | "duplicate";
+
+const ACTION_TOAST_KEYS: Record<RequestAction, { success: string; failed: string }> = {
+  cancel: {
+    success: "file_library.contracts.workflow.documents.cancel_success",
+    failed: "file_library.contracts.workflow.documents.cancel_failed",
+  },
+  remind: {
+    success: "file_library.contracts.workflow.documents.remind_success",
+    failed: "file_library.contracts.workflow.documents.remind_failed",
+  },
+  duplicate: {
+    success: "file_library.contracts.workflow.documents.duplicate_success",
+    failed: "file_library.contracts.workflow.documents.duplicate_failed",
+  },
+};
+
+type StatusFilter = "ALL" | "IN_PROGRESS" | "COMPLETED" | "DRAFTS" | "ATTENTION";
 
 const STATUS_LABEL_KEYS: Record<TContractSignatureRequest["status"], string> = {
   DRAFT: "file_library.contracts.workflow.request_status.draft",
@@ -81,8 +93,7 @@ const FILTERS: {
   {
     key: "DRAFTS",
     labelKey: "file_library.contracts.workflow.documents.filter_drafts",
-    match: (r) =>
-      r.status === "DRAFT" || r.status === "READY" || r.status === "PREPARING",
+    match: (r) => r.status === "DRAFT" || r.status === "READY" || r.status === "PREPARING",
   },
   {
     key: "ATTENTION",
@@ -91,16 +102,14 @@ const FILTERS: {
   },
 ];
 
-const isCompletedSignerStatus = (status: string) =>
-  ["SIGNED", "APPROVED", "COMPLETED"].includes(status);
+const isCompletedSignerStatus = (status: string) => ["SIGNED", "APPROVED", "COMPLETED"].includes(status);
 
 /** Compact "x minutes ago" without pulling in a date library. */
 function useRelativeTime() {
   const { t } = useTranslation();
   return (iso: string) => {
     const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-    if (minutes < 1)
-      return t("file_library.contracts.workflow.documents.updated_just_now");
+    if (minutes < 1) return t("file_library.contracts.workflow.documents.updated_just_now");
     if (minutes < 60)
       return t("file_library.contracts.workflow.documents.updated_minutes", {
         count: minutes,
@@ -127,6 +136,8 @@ export function ContractDocuments({ workspaceSlug }: Props) {
   const [isBulkSyncing, setIsBulkSyncing] = useState(false);
   const [deletingRequests, setDeletingRequests] = useState<TContractSignatureRequest[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [cancellingRequest, setCancellingRequest] = useState<TContractSignatureRequest>();
+  const [actingId, setActingId] = useState<string>();
 
   const {
     data: requests,
@@ -135,7 +146,7 @@ export function ContractDocuments({ workspaceSlug }: Props) {
   } = useSWR(
     `CONTRACT_SIGNATURE_REQUESTS_${workspaceSlug}`,
     () => contractService.getSignatureRequests(workspaceSlug),
-    { refreshInterval: 15000, revalidateOnFocus: false },
+    { refreshInterval: 15000, revalidateOnFocus: false }
   );
 
   // Deep link from the template detail and from a just-sent contract.
@@ -147,25 +158,20 @@ export function ContractDocuments({ workspaceSlug }: Props) {
   }, [searchParams, setSearchParams]);
 
   const openEditor = (request: TContractSignatureRequest) =>
-    navigate(
-      `/${workspaceSlug}/file-library/contracts/documents/${request.id}/editor`,
-    );
+    navigate(`/${workspaceSlug}/file-library/contracts/documents/${request.id}/editor`);
 
   const ordered = useMemo(
-    () =>
-      [...(requests ?? [])].sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      ),
-    [requests],
+    () => [...(requests ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [requests]
   );
 
   const counts = useMemo(
     () =>
-      Object.fromEntries(
-        FILTERS.map((item) => [item.key, ordered.filter(item.match).length]),
-      ) as Record<StatusFilter, number>,
-    [ordered],
+      Object.fromEntries(FILTERS.map((item) => [item.key, ordered.filter(item.match).length])) as Record<
+        StatusFilter,
+        number
+      >,
+    [ordered]
   );
 
   const visible = useMemo(() => {
@@ -177,10 +183,8 @@ export function ContractDocuments({ workspaceSlug }: Props) {
         (!term ||
           request.title.toLowerCase().includes(term) ||
           request.signers.some(
-            (signer) =>
-              signer.name.toLowerCase().includes(term) ||
-              signer.email.toLowerCase().includes(term),
-          )),
+            (signer) => signer.name.toLowerCase().includes(term) || signer.email.toLowerCase().includes(term)
+          ))
     );
   }, [filter, ordered, search]);
 
@@ -196,27 +200,58 @@ export function ContractDocuments({ workspaceSlug }: Props) {
     } catch (error: any) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title:
-          error?.error ??
-          t("file_library.contracts.workflow.documents.sync_failed"),
+        title: error?.error ?? t("file_library.contracts.workflow.documents.sync_failed"),
       });
     } finally {
       setSyncingId(undefined);
     }
   };
 
+  /** Cancel / remind / duplicate. A 501 means the signing service does not support it yet. */
+  const runAction = async (action: RequestAction, request: TContractSignatureRequest) => {
+    setActingId(request.id);
+    try {
+      if (action === "cancel") await contractService.cancelSignatureRequest(workspaceSlug, request.id);
+      else if (action === "remind") await contractService.remindSignatureRequest(workspaceSlug, request.id);
+      else {
+        const copy = await contractService.duplicateSignatureRequest(workspaceSlug, request.id);
+        if (copy?.id) setPeekRequestId(copy.id);
+      }
+      await mutate();
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t(ACTION_TOAST_KEYS[action].success) });
+    } catch (error) {
+      const apiError = error as TContractActionError;
+      if (apiError?.status === 501)
+        setToast({
+          type: TOAST_TYPE.INFO,
+          title: t("file_library.contracts.workflow.documents.action_unavailable"),
+          message: t("file_library.contracts.workflow.documents.action_unavailable_description"),
+        });
+      else
+        setToast({
+          type: TOAST_TYPE.ERROR,
+          title: apiError?.error ?? t(ACTION_TOAST_KEYS[action].failed),
+        });
+    } finally {
+      setActingId(undefined);
+    }
+  };
+
+  const confirmCancel = async () => {
+    if (!cancellingRequest) return;
+    await runAction("cancel", cancellingRequest);
+    setCancellingRequest(undefined);
+  };
+
   const toggleSelect = (requestId: string) =>
     setSelectedIds((current) =>
-      current.includes(requestId)
-        ? current.filter((id) => id !== requestId)
-        : [...current, requestId],
+      current.includes(requestId) ? current.filter((id) => id !== requestId) : [...current, requestId]
     );
   const toggleSelectAll = () =>
     setSelectedIds((current) =>
-      visible.length > 0 &&
-      visible.every((request) => current.includes(request.id))
+      visible.length > 0 && visible.every((request) => current.includes(request.id))
         ? current.filter((id) => !visible.some((request) => request.id === id))
-        : [...new Set([...current, ...visible.map((request) => request.id)])],
+        : [...new Set([...current, ...visible.map((request) => request.id)])]
     );
 
   const downloadRequests = async (items: TContractSignatureRequest[]) => {
@@ -232,18 +267,10 @@ export function ContractDocuments({ workspaceSlug }: Props) {
           name: `${request.title}${request.status === "COMPLETED" ? "-signed" : ""}.pdf`,
         };
       })
-      .filter(
-        (target): target is { assetId: string; name: string } =>
-          target !== null,
-      );
+      .filter((target): target is { assetId: string; name: string } => target !== null);
     if (targets.length === 0) return;
     try {
-      await downloadAssets(
-        workspaceSlug,
-        targets,
-        "contratos-creados",
-        "contract",
-      );
+      await downloadAssets(workspaceSlug, targets, "contratos-creados", "contract");
     } catch {
       setToast({
         type: TOAST_TYPE.ERROR,
@@ -254,26 +281,17 @@ export function ContractDocuments({ workspaceSlug }: Props) {
 
   const syncSelected = async () => {
     const syncable = ordered.filter(
-      (request) =>
-        selectedIds.includes(request.id) &&
-        Boolean(request.documenso_envelope_id),
+      (request) => selectedIds.includes(request.id) && Boolean(request.documenso_envelope_id)
     );
     if (syncable.length === 0) return;
     setIsBulkSyncing(true);
     try {
-      await Promise.all(
-        syncable.map((request) =>
-          contractService.syncSignatureRequest(workspaceSlug, request.id),
-        ),
-      );
+      await Promise.all(syncable.map((request) => contractService.syncSignatureRequest(workspaceSlug, request.id)));
       await mutate();
       setSelectedIds([]);
       setToast({
         type: TOAST_TYPE.SUCCESS,
-        title: t(
-          "file_library.contracts.workflow.documents.bulk_sync_success",
-          { count: syncable.length },
-        ),
+        title: t("file_library.contracts.workflow.documents.bulk_sync_success", { count: syncable.length }),
       });
     } catch {
       setToast({
@@ -319,9 +337,7 @@ export function ContractDocuments({ workspaceSlug }: Props) {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder={t(
-                "file_library.contracts.workflow.documents.search_placeholder",
-              )}
+              placeholder={t("file_library.contracts.workflow.documents.search_placeholder")}
               className="w-36 rounded-md border border-subtle bg-transparent py-1.5 pr-2 pl-8 text-12 sm:w-64"
             />
           </div>
@@ -344,9 +360,7 @@ export function ContractDocuments({ workspaceSlug }: Props) {
             onClick={() => void downloadRequests(ordered)}
           >
             <Download className="size-3.5" />
-            <span className="hidden lg:inline">
-              {t("file_library.download_all")}
-            </span>
+            <span className="hidden lg:inline">{t("file_library.download_all")}</span>
           </Button>
         </div>
 
@@ -357,18 +371,11 @@ export function ContractDocuments({ workspaceSlug }: Props) {
         </span>
       </div>
 
-      <ContractBulkActionsBar
-        count={selectedIds.length}
-        onClear={() => setSelectedIds([])}
-      >
+      <ContractBulkActionsBar count={selectedIds.length} onClear={() => setSelectedIds([])}>
         <Button
           variant="secondary"
           size="sm"
-          onClick={() =>
-            void downloadRequests(
-              ordered.filter((request) => selectedIds.includes(request.id)),
-            )
-          }
+          onClick={() => void downloadRequests(ordered.filter((request) => selectedIds.includes(request.id)))}
         >
           <Download className="size-3.5" />
           {t("file_library.download_selected")}
@@ -378,27 +385,17 @@ export function ContractDocuments({ workspaceSlug }: Props) {
           size="sm"
           disabled={
             isBulkSyncing ||
-            !ordered.some(
-              (request) =>
-                selectedIds.includes(request.id) &&
-                request.documenso_envelope_id,
-            )
+            !ordered.some((request) => selectedIds.includes(request.id) && request.documenso_envelope_id)
           }
           onClick={() => void syncSelected()}
         >
-          {isBulkSyncing ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <RefreshCcw className="size-3.5" />
-          )}
+          {isBulkSyncing ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCcw className="size-3.5" />}
           {t("file_library.contracts.workflow.documents.sync_selected")}
         </Button>
         <Button
           variant="secondary"
           size="sm"
-          onClick={() =>
-            setDeletingRequests(ordered.filter((request) => selectedIds.includes(request.id)))
-          }
+          onClick={() => setDeletingRequests(ordered.filter((request) => selectedIds.includes(request.id)))}
         >
           <Trash2 className="size-3.5 text-danger-primary" />
           {t("file_library.contracts.workflow.documents.delete_selected")}
@@ -415,12 +412,12 @@ export function ContractDocuments({ workspaceSlug }: Props) {
             title={t(
               ordered.length === 0
                 ? "file_library.contracts.workflow.documents.empty_title"
-                : "file_library.contracts.workflow.documents.no_matches_title",
+                : "file_library.contracts.workflow.documents.no_matches_title"
             )}
             description={t(
               ordered.length === 0
                 ? "file_library.contracts.workflow.documents.empty_description"
-                : "file_library.contracts.workflow.documents.no_matches_description",
+                : "file_library.contracts.workflow.documents.no_matches_description"
             )}
           />
         ) : (
@@ -428,29 +425,15 @@ export function ContractDocuments({ workspaceSlug }: Props) {
             <div className="sticky top-0 z-[2] hidden grid-cols-[40px_minmax(0,1.6fr)_minmax(0,0.7fr)_minmax(0,1fr)_minmax(0,0.8fr)_44px] items-center border-b border-subtle bg-surface-1 text-11 font-medium text-tertiary md:grid">
               <span className="px-4 py-2">
                 <ContractSelectionCheckbox
-                  checked={visible.every((request) =>
-                    selectedIds.includes(request.id),
-                  )}
+                  checked={visible.every((request) => selectedIds.includes(request.id))}
                   onChange={toggleSelectAll}
                 />
               </span>
-              <span className="px-2 py-2">
-                {t("file_library.contracts.workflow.common.contract")}
-              </span>
-              <span className="px-3 py-2">
-                {t("file_library.contracts.workflow.documents.status")}
-              </span>
-              <span className="px-3 py-2">
-                {t(
-                  "file_library.contracts.workflow.documents.signing_progress",
-                )}
-              </span>
-              <span className="px-3 py-2">
-                {t("file_library.contracts.workflow.documents.activity")}
-              </span>
-              <span className="sr-only">
-                {t("file_library.contracts.workflow.common.actions")}
-              </span>
+              <span className="px-2 py-2">{t("file_library.contracts.workflow.common.contract")}</span>
+              <span className="px-3 py-2">{t("file_library.contracts.workflow.documents.status")}</span>
+              <span className="px-3 py-2">{t("file_library.contracts.workflow.documents.signing_progress")}</span>
+              <span className="px-3 py-2">{t("file_library.contracts.workflow.documents.activity")}</span>
+              <span className="sr-only">{t("file_library.contracts.workflow.common.actions")}</span>
             </div>
             <ul className="min-w-0 divide-y divide-subtle">
               {visible.map((request) => {
@@ -458,24 +441,20 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                 const signerCount =
                   remoteSigners.length ||
                   request.signers.length ||
-                  request.recipients.filter(
-                    (recipient) => recipient.role === "SIGNER",
-                  ).length;
+                  request.recipients.filter((recipient) => recipient.role === "SIGNER").length;
                 const signedCount = remoteSigners.length
-                  ? remoteSigners.filter((signer) =>
-                      isCompletedSignerStatus(signer.signing_status),
-                    ).length
-                  : request.signers.filter((signer) =>
-                      isCompletedSignerStatus(signer.status),
-                    ).length;
-                const needsAuthoring =
-                  request.status === "READY" || request.status === "DRAFT";
+                  ? remoteSigners.filter((signer) => isCompletedSignerStatus(signer.signing_status)).length
+                  : request.signers.filter((signer) => isCompletedSignerStatus(signer.status)).length;
+                const needsAuthoring = request.status === "READY" || request.status === "DRAFT";
+                // Only a contract out for signature can be cancelled or chased.
+                const isPending = request.status === "PENDING";
+                const isActing = actingId === request.id;
                 return (
                   <li
                     key={request.id}
                     className={cn(
                       "relative flex min-w-0 items-center gap-3 px-4 py-3 hover:bg-layer-1-hover md:grid md:grid-cols-[40px_minmax(0,1.6fr)_minmax(0,0.7fr)_minmax(0,1fr)_minmax(0,0.8fr)_44px] md:gap-0 md:px-0 md:py-0",
-                      peekRequestId === request.id && "bg-layer-1",
+                      peekRequestId === request.id && "bg-layer-1"
                     )}
                   >
                     {/* Full-row click target as a real button, so the quick-actions
@@ -501,49 +480,32 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                     <div className="pointer-events-none z-1 flex min-w-0 flex-1 items-center gap-2 md:px-2 md:py-2.5">
                       <FileCheck2 className="hidden size-4 shrink-0 text-accent-primary md:block" />
                       <div className="min-w-0">
-                        <p className="truncate text-13 font-medium text-primary">
-                          {request.title}
-                        </p>
+                        <p className="truncate text-13 font-medium text-primary">{request.title}</p>
                         <p className="mt-0.5 truncate text-11 text-tertiary">
-                          {t(
-                            "file_library.contracts.workflow.common.version_number",
-                            {
-                              number: request.revision.revision,
-                            },
-                          )}{" "}
+                          {t("file_library.contracts.workflow.common.version_number", {
+                            number: request.revision.revision,
+                          })}{" "}
                           · {relative(request.updated_at)}
                         </p>
                       </div>
                     </div>
 
                     <div className="pointer-events-none z-1 flex shrink-0 flex-col items-end gap-1 md:hidden">
-                      <RequestStatusBadge
-                        status={request.status}
-                        label={t(STATUS_LABEL_KEYS[request.status])}
-                      />
+                      <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} />
                       <span className="text-10 text-tertiary">
-                        {t(
-                          "file_library.contracts.workflow.documents.signers_completed",
-                          {
-                            completed: signedCount,
-                            total: signerCount,
-                          },
-                        )}
+                        {t("file_library.contracts.workflow.documents.signers_completed", {
+                          completed: signedCount,
+                          total: signerCount,
+                        })}
                       </span>
                     </div>
 
                     <div className="pointer-events-none z-1 hidden min-w-0 overflow-hidden px-3 py-2.5 md:block">
-                      <RequestStatusBadge
-                        status={request.status}
-                        label={t(STATUS_LABEL_KEYS[request.status])}
-                      />
+                      <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} />
                     </div>
 
                     <div className="pointer-events-none z-1 hidden min-w-0 overflow-hidden px-3 py-2.5 md:block">
-                      <SignerProgress
-                        signed={signedCount}
-                        total={signerCount}
-                      />
+                      <SignerProgress signed={signedCount} total={signerCount} />
                     </div>
 
                     <div className="pointer-events-none z-1 hidden min-w-0 overflow-hidden px-3 py-2.5 text-11 text-tertiary md:block">
@@ -562,57 +524,58 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                         className=""
                         menuItemsClassName="bg-background!"
                         placement="bottom-end"
-                        ariaLabel={t(
-                          "file_library.contracts.workflow.common.actions",
-                        )}
+                        ariaLabel={t("file_library.contracts.workflow.common.actions")}
                       >
                         {needsAuthoring ? (
-                          <CustomMenu.MenuItem
-                            onClick={() => openEditor(request)}
-                          >
+                          <CustomMenu.MenuItem onClick={() => openEditor(request)}>
                             <span className="flex items-center gap-2">
                               <PenLine className="size-3.5" />
-                              {t(
-                                "file_library.contracts.workflow.documents.review_send",
-                              )}
+                              {t("file_library.contracts.workflow.documents.review_send")}
                             </span>
                           </CustomMenu.MenuItem>
                         ) : null}
-                        <CustomMenu.MenuItem
-                          onClick={() => setPeekRequestId(request.id)}
-                        >
+                        <CustomMenu.MenuItem onClick={() => setPeekRequestId(request.id)}>
                           <span className="flex items-center gap-2">
                             <Link2 className="size-3.5" />
-                            {t(
-                              "file_library.contracts.workflow.documents.open_detail",
-                            )}
+                            {t("file_library.contracts.workflow.documents.open_detail")}
                           </span>
                         </CustomMenu.MenuItem>
                         {request.documenso_envelope_id ? (
-                          <CustomMenu.MenuItem
-                            onClick={() => void sync(request.id)}
-                          >
+                          <CustomMenu.MenuItem onClick={() => void sync(request.id)}>
                             <span className="flex items-center gap-2">
-                              <RefreshCcw
-                                className={cn(
-                                  "size-3.5",
-                                  syncingId === request.id && "animate-spin",
-                                )}
-                              />
-                              {t(
-                                "file_library.contracts.workflow.documents.sync",
-                              )}
+                              <RefreshCcw className={cn("size-3.5", syncingId === request.id && "animate-spin")} />
+                              {t("file_library.contracts.workflow.documents.sync")}
                             </span>
                           </CustomMenu.MenuItem>
                         ) : null}
-                        <CustomMenu.MenuItem
-                          onClick={() => void downloadRequests([request])}
-                        >
+                        {isPending ? (
+                          <CustomMenu.MenuItem disabled={isActing} onClick={() => void runAction("remind", request)}>
+                            <span className="flex items-center gap-2">
+                              <BellRing className="size-3.5" />
+                              {t("file_library.contracts.workflow.documents.remind")}
+                            </span>
+                          </CustomMenu.MenuItem>
+                        ) : null}
+                        <CustomMenu.MenuItem disabled={isActing} onClick={() => void runAction("duplicate", request)}>
+                          <span className="flex items-center gap-2">
+                            <Copy className="size-3.5" />
+                            {t("file_library.contracts.workflow.documents.duplicate")}
+                          </span>
+                        </CustomMenu.MenuItem>
+                        <CustomMenu.MenuItem onClick={() => void downloadRequests([request])}>
                           <span className="flex items-center gap-2">
                             <Download className="size-3.5" />
                             {t("file_library.download")}
                           </span>
                         </CustomMenu.MenuItem>
+                        {isPending ? (
+                          <CustomMenu.MenuItem disabled={isActing} onClick={() => setCancellingRequest(request)}>
+                            <span className="flex items-center gap-2 text-danger-primary">
+                              <Ban className="size-3.5" />
+                              {t("file_library.contracts.workflow.documents.cancel_request")}
+                            </span>
+                          </CustomMenu.MenuItem>
+                        ) : null}
                         <CustomMenu.MenuItem onClick={() => setDeletingRequests([request])}>
                           <span className="flex items-center gap-2 text-danger-primary">
                             <Trash2 className="size-3.5" />
@@ -641,6 +604,21 @@ export function ContractDocuments({ workspaceSlug }: Props) {
           }}
         />
       ) : null}
+      <AlertModalCore
+        isOpen={Boolean(cancellingRequest)}
+        handleClose={() => setCancellingRequest(undefined)}
+        handleSubmit={() => void confirmCancel()}
+        isSubmitting={Boolean(cancellingRequest) && actingId === cancellingRequest?.id}
+        title={t("file_library.contracts.workflow.documents.cancel_title")}
+        content={t("file_library.contracts.workflow.documents.cancel_description", {
+          title: cancellingRequest?.title ?? "",
+        })}
+        primaryButtonText={{
+          default: t("file_library.contracts.workflow.documents.cancel_confirm"),
+          loading: t("file_library.contracts.workflow.documents.cancel_confirming"),
+        }}
+        secondaryButtonText={t("file_library.contracts.workflow.documents.keep")}
+      />
       <ContractDeleteDialog
         key={deletingRequests.map((request) => request.id).join(":") || "closed"}
         requests={deletingRequests}
@@ -663,19 +641,11 @@ function SignerProgress({ signed, total }: { signed: number; total: number }) {
         {Array.from({ length: Math.min(total, 6) }, (_, index) => (
           <span
             key={index}
-            className={cn(
-              "h-1.5 w-4 rounded-full",
-              index < signed ? "bg-success-primary" : "bg-layer-3",
-            )}
+            className={cn("h-1.5 w-4 rounded-full", index < signed ? "bg-success-primary" : "bg-layer-3")}
           />
         ))}
       </div>
-      <span
-        className={cn(
-          "text-11 tabular-nums",
-          complete ? "text-success-primary" : "text-tertiary",
-        )}
-      >
+      <span className={cn("text-11 tabular-nums", complete ? "text-success-primary" : "text-tertiary")}>
         {t("file_library.contracts.workflow.documents.signers_completed", {
           completed: signed,
           total,

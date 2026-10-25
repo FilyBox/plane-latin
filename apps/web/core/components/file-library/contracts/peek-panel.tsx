@@ -9,12 +9,17 @@
  * set (document, info, process, chat) where each view takes the whole panel.
  */
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { observer } from "mobx-react";
 import {
   AlertTriangle,
+  Ban,
+  CalendarSync,
   Columns2,
   Download,
+  FileSearch,
+  FileX,
   Loader2,
   Maximize2,
   MoreHorizontal,
@@ -26,29 +31,40 @@ import {
 import useSWR from "swr";
 // plane imports
 import { PDFViewer } from "@plane/extend-ui";
+import type { PDFViewerHandle } from "@plane/extend-ui";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/propel/icons";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";
-import type { TContractJob, TContractRetryOptions, TContractUpdatePayload } from "@plane/types";
+import type { TContractEvidence, TContractRetryOptions, TContractUpdatePayload } from "@plane/types";
 import { AlertModalCore, CustomMenu } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
+import { AskAssistantButton } from "@/components/assistant/ask";
+import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 import { EntityBacklinks } from "@/components/references/references-section";
 import { SharedTagPicker } from "@/components/references/shared-tag-picker";
 import { useWorkspace } from "@/hooks/store/use-workspace";
 import { contractService } from "@/services/contract.service";
 import { fileLibraryService } from "@/services/file-library.service";
 // local imports
-import { ContractChatPanel } from "./chat/chat-panel";
-import { InlineField } from "./inline-field";
-import { CONTRACT_STATUS_OPTIONS, CONTRACT_TYPE_OPTIONS, YES_NO_UNSPECIFIED_OPTIONS } from "./constants";
-import { ProcessingBadge } from "./processing-badge";
-import { RetryOptionsModal } from "./retry-options-modal";
-import { AskAssistantButton } from "@/components/assistant/ask";
-import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 import { downloadAssets } from "../download";
+import { ContractChatPanel } from "./chat/chat-panel";
+import {
+  CONTRACT_STATUS_OPTIONS,
+  CONTRACT_TYPE_OPTIONS,
+  STAGE_RETRY_OPTION,
+  YES_NO_UNSPECIFIED_OPTIONS,
+} from "./constants";
+import { ContractRenewDialog } from "./contract-renew-dialog";
+import { InlineField } from "./inline-field";
+import { ContractJobTimeline, ErrorDetails, friendlyJobError } from "./process-steps";
+import { ProcessingBadge, stageDetail } from "./processing-badge";
+import { ProposalDiff } from "./proposal-diff";
+import { RetryOptionsModal } from "./retry-options-modal";
+import { useCanEditContracts } from "./use-can-edit";
+import { formatContractDateTime, isJobActive, stageLabel } from "./utils";
 
 type Props = {
   workspaceSlug: string;
@@ -138,11 +154,30 @@ const SELECT_FIELDS: {
   },
 ];
 
-export function ContractPeekPanel(props: Props) {
+/** Evidence keys that differ from the column name */
+const EVIDENCE_ALIASES: Partial<Record<string, string>> = {
+  expansion_time_description: "clausula_renovacion",
+  collection_period_duration: "duracion_periodo_coleccion",
+  retention_period_duration: "duracion_periodo_retencion",
+};
+
+/** First words of a quote, whitespace collapsed: what the PDF search can match */
+const searchableQuote = (quote: string, maxLength: number) => {
+  const text = quote.replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  const cut = text.slice(0, maxLength);
+  const lastSpace = cut.lastIndexOf(" ");
+  return lastSpace > maxLength / 2 ? cut.slice(0, lastSpace) : cut;
+};
+
+export const ContractPeekPanel = observer(function ContractPeekPanel(props: Props) {
   const { workspaceSlug, contractId, onClose, onMutate, onDeleted, onOpenInSection } = props;
   const { isWorkspaceFeatureEnabled } = useWorkspace();
   const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
-  const { t } = useTranslation();
+  const canEdit = useCanEditContracts(workspaceSlug);
+  const { t, currentLocale } = useTranslation();
+  const titleId = useId();
+  const tabsId = useId();
   // Only one layout mounts the PDF viewer, so the file loads and renders once
   const isDesktop = useSyncExternalStore(subscribeDesktop, isDesktopNow, () => true);
   // states
@@ -151,13 +186,23 @@ export function ContractPeekPanel(props: Props) {
   const [draft, setDraft] = useState<TContractUpdatePayload>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isActing, setIsActing] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [isRetryModalOpen, setIsRetryModalOpen] = useState(false);
+  const [retryPreset, setRetryPreset] = useState<TContractRetryOptions | undefined>(undefined);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDiscardOpen, setIsDiscardOpen] = useState(false);
+  const [isRenewOpen, setIsRenewOpen] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState(false);
+  const [pdfAttempt, setPdfAttempt] = useState(0);
   // Which half of the split has the whole width. Independent of `peekMode`:
   // reading a long clause or a wide table is the same problem whether the peek
   // is docked, centred or full screen.
   const [expanded, setExpanded] = useState<"none" | "document" | "side">("none");
+  // "See in document": where to jump once the viewer has the file
+  const viewerRef = useRef<PDFViewerHandle | null>(null);
+  const [documentReady, setDocumentReady] = useState(false);
+  const [pendingJump, setPendingJump] = useState<TContractEvidence | null>(null);
 
   // On desktop the PDF is always visible, so "document" behaves as "info"
   const paneTab: Exclude<Tab, "document"> = tab === "document" ? "info" : tab;
@@ -166,68 +211,81 @@ export function ContractPeekPanel(props: Props) {
   const {
     data: contract,
     mutate: mutateContract,
-    isLoading,
-  } = useSWR(`CONTRACT_DETAIL_${contractId}`, () => contractService.getContract(workspaceSlug, contractId), {
-    revalidateOnFocus: false,
-  });
+    error: contractError,
+  } = useSWR(`CONTRACT_DETAIL_${contractId}`, () => contractService.getContract(workspaceSlug, contractId));
 
   // jobs for this contract — poll fast while one is active
   const { data: jobs, mutate: mutateJobs } = useSWR(
     `CONTRACT_JOBS_${contractId}`,
     () => contractService.getJobs(workspaceSlug, { contractId }),
-    {
-      refreshInterval: (latest) =>
-        latest?.some((job) => job.status === "QUEUED" || job.status === "RUNNING") ? 2000 : 0,
-    }
+    { refreshInterval: (latest) => (latest?.some(isJobActive) ? 2000 : 0) }
   );
-  const activeJob = jobs?.find((job) => job.status === "QUEUED" || job.status === "RUNNING");
+  const activeJob = jobs?.find(isJobActive);
+  const latestJob = jobs?.[0];
+  const failedJob = !activeJob && latestJob?.status === "FAILED" ? latestJob : undefined;
 
-  // refresh detail + list when a run finishes
+  // Refresh detail + list when a run ends — not on open
   const activeJobId = activeJob?.id;
+  const previousActiveJobId = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!activeJobId) {
+    const previous = previousActiveJobId.current;
+    previousActiveJobId.current = activeJobId;
+    if (previous && previous !== activeJobId) {
       void mutateContract();
       onMutate();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeJobId]);
 
-  // Escape closes (matches the work-item peek behavior)
+  const isDirty = Object.keys(draft).length > 0;
+
+  /** Closing with unsaved edits asks first */
+  const requestClose = useCallback(() => {
+    if (isDirty) setIsDiscardOpen(true);
+    else onClose();
+  }, [isDirty, onClose]);
+
+  const anyModalOpen = isRetryModalOpen || isDeleteModalOpen || isDiscardOpen || isRenewOpen;
+  // Escape closes (matches the work-item peek behavior), unless a dialog is on top
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape" || event.defaultPrevented || anyModalOpen) return;
+      requestClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [anyModalOpen, requestClose]);
 
   // PDF presigned URL
   useEffect(() => {
     let cancelled = false;
     setPdfUrl(null);
+    setPdfError(false);
+    setDocumentReady(false);
     if (!contract?.file_asset_id) return;
     fileLibraryService
       .getPresignedViewUrl(workspaceSlug, contract.file_asset_id)
       .then((url) => {
-        if (!cancelled) setPdfUrl(url);
+        if (cancelled) return url;
+        if (url) setPdfUrl(url);
+        else setPdfError(true);
         return url;
       })
       .catch(() => {
-        if (!cancelled) setPdfUrl(null);
+        if (!cancelled) setPdfError(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [workspaceSlug, contract?.file_asset_id]);
+  }, [workspaceSlug, contract?.file_asset_id, pdfAttempt]);
 
-  // reset the form when the contract payload changes
+  // A new contract starts clean. A refreshed payload never wipes edits in progress.
   useEffect(() => {
     setDraft({});
-  }, [contract?.updated_at, contractId]);
+  }, [contractId]);
 
   const draftValue = <K extends keyof TContractUpdatePayload>(key: K) =>
     (key in draft ? draft[key] : contract?.[key]) as TContractUpdatePayload[K];
-  const isDirty = Object.keys(draft).length > 0;
 
   const handleSave = async () => {
     if (!contract || !isDirty) return;
@@ -245,6 +303,14 @@ export function ContractPeekPanel(props: Props) {
     }
   };
 
+  const jobConflictToast = (error: unknown, fallbackKey: string) => {
+    const busy = (error as { error?: string } | undefined)?.error === "job_active";
+    setToast({
+      type: TOAST_TYPE.ERROR,
+      title: t(busy ? "file_library.contracts.retry.job_active" : fallbackKey),
+    });
+  };
+
   const handleRetry = async (options: TContractRetryOptions) => {
     if (!contract) return;
     setIsActing(true);
@@ -253,10 +319,30 @@ export function ContractPeekPanel(props: Props) {
       await Promise.all([mutateJobs(), mutateContract()]);
       onMutate();
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.retry.started") });
-    } catch {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.retry.failed") });
+    } catch (error) {
+      jobConflictToast(error, "file_library.contracts.retry.failed");
     } finally {
       setIsActing(false);
+    }
+  };
+
+  const openRetry = (preset?: TContractRetryOptions) => {
+    setRetryPreset(preset);
+    setIsRetryModalOpen(true);
+  };
+
+  const handleCancelJob = async () => {
+    if (!contract || !activeJob) return;
+    setIsCancelling(true);
+    try {
+      await contractService.cancelJob(workspaceSlug, contract.id, activeJob.id);
+      await Promise.all([mutateJobs(), mutateContract()]);
+      onMutate();
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.process.cancelled") });
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.process.cancel_failed") });
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -286,8 +372,8 @@ export function ContractPeekPanel(props: Props) {
       await Promise.all([mutateJobs(), mutateContract()]);
       onMutate();
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.reanalyze.started") });
-    } catch {
-      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.reanalyze.failed") });
+    } catch (error) {
+      jobConflictToast(error, "file_library.contracts.reanalyze.failed");
     } finally {
       setIsActing(false);
     }
@@ -308,12 +394,12 @@ export function ContractPeekPanel(props: Props) {
     }
   };
 
-  const handleConfirmProposed = async (accept: boolean) => {
+  const handleConfirmProposed = async (accept: boolean, fields?: string[]) => {
     if (!contract) return;
     setIsActing(true);
     try {
-      const updated = await contractService.confirmReanalysis(workspaceSlug, contract.id, accept);
-      await mutateContract(updated, { revalidate: false });
+      const updated = await contractService.confirmReanalysis(workspaceSlug, contract.id, accept, fields);
+      await mutateContract(updated, { revalidate: true });
       onMutate();
       setToast({
         type: TOAST_TYPE.SUCCESS,
@@ -326,10 +412,94 @@ export function ContractPeekPanel(props: Props) {
     }
   };
 
-  const proposedEntries = useMemo(
-    () => Object.entries(contract?.proposed_data ?? {}).filter(([, value]) => value !== null && value !== ""),
-    [contract?.proposed_data]
-  );
+  // ── Evidence → document ────────────────────────────────────────────────
+  const evidenceFor = (key: string): TContractEvidence | undefined => {
+    const evidence = contract?.evidence;
+    if (!evidence) return undefined;
+    const alias = EVIDENCE_ALIASES[key];
+    return evidence[key] ?? (alias ? evidence[alias] : undefined);
+  };
+
+  const jumpToEvidence = (evidence: TContractEvidence) => {
+    if (!isDesktop) setTab("document");
+    else if (expanded === "side") setExpanded("none");
+    setPendingJump(evidence);
+  };
+
+  // On mobile the viewer unmounts with its tab: it must load again before jumping
+  useEffect(() => {
+    if (!isDesktop && tab !== "document") setDocumentReady(false);
+  }, [isDesktop, tab]);
+
+  useEffect(() => {
+    if (!pendingJump || !documentReady || !viewerRef.current) return;
+    const viewer = viewerRef.current;
+    const evidence = pendingJump;
+    setPendingJump(null);
+    if (evidence.page) viewer.scrollToPage(evidence.page, { behavior: "smooth" });
+    if (!evidence.quote) return;
+    // Long quotes rarely match across line breaks: try the opening words, then fewer
+    const quote = evidence.quote;
+    void viewer
+      .searchText(searchableQuote(quote, 80))
+      .then((found) => found || viewer.searchText(searchableQuote(quote, 32)))
+      .then((found) => {
+        // Scans with poor OCR or reworded text: say so and show the quote itself
+        if (!found)
+          setToast({
+            type: TOAST_TYPE.INFO,
+            title: t("file_library.contracts.evidence.not_found"),
+            message: `“${searchableQuote(quote, 240)}”`,
+          });
+        return found;
+      });
+    // t is stable for the session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentReady, pendingJump]);
+
+  const evidenceButton = (key: string) => {
+    const evidence = evidenceFor(key);
+    if (!evidence || (!evidence.quote && !evidence.page)) return null;
+    const tip = (
+      <span className="block max-w-72 text-11">
+        {evidence.page ? (
+          <span className="block font-medium">
+            {t("file_library.contracts.evidence.page", { page: evidence.page })}
+          </span>
+        ) : null}
+        {evidence.quote ? <span className="block italic">“{searchableQuote(evidence.quote, 240)}”</span> : null}
+      </span>
+    );
+    return (
+      <>
+        {evidence.approximate && (
+          <Tooltip tooltipContent={t("file_library.contracts.evidence.approximate_hint")}>
+            <span className="rounded-sm bg-warning-subtle px-1 text-10 text-warning-primary">
+              {t("file_library.contracts.evidence.approximate")}
+            </span>
+          </Tooltip>
+        )}
+        {evidence.computed && (
+          <Tooltip tooltipContent={t("file_library.contracts.evidence.computed_hint")}>
+            <span className="rounded-sm bg-layer-1 px-1 text-10 text-tertiary">
+              {t("file_library.contracts.evidence.computed")}
+            </span>
+          </Tooltip>
+        )}
+        <Tooltip tooltipContent={tip}>
+          <button
+            type="button"
+            onClick={() => jumpToEvidence(evidence)}
+            disabled={!contract?.file_asset_id}
+            className="flex items-center gap-0.5 rounded-sm px-1 text-10 text-tertiary hover:bg-layer-1-hover hover:text-accent-primary disabled:opacity-50"
+          >
+            <FileSearch className="size-3" aria-hidden />
+            <span>{t("file_library.contracts.evidence.see")}</span>
+          </button>
+        </Tooltip>
+      </>
+    );
+  };
 
   /** Gives one pane the whole width, or hands the split back. The document
    * half hands this to the viewer's own toolbar rather than floating it on top:
@@ -357,87 +527,246 @@ export function ContractPeekPanel(props: Props) {
    * the whole panel. While the preview is still resolving there is no viewer
    * toolbar to seat it in, so it floats in the corner the toolbar would occupy
    * — otherwise expanding a document that never loads is a one-way trip. */
-  const pdfViewer = (expandControl: React.ReactNode) =>
-    pdfUrl ? (
-      <PDFViewer
-        src={pdfUrl}
-        fileName={contract?.file_name ?? "contract.pdf"}
-        className="h-full"
-        showUpload={false}
-        toolbarActions={expandControl}
-      />
-    ) : (
-      <div className="relative flex h-full items-center justify-center text-tertiary">
-        {expandControl ? <div className="absolute top-2 right-2">{expandControl}</div> : null}
+  const pdfViewer = (expandControl: React.ReactNode) => {
+    if (pdfUrl)
+      return (
+        <PDFViewer
+          ref={viewerRef}
+          src={pdfUrl}
+          fileName={contract?.file_name ?? "contract.pdf"}
+          className="h-full"
+          showUpload={false}
+          toolbarActions={expandControl}
+          onDocumentLoadSuccess={() => setDocumentReady(true)}
+        />
+      );
+    const corner = expandControl ? <div className="absolute top-2 right-2">{expandControl}</div> : null;
+    // No file behind this contract, or its link couldn't be resolved
+    if (contract && (!contract.file_asset_id || pdfError))
+      return (
+        <div className="relative flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-tertiary">
+          {corner}
+          <FileX className="size-6" />
+          <p className="text-12">
+            {contract.file_asset_id
+              ? t("file_library.contracts.peek.pdf_failed")
+              : t("file_library.contracts.peek.no_document")}
+          </p>
+          {contract.file_asset_id && (
+            <Button variant="secondary" size="sm" onClick={() => setPdfAttempt((value) => value + 1)}>
+              <RefreshCcw className="size-3.5" />
+              {t("file_library.contracts.retry.button")}
+            </Button>
+          )}
+        </div>
+      );
+    if (contractError)
+      return (
+        <div className="relative flex h-full items-center justify-center text-tertiary">
+          {corner}
+          <FileX className="size-6" />
+        </div>
+      );
+    return (
+      <div className="relative flex h-full items-center justify-center text-tertiary" role="status">
+        {corner}
         <Loader2 className="size-5 animate-spin" />
+        <span className="sr-only">{t("common.loading")}</span>
       </div>
     );
+  };
 
   // A field differs from what is saved (shown until the save bar persists it)
   const isChanged = (key: keyof TContractUpdatePayload) =>
     key in draft && (draft[key] ?? null) !== ((contract?.[key] as unknown) ?? null);
-  const setField = (key: keyof TContractUpdatePayload, value: string | null) =>
-    setDraft((prev) => ({ ...prev, [key]: value }));
+  const setField = (key: keyof TContractUpdatePayload, value: string | boolean | null) =>
+    setDraft((prev) => {
+      // Back to the saved value: no longer a change
+      if ((value ?? null) === ((contract?.[key] as unknown) ?? null)) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: value };
+    });
+
+  // First analysis still running: there is nothing to show in the fields yet
+  const firstAnalysisRunning =
+    !!contract &&
+    !contract.processed_at &&
+    (!!activeJob || contract.processing_status === "PROCESSING" || contract.processing_status === "PENDING");
+  const failureMessage = failedJob
+    ? friendlyJobError(t, failedJob)
+    : contract?.processing_status === "ERROR"
+      ? t("file_library.contracts.errors.generic")
+      : null;
+  const failedStage = failedJob?.error?.stage ?? failedJob?.current_stage ?? undefined;
+  const failedRetryKey = failedStage ? STAGE_RETRY_OPTION[failedStage] : undefined;
+  const isExpired = typeof contract?.days_to_expiry === "number" && contract.days_to_expiry < 0;
+  const canRenew = canEdit && !!contract?.source_template_id;
+
+  const processingPlaceholder = (
+    <div className="rounded-md border border-subtle bg-layer-1/50 p-4" aria-live="polite">
+      <div className="flex items-center gap-2">
+        <Sparkles className="size-4 shrink-0 text-accent-primary" />
+        <p className="text-13 font-medium">{t("file_library.contracts.peek.reading")}</p>
+      </div>
+      <p className="mt-1 text-12 text-tertiary">{t("file_library.contracts.peek.reading_hint")}</p>
+      {activeJob && (
+        <>
+          <div
+            role="progressbar"
+            aria-label={stageLabel(t, activeJob.current_stage) || t("file_library.contracts.processing.processing")}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={activeJob.progress}
+            className="mt-3 h-1.5 overflow-hidden rounded-full bg-layer-1"
+          >
+            <div
+              className="h-full rounded-full bg-accent-primary transition-all"
+              style={{ width: `${activeJob.progress}%` }}
+            />
+          </div>
+          <div className="mt-1 flex items-center justify-between gap-2 text-11 text-tertiary">
+            <span className="truncate">
+              {stageLabel(t, activeJob.current_stage)}
+              {stageDetail(t, activeJob) ? ` · ${stageDetail(t, activeJob)}` : ""}
+            </span>
+            <span className="shrink-0 tabular-nums">{activeJob.progress}%</span>
+          </div>
+        </>
+      )}
+      <div className="mt-3 flex items-center gap-2">
+        <Button variant="tertiary" size="sm" onClick={() => setTab("process")}>
+          {t("file_library.contracts.peek.see_process")}
+        </Button>
+        {canEdit && activeJob && (
+          <Button variant="tertiary" size="sm" onClick={() => void handleCancelJob()} disabled={isCancelling}>
+            {isCancelling ? <Loader2 className="size-3.5 animate-spin" /> : <Ban className="size-3.5" />}
+            {t("file_library.contracts.process.cancel")}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+
+  const errorBanner = failureMessage && !activeJob && (
+    <div role="alert" className="space-y-1.5 rounded-md border border-danger-subtle bg-danger-subtle p-3">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger-primary" />
+        <div className="min-w-0 flex-1">
+          <p className="text-13 font-medium text-danger-primary">{failureMessage}</p>
+          {failedJob?.finished_at && (
+            <p className="text-11 text-tertiary">{formatContractDateTime(failedJob.finished_at, currentLocale)}</p>
+          )}
+        </div>
+        {canEdit && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => openRetry(failedRetryKey ? { [failedRetryKey]: true } : undefined)}
+            disabled={isActing}
+          >
+            <RefreshCcw className="size-3.5" />
+            {t("file_library.contracts.retry.button")}
+          </Button>
+        )}
+      </div>
+      {failedJob?.error?.message && <ErrorDetails message={failedJob.error.message} />}
+    </div>
+  );
+
+  const renewBanner = isExpired && canRenew && (
+    <div className="flex items-center gap-2 rounded-md border border-subtle px-3 py-2">
+      <CalendarSync className="size-4 shrink-0 text-tertiary" />
+      <p className="min-w-0 flex-1 text-12 text-secondary">{t("file_library.contracts.renew.expired_hint")}</p>
+      <Button variant="secondary" size="sm" onClick={() => setIsRenewOpen(true)}>
+        {t("file_library.contracts.renew.button")}
+      </Button>
+    </div>
+  );
 
   const infoPane = (
     <div className="@container min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-      {/* Short values side by side when there is room; long text full width */}
-      <div className="grid grid-cols-1 gap-x-3 gap-y-3 @sm:grid-cols-2">
-        {SELECT_FIELDS.map((field) => (
-          <InlineField
-            key={field.key}
-            kind="select"
-            label={t(field.i18nKey)}
-            value={(draftValue(field.key) as string | null) ?? null}
-            options={field.options.map((option) => ({ value: option.value, label: t(option.i18nKey) }))}
-            onChange={(value) => setField(field.key, value)}
-            changed={isChanged(field.key)}
-          />
-        ))}
-        {DATE_FIELDS.map((field) => (
-          <InlineField
-            key={field.key}
-            kind="date"
-            label={t(field.i18nKey)}
-            value={(draftValue(field.key) as string | null) ?? null}
-            onChange={(value) => setField(field.key, value)}
-            changed={isChanged(field.key)}
-          />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-5 gap-y-1 px-2">
-        <label className="flex items-center gap-2 py-1">
-          <input
-            type="checkbox"
-            checked={!!draftValue("es_notariado")}
-            onChange={(e) => setDraft((prev) => ({ ...prev, es_notariado: e.target.checked }))}
-          />
-          <span className="text-13">{t("file_library.contracts.fields.es_notariado")}</span>
-        </label>
-        {/* The AI files contracts under Editoriales on its own; this is where a
-            wrong call gets corrected, and the contract moves view on save. */}
-        <label className="flex items-center gap-2 py-1">
-          <input
-            type="checkbox"
-            checked={!!draftValue("es_editorial")}
-            onChange={(e) => setDraft((prev) => ({ ...prev, es_editorial: e.target.checked }))}
-          />
-          <span className="text-13">{t("file_library.contracts.fields.es_editorial")}</span>
-        </label>
-      </div>
-      <div className="space-y-3">
-        {EDITABLE_TEXT_FIELDS.map((field) => (
-          <InlineField
-            key={field.key}
-            kind="text"
-            multiline={field.textarea}
-            label={t(field.i18nKey)}
-            value={(draftValue(field.key) as string | null) ?? null}
-            onChange={(value) => setField(field.key, value)}
-            changed={isChanged(field.key)}
-          />
-        ))}
-      </div>
+      {errorBanner}
+      {renewBanner}
+      {firstAnalysisRunning ? (
+        processingPlaceholder
+      ) : (
+        <>
+          {activeJob && (
+            <p
+              className="flex items-center gap-2 rounded-md bg-layer-1 px-3 py-2 text-12 text-secondary"
+              aria-live="polite"
+            >
+              <Loader2 className="size-3.5 shrink-0 animate-spin text-accent-primary" />
+              {t("file_library.contracts.peek.rerunning", { stage: stageLabel(t, activeJob.current_stage) })}
+            </p>
+          )}
+          {/* Short values side by side when there is room; long text full width */}
+          <div className="grid grid-cols-1 gap-x-3 gap-y-3 @sm:grid-cols-2">
+            {SELECT_FIELDS.map((field) => (
+              <InlineField
+                key={field.key}
+                kind="select"
+                label={t(field.i18nKey)}
+                value={(draftValue(field.key) as string | null) ?? null}
+                options={field.options.map((option) => ({ value: option.value, label: t(option.i18nKey) }))}
+                onChange={(value) => setField(field.key, value)}
+                changed={isChanged(field.key)}
+                readOnly={!canEdit}
+                labelExtra={evidenceButton(field.key)}
+              />
+            ))}
+            {DATE_FIELDS.map((field) => (
+              <InlineField
+                key={field.key}
+                kind="date"
+                label={t(field.i18nKey)}
+                value={(draftValue(field.key) as string | null) ?? null}
+                onChange={(value) => setField(field.key, value)}
+                changed={isChanged(field.key)}
+                readOnly={!canEdit}
+                labelExtra={evidenceButton(field.key)}
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 px-2">
+            {(["es_notariado", "es_editorial"] as const).map((key) => (
+              <div key={key} className="flex items-center gap-2 py-1">
+                {/* The AI files contracts under Editoriales on its own; this is where a
+                    wrong call gets corrected, and the contract moves view on save. */}
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={!!draftValue(key)}
+                    disabled={!canEdit}
+                    onChange={(e) => setField(key, e.target.checked)}
+                  />
+                  <span className="text-13">{t(`file_library.contracts.fields.${key}`)}</span>
+                </label>
+                {isChanged(key) && <span className="size-1.5 rounded-full bg-accent-primary" aria-hidden />}
+                {evidenceButton(key)}
+              </div>
+            ))}
+          </div>
+          <div className="space-y-3">
+            {EDITABLE_TEXT_FIELDS.map((field) => (
+              <InlineField
+                key={field.key}
+                kind="text"
+                multiline={field.textarea}
+                label={t(field.i18nKey)}
+                value={(draftValue(field.key) as string | null) ?? null}
+                onChange={(value) => setField(field.key, value)}
+                changed={isChanged(field.key)}
+                readOnly={!canEdit}
+                labelExtra={evidenceButton(field.key)}
+              />
+            ))}
+          </div>
+        </>
+      )}
       {contract && referencesEnabled && (
         <div className="space-y-4 border-t border-subtle pt-3">
           <div className="space-y-1">
@@ -457,25 +786,34 @@ export function ContractPeekPanel(props: Props) {
 
   const processPane = (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-      <div className="rounded-md border border-subtle p-3 text-12">
-        <p className="font-medium">{t("file_library.contracts.process.pipeline_state")}</p>
-        <p className="mt-1 text-tertiary">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-11 text-tertiary">
+        <span>
           {contract?.text_extracted_at
             ? t("file_library.contracts.process.text_extracted", {
-                date: new Date(contract.text_extracted_at).toLocaleString(),
+                date: formatContractDateTime(contract.text_extracted_at, currentLocale),
               })
             : t("file_library.contracts.process.text_pending")}
-        </p>
+        </span>
         {contract?.processed_at && (
-          <p className="text-tertiary">
-            {t("file_library.contracts.process.analyzed", { date: new Date(contract.processed_at).toLocaleString() })}
-          </p>
+          <span>
+            {t("file_library.contracts.process.analyzed", {
+              date: formatContractDateTime(contract.processed_at, currentLocale),
+            })}
+          </span>
         )}
       </div>
       {(jobs ?? []).length === 0 ? (
         <p className="text-12 text-tertiary">{t("file_library.contracts.process.no_jobs")}</p>
       ) : (
-        (jobs ?? []).map((job) => <JobCard key={job.id} job={job} />)
+        (jobs ?? []).map((job, index) => (
+          <ContractJobTimeline
+            key={job.id}
+            job={job}
+            defaultOpen={index === 0}
+            onCancel={canEdit && isJobActive(job) ? () => void handleCancelJob() : undefined}
+            isCancelling={isCancelling}
+          />
+        ))
       )}
     </div>
   );
@@ -486,14 +824,29 @@ export function ContractPeekPanel(props: Props) {
     </div>
   ) : null;
 
-  const loaderPane = (
-    <div className="flex flex-1 items-center justify-center">
-      <Loader2 className="size-5 animate-spin text-tertiary" />
-    </div>
-  );
+  const statePane =
+    contractError && !contract ? (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-tertiary">
+        <AlertTriangle className="size-6" />
+        <p className="text-13">{t("file_library.contracts.peek.load_failed")}</p>
+        <Button variant="secondary" size="sm" onClick={() => void mutateContract()}>
+          <RefreshCcw className="size-3.5" />
+          {t("file_library.contracts.retry.button")}
+        </Button>
+      </div>
+    ) : (
+      <div className="flex flex-1 items-center justify-center" role="status">
+        <Loader2 className="size-5 animate-spin text-tertiary" />
+        <span className="sr-only">{t("common.loading")}</span>
+      </div>
+    );
 
-  const saveBar = paneTab === "info" && isDirty && (
-    <div className="flex shrink-0 items-center justify-end gap-2 border-t border-subtle px-4 py-2.5">
+  // Visible on every tab, so edits are never out of sight
+  const saveBar = canEdit && isDirty && (
+    <div className="flex shrink-0 items-center justify-end gap-2 border-t border-subtle bg-surface-1 px-4 py-2.5">
+      <span className="mr-auto text-11 text-tertiary">
+        {t("file_library.contracts.peek.unsaved_count", { count: Object.keys(draft).length })}
+      </span>
       <Button variant="secondary" size="sm" onClick={() => setDraft({})} disabled={isSaving}>
         {t("cancel")}
       </Button>
@@ -503,22 +856,59 @@ export function ContractPeekPanel(props: Props) {
     </div>
   );
 
-  const tabButton = (key: Tab, extraClass = "") => (
-    <button
-      key={key}
-      type="button"
-      onClick={() => setTab(key)}
-      disabled={key === "chat" && !contract?.text_extracted_at}
-      className={cn(
-        "rounded-t-sm border-b-2 px-3 py-1.5 text-12 font-medium disabled:opacity-40",
-        (key === "document" ? tab === "document" : paneTab === key && tab !== "document")
-          ? "border-accent-strong text-accent-primary"
-          : "border-transparent text-tertiary hover:text-secondary",
-        extraClass
-      )}
+  const chatDisabled = !contract?.text_extracted_at;
+  const tabButton = (key: Tab, layout: "m" | "d") => {
+    const isSelected = key === "document" ? tab === "document" : paneTab === key && tab !== "document";
+    const disabled = key === "chat" && chatDisabled;
+    const button = (
+      <button
+        key={key}
+        type="button"
+        role="tab"
+        id={`${tabsId}-${layout}-${key}`}
+        aria-selected={isSelected}
+        aria-controls={`${tabsId}-${layout}-panel`}
+        aria-disabled={disabled || undefined}
+        tabIndex={isSelected ? 0 : -1}
+        onClick={() => !disabled && setTab(key)}
+        className={cn(
+          "rounded-t-sm border-b-2 px-3 py-1.5 text-12 font-medium",
+          disabled && "cursor-not-allowed opacity-40",
+          isSelected
+            ? "border-accent-strong text-accent-primary"
+            : "border-transparent text-tertiary hover:text-secondary"
+        )}
+      >
+        {t(`file_library.contracts.tabs.${key}`)}
+      </button>
+    );
+    return disabled ? (
+      <Tooltip key={key} tooltipContent={t("file_library.contracts.peek.chat_disabled")}>
+        {button}
+      </Tooltip>
+    ) : (
+      button
+    );
+  };
+  /** Arrow keys move between tabs (ARIA tabs pattern) */
+  const onTabsKey = (event: React.KeyboardEvent<HTMLDivElement>, keys: Tab[], layout: "m" | "d") => {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    const enabled = keys.filter((key) => !(key === "chat" && chatDisabled));
+    const current = enabled.indexOf(tab === "document" && !keys.includes("document") ? "info" : tab);
+    const next = enabled[(current + (event.key === "ArrowRight" ? 1 : enabled.length - 1)) % enabled.length];
+    setTab(next);
+    document.getElementById(`${tabsId}-${layout}-${next}`)?.focus();
+  };
+  const tabList = (keys: Tab[], layout: "m" | "d", className: string, trailing?: React.ReactNode) => (
+    <div
+      role="tablist"
+      aria-label={t("file_library.contracts.title")}
+      onKeyDown={(event) => onTabsKey(event, keys, layout)}
+      className={className}
     >
-      {t(`file_library.contracts.tabs.${key}`)}
-    </button>
+      {keys.map((key) => tabButton(key, layout))}
+      {trailing}
+    </div>
   );
 
   const panelClassName = cn(
@@ -533,11 +923,23 @@ export function ContractPeekPanel(props: Props) {
 
   const portalContainer = typeof document !== "undefined" ? document.getElementById("full-screen-portal") : null;
 
+  const body = (pane: "info" | "process" | "chat") =>
+    !contract ? statePane : pane === "chat" ? chatPane : pane === "process" ? processPane : infoPane;
+
   const content = (
     <div className="absolute inset-0 z-[24]">
       {/* backdrop */}
-      <button type="button" className="absolute inset-0 bg-black/20" onClick={onClose} aria-label={t("close")} />
+      <button
+        type="button"
+        tabIndex={-1}
+        className="absolute inset-0 bg-black/20"
+        onClick={requestClose}
+        aria-label={t("close")}
+      />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className={panelClassName}
         style={{
           boxShadow:
@@ -554,6 +956,7 @@ export function ContractPeekPanel(props: Props) {
                   type="button"
                   onClick={() => setPeekMode(option.key)}
                   aria-label={t(option.i18nKey)}
+                  aria-pressed={peekMode === option.key}
                   className={cn(
                     "rounded-sm p-1",
                     peekMode === option.key ? "bg-layer-1 text-primary" : "text-tertiary hover:bg-layer-1-hover"
@@ -565,12 +968,16 @@ export function ContractPeekPanel(props: Props) {
             ))}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-14 leading-5 font-medium" title={contract?.titulo ?? contract?.file_name ?? ""}>
+            <h2
+              id={titleId}
+              className="truncate text-14 leading-5 font-medium"
+              title={contract?.titulo ?? contract?.file_name ?? ""}
+            >
               {contract?.titulo ?? contract?.file_name ?? t("file_library.contracts.title")}
-            </p>
+            </h2>
             {contract && (
               <div className="flex min-w-0 items-center gap-1.5">
-                <ProcessingBadge contract={contract} activeJob={activeJob} />
+                <ProcessingBadge contract={contract} activeJob={activeJob} errorMessage={failureMessage} />
                 {contract.file_name && contract.titulo && (
                   <span className="min-w-0 truncate text-11 text-tertiary" title={contract.file_name}>
                     {contract.file_name}
@@ -602,107 +1009,96 @@ export function ContractPeekPanel(props: Props) {
               </button>
             </Tooltip>
             <PeekLinkActions onOpenInSection={onOpenInSection} className={HEADER_ICON} />
-            <CustomMenu
-              customButton={
-                <span className={HEADER_ICON} aria-hidden>
-                  <MoreHorizontal className="size-4" />
-                </span>
-              }
-              customButtonClassName="rounded-sm"
-              placement="bottom-end"
-              ariaLabel={t("file_library.contracts.workflow.common.actions")}
-              closeOnSelect
-            >
-              <CustomMenu.MenuItem onClick={() => setIsRetryModalOpen(true)} disabled={isActing || !!activeJob}>
-                <span className="flex items-start gap-2" title={t("file_library.contracts.retry.hint")}>
-                  <RefreshCcw className="mt-0.5 size-3.5 shrink-0" />
-                  {t("file_library.contracts.retry.button")}
-                </span>
-              </CustomMenu.MenuItem>
-              <CustomMenu.MenuItem
-                onClick={() => void handleReanalyze()}
-                disabled={isActing || !!activeJob || !contract?.text_extracted_at}
+            {canEdit && (
+              <CustomMenu
+                customButton={
+                  <span className={HEADER_ICON} aria-hidden>
+                    <MoreHorizontal className="size-4" />
+                  </span>
+                }
+                customButtonClassName="rounded-sm"
+                placement="bottom-end"
+                ariaLabel={t("file_library.contracts.workflow.common.actions")}
+                closeOnSelect
               >
-                <span className="flex items-start gap-2" title={t("file_library.contracts.reanalyze.hint")}>
-                  <Sparkles className="mt-0.5 size-3.5 shrink-0" />
-                  {t("file_library.contracts.reanalyze.button")}
-                </span>
-              </CustomMenu.MenuItem>
-              <CustomMenu.MenuItem onClick={() => setIsDeleteModalOpen(true)} disabled={isActing || !contract}>
-                <span className="flex items-center gap-2 text-danger-primary">
-                  <Trash2 className="size-3.5" />
-                  {t("file_library.contracts.delete.button")}
-                </span>
-              </CustomMenu.MenuItem>
-            </CustomMenu>
+                <CustomMenu.MenuItem
+                  onClick={() => openRetry(failedRetryKey ? { [failedRetryKey]: true } : undefined)}
+                  disabled={isActing || !!activeJob}
+                >
+                  <span className="flex items-start gap-2" title={t("file_library.contracts.retry.hint")}>
+                    <RefreshCcw className="mt-0.5 size-3.5 shrink-0" />
+                    {t("file_library.contracts.retry.button")}
+                  </span>
+                </CustomMenu.MenuItem>
+                <CustomMenu.MenuItem
+                  onClick={() => void handleReanalyze()}
+                  disabled={isActing || !!activeJob || !contract?.text_extracted_at}
+                >
+                  <span className="flex items-start gap-2" title={t("file_library.contracts.reanalyze.hint")}>
+                    <Sparkles className="mt-0.5 size-3.5 shrink-0" />
+                    {t("file_library.contracts.reanalyze.button")}
+                  </span>
+                </CustomMenu.MenuItem>
+                {activeJob && (
+                  <CustomMenu.MenuItem onClick={() => void handleCancelJob()} disabled={isCancelling}>
+                    <span className="flex items-center gap-2">
+                      <Ban className="size-3.5" />
+                      {t("file_library.contracts.process.cancel")}
+                    </span>
+                  </CustomMenu.MenuItem>
+                )}
+                {canRenew && (
+                  <CustomMenu.MenuItem onClick={() => setIsRenewOpen(true)}>
+                    <span className="flex items-center gap-2">
+                      <CalendarSync className="size-3.5" />
+                      {t("file_library.contracts.renew.button")}
+                    </span>
+                  </CustomMenu.MenuItem>
+                )}
+                <CustomMenu.MenuItem onClick={() => setIsDeleteModalOpen(true)} disabled={isActing || !contract}>
+                  <span className="flex items-center gap-2 text-danger-primary">
+                    <Trash2 className="size-3.5" />
+                    {t("file_library.contracts.delete.button")}
+                  </span>
+                </CustomMenu.MenuItem>
+              </CustomMenu>
+            )}
             <span className="mx-1 h-4 shrink-0 border-l border-subtle" aria-hidden />
             <Tooltip tooltipContent={t("close")}>
-              <button type="button" onClick={onClose} aria-label={t("close")} className={HEADER_ICON}>
+              <button type="button" onClick={requestClose} aria-label={t("close")} className={HEADER_ICON}>
                 <X className="size-4" />
               </button>
             </Tooltip>
           </div>
         </div>
 
-        {/* proposed data confirmation banner */}
-        {contract?.proposed_data && proposedEntries.length > 0 && (
-          <div className="shrink-0 border-b border-subtle bg-accent-primary/5 px-4 py-2.5">
-            <p className="text-12 font-medium">{t("file_library.contracts.reanalyze.pending_title")}</p>
-            <div className="mt-1 max-h-28 overflow-y-auto rounded-sm border border-subtle bg-surface-1 p-2 text-11">
-              {proposedEntries.map(([key, value]) => (
-                <p key={key} className="truncate">
-                  <span className="font-medium">{key}:</span>{" "}
-                  {Array.isArray(value)
-                    ? value.map((v) => (typeof v === "object" && v !== null ? JSON.stringify(v) : String(v))).join(", ")
-                    : String(value)}
-                </p>
-              ))}
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <Button variant="primary" size="sm" onClick={() => handleConfirmProposed(true)} disabled={isActing}>
-                {t("file_library.contracts.reanalyze.accept")}
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => handleConfirmProposed(false)} disabled={isActing}>
-                {t("file_library.contracts.reanalyze.discard")}
-              </Button>
-            </div>
-          </div>
+        {/* re-analysis proposal: compact, per-field */}
+        {contract?.proposed_changes && contract.proposed_changes.length > 0 && (
+          <ProposalDiff
+            changes={contract.proposed_changes}
+            onApply={(fields) => handleConfirmProposed(true, fields)}
+            onDiscard={() => handleConfirmProposed(false)}
+            isActing={isActing}
+            readOnly={!canEdit}
+          />
         )}
 
         {/* ── Mobile: single-focus views behind top-level tabs ─────────── */}
         <div className="flex min-h-0 flex-1 flex-col lg:hidden">
-          <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-3 pt-2">
-            {(["document", "info", "process", "chat"] as Tab[]).map((key) => tabButton(key))}
-          </div>
-          {tab === "document" ? (
-            <div className="min-h-0 flex-1">{isDesktop ? null : pdfViewer(null)}</div>
-          ) : isLoading || !contract ? (
-            loaderPane
-          ) : tab === "chat" ? (
-            chatPane
-          ) : tab === "process" ? (
-            processPane
-          ) : (
-            infoPane
+          {tabList(
+            ["document", "info", "process", "chat"],
+            "m",
+            "flex shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-3 pt-2"
           )}
-          {tab !== "document" && saveBar}
+          <div role="tabpanel" id={`${tabsId}-m-panel`} className="flex min-h-0 flex-1 flex-col">
+            {tab === "document" ? (
+              <div className="min-h-0 flex-1">{isDesktop ? null : pdfViewer(null)}</div>
+            ) : (
+              body(paneTab)
+            )}
+          </div>
+          {saveBar}
         </div>
-
-        <RetryOptionsModal
-          isOpen={isRetryModalOpen}
-          onClose={() => setIsRetryModalOpen(false)}
-          onConfirm={handleRetry}
-        />
-        <AlertModalCore
-          isOpen={isDeleteModalOpen}
-          handleClose={() => !isActing && setIsDeleteModalOpen(false)}
-          isSubmitting={isActing}
-          primaryButtonText={{ default: t("common.delete"), loading: t("common.deleting") }}
-          secondaryButtonText={t("common.cancel")}
-          title={t("file_library.contracts.delete.title", { count: 1 })}
-          content={t("file_library.contracts.delete.description", { count: 1 })}
-          handleSubmit={() => void handleDelete()}
-        />
 
         {/* ── Desktop: document beside the tabbed pane ─────────────────── */}
         <div className="hidden min-h-0 flex-1 lg:flex">
@@ -715,73 +1111,68 @@ export function ContractPeekPanel(props: Props) {
           )}
           {expanded !== "document" && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <div className="flex shrink-0 items-center gap-1 border-b border-subtle px-3 pt-2">
-                {(["info", "process", "chat"] as Tab[]).map((key) => tabButton(key))}
+              {tabList(
+                ["info", "process", "chat"],
+                "d",
+                "flex shrink-0 items-center gap-1 border-b border-subtle px-3 pt-2",
                 <span className="ml-auto pb-1">{expandButton("side")}</span>
+              )}
+              <div role="tabpanel" id={`${tabsId}-d-panel`} className="flex min-h-0 flex-1 flex-col">
+                {body(paneTab)}
               </div>
-              {isLoading || !contract
-                ? loaderPane
-                : paneTab === "chat"
-                  ? chatPane
-                  : paneTab === "process"
-                    ? processPane
-                    : infoPane}
               {saveBar}
             </div>
           )}
+          {expanded === "document" && saveBar && <div className="absolute right-0 bottom-0 left-0">{saveBar}</div>}
         </div>
+
+        <RetryOptionsModal
+          isOpen={isRetryModalOpen}
+          onClose={() => setIsRetryModalOpen(false)}
+          onConfirm={handleRetry}
+          initialSelection={retryPreset}
+          hasText={!!contract?.text_extracted_at}
+        />
+        <AlertModalCore
+          isOpen={isDeleteModalOpen}
+          handleClose={() => !isActing && setIsDeleteModalOpen(false)}
+          isSubmitting={isActing}
+          primaryButtonText={{ default: t("common.delete"), loading: t("common.deleting") }}
+          secondaryButtonText={t("common.cancel")}
+          title={t("file_library.contracts.delete.title", { count: 1 })}
+          content={t("file_library.contracts.delete.description", { count: 1 })}
+          handleSubmit={() => void handleDelete()}
+        />
+        <AlertModalCore
+          variant="primary"
+          isOpen={isDiscardOpen}
+          handleClose={() => setIsDiscardOpen(false)}
+          isSubmitting={false}
+          primaryButtonText={{
+            default: t("file_library.contracts.peek.discard_confirm"),
+            loading: t("file_library.contracts.peek.discard_confirm"),
+          }}
+          secondaryButtonText={t("file_library.contracts.peek.keep_editing")}
+          title={t("file_library.contracts.peek.discard_title")}
+          content={t("file_library.contracts.peek.discard_description")}
+          handleSubmit={() => {
+            setIsDiscardOpen(false);
+            setDraft({});
+            onClose();
+          }}
+        />
+        {contract?.source_template_id && (
+          <ContractRenewDialog
+            workspaceSlug={workspaceSlug}
+            templateId={contract.source_template_id}
+            isOpen={isRenewOpen}
+            onClose={() => setIsRenewOpen(false)}
+            initialTitle={contract.titulo ?? undefined}
+          />
+        )}
       </div>
     </div>
   );
 
   return portalContainer ? createPortal(content, portalContainer) : content;
-}
-
-function JobCard({ job }: { job: TContractJob }) {
-  const { t } = useTranslation();
-  const isActive = job.status === "QUEUED" || job.status === "RUNNING";
-  return (
-    <div className="rounded-md border border-subtle p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-12 font-medium">
-          {t(`file_library.contracts.task_type.${job.task_type.toLowerCase()}`)}
-        </span>
-        <span
-          className={cn(
-            "flex items-center gap-1 rounded-full px-2 py-0.5 text-11 font-medium",
-            isActive
-              ? "bg-accent-primary/10 text-accent-primary"
-              : job.status === "COMPLETED"
-                ? "bg-success-subtle text-success-primary"
-                : "bg-danger-subtle text-danger-primary"
-          )}
-        >
-          {isActive && <Loader2 className="size-3 animate-spin" />}
-          {job.status === "FAILED" && <AlertTriangle className="size-3" />}
-          {t(`file_library.contracts.job_status.${job.status.toLowerCase()}`)}
-        </span>
-      </div>
-      {/* progress bar + current stage */}
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-layer-1">
-        <div
-          className={cn(
-            "h-full rounded-full transition-all",
-            job.status === "FAILED" ? "bg-danger-strong" : "bg-accent-primary"
-          )}
-          style={{ width: `${job.progress}%` }}
-        />
-      </div>
-      <div className="mt-1.5 flex items-center justify-between gap-2 text-11 text-tertiary">
-        <span className="truncate">{job.current_stage ?? "—"}</span>
-        <span className="shrink-0 tabular-nums">{job.progress}%</span>
-      </div>
-      {job.error?.message && (
-        <p className="mt-1.5 rounded-sm bg-danger-subtle px-2 py-1 text-11 text-danger-primary">
-          {job.error.stage ? `[${job.error.stage}] ` : ""}
-          {job.error.message}
-        </p>
-      )}
-      <p className="mt-1.5 text-10 text-tertiary">{new Date(job.created_at).toLocaleString()}</p>
-    </div>
-  );
-}
+});

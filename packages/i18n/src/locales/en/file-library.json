@@ -132,7 +132,11 @@
       "no": "No",
       "empty": {
         "title": "No contracts yet",
-        "description": "Categorize a PDF file as Contratos in the file library to start the AI analysis pipeline."
+        "description": "Categorize a PDF file as Contratos in the file library to start the AI analysis pipeline.",
+        "filtered_title": "No results with these filters",
+        "filtered_description": "Try other filters or clear them.",
+        "view_title": "No contracts here yet",
+        "upload_description": "Upload PDFs and the AI will read them and fill in the details."
       },
       "status": {
         "vigente": "Active",
@@ -144,7 +148,19 @@
         "alquileres": "Rentals",
         "vehiculos": "Vehicles",
         "servicios": "Services",
-        "artistas": "Artists"
+        "artistas": "Artists",
+        "representacion": "Representation",
+        "produccion": "Production & recording",
+        "edicion": "Publishing",
+        "licencia": "Licensing",
+        "distribucion": "Distribution",
+        "cesion_derechos": "Rights assignment",
+        "colaboracion": "Collaboration",
+        "eventos": "Events & shows",
+        "patrocinio": "Sponsorship",
+        "confidencialidad": "Confidentiality",
+        "laboral": "Employment",
+        "otro": "Other"
       },
       "processing": {
         "pending": "Pending",
@@ -185,7 +201,8 @@
         "artist": "Artist",
         "artist_placeholder": "Artist name",
         "year": "Year",
-        "year_placeholder": "Start or end year"
+        "year_placeholder": "Start or end year",
+        "remove": "Remove filter {name}"
       },
       "retry": {
         "button": "Retry",
@@ -207,7 +224,12 @@
         "full_description": "Text extraction, embeddings, AI analysis and thumbnail, from scratch.",
         "partial_title": "Specific stages only",
         "partial_description": "Pick which stages to run; everything else is reused as-is.",
-        "confirm": "Retry"
+        "confirm": "Retry",
+        "extract_text_hint": "Only needed if the text came out wrong; it runs OCR again",
+        "classify": "Classification (type, editorial)",
+        "classify_hint": "Re-checks only the contract type",
+        "full_description_reuse": "Indexing, AI analysis and thumbnail. The text already extracted is reused.",
+        "job_active": "This contract is already being processed"
       },
       "reanalyze": {
         "button": "Re-analyze",
@@ -300,7 +322,15 @@
         "text_extracted": "Text extracted on {date}",
         "text_pending": "Text not extracted yet",
         "analyzed": "AI analysis completed on {date}",
-        "no_jobs": "No runs yet for this contract"
+        "no_jobs": "No runs yet for this contract",
+        "cancel": "Cancel",
+        "cancelled": "Analysis cancelled",
+        "cancel_failed": "The analysis couldn't be cancelled",
+        "cost": "AI cost",
+        "call": "Call",
+        "tokens_in": "Input",
+        "tokens_out": "Output",
+        "cached": "{count} cached"
       },
       "task_type": {
         "extract_full": "Full analysis",
@@ -312,7 +342,8 @@
         "queued": "Queued",
         "running": "Running",
         "completed": "Completed",
-        "failed": "Failed"
+        "failed": "Failed",
+        "cancelled": "Cancelled"
       },
       "query": {
         "button": "AI query",
@@ -519,7 +550,23 @@
           "updated_hours": "{count, plural, one {Updated # hour ago} other {Updated # hours ago}}",
           "updated_just_now": "Updated just now",
           "updated_minutes": "{count, plural, one {Updated # minute ago} other {Updated # minutes ago}}",
-          "view_pdf": "View signed PDF"
+          "view_pdf": "View signed PDF",
+          "cancel_request": "Cancel contract",
+          "cancel_title": "Cancel this contract?",
+          "cancel_description": "Signers of {title} will no longer be able to sign it. This can't be undone.",
+          "cancel_confirm": "Cancel contract",
+          "cancel_confirming": "Cancelling…",
+          "keep": "Keep it",
+          "cancel_success": "Contract cancelled",
+          "cancel_failed": "Couldn't cancel the contract.",
+          "remind": "Send reminder",
+          "remind_success": "Reminder sent to pending signers",
+          "remind_failed": "Couldn't send the reminder.",
+          "duplicate": "Duplicate",
+          "duplicate_success": "Contract duplicated",
+          "duplicate_failed": "Couldn't duplicate the contract.",
+          "action_unavailable": "Not available yet",
+          "action_unavailable_description": "The signing service doesn't support this action yet."
         },
         "edit_decision": {
           "confirm": "Continue",
@@ -758,7 +805,18 @@
           "variant_placeholder": "Variant name",
           "version_meta": "{variables} variables · {fields} fields · {participants} participants",
           "version_save_failed": "The version could not be saved.",
-          "version_saved": "Version saved"
+          "version_saved": "Version saved",
+          "edit_details": "Edit details",
+          "rename_variant": "Rename",
+          "rename_variant_title": "Rename variant",
+          "variant_renamed": "Variant renamed",
+          "variant_rename_failed": "Couldn't rename the variant.",
+          "delete_variant": "Delete variant",
+          "delete_variant_description": "Delete the variant {name} and its saved versions? This can't be undone.",
+          "variant_deleted": "Variant deleted",
+          "variant_delete_failed": "Couldn't delete the variant.",
+          "last_variant_hint": "A template needs at least one variant.",
+          "variant_actions": "Variant actions"
         },
         "templates": {
           "bulk_delete_description": "Delete the {count} selected templates and all their variants and versions?",
@@ -802,7 +860,22 @@
           "variables_or": "or",
           "variables_prefix": "Use",
           "variables_suffix": "to map signer data and fields automatically.",
-          "variables_title": "Smart variables"
+          "variables_title": "Smart variables",
+          "edit_details": "Edit details",
+          "edit_details_description": "Change how this template is named and described in the library.",
+          "description_placeholder": "What is this template for?",
+          "details_saved": "Template updated",
+          "details_save_failed": "Couldn't update the template.",
+          "save": "Save"
+        },
+        "renew": {
+          "title": "Renew from template",
+          "choose_variant": "Choose which variant to use for the renewal.",
+          "not_ready_title": "This template isn't ready yet",
+          "not_ready_description": "Configure its roles and signature fields before renewing a contract from it.",
+          "open_template": "Open template",
+          "load_failed": "Couldn't load the template.",
+          "variant_not_ready": "Not configured"
         },
         "use": {
           "available_variables": "Available variables",
@@ -903,17 +976,49 @@
         "failed": "The contracts could not be uploaded.",
         "no_category": "The Contratos category could not be found in this workspace.",
         "only_pdf": "Only PDF files can be uploaded as contracts.",
-        "started": "{count, plural, one {# contract uploaded, analysis started} other {# contracts uploaded, analysis started}}"
+        "started": "{count, plural, one {# contract uploaded, analysis started} other {# contracts uploaded, analysis started}}",
+        "failed_one": "Upload failed",
+        "partial": "{done} of {total} uploaded, {failed} failed",
+        "uploading": "Uploading {done} of {total}",
+        "finished": "{count, plural, one {# contract uploaded} other {# contracts uploaded}}",
+        "panel_label": "Contract uploads",
+        "skipped_title": "Some files were skipped",
+        "retry_failed": "Retry failed",
+        "expand": "Show uploads",
+        "collapse": "Hide uploads",
+        "not_pdf": "{count, plural, one {# file isn't a PDF and was skipped:} other {# files aren't PDFs and were skipped:}}",
+        "remove": "Remove from list",
+        "checking": "Checking for duplicates…",
+        "waiting": "{count, plural, one {# file needs your decision} other {# files need your decision}}",
+        "duplicate": "Already uploaded as “{name}”",
+        "duplicate_batch": "Repeated in this upload",
+        "open_existing": "Open",
+        "upload_anyway": "Upload anyway"
       },
       "order": {
         "start_newest": "Start date, newest",
         "start_oldest": "Start date, oldest",
         "end_soonest": "Ending soonest",
-        "end_latest": "Ending latest"
+        "end_latest": "Ending latest",
+        "effective_soonest": "Effective end, soonest",
+        "effective_latest": "Effective end, latest"
       },
       "peek": {
         "expand_pane": "Expand to the full panel",
-        "split_view": "Back to split view"
+        "split_view": "Back to split view",
+        "pdf_failed": "The document couldn't be loaded",
+        "no_document": "This contract has no document",
+        "reading": "The AI is reading the contract…",
+        "reading_hint": "The fields fill in when it finishes. You can close this panel meanwhile.",
+        "see_process": "See progress",
+        "rerunning": "Running again: {stage}",
+        "load_failed": "The contract couldn't be loaded",
+        "unsaved_count": "{count, plural, one {# unsaved change} other {# unsaved changes}}",
+        "chat_disabled": "Chat is available once the contract's text has been extracted",
+        "discard_confirm": "Discard changes",
+        "keep_editing": "Keep editing",
+        "discard_title": "Discard unsaved changes?",
+        "discard_description": "Your edits to this contract haven't been saved."
       },
       "delete": {
         "button": "Delete contract",
@@ -928,6 +1033,101 @@
         "to_normal": "Active or expired (by date)",
         "success": "{count, plural, one {Contract moved} other {# contracts moved}}",
         "failed": "Couldn't move the contracts"
+      },
+      "stage": {
+        "queued": "In queue",
+        "starting": "Starting",
+        "extracting_text": "Reading the PDF",
+        "waiting_ocr": "Waiting for OCR",
+        "collecting_text": "Collecting text",
+        "embedding": "Indexing for search",
+        "analyzing": "AI analysis",
+        "saving": "Saving data",
+        "classifying": "Classifying",
+        "syncing_tags": "Updating tags",
+        "done": "Done",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "timeout": "Stalled"
+      },
+      "stage_detail": {
+        "pages": "page {done} of {total}"
+      },
+      "errors": {
+        "generic": "The analysis failed.",
+        "extracting_text": "The PDF text couldn't be read.",
+        "waiting_ocr": "Text recognition (OCR) didn't finish.",
+        "collecting_text": "The recognized text couldn't be collected.",
+        "embedding": "The text couldn't be indexed for search.",
+        "analyzing": "The AI couldn't analyze the contract.",
+        "saving": "The extracted data couldn't be saved.",
+        "classifying": "The contract couldn't be classified.",
+        "syncing_tags": "The tags couldn't be updated.",
+        "timeout": "The analysis stopped making progress.",
+        "cancelled": "The analysis was cancelled.",
+        "details": "Technical details"
+      },
+      "proposal": {
+        "marker": "To review",
+        "marker_hint": "A re-analysis proposes changes waiting for review",
+        "title": "Re-analysis proposal",
+        "title_count": "{count, plural, one {Re-analysis proposes # change} other {Re-analysis proposes # changes}}",
+        "hide": "Hide",
+        "review": "Review",
+        "select_all": "Select all",
+        "field": "Field",
+        "change": "Current → proposed",
+        "apply": "{count, plural, one {Apply # change} other {Apply # changes}}"
+      },
+      "expiry": {
+        "expired": "Expired",
+        "today": "Today",
+        "in_days": "{count, plural, one {in # day} other {in # days}}"
+      },
+      "list": {
+        "select_all": "Select all",
+        "status": "Status",
+        "start": "Start",
+        "end": "End",
+        "effective_end": "Effective end",
+        "expires_in": "Expires",
+        "load_failed": "The list couldn't be loaded",
+        "showing": "Showing {shown} of {total}",
+        "load_more": "Load more",
+        "more_actions": "More actions",
+        "download_files": "Download PDFs"
+      },
+      "expiring": {
+        "label": "Expiring",
+        "days": "{count} days",
+        "within": "Within {count} days",
+        "any": "Any date"
+      },
+      "bulk_edit": {
+        "button": "Edit",
+        "title": "{count, plural, one {Edit # contract} other {Edit # contracts}}",
+        "description": "Tick the fields to change. Unticked fields stay as they are.",
+        "apply": "{count, plural, =0 {Apply} one {Apply # field} other {Apply # fields}}",
+        "success": "{count, plural, one {# contract updated} other {# contracts updated}}",
+        "failed": "The contracts couldn't be updated"
+      },
+      "export": {
+        "xlsx": "Export to Excel",
+        "csv": "Export to CSV",
+        "failed": "The export failed"
+      },
+      "evidence": {
+        "page": "Page {page}",
+        "approximate": "approx.",
+        "approximate_hint": "The document only gives part of this value (e.g. the year)",
+        "computed": "calculated",
+        "computed_hint": "Calculated from other data in the contract (e.g. start date + term)",
+        "see": "See in document",
+        "not_found": "Couldn't find the exact quote in the PDF"
+      },
+      "renew": {
+        "expired_hint": "This contract has expired. You can create a new one from its template.",
+        "button": "Renew from template"
       }
     },
     "collabora": {

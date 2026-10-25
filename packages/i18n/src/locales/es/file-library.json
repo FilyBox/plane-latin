@@ -132,7 +132,11 @@
       "no": "No",
       "empty": {
         "title": "Aún no hay contratos",
-        "description": "Categorice un archivo PDF como Contratos en la biblioteca de archivos para iniciar el análisis con IA."
+        "description": "Categorice un archivo PDF como Contratos en la biblioteca de archivos para iniciar el análisis con IA.",
+        "filtered_title": "Sin resultados con estos filtros",
+        "filtered_description": "Pruebe con otros filtros o límpielos.",
+        "view_title": "Aún no hay contratos aquí",
+        "upload_description": "Suba PDFs y la IA los leerá y llenará los datos."
       },
       "status": {
         "vigente": "Vigente",
@@ -144,7 +148,19 @@
         "alquileres": "Alquileres",
         "vehiculos": "Vehículos",
         "servicios": "Servicios",
-        "artistas": "Artistas"
+        "artistas": "Artistas",
+        "representacion": "Representación",
+        "produccion": "Producción y grabación",
+        "edicion": "Edición (editorial)",
+        "licencia": "Licencias",
+        "distribucion": "Distribución",
+        "cesion_derechos": "Cesión de derechos",
+        "colaboracion": "Colaboración",
+        "eventos": "Eventos y presentaciones",
+        "patrocinio": "Patrocinio",
+        "confidencialidad": "Confidencialidad",
+        "laboral": "Laboral",
+        "otro": "Otro"
       },
       "processing": {
         "pending": "Pendiente",
@@ -185,7 +201,8 @@
         "artist": "Artista",
         "artist_placeholder": "Nombre del artista",
         "year": "Año",
-        "year_placeholder": "Año de inicio o fin"
+        "year_placeholder": "Año de inicio o fin",
+        "remove": "Quitar filtro {name}"
       },
       "retry": {
         "button": "Reintentar",
@@ -207,7 +224,12 @@
         "full_description": "Extracción de texto, embeddings, análisis de IA y miniatura, desde cero.",
         "partial_title": "Solo etapas específicas",
         "partial_description": "Elija qué etapas ejecutar; el resto se reutiliza tal cual.",
-        "confirm": "Reintentar"
+        "confirm": "Reintentar",
+        "extract_text_hint": "Solo si el texto salió mal; vuelve a usar OCR",
+        "classify": "Clasificación (tipo, editorial)",
+        "classify_hint": "Revisa solo el tipo de contrato",
+        "full_description_reuse": "Indexado, análisis con IA y miniatura. Se reutiliza el texto ya extraído.",
+        "job_active": "Este contrato ya se está procesando"
       },
       "reanalyze": {
         "button": "Reanalizar",
@@ -300,7 +322,15 @@
         "text_extracted": "Texto extraído el {date}",
         "text_pending": "Texto aún no extraído",
         "analyzed": "Análisis de IA completado el {date}",
-        "no_jobs": "Aún no hay ejecuciones para este contrato"
+        "no_jobs": "Aún no hay ejecuciones para este contrato",
+        "cancel": "Cancelar",
+        "cancelled": "Análisis cancelado",
+        "cancel_failed": "No se pudo cancelar el análisis",
+        "cost": "Costo de IA",
+        "call": "Llamada",
+        "tokens_in": "Entrada",
+        "tokens_out": "Salida",
+        "cached": "{count} en caché"
       },
       "task_type": {
         "extract_full": "Análisis completo",
@@ -312,7 +342,8 @@
         "queued": "En cola",
         "running": "En ejecución",
         "completed": "Completado",
-        "failed": "Fallido"
+        "failed": "Fallido",
+        "cancelled": "Cancelado"
       },
       "query": {
         "button": "Consulta con IA",
@@ -519,7 +550,23 @@
           "updated_hours": "{count, plural, one {Actualizado hace # hora} other {Actualizado hace # horas}}",
           "updated_just_now": "Actualizado hace un momento",
           "updated_minutes": "{count, plural, one {Actualizado hace # minuto} other {Actualizado hace # minutos}}",
-          "view_pdf": "Ver PDF firmado"
+          "view_pdf": "Ver PDF firmado",
+          "cancel_request": "Cancelar contrato",
+          "cancel_title": "¿Cancelar este contrato?",
+          "cancel_description": "Los firmantes de {title} ya no podrán firmarlo. No se puede deshacer.",
+          "cancel_confirm": "Cancelar contrato",
+          "cancel_confirming": "Cancelando…",
+          "keep": "Mantener",
+          "cancel_success": "Contrato cancelado",
+          "cancel_failed": "No se pudo cancelar el contrato.",
+          "remind": "Enviar recordatorio",
+          "remind_success": "Recordatorio enviado a quienes faltan por firmar",
+          "remind_failed": "No se pudo enviar el recordatorio.",
+          "duplicate": "Duplicar",
+          "duplicate_success": "Contrato duplicado",
+          "duplicate_failed": "No se pudo duplicar el contrato.",
+          "action_unavailable": "No disponible todavía",
+          "action_unavailable_description": "El servicio de firma aún no admite esta acción."
         },
         "edit_decision": {
           "confirm": "Continuar",
@@ -758,7 +805,18 @@
           "variant_placeholder": "Nombre de la variante",
           "version_meta": "{variables} variables · {fields} campos · {participants} participantes",
           "version_save_failed": "No se pudo guardar la versión.",
-          "version_saved": "Versión guardada"
+          "version_saved": "Versión guardada",
+          "edit_details": "Editar datos",
+          "rename_variant": "Renombrar",
+          "rename_variant_title": "Renombrar variante",
+          "variant_renamed": "Variante renombrada",
+          "variant_rename_failed": "No se pudo renombrar la variante.",
+          "delete_variant": "Eliminar variante",
+          "delete_variant_description": "¿Eliminar la variante {name} y sus versiones guardadas? No se puede deshacer.",
+          "variant_deleted": "Variante eliminada",
+          "variant_delete_failed": "No se pudo eliminar la variante.",
+          "last_variant_hint": "Una plantilla necesita al menos una variante.",
+          "variant_actions": "Acciones de la variante"
         },
         "templates": {
           "bulk_delete_description": "¿Eliminar las {count} plantillas seleccionadas y todas sus variantes y versiones?",
@@ -802,7 +860,22 @@
           "variables_or": "o",
           "variables_prefix": "Usa",
           "variables_suffix": "para mapear automáticamente datos de firmantes y campos.",
-          "variables_title": "Variables inteligentes"
+          "variables_title": "Variables inteligentes",
+          "edit_details": "Editar datos",
+          "edit_details_description": "Cambie el nombre y la descripción con que aparece en la biblioteca.",
+          "description_placeholder": "¿Para qué sirve esta plantilla?",
+          "details_saved": "Plantilla actualizada",
+          "details_save_failed": "No se pudo actualizar la plantilla.",
+          "save": "Guardar"
+        },
+        "renew": {
+          "title": "Renovar desde plantilla",
+          "choose_variant": "Elija la variante para la renovación.",
+          "not_ready_title": "Esta plantilla aún no está lista",
+          "not_ready_description": "Configure sus roles y campos de firma antes de renovar un contrato con ella.",
+          "open_template": "Abrir plantilla",
+          "load_failed": "No se pudo cargar la plantilla.",
+          "variant_not_ready": "Sin configurar"
         },
         "use": {
           "available_variables": "Variables disponibles",
@@ -903,17 +976,49 @@
         "failed": "No se pudieron subir los contratos.",
         "no_category": "No se encontró la categoría Contratos en este espacio de trabajo.",
         "only_pdf": "Solo se pueden subir archivos PDF como contratos.",
-        "started": "{count, plural, one {# contrato subido, análisis iniciado} other {# contratos subidos, análisis iniciado}}"
+        "started": "{count, plural, one {# contrato subido, análisis iniciado} other {# contratos subidos, análisis iniciado}}",
+        "failed_one": "No se pudo subir",
+        "partial": "{done} de {total} subidos, {failed} fallaron",
+        "uploading": "Subiendo {done} de {total}",
+        "finished": "{count, plural, one {# contrato subido} other {# contratos subidos}}",
+        "panel_label": "Subida de contratos",
+        "skipped_title": "Se omitieron algunos archivos",
+        "retry_failed": "Reintentar fallidos",
+        "expand": "Mostrar subidas",
+        "collapse": "Ocultar subidas",
+        "not_pdf": "{count, plural, one {# archivo no es PDF y se omitió:} other {# archivos no son PDF y se omitieron:}}",
+        "remove": "Quitar de la lista",
+        "checking": "Buscando duplicados…",
+        "waiting": "{count, plural, one {# archivo espera su decisión} other {# archivos esperan su decisión}}",
+        "duplicate": "Ya existe como «{name}»",
+        "duplicate_batch": "Repetido en esta subida",
+        "open_existing": "Abrir",
+        "upload_anyway": "Subir igual"
       },
       "order": {
         "start_newest": "Inicio más reciente",
         "start_oldest": "Inicio más antiguo",
         "end_soonest": "Vencen antes",
-        "end_latest": "Vencen después"
+        "end_latest": "Vencen después",
+        "effective_soonest": "Fin efectivo más próximo",
+        "effective_latest": "Fin efectivo más lejano"
       },
       "peek": {
         "expand_pane": "Expandir a todo el panel",
-        "split_view": "Volver a vista dividida"
+        "split_view": "Volver a vista dividida",
+        "pdf_failed": "No se pudo cargar el documento",
+        "no_document": "Este contrato no tiene documento",
+        "reading": "La IA está leyendo el contrato…",
+        "reading_hint": "Los campos se llenan al terminar. Puede cerrar el panel mientras tanto.",
+        "see_process": "Ver avance",
+        "rerunning": "Procesando de nuevo: {stage}",
+        "load_failed": "No se pudo cargar el contrato",
+        "unsaved_count": "{count, plural, one {# cambio sin guardar} other {# cambios sin guardar}}",
+        "chat_disabled": "El chat se habilita cuando se termine de extraer el texto del contrato",
+        "discard_confirm": "Descartar cambios",
+        "keep_editing": "Seguir editando",
+        "discard_title": "¿Descartar los cambios sin guardar?",
+        "discard_description": "Sus ediciones en este contrato no se han guardado."
       },
       "delete": {
         "button": "Eliminar contrato",
@@ -928,6 +1033,101 @@
         "to_normal": "Vigentes o vencidos (según su fecha)",
         "success": "{count, plural, one {Contrato movido} other {# contratos movidos}}",
         "failed": "No se pudieron mover los contratos"
+      },
+      "stage": {
+        "queued": "En cola",
+        "starting": "Iniciando",
+        "extracting_text": "Leyendo el PDF",
+        "waiting_ocr": "Esperando OCR",
+        "collecting_text": "Reuniendo el texto",
+        "embedding": "Indexando para búsqueda",
+        "analyzing": "Análisis con IA",
+        "saving": "Guardando datos",
+        "classifying": "Clasificando",
+        "syncing_tags": "Actualizando etiquetas",
+        "done": "Listo",
+        "failed": "Falló",
+        "cancelled": "Cancelado",
+        "timeout": "Sin avance"
+      },
+      "stage_detail": {
+        "pages": "página {done} de {total}"
+      },
+      "errors": {
+        "generic": "El análisis falló.",
+        "extracting_text": "No se pudo leer el texto del PDF.",
+        "waiting_ocr": "El reconocimiento de texto (OCR) no terminó.",
+        "collecting_text": "No se pudo reunir el texto reconocido.",
+        "embedding": "No se pudo indexar el texto para la búsqueda.",
+        "analyzing": "La IA no pudo analizar el contrato.",
+        "saving": "No se pudieron guardar los datos extraídos.",
+        "classifying": "No se pudo clasificar el contrato.",
+        "syncing_tags": "No se pudieron actualizar las etiquetas.",
+        "timeout": "El análisis dejó de avanzar.",
+        "cancelled": "El análisis se canceló.",
+        "details": "Detalles técnicos"
+      },
+      "proposal": {
+        "marker": "Por revisar",
+        "marker_hint": "Un reanálisis propone cambios pendientes de revisar",
+        "title": "Propuesta del reanálisis",
+        "title_count": "{count, plural, one {El reanálisis propone # cambio} other {El reanálisis propone # cambios}}",
+        "hide": "Ocultar",
+        "review": "Revisar",
+        "select_all": "Seleccionar todo",
+        "field": "Campo",
+        "change": "Actual → propuesto",
+        "apply": "{count, plural, one {Aplicar # cambio} other {Aplicar # cambios}}"
+      },
+      "expiry": {
+        "expired": "Vencido",
+        "today": "Hoy",
+        "in_days": "{count, plural, one {en # día} other {en # días}}"
+      },
+      "list": {
+        "select_all": "Seleccionar todo",
+        "status": "Estatus",
+        "start": "Inicio",
+        "end": "Fin",
+        "effective_end": "Fin efectivo",
+        "expires_in": "Vence",
+        "load_failed": "No se pudo cargar la lista",
+        "showing": "{shown} de {total}",
+        "load_more": "Cargar más",
+        "more_actions": "Más acciones",
+        "download_files": "Descargar PDFs"
+      },
+      "expiring": {
+        "label": "Por vencer",
+        "days": "{count} días",
+        "within": "En los próximos {count} días",
+        "any": "Cualquier fecha"
+      },
+      "bulk_edit": {
+        "button": "Editar",
+        "title": "{count, plural, one {Editar # contrato} other {Editar # contratos}}",
+        "description": "Marque los campos que quiere cambiar. Los demás se quedan como están.",
+        "apply": "{count, plural, =0 {Aplicar} one {Aplicar # campo} other {Aplicar # campos}}",
+        "success": "{count, plural, one {# contrato actualizado} other {# contratos actualizados}}",
+        "failed": "No se pudieron actualizar los contratos"
+      },
+      "export": {
+        "xlsx": "Exportar a Excel",
+        "csv": "Exportar a CSV",
+        "failed": "No se pudo exportar"
+      },
+      "evidence": {
+        "page": "Página {page}",
+        "approximate": "aprox.",
+        "approximate_hint": "El documento da solo parte de este valor (p. ej., el año)",
+        "computed": "calculado",
+        "computed_hint": "Calculado con otros datos del contrato (p. ej., inicio + duración)",
+        "see": "Ver en el documento",
+        "not_found": "No se encontró la cita exacta en el PDF"
+      },
+      "renew": {
+        "expired_hint": "Este contrato venció. Puede crear uno nuevo desde su plantilla.",
+        "button": "Renovar desde plantilla"
       }
     },
     "collabora": {

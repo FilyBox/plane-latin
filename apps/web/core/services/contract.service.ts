@@ -8,6 +8,10 @@
 import { API_BASE_URL } from "@plane/constants";
 import type {
   TContract,
+  TContractBulkUpdateFields,
+  TContractDetail,
+  TContractDuplicateCheck,
+  TContractPage,
   TContractAuthoringSettings,
   TContractAuthoringRecipient,
   TContractChat,
@@ -33,7 +37,8 @@ export class ContractService extends APIService {
     super(API_BASE_URL);
   }
 
-  async getContracts(workspaceSlug: string, filters?: TContractFilters, view?: TContractView): Promise<TContract[]> {
+  /** Query string shared by the list, its pages and the export */
+  private contractListParams(filters?: TContractFilters, view?: TContractView): URLSearchParams {
     // Multi-value filters repeat their key (?estatus=a&estatus=b) — Django getlist()
     const params = new URLSearchParams();
     if (view) params.set("vista", view);
@@ -48,8 +53,13 @@ export class ContractService extends APIService {
     (filters?.tags ?? []).forEach((value) => params.append("tag", value));
     if (filters?.fecha_fin_efectiva_after) params.set("fecha_fin_efectiva_after", filters.fecha_fin_efectiva_after);
     if (filters?.fecha_fin_efectiva_before) params.set("fecha_fin_efectiva_before", filters.fecha_fin_efectiva_before);
+    if (filters?.vence_en) params.set("vence_en", String(filters.vence_en));
     if (filters?.order) params.set("order", filters.order);
-    const query = params.toString();
+    return params;
+  }
+
+  async getContracts(workspaceSlug: string, filters?: TContractFilters, view?: TContractView): Promise<TContract[]> {
+    const query = this.contractListParams(filters, view).toString();
     return this.get(`/api/workspaces/${workspaceSlug}/contracts/${query ? `?${query}` : ""}`)
       .then((response) => response?.data)
       .catch((error) => {
@@ -57,7 +67,89 @@ export class ContractService extends APIService {
       });
   }
 
-  async getContract(workspaceSlug: string, contractId: string): Promise<TContract> {
+  /** One page of the list. Falls back gracefully if the server still answers with a plain array. */
+  async getContractsPage(
+    workspaceSlug: string,
+    filters: TContractFilters | undefined,
+    view: TContractView | undefined,
+    perPage: number,
+    cursor?: string | null
+  ): Promise<TContractPage> {
+    const params = this.contractListParams(filters, view);
+    params.set("per_page", String(perPage));
+    if (cursor) params.set("cursor", cursor);
+    return this.get(`/api/workspaces/${workspaceSlug}/contracts/?${params.toString()}`)
+      .then((response) => {
+        const data = response?.data;
+        if (Array.isArray(data)) return { results: data, next_cursor: null, total: data.length };
+        return data as TContractPage;
+      })
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /** Downloads the filtered list as a spreadsheet. */
+  async exportContracts(
+    workspaceSlug: string,
+    type: "xlsx" | "csv",
+    filters?: TContractFilters,
+    view?: TContractView
+  ): Promise<{ blob: Blob; fileName: string | null }> {
+    const params = this.contractListParams(filters, view);
+    params.set("type", type);
+    return this.get(
+      `/api/workspaces/${workspaceSlug}/contracts/export/?${params.toString()}`,
+      {},
+      { responseType: "blob" }
+    )
+      .then((response) => {
+        const disposition: string = response?.headers?.["content-disposition"] ?? "";
+        const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+        return { blob: response.data as Blob, fileName: match ? decodeURIComponent(match[1]) : null };
+      })
+      .catch((error) => {
+        throw error?.response?.data ?? error;
+      });
+  }
+
+  async checkDuplicates(
+    workspaceSlug: string,
+    files: { name: string; size: number; hash: string }[]
+  ): Promise<TContractDuplicateCheck> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contracts/check-duplicates/`, { files })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async cancelJob(workspaceSlug: string, contractId: string, jobId: string): Promise<TContractJob> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contracts/${contractId}/jobs/${jobId}/cancel/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async bulkUpdate(
+    workspaceSlug: string,
+    contractIds: string[],
+    fields: TContractBulkUpdateFields
+  ): Promise<{ updated?: string[] }> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contracts/bulk/`, {
+      action: "update",
+      ids: contractIds,
+      contract_ids: contractIds,
+      fields,
+    })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async getContract(workspaceSlug: string, contractId: string): Promise<TContractDetail> {
     return this.get(`/api/workspaces/${workspaceSlug}/contracts/${contractId}/`)
       .then((response) => response?.data)
       .catch((error) => {
@@ -65,7 +157,11 @@ export class ContractService extends APIService {
       });
   }
 
-  async updateContract(workspaceSlug: string, contractId: string, data: TContractUpdatePayload): Promise<TContract> {
+  async updateContract(
+    workspaceSlug: string,
+    contractId: string,
+    data: TContractUpdatePayload
+  ): Promise<TContractDetail> {
     return this.patch(`/api/workspaces/${workspaceSlug}/contracts/${contractId}/`, data)
       .then((response) => response?.data)
       .catch((error) => {
@@ -102,8 +198,17 @@ export class ContractService extends APIService {
       });
   }
 
-  async confirmReanalysis(workspaceSlug: string, contractId: string, accept: boolean): Promise<TContract> {
-    return this.post(`/api/workspaces/${workspaceSlug}/contracts/${contractId}/reanalyze/confirm/`, { accept })
+  /** `fields` applies only those proposed fields; the rest of the proposal is discarded. */
+  async confirmReanalysis(
+    workspaceSlug: string,
+    contractId: string,
+    accept: boolean,
+    fields?: string[]
+  ): Promise<TContractDetail> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contracts/${contractId}/reanalyze/confirm/`, {
+      accept,
+      ...(fields ? { fields } : {}),
+    })
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;
@@ -438,6 +543,62 @@ export class ContractService extends APIService {
     return this.get(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/links/`).then(
       (response) => response.data.links
     );
+  }
+
+  /* Template / signature-request actions. Errors carry the HTTP status so the
+     UI can tell an endpoint that is not implemented yet (501) apart. */
+
+  private rethrowWithStatus(error: any): never {
+    const data = error?.response?.data;
+    throw {
+      ...(data && typeof data === "object" ? data : {}),
+      status: error?.response?.status,
+    } satisfies import("@plane/types").TContractActionError;
+  }
+
+  async updateTemplate(
+    workspaceSlug: string,
+    templateId: string,
+    payload: import("@plane/types").TContractTemplateUpdatePayload
+  ): Promise<TContractTemplate> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/contract-templates/${templateId}/`, payload)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  async updateVariant(
+    workspaceSlug: string,
+    variantId: string,
+    payload: import("@plane/types").TContractVariantUpdatePayload
+  ): Promise<import("@plane/types").TContractTemplateVariant> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/`, payload)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  async deleteVariant(workspaceSlug: string, variantId: string): Promise<void> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/`)
+      .then(() => undefined)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  async cancelSignatureRequest(workspaceSlug: string, requestId: string): Promise<TContractSignatureRequest> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/cancel/`)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  async remindSignatureRequest(workspaceSlug: string, requestId: string): Promise<void> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/remind/`)
+      .then(() => undefined)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  /** Returns the new request (a draft copy of the original). */
+  async duplicateSignatureRequest(workspaceSlug: string, requestId: string): Promise<TContractSignatureRequest> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/duplicate/`)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 }
 

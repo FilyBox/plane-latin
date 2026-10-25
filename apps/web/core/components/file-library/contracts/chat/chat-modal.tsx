@@ -5,10 +5,10 @@
  */
 
 import { Sparkles, X } from "lucide-react";
-import { useNavigate } from "react-router";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import { EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
+import { useEntityPeek } from "@/components/entity-peek/use-entity-peek";
 // local imports
 import { ContractChatPanel } from "./chat-panel";
 
@@ -24,7 +24,7 @@ type Props = {
 export function ContractChatModal(props: Props) {
   const { workspaceSlug, isOpen, onClose, initialQuery } = props;
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { open: openPeek } = useEntityPeek();
 
   return (
     <ModalCore
@@ -50,8 +50,9 @@ export function ContractChatModal(props: Props) {
             mode="GENERAL"
             initialQuery={initialQuery}
             onOpenContract={(contractId) => {
+              // Opens the panel over the current list instead of jumping to "analyzed"
               onClose();
-              void navigate(`/${workspaceSlug}/file-library/contracts/analyzed?peek=${contractId}`);
+              openPeek({ kind: "contract", id: contractId });
             }}
           />
         )}

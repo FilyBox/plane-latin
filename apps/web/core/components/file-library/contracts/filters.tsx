@@ -15,7 +15,13 @@ import { cn } from "@plane/utils";
 // services
 import { fileLibraryService } from "@/services/file-library.service";
 // local imports
-import { CONTRACT_STATUS_OPTIONS, CONTRACT_TYPE_OPTIONS, PROCESSING_STATUS_OPTIONS } from "./constants";
+import {
+  CONTRACT_STATUS_OPTIONS,
+  CONTRACT_TYPE_OPTIONS,
+  EXPIRING_WINDOWS,
+  PROCESSING_STATUS_OPTIONS,
+} from "./constants";
+import { activeFilterCount } from "./utils";
 
 type Props = {
   workspaceSlug: string;
@@ -74,16 +80,7 @@ export function ContractFiltersDropdown(props: Props) {
     ? workspaceTags.filter((tag) => tag.name.toLowerCase().includes(tagSearch.trim().toLowerCase()))
     : workspaceTags;
 
-  const activeCount =
-    (filters.estatus?.length ?? 0) +
-    (filters.tipo?.length ?? 0) +
-    (filters.processing_status?.length ?? 0) +
-    (filters.tags?.length ?? 0) +
-    (filters.person ? 1 : 0) +
-    (filters.artist ? 1 : 0) +
-    (filters.year ? 1 : 0) +
-    (filters.fecha_fin_efectiva_after ? 1 : 0) +
-    (filters.fecha_fin_efectiva_before ? 1 : 0);
+  const activeCount = activeFilterCount(filters);
 
   const toggleValue = <K extends "estatus" | "tipo" | "processing_status" | "tags">(key: K, value: string) => {
     const current = (filters[key] ?? []) as string[];
@@ -97,6 +94,7 @@ export function ContractFiltersDropdown(props: Props) {
       value={filters[key] ?? ""}
       onChange={(e) => onChange({ [key]: e.target.value || undefined })}
       placeholder={t(placeholderKey)}
+      aria-label={t(placeholderKey)}
       className="w-full rounded-sm border border-subtle bg-transparent px-2 py-1 text-12"
     />
   );
@@ -104,6 +102,7 @@ export function ContractFiltersDropdown(props: Props) {
   return (
     <Popover>
       <Popover.Button
+        aria-label={t("file_library.filters.button")}
         className={cn(
           "flex items-center gap-1 rounded-sm border border-subtle px-2 py-1.5 text-12 hover:bg-layer-1-hover",
           activeCount > 0 ? "border-accent-strong text-accent-primary" : ""
@@ -119,6 +118,29 @@ export function ContractFiltersDropdown(props: Props) {
           sticky table headers and the peek panel (z-[25]) */}
       <Popover.Panel side="bottom" align="start" positionerClassName="z-[30]">
         <div className="max-h-[70vh] w-72 space-y-2.5 overflow-y-auto rounded-md border border-subtle bg-layer-1 p-2.5 shadow-raised-200">
+          {/* Effective end within the next N days */}
+          <div className="space-y-1.5">
+            <p className="text-11 font-medium text-tertiary">{t("file_library.contracts.expiring.label")}</p>
+            <div className="flex flex-wrap gap-1" role="group" aria-label={t("file_library.contracts.expiring.label")}>
+              {EXPIRING_WINDOWS.map((days) => (
+                <button
+                  key={days}
+                  type="button"
+                  aria-pressed={filters.vence_en === days}
+                  onClick={() => onChange({ vence_en: filters.vence_en === days ? undefined : days })}
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-11",
+                    filters.vence_en === days
+                      ? "border-accent-strong bg-accent-primary/10 text-accent-primary"
+                      : "border-subtle text-secondary hover:bg-layer-1-hover"
+                  )}
+                >
+                  {t("file_library.contracts.expiring.days", { count: days })}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Free-text filters resolved by the database (icontains) */}
           <div className="space-y-1.5">
             <p className="text-11 font-medium text-tertiary">{t("file_library.contracts.filters.people")}</p>
@@ -294,6 +316,13 @@ export function AppliedContractFilters(props: Props & { onClearAll: () => void }
       value: filters.year,
       onRemove: () => onChange({ year: undefined }),
     });
+  if (filters.vence_en)
+    pills.push({
+      key: "vence_en",
+      label: t("file_library.contracts.expiring.label"),
+      value: t("file_library.contracts.expiring.days", { count: filters.vence_en }),
+      onRemove: () => onChange({ vence_en: undefined }),
+    });
   if (filters.fecha_fin_efectiva_after)
     pills.push({
       key: "fecha_fin_efectiva_after",
@@ -312,12 +341,17 @@ export function AppliedContractFilters(props: Props & { onClearAll: () => void }
   if (pills.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b border-subtle px-4 py-2">
+    <div className="flex flex-wrap items-center gap-1.5 border-b border-subtle px-3 py-2 sm:px-4">
       {pills.map((pill) => (
         <span key={pill.key} className="flex items-center gap-1 rounded-full border border-subtle px-2 py-0.5 text-11">
           <span className="text-tertiary">{pill.label}:</span>
           <span>{pill.value}</span>
-          <button type="button" onClick={pill.onRemove} className="rounded-full p-0.5 hover:bg-layer-1-hover">
+          <button
+            type="button"
+            onClick={pill.onRemove}
+            aria-label={t("file_library.contracts.filters.remove", { name: `${pill.label}: ${pill.value}` })}
+            className="rounded-full p-0.5 hover:bg-layer-1-hover"
+          >
             <X className="size-3" />
           </button>
         </span>
