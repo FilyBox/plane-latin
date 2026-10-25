@@ -7,16 +7,31 @@
 
 import { handleMusicAiMap, type AiMapRequest } from "./ai-map";
 import { handleAssistantChat, listAssistantModels, type AssistantChatRequest } from "./assistant";
-import { getDeepseekBalance } from "./lib/pricing";
+import { estimateDeepReview, type Price } from "./deep-review/core";
+import { deepseekPrice, getDeepseekBalance, isDeepseekPeak, nextDeepseekOffPeak } from "./lib/pricing";
 import { handleChat, type ChatRequest } from "./chat";
 import { handleContractsAgent, listContractsAgentModels, type ContractsAgentRequest } from "./contracts-agent";
 import { listChatModels } from "./lib/ai";
 import { WorkerConfigurationError } from "./lib/internal-api";
 import { ContractPipelineWorkflow, type PipelineParams } from "./workflows/contract-pipeline";
 import { ContractQueryWorkflow, type QueryParams } from "./workflows/contract-query";
+import { DeepReviewLaneWorkflow, DeepReviewWorkflow, laneCount, type DeepReviewParams } from "./workflows/deep-review";
 import { TaggingWorkflow, type TaggingParams } from "./workflows/tagging";
 
-export { ContractPipelineWorkflow, ContractQueryWorkflow, TaggingWorkflow };
+export { ContractPipelineWorkflow, ContractQueryWorkflow, DeepReviewLaneWorkflow, DeepReviewWorkflow, TaggingWorkflow };
+
+/** DeepSeek models a deep review can run on, priced (it calls DeepSeek directly). */
+function deepReviewModels(env: Env): { prices: Record<string, Price>; defaultModel: string } {
+  const prices: Record<string, Price> = {};
+  for (const id of (env.DEEPSEEK_MODEL_LIST || env.DEEPSEEK_MODEL || "deepseek-flash").split(",")) {
+    const model = id.trim();
+    const price = model ? deepseekPrice(model) : null;
+    if (price) prices[model] = price;
+  }
+  const configured = env.CHAT_DEFAULT_MODEL?.trim();
+  const ids = Object.keys(prices);
+  return { prices, defaultModel: configured && ids.includes(configured) ? configured : (ids[0] ?? "") };
+}
 
 /** Constant-time secret comparison (hash first so length differences don't leak). */
 async function verifySecret(provided: string, expected: string): Promise<boolean> {
@@ -99,6 +114,36 @@ export default {
           params,
         });
         console.log(JSON.stringify({ message: "query instance created", id: instance.id, job: params.job_id }));
+        return Response.json({ workflow_instance_id: instance.id });
+      }
+
+      // Prices a deep review from the texts' sizes (Django never sees rates)
+      if (url.pathname === "/assistant/deep-review/estimate" && request.method === "POST") {
+        const body = await request.json<{ sizes?: number[] }>();
+        const sizes = Array.isArray(body.sizes) ? body.sizes.map(Number).filter((size) => size > 0) : [];
+        const { prices, defaultModel } = deepReviewModels(env);
+        if (Object.keys(prices).length === 0) {
+          return Response.json({ error: "No DeepSeek model is configured" }, { status: 503 });
+        }
+        const now = new Date();
+        return Response.json(
+          estimateDeepReview(sizes, prices, {
+            lanes: laneCount(env),
+            nowPeak: isDeepseekPeak(now),
+            defaultModel,
+            nextOffPeak: nextDeepseekOffPeak(now).toISOString(),
+          })
+        );
+      }
+
+      if (url.pathname === "/trigger/deep-review") {
+        const params = await request.json<DeepReviewParams>();
+        if (!params.review_id || !params.workspace_id || !params.model) {
+          return Response.json({ error: "review_id, workspace_id and model are required" }, { status: 400 });
+        }
+        // The review id makes a retried trigger reuse the same instance.
+        const instance = await env.DEEP_REVIEW.create({ id: `deep-review-${params.review_id}`, params });
+        console.log(JSON.stringify({ message: "deep review instance created", id: instance.id }));
         return Response.json({ workflow_instance_id: instance.id });
       }
 

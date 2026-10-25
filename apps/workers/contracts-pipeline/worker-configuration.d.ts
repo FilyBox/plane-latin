@@ -24,6 +24,9 @@ interface __BaseEnv_Env {
   CONTRACT_PIPELINE: Workflow<Parameters<import("./src/index").ContractPipelineWorkflow["run"]>[0]["payload"]>;
   CONTRACT_QUERY: Workflow<Parameters<import("./src/index").ContractQueryWorkflow["run"]>[0]["payload"]>;
   TAGGING_RUN: Workflow<Parameters<import("./src/index").TaggingWorkflow["run"]>[0]["payload"]>;
+  DEEP_REVIEW: Workflow<Parameters<import("./src/index").DeepReviewWorkflow["run"]>[0]["payload"]>;
+  DEEP_REVIEW_LANE: Workflow<Parameters<import("./src/index").DeepReviewLaneWorkflow["run"]>[0]["payload"]>;
+  DEEP_REVIEW_LANES?: string;
 }
 declare namespace Cloudflare {
   interface GlobalProps {

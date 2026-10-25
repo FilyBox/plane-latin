@@ -25,7 +25,7 @@ const DEEPSEEK_PEAK_PRICES: Record<string, Price> = {
  * DeepSeek name (deepseek-flash and the legacy deepseek-v4-flash and
  * deepseek-chat) is served by V4.1 Flash at the Flash price.
  */
-function deepseekPrice(modelId: string): Price | null {
+export function deepseekPrice(modelId: string): Price | null {
   const id = modelId.toLowerCase();
   if (!id.startsWith("deepseek")) return null;
   return id.includes("pro") ? DEEPSEEK_PEAK_PRICES.pro : DEEPSEEK_PEAK_PRICES.flash;
@@ -38,6 +38,14 @@ export function isDeepseekPeak(at: Date): boolean {
   if (day === 0 || day === 6) return false;
   const hour = at.getUTCHours();
   return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
+}
+
+/** Now if it is already off-peak, else the end of the current peak window. */
+export function nextDeepseekOffPeak(at: Date): Date {
+  if (!isDeepseekPeak(at)) return at;
+  const end = new Date(at);
+  end.setUTCHours(at.getUTCHours() < 4 ? 4 : 10, 0, 0, 0);
+  return end;
 }
 
 export type TurnCost = {
@@ -59,6 +67,20 @@ export function estimateTurnCost(modelId: string, usage: LanguageModelUsage, at 
   const factor = peak ? 1 : 0.5;
   const usd = ((cached * price.cacheHit + uncached * price.cacheMiss + output * price.output) * factor) / 1_000_000;
   return { usd, provider: "deepseek", peak };
+}
+
+/** Tokens of one DeepSeek call, as its usage reports them. */
+export type DeepseekUsage = { cacheHit: number; cacheMiss: number; output: number };
+
+/** USD for one call, at the rate of the moment it ran. */
+export function deepseekCallCost(modelId: string, usage: DeepseekUsage, at = new Date()): number {
+  const price = deepseekPrice(modelId);
+  if (!price) return 0;
+  const factor = isDeepseekPeak(at) ? 1 : 0.5;
+  return (
+    ((usage.cacheHit * price.cacheHit + usage.cacheMiss * price.cacheMiss + usage.output * price.output) * factor) /
+    1_000_000
+  );
 }
 
 export type ProviderBalance = {

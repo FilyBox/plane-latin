@@ -15,7 +15,15 @@
  */
 
 import type { ToolSet, UIMessage } from "ai";
-import { convertToModelMessages, createUIMessageStreamResponse, generateText, stepCountIs, streamText, tool } from "ai";
+import {
+  convertToModelMessages,
+  createUIMessageStreamResponse,
+  generateText,
+  hasToolCall,
+  stepCountIs,
+  streamText,
+  tool,
+} from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 
@@ -49,6 +57,7 @@ export type AssistantChatRequest = {
     references?: boolean;
     tag_admin?: boolean;
     memory_admin?: boolean;
+    deep_review?: boolean;
   };
   locale?: string | null;
   /** Who is asking: cross-module lookups answer with what this user may open. */
@@ -81,7 +90,14 @@ const ENTITY_TYPES = [
  * mapping: songs and releases reach their artist's tag through the credits. */
 const MAPPABLE_TYPES = ["contract", "file", "issue", "expense"] as const;
 
-type Caps = { contracts: boolean; music: boolean; references: boolean; tagAdmin: boolean; memoryAdmin: boolean };
+type Caps = {
+  contracts: boolean;
+  music: boolean;
+  references: boolean;
+  tagAdmin: boolean;
+  memoryAdmin: boolean;
+  deepReview: boolean;
+};
 
 const MEMORY_KINDS = ["FACT", "RULE", "GLOSSARY", "OWNER", "CONTEXT"] as const;
 
@@ -236,7 +252,13 @@ CONTRATOS (cientos de documentos)
 - Distingue el DOCUMENTO de lo que el documento MENCIONA: si un contrato habla de una "solicitud de registro de marca", eso es una cláusula, no un archivo del workspace. No lo listes como documento salvo que tenga su propio contract_id.
 - Nunca cites un contrato que no venga de una herramienta. Si no encuentras nada, dilo y sugiere otro filtro.
 - Cuando pidan "el listado de documentos de X", responde con la lista real (título, archivo y fechas) aunque la tarjeta ya la muestre, y cierra con show_documents.
-- show_documents al final de cualquier respuesta que mencione contratos concretos, con los contract_id que usaste.`
+- show_documents al final de cualquier respuesta que mencione contratos concretos, con los contract_id que usaste.${
+        caps.deepReview
+          ? `
+- propose_deep_review SOLO cuando el usuario pida EXPLÍCITAMENTE analizar, leer o revisar TODOS los contratos ("analiza todos los contratos y dime…", "revisa cada contrato…"). Lee con IA el texto completo de cada contrato y cuesta dinero: la tarjeta muestra el estimado y el usuario confirma. Nunca la uses por iniciativa propia ni para preguntas que tus otras herramientas responden; tampoco filtres antes: el alcance son todos los contratos. En title pon un nombre corto y en question el criterio completo y autocontenido (qué debe cumplir un contrato para coincidir). Llámala directamente, sin texto antes: la tarjeta muestra el estimado, el progreso y el resultado, y tu turno termina ahí.
+- read_deep_review para preguntas de seguimiento sobre una revisión ya terminada (usa el review_id de su tarjeta): trae el motivo de cada contrato, coincida o no. Responde con eso antes de volver a leer contratos.`
+          : ""
+      }`
     : ""
 }${
     caps.music
@@ -480,6 +502,85 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
           ],
         });
         return { ...rest, text: text.slice(0, 20_000), read_with: model.id };
+      },
+    });
+  }
+
+  if (caps.deepReview) {
+    tools.propose_deep_review = tool({
+      description:
+        "Prepara la lectura con IA de TODOS los contratos frente a una pregunta (solo si el usuario lo pide explícitamente). Devuelve la tarjeta con cuántos contratos son, el estimado de costo y tiempo, y los botones para confirmar; no empieza nada por sí misma.",
+      inputSchema: z.object({
+        title: z
+          .string()
+          .min(3)
+          .max(60)
+          .describe('Nombre corto de la revisión, 2 a 6 palabras ("Cláusulas de exclusividad")'),
+        question: z
+          .string()
+          .min(5)
+          .max(2000)
+          .describe("Criterio completo y autocontenido que debe cumplir un contrato para coincidir"),
+      }),
+      execute: async ({ title, question: criteria }) => {
+        const draft = await api.request<{
+          id: string;
+          total_count: number;
+          without_text_count?: number;
+          estimate?: {
+            models?: Record<string, { peak: unknown; off_peak: unknown }>;
+            default_model?: string;
+            now_peak?: boolean;
+            eta_minutes?: unknown;
+          };
+        }>("POST", `/internal/workspaces/${workspace}/assistant/deep-reviews/`, {
+          user_id: body.user_id,
+          title,
+          question: criteria,
+        });
+        // The card reads the live state; the model only needs the gist.
+        return {
+          review_id: draft.id,
+          workspace_slug: slug,
+          contracts: draft.total_count,
+          without_text_count: draft.without_text_count,
+          // Only the default model at today's rate, so the reply quotes what the card shows first
+          estimate_now_usd:
+            draft.estimate?.models?.[draft.estimate.default_model ?? ""]?.[
+              draft.estimate.now_peak ? "peak" : "off_peak"
+            ],
+          eta_minutes: draft.estimate?.eta_minutes,
+        };
+      },
+    });
+
+    tools.read_deep_review = tool({
+      description:
+        "Lee el resultado de una revisión de todos los contratos ya lanzada (estado, resumen y contratos que coinciden con su motivo y cita) para responder preguntas de seguimiento.",
+      inputSchema: z.object({ review_id: z.string().describe("El review_id de la tarjeta de la revisión") }),
+      execute: async ({ review_id: reviewId }) => {
+        const data = await api.request<Record<string, unknown> & { results?: Record<string, unknown>[] }>(
+          "GET",
+          `/internal/workspaces/${workspace}/assistant/deep-reviews/${reviewId}/results/?${query({ user_id: body.user_id })}`
+        );
+        const rows = data.results ?? [];
+        for (const row of rows) {
+          row.path = `/${slug}/file-library/contracts/analyzed?peek=${String(row.contract_id)}`;
+          delete row.file_asset_id;
+        }
+        const matches = rows.filter((row) => row.selected).slice(0, 100);
+        const others = rows.filter((row) => !row.selected).slice(0, 100);
+        return compact({
+          status: data.status,
+          summary: data.summary,
+          read: data.done_count,
+          total: data.total_count,
+          spent_usd: data.spent_usd,
+          // Each row carries the AI's reason (and quote) for matching or not
+          matches,
+          not_matching: others,
+          truncated: rows.length > matches.length + others.length ? true : undefined,
+        });
       },
     });
   }
@@ -916,6 +1017,7 @@ export async function handleAssistantChat(env: Env, body: AssistantChatRequest):
     references: body.capabilities?.references === true && Boolean(body.user_id),
     tagAdmin: body.capabilities?.references === true && body.capabilities?.tag_admin === true && Boolean(body.user_id),
     memoryAdmin: body.capabilities?.memory_admin === true,
+    deepReview: body.capabilities?.deep_review === true && Boolean(body.user_id),
   };
   const tools = resilient(buildTools(env, body, caps));
   const { model, id } = pickModel(env, body.model);
@@ -927,7 +1029,9 @@ export async function handleAssistantChat(env: Env, body: AssistantChatRequest):
     // no result in the history; without this the next turn throws.
     messages: await convertToModelMessages(compactHistory(body.messages), { ignoreIncompleteToolCalls: true }),
     tools,
-    stopWhen: stepCountIs(LIMITS.steps),
+    // A proposed deep review ends the turn: the card carries the estimate,
+    // the progress and the answer, so no text should follow it.
+    stopWhen: [stepCountIs(LIMITS.steps), hasToolCall("propose_deep_review")],
     maxRetries: 3,
     onError: ({ error }) => {
       console.error(JSON.stringify({ message: "assistant stream error", model: id, error: String(error) }));
