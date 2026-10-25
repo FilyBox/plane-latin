@@ -42,6 +42,7 @@ import { contractService } from "@/services/contract.service";
 import { fileLibraryService } from "@/services/file-library.service";
 // local imports
 import { ContractChatPanel } from "./chat/chat-panel";
+import { InlineField } from "./inline-field";
 import { CONTRACT_STATUS_OPTIONS, CONTRACT_TYPE_OPTIONS, YES_NO_UNSPECIFIED_OPTIONS } from "./constants";
 import { ProcessingBadge } from "./processing-badge";
 import { RetryOptionsModal } from "./retry-options-modal";
@@ -319,8 +320,6 @@ export function ContractPeekPanel(props: Props) {
     [contract?.proposed_data]
   );
 
-  const inputClass = "w-full rounded-sm border border-subtle bg-transparent px-2 py-1 text-13";
-
   /** Gives one pane the whole width, or hands the split back. The document
    * half hands this to the viewer's own toolbar rather than floating it on top:
    * overlaying the top-right corner covered the viewer's actions menu and ate
@@ -363,74 +362,71 @@ export function ContractPeekPanel(props: Props) {
       </div>
     );
 
+  // A field differs from what is saved (shown until the save bar persists it)
+  const isChanged = (key: keyof TContractUpdatePayload) =>
+    key in draft && (draft[key] ?? null) !== ((contract?.[key] as unknown) ?? null);
+  const setField = (key: keyof TContractUpdatePayload, value: string | null) =>
+    setDraft((prev) => ({ ...prev, [key]: value }));
+
   const infoPane = (
-    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-      {SELECT_FIELDS.map((field) => (
-        <label key={field.key} className="block space-y-1">
-          <span className="text-11 font-medium text-tertiary">{t(field.i18nKey)}</span>
-          <select
-            value={(draftValue(field.key) as string | null) ?? ""}
-            onChange={(e) => setDraft((prev) => ({ ...prev, [field.key]: e.target.value || null }))}
-            className={inputClass}
-          >
-            <option value="">—</option>
-            {field.options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {t(option.i18nKey)}
-              </option>
-            ))}
-          </select>
-        </label>
-      ))}
-      <label className="flex items-center gap-2 py-1">
-        <input
-          type="checkbox"
-          checked={!!draftValue("es_notariado")}
-          onChange={(e) => setDraft((prev) => ({ ...prev, es_notariado: e.target.checked }))}
-        />
-        <span className="text-13">{t("file_library.contracts.fields.es_notariado")}</span>
-      </label>
-      {/* The AI files contracts under Editoriales on its own; this is where a
-          wrong call gets corrected, and the contract moves view on save. */}
-      <label className="flex items-center gap-2 py-1">
-        <input
-          type="checkbox"
-          checked={!!draftValue("es_editorial")}
-          onChange={(e) => setDraft((prev) => ({ ...prev, es_editorial: e.target.checked }))}
-        />
-        <span className="text-13">{t("file_library.contracts.fields.es_editorial")}</span>
-      </label>
-      {DATE_FIELDS.map((field) => (
-        <label key={field.key} className="block space-y-1">
-          <span className="text-11 font-medium text-tertiary">{t(field.i18nKey)}</span>
-          <input
-            type="date"
-            value={(draftValue(field.key) as string | null) ?? ""}
-            onChange={(e) => setDraft((prev) => ({ ...prev, [field.key]: e.target.value || null }))}
-            className={inputClass}
+    <div className="@container min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      {/* Short values side by side when there is room; long text full width */}
+      <div className="grid grid-cols-1 gap-x-3 gap-y-3 @sm:grid-cols-2">
+        {SELECT_FIELDS.map((field) => (
+          <InlineField
+            key={field.key}
+            kind="select"
+            label={t(field.i18nKey)}
+            value={(draftValue(field.key) as string | null) ?? null}
+            options={field.options.map((option) => ({ value: option.value, label: t(option.i18nKey) }))}
+            onChange={(value) => setField(field.key, value)}
+            changed={isChanged(field.key)}
           />
+        ))}
+        {DATE_FIELDS.map((field) => (
+          <InlineField
+            key={field.key}
+            kind="date"
+            label={t(field.i18nKey)}
+            value={(draftValue(field.key) as string | null) ?? null}
+            onChange={(value) => setField(field.key, value)}
+            changed={isChanged(field.key)}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 px-2">
+        <label className="flex items-center gap-2 py-1">
+          <input
+            type="checkbox"
+            checked={!!draftValue("es_notariado")}
+            onChange={(e) => setDraft((prev) => ({ ...prev, es_notariado: e.target.checked }))}
+          />
+          <span className="text-13">{t("file_library.contracts.fields.es_notariado")}</span>
         </label>
-      ))}
-      {EDITABLE_TEXT_FIELDS.map((field) => (
-        <label key={field.key} className="block space-y-1">
-          <span className="text-11 font-medium text-tertiary">{t(field.i18nKey)}</span>
-          {field.textarea ? (
-            <textarea
-              rows={3}
-              value={(draftValue(field.key) as string | null) ?? ""}
-              onChange={(e) => setDraft((prev) => ({ ...prev, [field.key]: e.target.value || null }))}
-              className={inputClass}
-            />
-          ) : (
-            <input
-              type="text"
-              value={(draftValue(field.key) as string | null) ?? ""}
-              onChange={(e) => setDraft((prev) => ({ ...prev, [field.key]: e.target.value || null }))}
-              className={inputClass}
-            />
-          )}
+        {/* The AI files contracts under Editoriales on its own; this is where a
+            wrong call gets corrected, and the contract moves view on save. */}
+        <label className="flex items-center gap-2 py-1">
+          <input
+            type="checkbox"
+            checked={!!draftValue("es_editorial")}
+            onChange={(e) => setDraft((prev) => ({ ...prev, es_editorial: e.target.checked }))}
+          />
+          <span className="text-13">{t("file_library.contracts.fields.es_editorial")}</span>
         </label>
-      ))}
+      </div>
+      <div className="space-y-3">
+        {EDITABLE_TEXT_FIELDS.map((field) => (
+          <InlineField
+            key={field.key}
+            kind="text"
+            multiline={field.textarea}
+            label={t(field.i18nKey)}
+            value={(draftValue(field.key) as string | null) ?? null}
+            onChange={(value) => setField(field.key, value)}
+            changed={isChanged(field.key)}
+          />
+        ))}
+      </div>
       {contract && referencesEnabled && (
         <div className="space-y-4 border-t border-subtle pt-3">
           <div className="space-y-1">

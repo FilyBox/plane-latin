@@ -175,7 +175,8 @@
         "periodo_retencion": "Retention period",
         "retention_period_description": "Retention period description",
         "retention_period_duration": "Retention period duration",
-        "es_editorial": "Publishing contract"
+        "es_editorial": "Publishing contract",
+        "unsaved": "Unsaved"
       },
       "filters": {
         "people": "People",

@@ -175,7 +175,8 @@
         "periodo_retencion": "Periodo de retención",
         "retention_period_description": "Descripción del periodo de retención",
         "retention_period_duration": "Duración del periodo de retención",
-        "es_editorial": "Contrato editorial"
+        "es_editorial": "Contrato editorial",
+        "unsaved": "Sin guardar"
       },
       "filters": {
         "people": "Personas",
