@@ -19,6 +19,7 @@ use session auth. Every call carries an `access_token` we minted ourselves —
 short-lived, signed, and scoped to one asset and one user.
 """
 
+import hashlib
 import io
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -27,13 +28,22 @@ from xml.etree import ElementTree
 import jwt
 import requests
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone as django_timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from plane.app.permissions import ROLE, allow_permission
-from plane.db.models import FileAsset, WopiDocumentLock, Workspace
+from plane.db.models import (
+    ContractSignatureRequest,
+    ContractTemplateRevision,
+    ContractTemplateVariant,
+    FileAsset,
+    User,
+    WopiDocumentLock,
+    Workspace,
+)
 from plane.settings.storage import S3Storage
 from plane.utils.exception_logger import log_exception
 
@@ -41,13 +51,22 @@ from ..base import BaseAPIView
 
 # How long the editing session token stays valid. Collabora refreshes the
 # document on its own; if a session outlives this the user re-opens the file.
-TOKEN_TTL_SECONDS = 60 * 60 * 10
+TOKEN_TTL_SECONDS = 60 * 60 * 4
 LOCK_TTL_SECONDS = 60 * 30
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 # Formats Collabora can open for editing. Anything else is view-only.
 EDITABLE_EXTENSIONS = {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
+
+# Frozen contract files: versions, rendered/unsigned and signed copies.
+READ_ONLY_ENTITY_TYPES = {
+    FileAsset.EntityTypeContext.CONTRACT_REVISION,
+    FileAsset.EntityTypeContext.CONTRACT_UNSIGNED,
+    FileAsset.EntityTypeContext.CONTRACT_SIGNED,
+    FileAsset.EntityTypeContext.CONTRACT_THUMBNAIL,
+}
+CONTRACT_DRAFT_PREFIX = "contract-draft:"
 
 
 def _collabora_base() -> str:
@@ -65,17 +84,150 @@ def _collabora_internal_base() -> str:
     return (getattr(settings, "COLLABORA_INTERNAL_URL", "") or "").rstrip("/")
 
 
-def mint_access_token(asset_id: str, user_id: str, can_write: bool) -> str:
+def mint_access_token(
+    asset_id: str, user_id: str, can_write: bool, mode: str | None = None, origin: str | None = None
+) -> str:
     """Signed, short-lived, scoped to exactly one asset + one user."""
+    mode = mode or ("write" if can_write else "read")
     return jwt.encode(
         {
             "asset_id": str(asset_id),
             "user_id": str(user_id),
-            "can_write": can_write,
+            "can_write": mode == "write",
+            "mode": mode,
+            "origin": origin or "",
             "exp": datetime.now(timezone.utc) + timedelta(seconds=TOKEN_TTL_SECONDS),
         },
         settings.SECRET_KEY,
         algorithm="HS256",
+    )
+
+
+def token_can_write(claims: dict) -> bool:
+    # Tokens minted before "mode" existed only carry can_write.
+    mode = claims.get("mode")
+    if mode:
+        return mode == "write"
+    return bool(claims.get("can_write"))
+
+
+def content_modified_at(asset: FileAsset) -> str:
+    """When the bytes last changed. Kept apart from updated_at so metadata
+    writes (PDF cache, renames) do not look like a conflicting save."""
+    return (asset.attributes or {}).get("content_modified_at") or asset.updated_at.isoformat()
+
+
+def same_timestamp(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    try:
+        return datetime.fromisoformat(left.replace("Z", "+00:00")) == datetime.fromisoformat(
+            right.replace("Z", "+00:00")
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def mark_content_changed(asset: FileAsset, content: bytes) -> str:
+    """Record a content write on the asset row; returns the new timestamp."""
+    stamp = django_timezone.now().isoformat()
+    asset.size = len(content)
+    asset.attributes = {
+        **(asset.attributes or {}),
+        "content_modified_at": stamp,
+        "content_sha256": hashlib.sha256(content).hexdigest(),
+    }
+    asset.save(update_fields=["size", "attributes", "updated_at"])
+    return stamp
+
+
+def _is_contract_asset(asset: FileAsset) -> bool:
+    return str(asset.entity_type or "").startswith("CONTRACT_")
+
+
+def user_friendly_name(user_id) -> str:
+    user = User.objects.filter(id=user_id).only("display_name", "first_name", "last_name", "email").first()
+    if not user:
+        return ""
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    return full_name or user.display_name or (user.email or "").split("@")[0]
+
+
+def session_mode_for(asset: FileAsset, user) -> str:
+    """Write mode only for editable files the user may change. Frozen contract
+    files (versions, rendered, signed) always open read-only."""
+    name = (asset.attributes or {}).get("name", "")
+    extension = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
+    if extension not in EDITABLE_EXTENSIONS:
+        return "read"
+    if asset.entity_type in READ_ONLY_ENTITY_TYPES:
+        return "read"
+    if str(asset.entity_identifier or "").startswith(CONTRACT_DRAFT_PREFIX):
+        # A draft is written only by the user currently holding it.
+        holders = ContractTemplateVariant.objects.filter(draft_asset=asset).values_list("draft_active_by_id", flat=True)
+        return "write" if user.id in list(holders) else "read"
+    frozen = (
+        ContractTemplateRevision.objects.filter(Q(source_asset=asset) | Q(pdf_asset=asset)).exists()
+        or ContractSignatureRequest.objects.filter(
+            Q(signed_asset=asset) | Q(rendered_source_asset=asset) | Q(rendered_pdf_asset=asset)
+        ).exists()
+    )
+    return "read" if frozen else "write"
+
+
+def _allowed_origins() -> set:
+    values = [getattr(settings, "APP_BASE_URL", None), getattr(settings, "WEB_URL", None)]
+    values += list(getattr(settings, "CORS_ALLOWED_ORIGINS", None) or [])
+    return {str(value).rstrip("/") for value in values if value}
+
+
+def request_origin(request) -> str | None:
+    """The web app's origin, so Collabora can postMessage back to it. Only
+    origins the API already trusts (CORS list, APP_BASE_URL, WEB_URL)."""
+    origin = request.headers.get("Origin") or ""
+    if not origin:
+        referer = urlsplit(request.headers.get("Referer") or "")
+        origin = f"{referer.scheme}://{referer.netloc}" if referer.scheme and referer.netloc else ""
+    origin = origin.rstrip("/")
+    return origin if origin and origin in _allowed_origins() else None
+
+
+def post_message_origin(claims: dict) -> str:
+    return claims.get("origin") or settings.APP_BASE_URL or settings.WEB_URL
+
+
+def build_editor_session(asset: FileAsset, user, mode: str, origin: str | None = None):
+    """-> (payload, None) or (None, (error, http_status)). Shared by the
+    file-library session and contract template drafts."""
+    if not _collabora_base():
+        return None, ("Collabora is not configured", status.HTTP_501_NOT_IMPLEMENTED)
+    name = (asset.attributes or {}).get("name", "")
+    extension = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
+    # The editor URL (with its build hash) comes from Collabora's discovery,
+    # never hardcoded — the hash changes on every release.
+    editor_base = editor_url_for(extension)
+    if not editor_base:
+        return None, ("Collabora has no editor for this file type", status.HTTP_422_UNPROCESSABLE_ENTITY)
+    # WOPISrc must be an address Collabora itself can reach. Inside Docker
+    # that is the API container's hostname, not localhost.
+    api_base = (getattr(settings, "WOPI_HOST_URL", "") or settings.WEB_URL).rstrip("/")
+    wopi_src = f"{api_base}/wopi/files/{asset.id}"
+    # discovery's urlsrc ends in "?" or "&"; the frontend appends
+    # WOPISrc=<encoded> and posts access_token as a form field.
+    separator = "" if editor_base.endswith(("?", "&")) else "?"
+    expires = datetime.now(timezone.utc) + timedelta(seconds=TOKEN_TTL_SECONDS)
+    return (
+        {
+            "editor_url": f"{editor_base}{separator}WOPISrc={quote(wopi_src, safe='')}",
+            "wopi_src": wopi_src,
+            "access_token": mint_access_token(asset.id, user.id, mode == "write", mode=mode, origin=origin),
+            # WOPI form field: token expiry in ms since the epoch.
+            "access_token_ttl": int(expires.timestamp() * 1000),
+            "can_write": mode == "write",
+            "mode": mode,
+            "asset_id": str(asset.id),
+        },
+        None,
     )
 
 
@@ -164,19 +316,26 @@ class WopiCheckFileInfoEndpoint(WopiBaseView):
         if not asset:
             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
 
+        modified = content_modified_at(asset)
+        can_write = token_can_write(claims)
         return Response(
             {
                 "BaseFileName": asset.attributes.get("name", "document.docx"),
                 "Size": int(asset.size or 0),
                 "OwnerId": str(asset.created_by_id),
                 "UserId": claims["user_id"],
-                "UserCanWrite": bool(claims["can_write"]),
+                "UserFriendlyName": user_friendly_name(claims["user_id"]),
+                "UserCanWrite": can_write,
+                "ReadOnly": not can_write,
+                "UserCanNotWriteRelative": True,
                 # The version string must change whenever the bytes change, or
                 # Collabora will serve a stale copy from its own cache.
-                "Version": asset.updated_at.isoformat(),
-                "LastModifiedTime": asset.updated_at.isoformat(),
-                "PostMessageOrigin": settings.APP_BASE_URL or settings.WEB_URL,
+                "Version": modified,
+                "LastModifiedTime": modified,
+                "PostMessageOrigin": post_message_origin(claims),
                 "SupportsLocks": True,
+                "SupportsGetLock": True,
+                "SupportsUpdate": True,
             }
         )
 
@@ -184,7 +343,7 @@ class WopiCheckFileInfoEndpoint(WopiBaseView):
         asset, claims = self.resolve(request, asset_id)
         if not asset:
             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
-        if not claims["can_write"]:
+        if not token_can_write(claims):
             return Response({"error": "Read only"}, status=status.HTTP_403_FORBIDDEN)
 
         override = request.headers.get("X-WOPI-Override", "").upper()
@@ -264,8 +423,9 @@ class WopiFileContentsEndpoint(WopiBaseView):
         asset, claims = self.resolve(request, asset_id)
         if not asset:
             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
-        if not claims["can_write"]:
-            return Response({"error": "Read only"}, status=status.HTTP_403_FORBIDDEN)
+        if not token_can_write(claims):
+            # A read token can never save, whatever asset it names.
+            return Response({"error": "Read only"}, status=status.HTTP_401_UNAUTHORIZED)
 
         existing_lock = WopiDocumentLock.objects.filter(
             asset=asset,
@@ -279,11 +439,16 @@ class WopiFileContentsEndpoint(WopiBaseView):
                 headers={"X-WOPI-Lock": existing_lock.lock_id},
             )
 
+        # A late save from an older session must not overwrite newer bytes.
+        supplied_timestamp = request.headers.get("X-COOL-WOPI-Timestamp", "")
+        if supplied_timestamp and not same_timestamp(supplied_timestamp, content_modified_at(asset)):
+            return Response({"COOLStatusCode": 1010}, status=status.HTTP_409_CONFLICT)
+
         body = request.body
         if not body:
             # Collabora occasionally probes with an empty body; treat as no-op
             # rather than truncating a real document to zero bytes.
-            return Response({"status": "ok"})
+            return Response({"status": "ok", "LastModifiedTime": content_modified_at(asset)})
 
         storage = S3Storage.for_asset(asset, request=request)
         uploaded = storage.upload_file(
@@ -296,17 +461,20 @@ class WopiFileContentsEndpoint(WopiBaseView):
             # which is exactly what we want — nothing is lost.
             return Response({"error": "Upload failed"}, status=status.HTTP_502_BAD_GATEWAY)
 
-        asset.size = len(body)
-        asset.save(update_fields=["size", "updated_at"])
+        modified = mark_content_changed(asset, body)
 
-        # The .docx is now saved and authoritative. The PDF is a derived copy,
-        # regenerated from it — queued so a slow conversion never makes
-        # Collabora time out and retry this save.
-        from plane.bgtasks.collabora_task import regenerate_pdf
+        if _is_contract_asset(asset):
+            # Contract files get their PDFs from the content-hash cache.
+            ContractTemplateVariant.objects.filter(draft_asset=asset).update(draft_updated_at=django_timezone.now())
+        else:
+            # The .docx is now saved and authoritative. The PDF is a derived copy,
+            # regenerated from it — queued so a slow conversion never makes
+            # Collabora time out and retry this save.
+            from plane.bgtasks.collabora_task import regenerate_pdf
 
-        regenerate_pdf.delay(str(asset.id))
+            regenerate_pdf.delay(str(asset.id))
 
-        return Response({"status": "ok"})
+        return Response({"status": "ok", "LastModifiedTime": modified})
 
 
 class CollaboraSessionEndpoint(BaseAPIView):
@@ -330,35 +498,12 @@ class CollaboraSessionEndpoint(BaseAPIView):
         if not asset:
             return Response({"error": "File not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        name = asset.attributes.get("name", "")
-        extension = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
-        can_write = extension in EDITABLE_EXTENSIONS
-
-        # The editor URL (with its build hash) comes from Collabora's discovery,
-        # never hardcoded — the hash changes on every release.
-        editor_base = editor_url_for(extension)
-        if not editor_base:
-            return Response(
-                {"error": "Collabora has no editor for this file type"},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-
-        # WOPISrc must be an address Collabora itself can reach. Inside Docker
-        # that is the API container's hostname, not localhost.
-        api_base = (getattr(settings, "WOPI_HOST_URL", "") or settings.WEB_URL).rstrip("/")
-        wopi_src = f"{api_base}/wopi/files/{asset.id}"
-
-        # discovery's urlsrc ends in "?" or "&"; the frontend appends
-        # WOPISrc=<encoded> and posts access_token as a form field.
-        separator = "" if editor_base.endswith(("?", "&")) else "?"
-        return Response(
-            {
-                "editor_url": f"{editor_base}{separator}WOPISrc={quote(wopi_src, safe='')}",
-                "wopi_src": wopi_src,
-                "access_token": mint_access_token(asset.id, request.user.id, can_write),
-                "can_write": can_write,
-            }
+        payload, error = build_editor_session(
+            asset, request.user, session_mode_for(asset, request.user), origin=request_origin(request)
         )
+        if error:
+            return Response({"error": error[0]}, status=error[1])
+        return Response(payload)
 
 
 class CollaboraPdfEndpoint(BaseAPIView):

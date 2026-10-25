@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 # Third party imports
 from celery import shared_task
+from django.db import transaction
 
 # Module imports
 from plane.db.models import FileAsset
@@ -69,9 +70,15 @@ def regenerate_pdf(asset_id: str) -> None:
     # module carries over to another project without a migration. If the PDF
     # ever needs its own permissions or lifecycle, promote it to a real
     # FileAsset with a FK back to the source.
-    asset.attributes = {
-        **asset.attributes,
-        "pdf_key": pdf_key_for(asset),
-        "pdf_generated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    asset.save(update_fields=["attributes", "updated_at"])
+    # Merge into fresh attributes: a save may have landed while converting,
+    # and its content timestamp must survive (WOPI conflict checks use it).
+    with transaction.atomic():
+        fresh = FileAsset.objects.select_for_update().filter(id=asset.id).first()
+        if not fresh:
+            return
+        fresh.attributes = {
+            **(fresh.attributes or {}),
+            "pdf_key": pdf_key_for(fresh),
+            "pdf_generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        fresh.save(update_fields=["attributes", "updated_at"])

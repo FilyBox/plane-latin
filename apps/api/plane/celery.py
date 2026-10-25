@@ -76,6 +76,10 @@ app.conf.beat_schedule = {
         "task": "plane.bgtasks.contract_task.reap_stuck_contract_jobs",
         "schedule": crontab(minute="*/10"),
     },
+    "check-every-fifteen-minutes-to-reconcile-signature-requests": {
+        "task": "plane.bgtasks.contract_signature_task.reconcile_signature_requests",
+        "schedule": crontab(minute="*/15"),
+    },
     "check-every-day-to-send-contract-expiry-alerts": {
         "task": "plane.bgtasks.contract_task.send_contract_expiry_alerts",
         "schedule": crontab(hour=14, minute=0),  # UTC 14:00 (morning in the Americas)

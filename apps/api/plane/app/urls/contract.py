@@ -10,7 +10,16 @@ from plane.app.views.contract.base import (
     ContractJobCancelEndpoint,
     ContractsExportEndpoint,
 )
+from plane.app.views.contract.template_drafts import (
+    ContractTemplateVariantDraftAsVariantEndpoint,
+    ContractTemplateVariantDraftDiscardEndpoint,
+    ContractTemplateVariantDraftEndpoint,
+    ContractTemplateVariantDraftHeartbeatEndpoint,
+    ContractTemplateVariantDraftPublishEndpoint,
+    ContractTemplateVariantDraftReleaseEndpoint,
+)
 from plane.app.views.contract.workflow import (
+    ContractSignatureRequestCancelAndDuplicateEndpoint,
     ContractSignatureRequestCancelEndpoint,
     ContractSignatureRequestDuplicateEndpoint,
     ContractSignatureRequestRemindEndpoint,
@@ -102,6 +111,36 @@ urlpatterns = [
         name="contract-template-variant-edit-session",
     ),
     path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/draft/",
+        ContractTemplateVariantDraftEndpoint.as_view(),
+        name="contract-template-variant-draft",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/draft/heartbeat/",
+        ContractTemplateVariantDraftHeartbeatEndpoint.as_view(),
+        name="contract-template-variant-draft-heartbeat",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/draft/release/",
+        ContractTemplateVariantDraftReleaseEndpoint.as_view(),
+        name="contract-template-variant-draft-release",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/draft/publish/",
+        ContractTemplateVariantDraftPublishEndpoint.as_view(),
+        name="contract-template-variant-draft-publish",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/draft/discard/",
+        ContractTemplateVariantDraftDiscardEndpoint.as_view(),
+        name="contract-template-variant-draft-discard",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/draft/as-variant/",
+        ContractTemplateVariantDraftAsVariantEndpoint.as_view(),
+        name="contract-template-variant-draft-as-variant",
+    ),
+    path(
         "workspaces/<str:slug>/contract-variants/<uuid:variant_id>/revisions/",
         ContractTemplateVariantRevisionsEndpoint.as_view(),
         name="contract-template-variant-revisions",
@@ -160,6 +199,11 @@ urlpatterns = [
         "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/duplicate/",
         ContractSignatureRequestDuplicateEndpoint.as_view(),
         name="contract-signature-request-duplicate",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/cancel-and-duplicate/",
+        ContractSignatureRequestCancelAndDuplicateEndpoint.as_view(),
+        name="contract-signature-request-cancel-and-duplicate",
     ),
     path(
         "workspaces/<str:slug>/contracts/",

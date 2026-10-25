@@ -354,6 +354,19 @@ class ContractTemplateVariant(BaseModel):
     signature_blueprint_layout = models.JSONField(default=dict, blank=True)
     recipient_blueprint = models.JSONField(default=list, blank=True)
     authoring_settings = models.JSONField(default=dict, blank=True)
+    # Optional per-variable settings and role names; empty means today's behaviour.
+    variable_settings = models.JSONField(default=dict, blank=True)
+    recipient_roles = models.JSONField(default=dict, blank=True)
+    # Word edits go to a private draft copy until published as a new revision.
+    draft_asset = models.ForeignKey(
+        "db.FileAsset", on_delete=models.SET_NULL, null=True, blank=True, related_name="contract_variant_drafts"
+    )
+    draft_base_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    draft_started_by = models.ForeignKey("db.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    draft_started_at = models.DateTimeField(null=True, blank=True)
+    draft_updated_at = models.DateTimeField(null=True, blank=True)
+    draft_active_by = models.ForeignKey("db.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    draft_active_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "contract_template_variants"
@@ -404,6 +417,7 @@ class ContractSignatureRequest(BaseModel):
         COMPLETED = "COMPLETED", "Completed"
         REJECTED = "REJECTED", "Rejected"
         CANCELLED = "CANCELLED", "Cancelled"
+        EXPIRED = "EXPIRED", "Expired"
         ERROR = "ERROR", "Error"
 
     class AuthoringMode(models.TextChoices):
@@ -444,6 +458,10 @@ class ContractSignatureRequest(BaseModel):
     error = models.JSONField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    last_reminded_at = models.DateTimeField(null=True, blank=True)
+    # Send progress (metadata.send) and session flags (metadata.superseded).
+    metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "contract_signature_requests"
@@ -460,6 +478,7 @@ class ContractSigner(BaseModel):
         OPENED = "OPENED", "Opened"
         SIGNED = "SIGNED", "Signed"
         REJECTED = "REJECTED", "Rejected"
+        EXPIRED = "EXPIRED", "Expired"
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_signers")
     signature_request = models.ForeignKey(

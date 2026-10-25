@@ -346,6 +346,8 @@ CELERY_IMPORTS = (
     "plane.bgtasks.cleanup_task",
     # contracts: pipeline dispatch and the daily vigente/vencido status sync
     "plane.bgtasks.contract_task",
+    # contracts: Documenso send, signed PDF download and envelope reconcile
+    "plane.bgtasks.contract_signature_task",
     "plane.license.bgtasks.telemetry_metrics",
     # management tasks
     "plane.bgtasks.dummy_data_task",

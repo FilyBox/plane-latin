@@ -3,6 +3,8 @@
 # See the LICENSE file for details.
 
 # Python imports
+from datetime import timedelta
+
 from django.utils import timezone
 
 # Third party imports
@@ -186,10 +188,46 @@ class ContractQuerySerializer(BaseSerializer):
         read_only_fields = fields
 
 
+DRAFT_ACTIVE_SECONDS = 90
+
+
+def _person_name(user):
+    if user is None:
+        return None
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    return full_name or user.display_name or (user.email or "").split("@")[0]
+
+
+def variant_draft_info(variant):
+    """Draft state for the UI, or None. `changed` compares the draft's last
+    saved content hash with the content it was copied from."""
+    asset = variant.draft_asset if variant.draft_asset_id else None
+    if asset is None or asset.deleted_at:
+        return None
+    active = bool(
+        variant.draft_active_at
+        and variant.draft_active_by_id
+        and variant.draft_active_at > timezone.now() - timedelta(seconds=DRAFT_ACTIVE_SECONDS)
+    )
+    draft_sha256 = (asset.attributes or {}).get("content_sha256")
+    return {
+        "exists": True,
+        "asset_id": str(asset.id),
+        "started_by_name": _person_name(variant.draft_started_by),
+        "started_at": variant.draft_started_at,
+        "updated_at": variant.draft_updated_at,
+        "active_by_id": str(variant.draft_active_by_id) if active else None,
+        "active_by_name": _person_name(variant.draft_active_by) if active else None,
+        "active_at": variant.draft_active_at if active else None,
+        "changed": bool(draft_sha256 and variant.draft_base_sha256 and draft_sha256 != variant.draft_base_sha256),
+    }
+
+
 class ContractTemplateVariantSerializer(BaseSerializer):
     source_file_name = serializers.SerializerMethodField()
     revision_count = serializers.SerializerMethodField()
     latest_revision = serializers.SerializerMethodField()
+    draft = serializers.SerializerMethodField()
 
     class Meta:
         model = ContractTemplateVariant
@@ -208,10 +246,16 @@ class ContractTemplateVariantSerializer(BaseSerializer):
             "signature_blueprint_layout",
             "recipient_blueprint",
             "authoring_settings",
+            "variable_settings",
+            "recipient_roles",
+            "draft",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+
+    def get_draft(self, obj):
+        return variant_draft_info(obj)
 
     def get_source_file_name(self, obj):
         return (obj.source_asset.attributes or {}).get("name")
@@ -295,6 +339,58 @@ class ContractSignatureRequestSerializer(BaseSerializer):
     pdf_asset_id = serializers.SerializerMethodField()
     source_asset_id = serializers.SerializerMethodField()
     signing_details = serializers.SerializerMethodField()
+    template_id = serializers.SerializerMethodField()
+    template_name = serializers.SerializerMethodField()
+    variant_id = serializers.SerializerMethodField()
+    variant_name = serializers.SerializerMethodField()
+    pending_signers = serializers.SerializerMethodField()
+
+    def _variant(self, obj):
+        revision = obj.revision
+        return revision.variant if revision is not None else None
+
+    def get_template_id(self, obj):
+        variant = self._variant(obj)
+        return str(variant.template_id) if variant else None
+
+    def get_template_name(self, obj):
+        variant = self._variant(obj)
+        return variant.template.name if variant else None
+
+    def get_variant_id(self, obj):
+        variant = self._variant(obj)
+        return str(variant.id) if variant else None
+
+    def get_variant_name(self, obj):
+        variant = self._variant(obj)
+        return variant.name if variant else None
+
+    def get_pending_signers(self, obj):
+        return [
+            {"name": signer.name, "email": signer.email, "status": signer.status}
+            for signer in obj.signers.all()
+            if signer.role not in ("CC", "VIEWER")
+            and signer.status not in (ContractSigner.Status.SIGNED, ContractSigner.Status.REJECTED)
+        ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if instance.authoring_mode == ContractSignatureRequest.AuthoringMode.TEMPLATE:
+            # Fields that come from {{...FirmanteN}} tokens are recomputed from
+            # the Word file on every use, so the editor shows them locked.
+            def lock(field):
+                if isinstance(field, dict) and (field.get("fieldMeta") or {}).get("templateVariable"):
+                    return {**field, "locked": True, "source": "template_variable"}
+                return field
+
+            data["fields"] = [lock(field) for field in data.get("fields") or []]
+            data["recipients"] = [
+                {**recipient, "fields": [lock(field) for field in recipient.get("fields") or []]}
+                if isinstance(recipient, dict)
+                else recipient
+                for recipient in data.get("recipients") or []
+            ]
+        return data
 
     def get_pdf_asset_id(self, obj):
         return obj.rendered_pdf_asset_id or obj.revision.pdf_asset_id
@@ -331,6 +427,14 @@ class ContractSignatureRequestSerializer(BaseSerializer):
             "error",
             "sent_at",
             "completed_at",
+            "expires_at",
+            "last_reminded_at",
+            "metadata",
+            "template_id",
+            "template_name",
+            "variant_id",
+            "variant_name",
+            "pending_signers",
             "signers",
             "signing_details",
             "created_at",

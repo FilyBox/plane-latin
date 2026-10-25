@@ -75,10 +75,9 @@ class DocumensoClient:
             )
             if key in settings
         }
-        # Plane contract signers must provide official-identification evidence.
-        # The explicit envelope flag keeps pre-existing/in-flight envelopes
-        # compatible when the CRM migration is deployed.
-        meta["identityVerificationRequired"] = True
+        # Identity evidence (INE) is a per-request option, off unless asked
+        # for. Always sent explicitly: the fork's own default is True.
+        meta["identityVerificationRequired"] = bool(settings.get("identity_verification_required", False))
         if settings.get("emailReplyTo"):
             meta["emailReplyTo"] = settings["emailReplyTo"]
         payload = {
@@ -111,6 +110,34 @@ class DocumensoClient:
         )
         self._raise_for_status(response)
         return response.json()
+
+    def find_envelope_by_external_id(self, external_id):
+        """The fork's GET /envelope searches title/externalId with `query`;
+        keep only an exact externalId match. Returns the full envelope."""
+        response = requests.get(
+            f"{self.base_url}/api/v2/envelope",
+            headers=self.headers,
+            params={"query": external_id, "type": "DOCUMENT", "perPage": 20},
+            timeout=30,
+        )
+        self._raise_for_status(response)
+        body = response.json() if response.content else {}
+        matches = [item for item in body.get("data") or [] if str(item.get("externalId") or "") == str(external_id)]
+        if not matches:
+            return None
+        # Prefer one still in use over cancelled/rejected leftovers.
+        matches.sort(key=lambda item: item.get("status") in {"CANCELLED", "REJECTED"})
+        return self.get_envelope(matches[0]["id"])
+
+    def delete_envelope(self, envelope_id):
+        response = requests.post(
+            f"{self.base_url}/api/v2/envelope/delete",
+            headers={**self.headers, "Content-Type": "application/json"},
+            json={"envelopeId": envelope_id},
+            timeout=60,
+        )
+        self._raise_for_status(response)
+        return response.json() if response.content else {}
 
     def distribute_envelope(self, envelope_id):
         response = requests.post(
