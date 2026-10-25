@@ -6,6 +6,7 @@ from django.urls import path
 
 from plane.app.views import AssistantChatEndpoint, AssistantModelsEndpoint, AssistantMusicImportEndpoint
 from plane.app.views.assistant import (
+    AssistantBalanceEndpoint,
     AssistantActionUndoEndpoint,
     AssistantActionsEndpoint,
     AssistantChatDetailEndpoint,
@@ -28,6 +29,11 @@ urlpatterns = [
         "workspaces/<str:slug>/assistant/models/",
         AssistantModelsEndpoint.as_view(),
         name="assistant-models",
+    ),
+    path(
+        "workspaces/<str:slug>/assistant/balance/",
+        AssistantBalanceEndpoint.as_view(),
+        name="assistant-balance",
     ),
     path(
         "workspaces/<str:slug>/assistant/music-import/",

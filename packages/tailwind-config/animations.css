@@ -85,4 +85,15 @@
       opacity: 1;
     }
   }
+
+  /* shimmer: a light band sweeping across text (assistant "working" labels) */
+  --animate-shimmer: shimmer 1.8s linear infinite;
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
 }

@@ -43,6 +43,24 @@
       "remove_context": "Quitar {name} del contexto",
       "context_hint": "El asistente sabe qué estás viendo"
     },
+    "usage": {
+      "balance": "Saldo {provider}",
+      "label": "Saldo y costo de la IA",
+      "session": "Este chat",
+      "in": "entrada",
+      "out": "salida",
+      "last_message": "Último mensaje",
+      "before": "Antes del mensaje",
+      "after": "Disponible después",
+      "available": "Disponible",
+      "no_messages": "Envía un mensaje para ver cuánto cuesta.",
+      "peak": "Tarifa de hora pico",
+      "off_peak": "Tarifa de horario valle (50 % menos)",
+      "estimate_note": "El costo se estima con los tokens usados y la tarifa de DeepSeek; DeepSeek muestra el saldo en centavos y lo actualiza con retraso.",
+      "unavailable": "Saldo insuficiente",
+      "gauge": "Queda el {percent} % del saldo más alto registrado",
+      "error": "No se pudo leer el saldo"
+    },
     "context": {
       "tag": "Etiqueta",
       "work_item": "Elemento de trabajo",
@@ -55,6 +73,13 @@
       "pick": "Elegir del workspace"
     },
     "steps": {
+      "worked": "Trabajó {duration}",
+      "done_count": "{count, plural, one {# hecho} other {# hechos}}",
+      "failed_count": "{count, plural, one {# falló} other {# fallaron}}",
+      "cited": "{count, plural, one {# fragmento citado} other {# fragmentos citados}}",
+      "summary_label": "Resumen",
+      "request": "Solicitud",
+      "result": "Resultado",
       "working": "Trabajando…",
       "summary": "{count, plural, one {# paso} other {# pasos}} · {duration}",
       "failed": "falló",

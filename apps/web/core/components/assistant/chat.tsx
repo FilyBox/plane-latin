@@ -47,6 +47,8 @@ import { useAssistantPageContext } from "./page-context";
 import type { TAssistantPageContext, TContextItem } from "./page-context";
 import { buildTraceToolUIs } from "./steps";
 import { AssistantThread } from "./thread";
+import { AssistantUsageMeter, turnFromMessage } from "./usage";
+import type { TAssistantTurn } from "./usage";
 
 /** Tools without a server-side execute: the run pauses until the user
  * answers in the card, which stores a result and resumes it. */
@@ -391,6 +393,10 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
     )
   );
 
+  // Cost of the last answer and a run counter, for the balance meter
+  const [turns, setTurns] = useState<TAssistantTurn[]>([]);
+  const [finishedRuns, setFinishedRuns] = useState(0);
+
   const runtime = useChatRuntime({
     transport,
     adapters,
@@ -412,7 +418,10 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
       for (const part of fresh) resumed.current.add(part.toolCallId);
       return true;
     },
-    onFinish: ({ messages, isError, isAbort }) => {
+    onFinish: ({ message: finished, messages, isError, isAbort }) => {
+      setFinishedRuns((count) => count + 1);
+      const priced = turnFromMessage(finished, Date.now());
+      if (priced) setTurns((value) => [...value, priced]);
       if (isError || isAbort) return;
       const transcript = messages.filter((message) => message.role !== "system");
       if (transcript.length === 0) return;
@@ -464,6 +473,11 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
         suggestions={suggestions}
         allowAttachments={libraryEnabled || musicImport}
         composerAccessory={modelPicker}
+        composerTrailing={
+          isAdmin ? (
+            <AssistantUsageMeter workspaceSlug={workspaceSlug} turns={turns} finishedRuns={finishedRuns} />
+          ) : undefined
+        }
         contextBar={
           <ContextBar
             workspaceSlug={workspaceSlug}

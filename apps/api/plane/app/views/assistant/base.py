@@ -11,6 +11,7 @@ no CORS, no browser-held worker secrets.
 
 import re
 
+from django.core.cache import cache
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from rest_framework import status
@@ -21,7 +22,12 @@ from plane.app.views.base import BaseAPIView
 from plane.db.models import Workspace, WorkspaceFeature, WorkspaceMember
 from plane.utils.exception_logger import log_exception
 from plane.utils.streaming import proxy_stream
-from plane.utils.worker_client import WorkerTriggerError, get_assistant_models, stream_assistant_chat
+from plane.utils.worker_client import (
+    WorkerTriggerError,
+    get_assistant_balance,
+    get_assistant_models,
+    stream_assistant_chat,
+)
 
 
 def _assistant_enabled(workspace):
@@ -43,6 +49,33 @@ class AssistantModelsEndpoint(BaseAPIView):
         except WorkerTriggerError as e:
             log_exception(e)
             return Response({"error": e.public_message}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+# The balance is one DeepSeek account for the whole instance; a short cache
+# keeps every open panel from asking DeepSeek on each message.
+BALANCE_CACHE_KEY = "assistant:deepseek-balance"
+BALANCE_CACHE_SECONDS = 20
+
+
+class AssistantBalanceEndpoint(BaseAPIView):
+    """What is left on the AI provider account, for the composer's meter.
+
+    Admins only: it is the company's money, not something every member needs.
+    `?fresh=1` skips the cache, used right after a message finishes.
+    """
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def get(self, request, slug):
+        fresh = request.query_params.get("fresh") == "1"
+        balance = None if fresh else cache.get(BALANCE_CACHE_KEY)
+        if balance is None:
+            try:
+                balance = get_assistant_balance()
+            except WorkerTriggerError as e:
+                log_exception(e)
+                return Response({"error": e.public_message}, status=status.HTTP_502_BAD_GATEWAY)
+            cache.set(BALANCE_CACHE_KEY, balance, BALANCE_CACHE_SECONDS)
+        return Response(balance, status=status.HTTP_200_OK)
 
 
 class AssistantMusicImportEndpoint(BaseAPIView):
@@ -234,11 +267,15 @@ def _mentions(request, slug, messages, references_enabled):
     database, never from the message."""
     if not references_enabled:
         return []
-    last = next((message for message in reversed(messages) if isinstance(message, dict) and message.get("role") == "user"), None)
+    last = next(
+        (message for message in reversed(messages) if isinstance(message, dict) and message.get("role") == "user"), None
+    )
     if last is None:
         return []
     text = " ".join(
-        str(part.get("text") or "") for part in last.get("parts") or [] if isinstance(part, dict) and part.get("type") == "text"
+        str(part.get("text") or "")
+        for part in last.get("parts") or []
+        if isinstance(part, dict) and part.get("type") == "text"
     )
     found = []
     for kind, _label, item_id in MENTION_RE.findall(text):
@@ -272,7 +309,13 @@ def _mentions(request, slug, messages, references_enabled):
             tag = tags.get(item_id.lower())
             if tag is not None:
                 resolved.append(
-                    {"entity_name": "tag", "id": str(tag.id), "title": tag.name, "subtitle": tag.kind, "path": f"/{slug}/tags/{tag.id}"}
+                    {
+                        "entity_name": "tag",
+                        "id": str(tag.id),
+                        "title": tag.name,
+                        "subtitle": tag.kind,
+                        "path": f"/{slug}/tags/{tag.id}",
+                    }
                 )
             continue
         card = cards.get((kind, item_id.lower())) or cards.get((kind, item_id))

@@ -9,9 +9,9 @@
  *   in the UI, which applies it through their own session (and audit trail).
  * - Name only what a tool returned, and link it; ask when a choice is unclear.
  *
- * Contract search reuses the contracts agent's tools as they are (that chat
- * keeps its own behaviour); this agent adds counts and full-set scans for
- * questions over hundreds of documents.
+ * Contract search reuses the contracts chat's tools as they are, counts and
+ * full-text scans over hundreds of documents included, so both chats answer
+ * contract questions the same way.
  */
 
 import type { ToolSet, UIMessage } from "ai";
@@ -28,6 +28,7 @@ import {
   resilient,
 } from "./contracts-agent";
 import { listChatModels } from "./lib/ai";
+import { estimateTurnCost } from "./lib/pricing";
 import { internalApi } from "./lib/internal-api";
 
 export type AssistantPageContext = {
@@ -225,11 +226,16 @@ ${
     ? `
 CONTRATOS (cientos de documentos)
 - list_known_names primero cuando nombren a un artista, grupo o persona: devuelve cómo está escrito en la base.
-- find_contracts para localizar documentos por metadatos (nombres, fechas, estatus, tipo, tags). Varias grafías = una llamada por grafía.
+- find_contracts para localizar documentos por metadatos (nombres, fechas, estatus, tipo, tags). Los términos de "names" se combinan con AND (todos deben aparecer): si list_known_names devuelve varias grafías de la misma entidad ("3BALLMTY" y "3 Ball Monterrey"), haz UNA llamada por grafía y une los resultados; nunca las metas juntas en el mismo "names".
+- Si una búsqueda trae has_more, dilo ("mostrando 25 de 80") y ofrece afinar el filtro o pagina con offset; nunca presentes una página como si fuera el total.
 - count_contracts para totales y repartos (por estatus, tipo, año, artista, editorial…), sin traer documentos.
-- scan_contracts para "¿qué contratos mencionan X?" sobre TODO un conjunto filtrado: el servidor lee el texto completo y solo devuelve coincidencias. Úsalo en vez de leer documentos uno por uno. Términos cortos y literales (["INE", "Juan Pérez"]).
-- read_contract_excerpts para leer alrededor de palabras clave en contratos concretos; search_contract_text solo para preguntas conceptuales.
+- scan_contracts para "¿qué contratos mencionan X?" sobre TODO un conjunto filtrado: el servidor lee el texto completo y solo devuelve coincidencias. Úsalo en vez de leer documentos uno por uno. Términos cortos y literales. Para "la INE de una persona": ["Apellido1 Apellido2", "INE"] con near≈300 (los apellidos suelen ir primero; INE ya cubre IFE y "credencial para votar"). Coincidir no es confirmar: si el fragmento no lo muestra claro, verifícalo con read_contract_excerpts antes de afirmarlo.
+- Fechas: elige date_field según la pregunta (firmado → inicio, vence → fin). Si una respuesta trae without_date > 0, dilo, y si pueden ser relevantes repite con include_undated:true.
+- read_contract_excerpts para leer alrededor de palabras clave en contratos concretos; search_contract_text solo para preguntas conceptuales. Si search_contract_text no devuelve fragmentos, NO concluyas que el dato no existe: puede que esos contratos no estén vectorizados; verifícalo con scan_contracts o read_contract_excerpts.
 - get_contract_details y summarize_contracts para el contenido de unos pocos documentos.
+- Distingue el DOCUMENTO de lo que el documento MENCIONA: si un contrato habla de una "solicitud de registro de marca", eso es una cláusula, no un archivo del workspace. No lo listes como documento salvo que tenga su propio contract_id.
+- Nunca cites un contrato que no venga de una herramienta. Si no encuentras nada, dilo y sugiere otro filtro.
+- Cuando pidan "el listado de documentos de X", responde con la lista real (título, archivo y fechas) aunque la tarjeta ya la muestre, y cierra con show_documents.
 - show_documents al final de cualquier respuesta que mencione contratos concretos, con los contract_id que usaste.`
     : ""
 }${
@@ -287,23 +293,6 @@ const trackFilterSchema = {
   video_to: z.string().optional().describe("Video publicado hasta, YYYY-MM-DD"),
   video_isrc: z.string().optional().describe("ISRC (o parte) de un video de la canción"),
   video_upc: z.string().optional().describe("UPC (o parte) de un video de la canción"),
-};
-
-/** Filters shared by count_contracts and scan_contracts (the contracts agent's terms). */
-const contractFilterSchema = {
-  names: z.array(z.string()).max(6).optional().describe("Términos libres (artista, grupo, persona, título); AND"),
-  artist: z.string().optional(),
-  person: z.string().optional().describe("Involucrados o testigos"),
-  group: z.string().optional(),
-  title: z.string().optional(),
-  date_field: z.enum(["inicio", "fin", "fin_efectiva", "creacion"]).optional(),
-  year: z.number().int().optional(),
-  date_from: z.string().optional().describe("YYYY-MM-DD"),
-  date_to: z.string().optional().describe("YYYY-MM-DD"),
-  estatus: z.array(z.enum(["VIGENTE", "FINALIZADO", "NO_ESPECIFICADO"])).optional(),
-  tipo: z.array(z.enum(["ARRENDAMIENTOS", "ALQUILERES", "VEHICULOS", "SERVICIOS", "ARTISTAS"])).optional(),
-  es_editorial: z.boolean().optional(),
-  tags: z.array(z.string()).max(6).optional(),
 };
 
 function query(input: Record<string, unknown>): URLSearchParams {
@@ -496,7 +485,7 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
   }
 
   if (caps.contracts) {
-    // The contracts agent's own tools, unchanged.
+    // The contracts chat's own tools, unchanged (count and full-text scan included).
     tools = {
       ...tools,
       ...buildContractTools(env, {
@@ -508,29 +497,6 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
         locale: body.locale,
       }),
     };
-
-    tools.count_contracts = tool({
-      description:
-        "Cuenta contratos agrupados por un campo (estatus, tipo, year, artista, grupo, editorial, notariado, procesamiento) con filtros opcionales. Devuelve el total y los grupos, sin traer documentos.",
-      inputSchema: z.object({
-        group_by: z.enum(["estatus", "tipo", "year", "artista", "grupo", "editorial", "notariado", "procesamiento"]),
-        ...contractFilterSchema,
-        limit: z.number().int().min(1).max(100).optional(),
-      }),
-      execute: async (input) => api.request("POST", `/internal/workspaces/${workspace}/contracts/group/`, input),
-    });
-
-    tools.scan_contracts = tool({
-      description:
-        "Busca términos LITERALES dentro del texto completo de TODOS los contratos que cumplan los filtros (hasta cientos) y devuelve solo los que coinciden, con un fragmento alrededor. match='all' exige todos los términos.",
-      inputSchema: z.object({
-        keywords: z.array(z.string()).min(1).max(6).describe("Términos cortos, por separado"),
-        match: z.enum(["any", "all"]).optional(),
-        ...contractFilterSchema,
-        max_matches: z.number().int().min(1).max(40).optional(),
-      }),
-      execute: async (input) => api.request("POST", `/internal/workspaces/${workspace}/contracts/scan/`, input),
-    });
   }
 
   if (caps.music) {
@@ -972,7 +938,8 @@ export async function handleAssistantChat(env: Env, body: AssistantChatRequest):
     stream: result.toUIMessageStream({
       onError: publicStreamError,
       messageMetadata: ({ part }) => {
-        if (part.type === "finish") return { usage: part.totalUsage };
+        // Estimated spend rides along with the usage so the composer can show it
+        if (part.type === "finish") return { usage: part.totalUsage, cost: estimateTurnCost(id, part.totalUsage) };
         if (part.type === "finish-step") return { modelId: part.response.modelId || id };
         return undefined;
       },

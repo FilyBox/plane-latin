@@ -7,6 +7,7 @@
 
 import { handleMusicAiMap, type AiMapRequest } from "./ai-map";
 import { handleAssistantChat, listAssistantModels, type AssistantChatRequest } from "./assistant";
+import { getDeepseekBalance } from "./lib/pricing";
 import { handleChat, type ChatRequest } from "./chat";
 import { handleContractsAgent, listContractsAgentModels, type ContractsAgentRequest } from "./contracts-agent";
 import { listChatModels } from "./lib/ai";
@@ -49,6 +50,17 @@ export default {
     // Same list, but the default follows ASSISTANT_AI_PROVIDER
     if (url.pathname === "/assistant/models" && request.method === "GET") {
       return Response.json(listAssistantModels(env));
+    }
+
+    // The DeepSeek account balance, read with this Worker's key so it never reaches a browser
+    if (url.pathname === "/assistant/balance" && request.method === "GET") {
+      if (!env.DEEPSEEK_API_KEY) return Response.json({ error: "DeepSeek is not configured" }, { status: 404 });
+      try {
+        return Response.json(await getDeepseekBalance(env.DEEPSEEK_API_KEY));
+      } catch (error) {
+        console.error(JSON.stringify({ message: "deepseek balance failed", error: String(error) }));
+        return Response.json({ error: "Could not read the DeepSeek balance" }, { status: 502 });
+      }
     }
 
     // Tool-capable models for the contracts agent

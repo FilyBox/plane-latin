@@ -104,6 +104,12 @@ def get_assistant_models():
     return _get("/assistant/models")
 
 
+def get_assistant_balance():
+    """The DeepSeek account balance. The Worker reads it with its own key, so
+    the key never leaves Cloudflare."""
+    return _get("/assistant/balance")
+
+
 def chat_with_contracts(workspace_id, mode, query, history, contract_id=None, model=None):
     """Synchronous chat turn against the Worker. `mode` is GENERAL (RAG over
     vectorized chunks) or CONTRACT (full extracted text as system context).

@@ -43,6 +43,24 @@
       "remove_context": "Remove {name} from context",
       "context_hint": "The assistant knows what you're looking at"
     },
+    "usage": {
+      "balance": "{provider} balance",
+      "label": "AI balance and cost",
+      "session": "This chat",
+      "in": "in",
+      "out": "out",
+      "last_message": "Last message",
+      "before": "Before the message",
+      "after": "Available after",
+      "available": "Available",
+      "no_messages": "Send a message to see what it costs.",
+      "peak": "Peak-hour rate",
+      "off_peak": "Off-peak rate (50% off)",
+      "estimate_note": "The cost is estimated from the tokens used and DeepSeek's rates; DeepSeek reports the balance in cents and updates it with a delay.",
+      "unavailable": "Balance too low",
+      "gauge": "{percent}% left of the highest balance seen",
+      "error": "Could not read the balance"
+    },
     "context": {
       "tag": "Tag",
       "work_item": "Work item",
@@ -55,6 +73,13 @@
       "pick": "Pick from the workspace"
     },
     "steps": {
+      "worked": "Worked for {duration}",
+      "done_count": "{count} done",
+      "failed_count": "{count} failed",
+      "cited": "{count, plural, one {# passage cited} other {# passages cited}}",
+      "summary_label": "Summary",
+      "request": "Request",
+      "result": "Result",
       "working": "Working…",
       "summary": "{count, plural, one {# step} other {# steps}} · {duration}",
       "failed": "failed",

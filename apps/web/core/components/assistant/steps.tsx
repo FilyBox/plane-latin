@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PropsWithChildren, ReactNode } from "react";
 import { makeAssistantToolUI, useMessage } from "@assistant-ui/react";
 import type { PartState } from "@assistant-ui/react";
-import { AlertTriangle, Brain, ChevronRight, Wrench } from "lucide-react";
+import { AlertTriangle, Brain, Check, ChevronRight, Loader2, Wrench, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
@@ -39,6 +39,10 @@ import { useTranslation } from "@plane/i18n";
 import type { TEntityName } from "@plane/types";
 import { cn } from "@plane/utils";
 import { ENTITY_ICONS, entityGroupKey, isEntityName } from "@/components/references/entity-meta";
+import { DocumentReference } from "./elements/document-reference";
+import { RetrievalChunks } from "./elements/retrieval-chunks";
+import type { RetrievalChunk } from "./elements/retrieval-chunks";
+import { field, mono, ShimmerLabel } from "./elements/surfaces";
 import { AssistantLink } from "./links";
 
 /** Lookups that fold into the steps block; anything else is a card. */
@@ -97,16 +101,35 @@ export const groupThought = (part: PartState): readonly "group-thought"[] | null
   part.type === "reasoning" || (part.type === "tool-call" && TRACE_TOOLS.has(part.toolName)) ? ["group-thought"] : null;
 
 /**
- * One "Trabajando…" block per stretch of thinking (Twenty's thinking steps):
- * open while the agent works, folded the moment the answer starts — to
- * "3 pasos · 4.2 s" — and open again on click.
+ * One block per stretch of thinking, styled after assistant-ui's ToolGroup
+ * and RunActivity: while the agent works the header shimmers with what it is
+ * doing right now and counts steps done; once the answer starts it folds to
+ * "Trabajó 4.2 s" with a check (or how many steps failed), and opens on click.
  */
 export function ThinkingBlock({ indices, children }: PropsWithChildren<{ indices: readonly number[] }>) {
   const { t } = useTranslation();
   const last = indices[indices.length - 1] ?? 0;
-  const toolCount = useMessage(
-    (message) => indices.filter((index) => message.content[index]?.type === "tool-call").length
-  );
+  // A string, so the selector result compares by value between renders
+  const tally = useMessage((message) => {
+    let total = 0;
+    let done = 0;
+    let failed = 0;
+    let current = "";
+    for (const index of indices) {
+      const part = message.content[index];
+      if (part?.type !== "tool-call") continue;
+      total += 1;
+      const result = part.result as { error?: unknown } | undefined;
+      if (part.result === undefined) current = part.toolName;
+      else if (part.isError || result?.error) failed += 1;
+      else done += 1;
+    }
+    return `${total}|${done}|${failed}|${current}`;
+  });
+  const [totalText, doneText, failedText, current] = tally.split("|");
+  const total = Number(totalText);
+  const done = Number(doneText);
+  const failed = Number(failedText);
   // The answer has started once a text part follows this block.
   const answered = useMessage((message) =>
     message.content.slice(last + 1).some((part) => part.type === "text" && part.text.trim().length > 0)
@@ -117,12 +140,14 @@ export function ThinkingBlock({ indices, children }: PropsWithChildren<{ indices
   const [open, setOpen] = useState(working);
   useEffect(() => setOpen(working), [working]);
 
+  const activity =
+    current && TRACE_TOOLS.has(current) ? t(`assistant.steps.${current}.running`) : t("assistant.steps.working");
   let summary = t("assistant.reasoning");
-  if (toolCount > 0) {
+  if (total > 0) {
     summary =
       duration !== null
-        ? t("assistant.steps.summary", { count: toolCount, duration: formatDuration(duration) })
-        : t("assistant.steps.count", { count: toolCount });
+        ? t("assistant.steps.worked", { duration: formatDuration(duration) })
+        : t("assistant.steps.count", { count: total });
   }
 
   return (
@@ -131,19 +156,43 @@ export function ThinkingBlock({ indices, children }: PropsWithChildren<{ indices
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex items-center gap-1.5 rounded-sm py-0.5 text-12 text-tertiary hover:text-secondary"
+        aria-busy={working}
+        className="flex w-full min-w-0 items-center gap-1.5 rounded-sm py-0.5 text-left text-12 text-tertiary hover:text-secondary"
       >
+        <ChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform duration-200 motion-reduce:transition-none",
+            open && "rotate-90"
+          )}
+          aria-hidden
+        />
         {working ? (
-          <span
-            className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent-primary motion-reduce:animate-none"
-            aria-hidden
-          />
+          <ShimmerLabel className="min-w-0 truncate">{activity}</ShimmerLabel>
         ) : (
-          <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} aria-hidden />
+          <span className="min-w-0 truncate tabular-nums">{summary}</span>
         )}
-        <span className={cn(working && "text-secondary")}>{working ? t("assistant.steps.working") : summary}</span>
+        {total > 0 && (
+          <span className={cn(mono, "ms-auto flex shrink-0 items-center gap-1 tabular-nums")}>
+            {working
+              ? `${done + failed}/${total}`
+              : failed > 0
+                ? t("assistant.steps.failed_count", { count: failed })
+                : t("assistant.steps.done_count", { count: total })}
+            {working ? (
+              <Loader2 className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
+            ) : failed > 0 ? (
+              <X className="size-3 text-danger-primary" aria-hidden />
+            ) : (
+              <Check className="size-3 text-success-primary" aria-hidden />
+            )}
+          </span>
+        )}
       </button>
-      {open && <div className="mt-1 ml-1.5 min-w-0 space-y-0.5 border-l border-subtle pl-3">{children}</div>}
+      {open && (
+        <div className="mt-1 ml-1.5 flex min-w-0 animate-fade-in flex-col gap-0.5 border-l border-subtle pl-3">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -159,6 +208,7 @@ export function ReasoningStep({ text }: { text: string }) {
       icon={Brain}
       label={t("assistant.reasoning")}
       detail={running ? undefined : firstLine(text)}
+      showOutcome={false}
     >
       <p className="text-11 leading-snug break-words whitespace-pre-wrap text-tertiary">{text}</p>
     </TraceLine>
@@ -177,43 +227,76 @@ type TraceLineProps = {
   failed?: boolean;
   icon: LucideIcon;
   label: string;
+  /** The call's main argument, shown as a chip (assistant-ui ToolCall) */
+  chip?: string;
+  /** What it found */
   detail?: string;
+  /** Check or warning once settled; off for reasoning, which has no outcome */
+  showOutcome?: boolean;
   children?: ReactNode;
 };
 
-export function TraceLine({ live, failed, icon: Icon, label, detail, children }: TraceLineProps) {
+export function TraceLine({
+  live,
+  failed,
+  icon: Icon,
+  label,
+  chip,
+  detail,
+  showOutcome = true,
+  children,
+}: TraceLineProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const duration = useDuration(live);
   const expandable = Boolean(children) && !live;
 
   const row = (
-    <span className="flex min-w-0 items-center gap-2 py-0.5 text-12 leading-snug">
+    <span className="flex min-w-0 items-center gap-1.5 py-0.5 text-12 leading-snug">
       {live ? (
-        <span
-          className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent-primary motion-reduce:animate-none"
-          aria-hidden
-        />
-      ) : failed ? (
-        <AlertTriangle className="size-3.5 shrink-0 text-danger-primary" aria-hidden />
+        <Loader2 className="size-3.5 shrink-0 animate-spin text-tertiary motion-reduce:animate-none" aria-hidden />
       ) : (
         <Icon className="size-3.5 shrink-0 text-tertiary" aria-hidden />
       )}
-      <span className={cn("shrink-0", live ? "text-secondary" : "text-tertiary")}>
-        {label}
-        {failed && ` · ${t("assistant.steps.failed")}`}
-      </span>
+      {live ? (
+        <ShimmerLabel className="shrink-0 text-secondary">{label}</ShimmerLabel>
+      ) : (
+        <span className="shrink-0 text-tertiary">
+          {label}
+          {failed && ` · ${t("assistant.steps.failed")}`}
+        </span>
+      )}
+      {chip && (
+        <span
+          className={cn(mono, field, "min-w-0 shrink truncate rounded-sm px-1.5 py-0.5 text-secondary")}
+          title={chip}
+        >
+          {chip}
+        </span>
+      )}
       {detail && (
         <span className="min-w-0 flex-1 truncate text-tertiary" title={detail}>
           {detail}
         </span>
       )}
-      {duration !== null && !live && (
-        <span className="ml-auto shrink-0 text-11 text-placeholder tabular-nums">{formatDuration(duration)}</span>
-      )}
-      {expandable && (
-        <ChevronRight className={cn("size-3 shrink-0 text-tertiary transition-transform", open && "rotate-90")} />
-      )}
+      <span className="ms-auto flex shrink-0 items-center gap-1">
+        {duration !== null && !live && (
+          <span className={cn(mono, "text-placeholder tabular-nums")}>{formatDuration(duration)}</span>
+        )}
+        {!live &&
+          showOutcome &&
+          (failed ? (
+            <AlertTriangle className="size-3 text-danger-primary" aria-hidden />
+          ) : (
+            <Check className="size-3 animate-fade-in text-success-primary" aria-hidden />
+          ))}
+        {expandable && (
+          <ChevronRight
+            className={cn("size-3 text-tertiary transition-transform duration-200", open && "rotate-90")}
+            aria-hidden
+          />
+        )}
+      </span>
     </span>
   );
 
@@ -228,7 +311,7 @@ export function TraceLine({ live, failed, icon: Icon, label, detail, children }:
       >
         {row}
       </button>
-      {open && <div className="mt-1 mb-1.5 ml-5 min-w-0">{children}</div>}
+      {open && <div className="mt-1 mb-1.5 ml-5 min-w-0 animate-fade-in">{children}</div>}
     </div>
   );
 }
@@ -309,9 +392,8 @@ function traceTool(toolName: string, spec: TTraceSpec) {
       const label = t(`assistant.steps.${toolName}.${live ? "running" : "done"}`);
       const input = spec.input?.(args) ?? "";
       const output = !live && result && !result.error ? spec.output?.(result, t) : undefined;
-      const detail = [input, output].filter(Boolean).join(" → ");
       return (
-        <TraceLine live={live} failed={failed} icon={spec.icon} label={label} detail={detail}>
+        <TraceLine live={live} failed={failed} icon={spec.icon} label={label} chip={input || undefined} detail={output}>
           {!live && result && !result.error ? spec.body?.(result, t) : undefined}
         </TraceLine>
       );
@@ -322,6 +404,12 @@ function traceTool(toolName: string, spec: TTraceSpec) {
 
 const CONTRACT_FILTER_KEYS = ["names", "artist", "person", "group", "title", "year", "estatus", "tipo", "tags"];
 type TContractRow = { contract_id: string; titulo?: string | null; file_name?: string | null };
+const contractPath = (slug: string, contractId: string) =>
+  `/${slug}/file-library/contracts/analyzed?peek=${contractId}`;
+type TFragment = { contract_id: string; contract?: string; similarity?: number; text?: string };
+type TExcerpt = { keyword: string; text: string };
+type TExcerptRow = { contract_id: string; contrato?: string; excerpts?: TExcerpt[] };
+type TScanRow = TContractRow & { matched_keywords?: string[]; excerpts?: TExcerpt[] };
 const contractRows = (rows: TContractRow[] | undefined, slug: string) =>
   (rows ?? []).slice(0, 10).map((row) => ({
     key: row.contract_id,
@@ -358,6 +446,19 @@ export function buildTraceToolUIs(slug: string) {
       icon: ScanText,
       input: (args) => text(args?.query),
       output: (result, t) => t("assistant.steps.fragments", { count: ((result.fragments as unknown[]) ?? []).length }),
+      body: (result) => (
+        <RetrievalChunks
+          chunks={((result.fragments as TFragment[]) ?? []).slice(0, 6).map(
+            (fragment, index): RetrievalChunk => ({
+              id: `${fragment.contract_id}-${index}`,
+              source: fragment.contract || fragment.contract_id.slice(0, 8),
+              score: typeof fragment.similarity === "number" ? fragment.similarity : undefined,
+              text: fragment.text ?? "",
+              path: contractPath(slug, fragment.contract_id),
+            })
+          )}
+        />
+      ),
     }),
     traceTool("read_contract_excerpts", {
       icon: BookText,
@@ -368,6 +469,25 @@ export function buildTraceToolUIs(slug: string) {
             (row) => (row.matched_keywords?.length ?? 0) > 0
           ).length,
         }),
+      body: (result, t) => (
+        <div className="flex flex-col gap-1.5">
+          {((result.results as TExcerptRow[]) ?? [])
+            .filter((row) => (row.excerpts?.length ?? 0) > 0)
+            .slice(0, 5)
+            .map((row) => (
+              <DocumentReference
+                key={row.contract_id}
+                title={row.contrato || row.contract_id.slice(0, 8)}
+                meta={t("assistant.steps.cited", { count: row.excerpts?.length ?? 0 })}
+                path={contractPath(slug, row.contract_id)}
+                anchors={(row.excerpts ?? []).slice(0, 3).map((excerpt) => ({
+                  label: excerpt.keyword,
+                  quote: excerpt.text,
+                }))}
+              />
+            ))}
+        </div>
+      ),
     }),
     traceTool("get_contract_details", {
       icon: Layers,
@@ -377,6 +497,21 @@ export function buildTraceToolUIs(slug: string) {
     traceTool("summarize_contracts", {
       icon: Layers,
       output: (result, t) => t("assistant.steps.documents", { count: ((result.summaries as unknown[]) ?? []).length }),
+      body: (result, t) => (
+        <div className="flex flex-col gap-1.5">
+          {((result.summaries as { contract_id: string; contrato?: string; summary: string }[]) ?? [])
+            .slice(0, 8)
+            .map((summary) => (
+              <DocumentReference
+                key={summary.contract_id}
+                title={summary.contrato || summary.contract_id.slice(0, 8)}
+                meta={t("assistant.steps.summary_label")}
+                path={contractPath(slug, summary.contract_id)}
+                anchors={[{ label: String(result.question ?? ""), quote: summary.summary }]}
+              />
+            ))}
+        </div>
+      ),
     }),
     traceTool("count_contracts", {
       icon: BarChart3,
@@ -393,7 +528,19 @@ export function buildTraceToolUIs(slug: string) {
       input: (args) => [text(args?.keywords), describeArgs(args, CONTRACT_FILTER_KEYS)].filter(Boolean).join(" · "),
       output: (result, t) =>
         t("assistant.steps.scan", { matched: Number(result.matched ?? 0), scanned: Number(result.scanned ?? 0) }),
-      body: (result) => <ResultRows rows={contractRows(result.results as TContractRow[], slug)} />,
+      body: (result) => (
+        <RetrievalChunks
+          chunks={((result.results as TScanRow[]) ?? []).slice(0, 8).map(
+            (row): RetrievalChunk => ({
+              id: row.contract_id,
+              source: row.titulo || row.file_name || row.contract_id.slice(0, 8),
+              locator: (row.matched_keywords ?? []).join(" + "),
+              text: (row.excerpts ?? []).map((excerpt) => excerpt.text).join(" … "),
+              path: contractPath(slug, row.contract_id),
+            })
+          )}
+        />
+      ),
     }),
     traceTool("query_music_tracks", {
       icon: ListMusic,
@@ -569,17 +716,54 @@ function Buckets({ buckets }: { buckets: { value: unknown; count: number }[] }) 
   );
 }
 
-/** Tools without a dedicated line still read as a step. */
-export function FallbackStep({ toolName, status }: { toolName: string; status: { type: string } }) {
+/**
+ * Tools without a dedicated line still read as a step (assistant-ui's
+ * ToolFallback): the tool's name as the chip, unfolding to the raw request
+ * and result.
+ */
+export function FallbackStep({
+  toolName,
+  status,
+  argsText,
+  result,
+}: {
+  toolName: string;
+  status: { type: string };
+  argsText?: string;
+  result?: unknown;
+}) {
   const { t } = useTranslation();
   const live = status.type === "running";
+  const resultText = result === undefined ? "" : typeof result === "string" ? result : JSON.stringify(result, null, 2);
   return (
     <TraceLine
       live={live}
       failed={status.type === "incomplete"}
       icon={Wrench}
       label={t(`assistant.steps.fallback.${live ? "running" : "done"}`)}
-      detail={toolName.replace(/_/g, " ")}
-    />
+      chip={toolName.replace(/_/g, " ")}
+    >
+      {argsText || resultText ? (
+        <div className={cn(field, "overflow-hidden rounded-md text-11")}>
+          {argsText && (
+            <div className="px-2.5 pt-2 pb-1.5">
+              <p className={cn(mono, "mb-0.5 text-tertiary")}>{t("assistant.steps.request")}</p>
+              <pre className="font-mono max-h-40 overflow-auto break-words whitespace-pre-wrap text-tertiary">
+                {argsText}
+              </pre>
+            </div>
+          )}
+          {argsText && resultText && <div className="mx-2.5 h-px bg-layer-3" />}
+          {resultText && (
+            <div className="px-2.5 pt-1.5 pb-2">
+              <p className={cn(mono, "mb-0.5 text-tertiary")}>{t("assistant.steps.result")}</p>
+              <pre className="font-mono max-h-40 overflow-auto break-words whitespace-pre-wrap text-secondary">
+                {resultText.slice(0, 4000)}
+              </pre>
+            </div>
+          )}
+        </div>
+      ) : undefined}
+    </TraceLine>
   );
 }

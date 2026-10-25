@@ -23,6 +23,7 @@ import remarkGfm from "remark-gfm";
 import { useTranslation } from "@plane/i18n";
 import { cn } from "@plane/utils";
 import { AttachMenu, ComposerAttachmentsRow, MessageAttachmentsRow } from "./attachments";
+import { GenerationLoader } from "./elements/generation-loader";
 import { AssistantLink } from "./links";
 import { useComposerMentions } from "./mention-composer";
 import { MentionText } from "./mentions";
@@ -63,7 +64,16 @@ function AssistantParts() {
           case "reasoning":
             return <ReasoningStep text={part.text} />;
           case "tool-call":
-            return part.toolUI ?? <FallbackStep toolName={part.toolName} status={part.status} />;
+            return (
+              part.toolUI ?? (
+                <FallbackStep
+                  toolName={part.toolName}
+                  status={part.status}
+                  argsText={part.argsText}
+                  result={part.result}
+                />
+              )
+            );
           default:
             return null;
         }
@@ -180,12 +190,7 @@ function Waiting() {
     return last?.role !== "assistant" || last.content.length === 0;
   });
   if (!waiting) return null;
-  return (
-    <div className="flex items-center gap-2 px-4 py-2 text-12 text-tertiary" role="status">
-      <span className="size-1.5 animate-pulse rounded-full bg-accent-primary motion-reduce:animate-none" aria-hidden />
-      {t("assistant.thinking")}
-    </div>
-  );
+  return <GenerationLoader label={t("assistant.thinking")} className="px-4 py-2" />;
 }
 
 type Props = {
@@ -194,10 +199,18 @@ type Props = {
   contextBar?: ReactNode;
   /** Model picker and similar controls, bottom-left of the composer */
   composerAccessory?: ReactNode;
+  /** Small status beside the send button (the balance ring) */
+  composerTrailing?: ReactNode;
   allowAttachments: boolean;
 };
 
-export function AssistantThread({ suggestions, contextBar, composerAccessory, allowAttachments }: Props) {
+export function AssistantThread({
+  suggestions,
+  contextBar,
+  composerAccessory,
+  composerTrailing,
+  allowAttachments,
+}: Props) {
   const { t } = useTranslation();
   const mentions = useComposerMentions({ inputClassName: COMPOSER_INPUT, listenForAsk: true });
   return (
@@ -255,6 +268,7 @@ export function AssistantThread({ suggestions, contextBar, composerAccessory, al
               className={ICON_BUTTON}
             />
             <div className="min-w-0 flex-1">{composerAccessory}</div>
+            {composerTrailing}
             <ThreadPrimitive.If running={false}>
               <ComposerPrimitive.Send
                 onClick={mentions.beforeSend}

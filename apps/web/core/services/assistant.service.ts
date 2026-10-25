@@ -10,6 +10,12 @@ import { APIService } from "@/services/api.service";
 export type TAssistantChat = { id: string; title: string; created_at: string; updated_at: string };
 export type TAssistantStoredMessage = { id: string; role: "user" | "assistant"; parts: { type: string }[] };
 export type TAssistantModels = { models: { id: string; provider: string }[]; default_model: string };
+/** The AI provider account balance (DeepSeek), read by the Worker with its own key */
+export type TAssistantBalance = {
+  provider: string;
+  is_available: boolean;
+  balances: { currency: string; total: number }[];
+};
 
 export type TAssistantAction = {
   id: string;
@@ -65,6 +71,12 @@ export class AssistantService extends APIService {
 
   async getModels(workspaceSlug: string): Promise<TAssistantModels> {
     return this.get(`/api/workspaces/${workspaceSlug}/assistant/models/`).then((response) => response.data);
+  }
+
+  async getBalance(workspaceSlug: string, fresh = false): Promise<TAssistantBalance> {
+    return this.get(`/api/workspaces/${workspaceSlug}/assistant/balance/`, {
+      params: fresh ? { fresh: 1 } : undefined,
+    }).then((response) => response.data);
   }
 
   async getChats(workspaceSlug: string): Promise<TAssistantChat[]> {
