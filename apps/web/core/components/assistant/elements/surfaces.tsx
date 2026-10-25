@@ -25,7 +25,8 @@ export function ShimmerLabel({ active = true, className, ...props }: ComponentPr
     <span
       className={cn(
         active &&
-          "animate-shimmer bg-[linear-gradient(90deg,currentColor_40%,var(--text-color-primary,#fff)_50%,currentColor_60%)] bg-[length:200%_100%] bg-clip-text text-transparent motion-reduce:animate-none motion-reduce:bg-none motion-reduce:text-current",
+          // Explicit tokens: with text-transparent, currentColor would be transparent too
+          "animate-shimmer bg-[linear-gradient(90deg,var(--text-color-tertiary)_40%,var(--text-color-primary)_50%,var(--text-color-tertiary)_60%)] bg-[length:200%_100%] bg-clip-text text-transparent motion-reduce:animate-none motion-reduce:bg-none motion-reduce:text-current",
         className
       )}
       {...props}

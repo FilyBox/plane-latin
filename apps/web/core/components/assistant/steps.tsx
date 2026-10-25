@@ -30,6 +30,7 @@ import {
   Layers,
   Link2,
   ListMusic,
+  ScanSearch,
   ScanText,
   Search,
   SpellCheck,
@@ -64,6 +65,7 @@ export const TRACE_TOOLS = new Set([
   "get_references",
   "search_memory",
   "read_file",
+  "read_deep_review",
 ]);
 
 const formatDuration = (seconds: number) =>
@@ -645,6 +647,11 @@ export function buildTraceToolUIs(slug: string) {
           name: String(result.name ?? ""),
           pages: Number(result.pages ?? 0),
         }),
+    }),
+    traceTool("read_deep_review", {
+      icon: ScanSearch,
+      output: (result, t) =>
+        t("assistant.steps.deep_review_rows", { count: ((result.results as unknown[]) ?? []).length }),
     }),
     traceTool("search_memory", {
       icon: Brain,

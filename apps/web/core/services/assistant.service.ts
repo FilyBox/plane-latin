@@ -29,6 +29,81 @@ export type TAssistantAction = {
   actor?: string;
 };
 
+export type TDeepReviewStatus =
+  | "DRAFT"
+  | "SCHEDULED"
+  | "RUNNING"
+  | "PAUSED"
+  | "STOPPING"
+  | "SYNTHESIZING"
+  | "COMPLETED"
+  | "PARTIAL"
+  | "FAILED"
+  | "CANCELLED";
+
+type TRange = { low: number; high: number };
+
+/** Ranges the Worker priced from the texts' sizes */
+export type TDeepReviewEstimate = {
+  count: number;
+  total_bytes: number;
+  chunks: number;
+  lanes: number;
+  tokens: TRange;
+  eta_minutes: TRange;
+  now_peak: boolean;
+  next_off_peak: string | null;
+  default_model: string;
+  models: Record<string, { peak: TRange; off_peak: TRange }>;
+};
+
+export type TDeepReviewRow = {
+  contract_id: string;
+  title: string;
+  file_name: string | null;
+  file_asset_id: string | null;
+  artists: string[];
+  start_date: string | null;
+  end_date: string | null;
+  effective_end_date: string | null;
+  matches: boolean;
+  selected: boolean;
+  confidence: number | null;
+  reason: string;
+  quote: string;
+};
+
+/** Every contract read by the AI against one question (admins) */
+export type TDeepReview = {
+  id: string;
+  status: TDeepReviewStatus;
+  title: string;
+  question: string;
+  model: string;
+  off_peak: boolean;
+  total_count: number;
+  total_bytes: number;
+  done_count: number;
+  failed_count: number;
+  done_bytes: number;
+  pending_count: number;
+  running_count: number;
+  spent_usd: number;
+  estimate: TDeepReviewEstimate;
+  estimate_usd: number | null;
+  projection_usd: number | null;
+  alerts_muted: boolean;
+  pause_reason: string;
+  paused_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  summary: string;
+  error: { message?: string };
+  results?: TDeepReviewRow[];
+  remaining_count?: number;
+  continuation_id?: string | null;
+};
+
 export type TAssistantMemoryKind = "FACT" | "RULE" | "GLOSSARY" | "OWNER" | "CONTEXT";
 export type TAssistantMemoryStatus = "PROPOSED" | "ACTIVE" | "REJECTED" | "ARCHIVED";
 export type TAssistantMemory = {
@@ -142,6 +217,67 @@ export class AssistantService extends APIService {
     return this.post(`/api/workspaces/${workspaceSlug}/assistant/actions/${actionId}/undo/`, {}).then(
       (response) => response.data
     );
+  }
+
+  // ------------------------------------------------------------ deep review
+
+  async getDeepReview(workspaceSlug: string, reviewId: string): Promise<TDeepReview> {
+    return this.get(`/api/workspaces/${workspaceSlug}/assistant/deep-reviews/${reviewId}/`).then(
+      (response) => response.data
+    );
+  }
+
+  async startDeepReview(
+    workspaceSlug: string,
+    reviewId: string,
+    data: { model: string; off_peak: boolean }
+  ): Promise<TDeepReview> {
+    return this.post(`/api/workspaces/${workspaceSlug}/assistant/deep-reviews/${reviewId}/start/`, data).then(
+      (response) => response.data
+    );
+  }
+
+  async decideDeepReview(
+    workspaceSlug: string,
+    reviewId: string,
+    action: "stop" | "continue" | "cancel"
+  ): Promise<TDeepReview> {
+    return this.post(`/api/workspaces/${workspaceSlug}/assistant/deep-reviews/${reviewId}/decision/`, {
+      action,
+    }).then((response) => response.data);
+  }
+
+  /** A new review, to confirm, for what a partial one did not read */
+  async continueDeepReview(workspaceSlug: string, reviewId: string): Promise<TDeepReview> {
+    return this.post(`/api/workspaces/${workspaceSlug}/assistant/deep-reviews/${reviewId}/remaining/`, {}).then(
+      (response) => response.data
+    );
+  }
+
+  async deepReviewPage(workspaceSlug: string, reviewId: string): Promise<{ title: string; markdown: string }> {
+    return this.get(`/api/workspaces/${workspaceSlug}/assistant/deep-reviews/${reviewId}/page/`).then(
+      (response) => response.data
+    );
+  }
+
+  async downloadDeepReview(
+    workspaceSlug: string,
+    reviewId: string,
+    format: "xlsx" | "csv",
+    scope: "matches" | "all" = "matches"
+  ): Promise<void> {
+    const response = await this.get(`/api/workspaces/${workspaceSlug}/assistant/deep-reviews/${reviewId}/export/`, {
+      params: { type: format, scope },
+      responseType: "blob",
+    });
+    const url = URL.createObjectURL(response.data);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `revision-contratos.${format}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
   async saveMessages(

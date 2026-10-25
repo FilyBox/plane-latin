@@ -32,6 +32,7 @@ import { assistantService } from "@/services/assistant.service";
 import type { TAssistantChat, TAssistantStoredMessage } from "@/services/assistant.service";
 import { TaggingCard, WorkItemCard } from "./action-cards";
 import { ActionsView } from "./actions-view";
+import { DeepReviewCard } from "./deep-review-card";
 import { PageCard, ReportCard } from "./page-card";
 import { AssistantAttachmentAdapter } from "./attachments";
 import {
@@ -466,6 +467,7 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
       <WorkItemCard />
       <PageCard />
       <ReportCard />
+      <DeepReviewCard />
       <StartTagMappingCard />
       <AskUserCard />
       <ShowDocumentsCard />
