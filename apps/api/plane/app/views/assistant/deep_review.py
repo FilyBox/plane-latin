@@ -37,6 +37,8 @@ from plane.db.models import (
 )
 from plane.utils.deep_review import (
     FINISHED,
+    add_event,
+    process_payload,
     build_markdown,
     contracts_with_text,
     control_action,
@@ -85,6 +87,7 @@ def _detail(review) -> dict:
         payload["remaining_count"] = review.items.exclude(status=ItemStatus.DONE).count()
     continuation = review.continuations.order_by("-created_at").first()
     payload["continuation_id"] = str(continuation.id) if continuation else None
+    payload["process"] = process_payload(review)
     return payload
 
 
@@ -122,7 +125,8 @@ class AssistantDeepReviewStartEndpoint(BaseAPIView):
             review.off_peak = off_peak
             review.status = Status.SCHEDULED if off_peak else Status.RUNNING
             review.started_at = timezone.now()
-            review.save(update_fields=["model", "off_peak", "status", "started_at"])
+            add_event(review, "scheduled" if off_peak else "started", model=model)
+            review.save(update_fields=["model", "off_peak", "status", "started_at", "events"])
 
         try:
             instance_id = trigger_deep_review(review.id, review.workspace_id, model, off_peak)
@@ -149,18 +153,22 @@ class AssistantDeepReviewDecisionEndpoint(BaseAPIView):
             if action == "cancel" and review.status == Status.DRAFT:
                 review.status = Status.CANCELLED
                 review.finished_at = timezone.now()
+                add_event(review, "cancelled")
             elif action == "stop" and review.status == Status.SCHEDULED:
                 # Nothing was read yet: no answer to give.
                 review.status = Status.CANCELLED
                 review.finished_at = timezone.now()
+                add_event(review, "cancelled")
             elif action == "stop" and review.status in (Status.RUNNING, Status.PAUSED):
                 review.status = Status.STOPPING
                 review.pause_reason = "user_stop"
+                add_event(review, "stopped", read=review.done_count)
             elif action == "continue" and review.status == Status.PAUSED:
                 review.status = Status.RUNNING
                 review.alerts_muted = True
                 review.paused_at = None
                 review.pause_reason = ""
+                add_event(review, "continued")
             else:
                 return Response({"error": "Not possible now"}, status=status.HTTP_409_CONFLICT)
             review.save()
@@ -340,6 +348,11 @@ class InternalDeepReviewStateEndpoint(InternalBaseView):
             target = data.get("status")
             if target in self.MOVES and review.status in self.MOVES[target]:
                 review.status = target
+                add_event(review, "running" if target == Status.RUNNING else "synthesizing")
+            elif target == Status.RUNNING and review.status == Status.RUNNING:
+                # Started right away (never scheduled): the lanes start reading now
+                if not any(event.get("kind") == "running" for event in review.events or []):
+                    add_event(review, "running")
             if data.get("estimate_usd") is not None and review.estimate_usd is None:
                 review.estimate_usd = float(data["estimate_usd"])
             review.save()
@@ -460,6 +473,13 @@ class InternalDeepReviewCompleteEndpoint(InternalBaseView):
                 review.status = Status.COMPLETED
             review.summary = str(data.get("summary") or "")[:20000]
             review.finished_at = timezone.now()
+            add_event(
+                review,
+                review.status.lower(),
+                dropped=len(dropped),
+                read=review.done_count,
+                spent=round(review.spent_usd, 6),
+            )
             review.save()
         if review.status != Status.FAILED or review.done_count:
             send_deep_review_email.delay(str(review.id))

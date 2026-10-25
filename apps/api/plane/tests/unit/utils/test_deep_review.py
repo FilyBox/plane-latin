@@ -7,7 +7,13 @@
 import pytest
 
 from plane.db.models import AssistantDeepReview, AssistantDeepReviewItem, Contract, FileAsset
-from plane.utils.deep_review import contracts_with_text, create_draft, record_result, without_text_count
+from plane.utils.deep_review import (
+    contracts_with_text,
+    create_draft,
+    process_payload,
+    record_result,
+    without_text_count,
+)
 
 SECRET = "test-internal-secret"
 Status = AssistantDeepReview.Status
@@ -75,6 +81,17 @@ class TestDeepReview:
         draft.refresh_from_db()
         assert draft.status == Status.PAUSED
         assert draft.pause_reason == "over_estimate"
+        assert draft.events[-1]["kind"] == "paused"
+        assert draft.events[-1]["projection"] == pytest.approx(0.03)
+
+    def test_process_lists_contracts_in_the_order_they_finished(self, review):
+        draft, first, second = review
+        record_result(draft.id, second.id, result(matches=False))
+        record_result(draft.id, first.id, {"status": "failed", "error": "timeout"})
+        draft.refresh_from_db()
+        items = process_payload(draft)["items"]
+        assert [item["contract_id"] for item in items] == [str(second.id), str(first.id)]
+        assert items[1]["status"] == "FAILED" and items[1]["error"] == "timeout"
 
     def test_no_pause_once_the_admin_continued(self, review):
         draft, first, _ = review

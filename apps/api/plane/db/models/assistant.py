@@ -227,6 +227,9 @@ class AssistantDeepReview(BaseModel):
     paused_at = models.DateTimeField(null=True, blank=True)
     summary = models.TextField(blank=True)
     error = models.JSONField(default=dict, blank=True)
+    # What happened, in order ({"at", "kind", ...}): started, paused,
+    # continued, stopped… shown as the review's process in the chat.
+    events = models.JSONField(default=list, blank=True)
     workflow_instance_id = models.CharField(max_length=255, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)

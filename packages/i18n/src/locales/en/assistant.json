@@ -500,7 +500,40 @@
       "save_page": "Save as page",
       "continue_rest": "Continue with the remaining {count}",
       "follow_up": "Ask me in the chat about this result",
-      "took": "took {time}"
+      "took": "took {time}",
+      "process": {
+        "waiting": "Waiting for off-peak hours…",
+        "reading": "Reading contracts… {done} of {total}",
+        "writing": "Writing the answer…",
+        "summary": "{count, plural, one {Reviewed # contract} other {Reviewed # contracts}} in {time}",
+        "prepared": "Prepared the review",
+        "contracts": "{count, plural, one {# contract} other {# contracts}}",
+        "estimate": "estimate {amount}",
+        "waited": "Waited for off-peak hours",
+        "lanes": "{count, plural, one {Read with # reader} other {Split the work across # readers in parallel}}",
+        "reading_label": "Reading contracts",
+        "read_label": "{count, plural, one {Read # contract} other {Read # contracts}}",
+        "matched_spent": "{count, plural, one {# possible match} other {# possible matches}} · {spent}",
+        "paused": "Paused: running {percent}% over the estimate",
+        "projection": "projection {projection} · estimate {estimate}",
+        "continued": "You chose to go past the estimate",
+        "stopped": "{count, plural, one {You stopped the review with # contract read} other {You stopped the review with # contracts read}}",
+        "no_balance": "The DeepSeek balance ran out",
+        "pause_timeout": "No answer within 15 minutes: answered with what was read",
+        "checking": "Checking the matches…",
+        "dropped": "{count, plural, one {Checked the matches and dropped # false positive} other {Checked the matches and dropped # false positives}}",
+        "checked": "{count, plural, one {Checked # match} other {Checked # matches}}",
+        "wrote": "Wrote the answer",
+        "wrote_partial": "Answered with {done} of {total} contracts",
+        "failed": "The review failed",
+        "match": "matches",
+        "match_confidence": "matches · {confidence}%",
+        "no_match": "no match",
+        "dropped_item": "dropped in the final check",
+        "error": "could not be read",
+        "chunks": "{count} chunks",
+        "show_all": "Show all {count}"
+      }
     }
   }
 }

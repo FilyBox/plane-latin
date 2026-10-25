@@ -106,6 +106,11 @@ def over_estimate(review) -> bool:
     return projected is not None and projected > review.estimate_usd * PAUSE_RATIO
 
 
+def add_event(review, kind: str, **data) -> None:
+    """Appends to the review's process log (saved by the caller)."""
+    review.events = [*(review.events or []), {"at": timezone.now().isoformat(), "kind": kind, **data}][-200:]
+
+
 def control_action(review) -> str:
     """What a lane does next: read another contract, wait, or stop."""
     if review.status == Status.RUNNING:
@@ -159,10 +164,18 @@ def record_result(review_id, contract_id, data: dict) -> str:
             if data.get("error_code") == "insufficient_balance" and review.status in (Status.RUNNING, Status.PAUSED):
                 review.status = Status.STOPPING
                 review.pause_reason = "insufficient_balance"
+                add_event(review, "no_balance", read=review.done_count)
             elif review.status == Status.RUNNING and over_estimate(review):
                 review.status = Status.PAUSED
                 review.pause_reason = "over_estimate"
                 review.paused_at = timezone.now()
+                add_event(
+                    review,
+                    "paused",
+                    projection=round(projection(review) or 0, 6),
+                    estimate=review.estimate_usd,
+                    read=review.done_count,
+                )
             review.save()
         return control_action(review)
 
@@ -170,9 +183,13 @@ def record_result(review_id, contract_id, data: dict) -> str:
 def refresh_state(review) -> AssistantDeepReview:
     """Applies the pause timeout; called on every poll."""
     if pause_expired(review):
-        AssistantDeepReview.objects.filter(id=review.id, status=Status.PAUSED).update(
-            status=Status.STOPPING, pause_reason="pause_timeout"
-        )
+        with transaction.atomic():
+            locked = AssistantDeepReview.objects.select_for_update().get(id=review.id)
+            if locked.status == Status.PAUSED:
+                locked.status = Status.STOPPING
+                locked.pause_reason = "pause_timeout"
+                add_event(locked, "pause_timeout")
+                locked.save(update_fields=["status", "pause_reason", "events"])
         review.refresh_from_db()
     return review
 
@@ -217,6 +234,36 @@ def state_payload(review) -> dict:
 
 def _file_name(contract) -> str | None:
     return (contract.file_asset.attributes or {}).get("name") if contract.file_asset_id else None
+
+
+def process_payload(review) -> dict:
+    """What the review did, for the process block in the chat: its events
+    and every contract read so far, in the order they finished."""
+    items = (
+        review.items.filter(status__in=[ItemStatus.DONE, ItemStatus.FAILED])
+        .select_related("contract", "contract__file_asset")
+        .order_by("updated_at")
+    )
+    return {
+        "events": review.events or [],
+        "items": [
+            {
+                "contract_id": str(item.contract_id),
+                "title": item.contract.titulo or _file_name(item.contract) or "Contrato",
+                "status": item.status,
+                "matches": item.matches,
+                "selected": item.selected,
+                "confidence": item.confidence,
+                "chunks": item.chunks,
+                "tokens": item.input_tokens + item.output_tokens,
+                "cost_usd": round(item.cost_usd, 6),
+                "error": item.error,
+                "reason": item.reason[:300] if item.matches and not item.selected else "",
+                "finished_at": item.updated_at.isoformat(),
+            }
+            for item in items
+        ],
+    }
 
 
 def result_rows(review, everything: bool = False) -> list[dict]:

@@ -73,6 +73,35 @@ export type TDeepReviewRow = {
   quote: string;
 };
 
+export type TDeepReviewEvent = {
+  at: string;
+  kind: string;
+  model?: string;
+  projection?: number;
+  estimate?: number | null;
+  read?: number;
+  dropped?: number;
+  spent?: number;
+};
+
+export type TDeepReviewProcessItem = {
+  contract_id: string;
+  title: string;
+  status: "DONE" | "FAILED";
+  matches: boolean | null;
+  selected: boolean;
+  confidence: number | null;
+  chunks: number;
+  tokens: number;
+  cost_usd: number;
+  error: string;
+  /** Why the final pass dropped it (matched, then not selected) */
+  reason: string;
+  finished_at: string;
+};
+
+export type TDeepReviewProcess = { events: TDeepReviewEvent[]; items: TDeepReviewProcessItem[] };
+
 /** Every contract read by the AI against one question (admins) */
 export type TDeepReview = {
   id: string;
@@ -100,6 +129,8 @@ export type TDeepReview = {
   summary: string;
   error: { message?: string };
   results?: TDeepReviewRow[];
+  /** What the review did: its events and every contract read, in order */
+  process?: TDeepReviewProcess;
   remaining_count?: number;
   continuation_id?: string | null;
 };

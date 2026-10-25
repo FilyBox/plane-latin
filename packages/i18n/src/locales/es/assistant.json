@@ -500,7 +500,40 @@
       "save_page": "Guardar como página",
       "continue_rest": "Continuar con los {count} restantes",
       "follow_up": "Puedes preguntarme en el chat sobre este resultado",
-      "took": "tardó {time}"
+      "took": "tardó {time}",
+      "process": {
+        "waiting": "Esperando el horario valle…",
+        "reading": "Leyendo contratos… {done} de {total}",
+        "writing": "Redactando la respuesta…",
+        "summary": "{count, plural, one {Revisó # contrato} other {Revisó # contratos}} en {time}",
+        "prepared": "Preparó la revisión",
+        "contracts": "{count, plural, one {# contrato} other {# contratos}}",
+        "estimate": "estimado {amount}",
+        "waited": "Esperó al horario valle",
+        "lanes": "{count, plural, one {Leyó con # lector} other {Repartió el trabajo en # lectores en paralelo}}",
+        "reading_label": "Leyendo contratos",
+        "read_label": "{count, plural, one {Leyó # contrato} other {Leyó # contratos}}",
+        "matched_spent": "{count, plural, one {# posible coincidencia} other {# posibles coincidencias}} · {spent}",
+        "paused": "Se pausó: iba {percent} % arriba del estimado",
+        "projection": "proyección {projection} · estimado {estimate}",
+        "continued": "Continuaste pasando el estimado",
+        "stopped": "{count, plural, one {Detuviste la revisión con # contrato leído} other {Detuviste la revisión con # contratos leídos}}",
+        "no_balance": "Se acabó el saldo de DeepSeek",
+        "pause_timeout": "Sin respuesta en 15 minutos: respondió con lo analizado",
+        "checking": "Revisando los que coinciden…",
+        "dropped": "{count, plural, one {Revisó los que coinciden y descartó # falso positivo} other {Revisó los que coinciden y descartó # falsos positivos}}",
+        "checked": "{count, plural, one {Revisó # coincidencia} other {Revisó # coincidencias}}",
+        "wrote": "Redactó la respuesta",
+        "wrote_partial": "Respondió con {done} de {total} contratos",
+        "failed": "La revisión falló",
+        "match": "coincide",
+        "match_confidence": "coincide · {confidence} %",
+        "no_match": "no coincide",
+        "dropped_item": "descartado en la revisión final",
+        "error": "error al leerlo",
+        "chunks": "{count} tramos",
+        "show_all": "Ver los {count}"
+      }
     }
   }
 }

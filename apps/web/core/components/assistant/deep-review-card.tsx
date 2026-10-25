@@ -37,40 +37,17 @@ import { downloadAssets } from "@/components/file-library/download";
 import { assistantService } from "@/services/assistant.service";
 import type { TDeepReview, TDeepReviewRow, TDeepReviewStatus } from "@/services/assistant.service";
 import { CARD, errorText } from "./action-cards";
+import { ACTIVE_REVIEW, FINISHED_REVIEW, clock, contractPath, duration, money, range } from "./deep-review-format";
+import { DeepReviewProcess } from "./deep-review-process";
 import { GenerationLoader } from "./elements/generation-loader";
 import { formatTokenCount, mono, pct } from "./elements/surfaces";
 import { AssistantLink } from "./links";
 import { PageForm } from "./page-card";
 import { TraceLine } from "./steps";
 
-const ACTIVE = new Set<TDeepReviewStatus>(["SCHEDULED", "RUNNING", "PAUSED", "STOPPING", "SYNTHESIZING"]);
-const FINISHED = new Set<TDeepReviewStatus>(["COMPLETED", "PARTIAL", "FAILED"]);
+const ACTIVE = ACTIVE_REVIEW;
+const FINISHED = FINISHED_REVIEW;
 const PAGE_ROWS = 10;
-
-const money = (value: number | null | undefined) => {
-  const amount = value ?? 0;
-  if (amount >= 1) return `$${amount.toFixed(2)}`;
-  if (amount >= 0.01) return `$${amount.toFixed(3)}`;
-  return `$${amount.toFixed(4)}`;
-};
-const range = (value: { low: number; high: number } | undefined) =>
-  value ? `${money(value.low)} – ${money(value.high)}` : "—";
-const contractPath = (slug: string, contractId: string) =>
-  `/${slug}/file-library/contracts/analyzed?peek=${contractId}`;
-const clock = (iso: string | null | undefined) => {
-  if (!iso) return "";
-  const date = new Date(iso);
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return date.toLocaleString(
-    [],
-    sameDay ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" }
-  );
-};
-const duration = (from: string | null, to: string | null) => {
-  if (!from || !to) return "";
-  const seconds = Math.max(0, (new Date(to).getTime() - new Date(from).getTime()) / 1000);
-  return seconds < 90 ? `${Math.round(seconds)} s` : `${Math.round(seconds / 60)} min`;
-};
 
 function useReview(slug: string, reviewId: string) {
   return useSWR(["ASSISTANT_DEEP_REVIEW", slug, reviewId], () => assistantService.getDeepReview(slug, reviewId), {
@@ -746,6 +723,7 @@ function DeepReviewPanel({ slug, reviewId, withoutText }: { slug: string; review
 
   return (
     <>
+      <DeepReviewProcess slug={slug} review={review} />
       <div className={CARD}>
         <div className="flex items-start gap-2.5">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent-primary/10 text-accent-primary">

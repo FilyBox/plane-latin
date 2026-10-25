@@ -68,7 +68,7 @@ export const TRACE_TOOLS = new Set([
   "read_deep_review",
 ]);
 
-const formatDuration = (seconds: number) =>
+export const formatDuration = (seconds: number) =>
   seconds < 1 ? `${Math.round(seconds * 1000)} ms` : `${seconds.toFixed(1)} s`;
 
 /** Elapsed seconds while `isRunning`, frozen when it stops; null for
@@ -235,6 +235,8 @@ type TraceLineProps = {
   detail?: string;
   /** Check or warning once settled; off for reasoning, which has no outcome */
   showOutcome?: boolean;
+  /** Seconds it took, when known from saved data rather than timed here */
+  elapsed?: number | null;
   children?: ReactNode;
 };
 
@@ -246,11 +248,13 @@ export function TraceLine({
   chip,
   detail,
   showOutcome = true,
+  elapsed,
   children,
 }: TraceLineProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const duration = useDuration(live);
+  const timed = useDuration(live);
+  const duration = elapsed ?? timed;
   const expandable = Boolean(children) && !live;
 
   const row = (
