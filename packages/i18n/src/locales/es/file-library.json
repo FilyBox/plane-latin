@@ -283,7 +283,14 @@
           "summarized": "Resumidos",
           "preparing_documents": "Preparando documentos",
           "no_names": "sin coincidencias",
-          "all_contracts": "todos los contratos"
+          "all_contracts": "todos los contratos",
+          "scanning": "Leyendo todos los contratos",
+          "scanned": "Texto completo revisado",
+          "scan_result": "{matched} de {scanned} coinciden",
+          "counting": "Contando contratos",
+          "counted": "Contratos contados",
+          "count_result": "{total} contratos en {groups} grupos",
+          "without_date": "{count} sin fecha quedaron fuera"
         },
         "reasoning": "Razonamiento"
       },

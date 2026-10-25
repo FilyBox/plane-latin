@@ -283,7 +283,14 @@
           "summarized": "Summarized",
           "preparing_documents": "Preparing documents",
           "no_names": "no match",
-          "all_contracts": "all contracts"
+          "all_contracts": "all contracts",
+          "scanning": "Reading every contract",
+          "scanned": "Full text checked",
+          "scan_result": "{matched} of {scanned} matched",
+          "counting": "Counting contracts",
+          "counted": "Contracts counted",
+          "count_result": "{total} contracts in {groups} groups",
+          "without_date": "{count} without a date were left out"
         },
         "reasoning": "Reasoning"
       },

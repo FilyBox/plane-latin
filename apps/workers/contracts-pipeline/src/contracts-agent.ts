@@ -86,9 +86,14 @@ Herramientas y cómo encadenarlas:
 - list_known_names: PRIMERO cuando el usuario nombre a un artista, grupo o persona. Devuelve cómo están escritos realmente en la base ("3BALLMTY", "3 Ball Monterrey"…). Úsalo para elegir el filtro correcto en vez de adivinar la ortografía.
 - find_contracts: el caballo de batalla. Filtra por nombres, artista, persona, grupo, fechas (year/month/date_from/date_to sobre date_field), estatus, tipo, notariado, tags. Para "los contratos de X" úsala con names:["X"] — NO uses búsqueda semántica para eso.
   IMPORTANTE: los términos de "names" se combinan con AND (todos deben aparecer). Si list_known_names devuelve VARIAS grafías de la misma entidad ("3BALLMTY" y "3 Ball Monterrey"), haz UNA llamada por grafía y une los resultados; nunca las metas juntas en el mismo "names".
+- scan_contracts: lee el TEXTO COMPLETO de todos los contratos filtrados (cientos) en el servidor y devuelve sólo los que contienen los términos. Úsala para "contratos donde aparezca X" cuando X puede no estar en los metadatos (una persona que sólo figura en el texto, una INE, un RFC, una cláusula), en vez de leer de 10 en 10.
+  Para "la INE de una persona" pasa ["Apellido1 Apellido2", "INE"] con near≈300: los nombres en documentos mexicanos suelen escribirse con los apellidos primero, así que busca por apellidos y no por el nombre completo. INE ya cubre IFE y "credencial para votar".
+  Coincidir no es confirmar: revisa el fragmento devuelto y, si no muestra claramente lo pedido, verifícalo con read_contract_excerpts o summarize_contracts antes de afirmarlo.
+- count_contracts: totales y repartos (por estatus, tipo, año, artista, editorial…) sin traer documentos.
+- Filtros de fecha: elige date_field según la pregunta ("firmado en 2017" → inicio; "vence en 2017" → fin). Si la respuesta trae without_date > 0, esos contratos quedaron fuera sólo por no tener esa fecha: dilo, y si pueden ser relevantes repite con include_undated:true.
 - search_contract_text: búsqueda SEMÁNTICA sobre el texto vectorizado. Úsala para preguntas CONCEPTUALES ("¿qué dice sobre regalías?"), no para localizar documentos por nombre o fecha. Sólo alcanza contratos ya vectorizados: si devuelve 0 fragmentos NO concluyas que el dato no existe, verifica con read_contract_excerpts.
 - read_contract_excerpts: lee los alrededores de unas palabras clave dentro de contratos concretos. Es la herramienta CORRECTA para comprobar si aparece algo LITERAL — una INE, un CURP, un RFC, un nombre propio, un número de cláusula, un importe. Primero localiza los contratos con find_contracts y luego pásale sus contract_id. Nunca uses search_contract_text para esto.
-  Los keywords se buscan TAL CUAL en el texto: pasa términos CORTOS y por separado (["INE", "Juan Perez"]), nunca una frase completa como "la INE de Juan Perez", que casi nunca aparece literal. Ante la duda pasa varias variantes y mira cuáles trae matched_keywords.
+  Los keywords se buscan TAL CUAL en el texto (sin importar acentos ni mayúsculas): pasa términos CORTOS y por separado (["INE", "Perez"]), nunca una frase completa como "la INE de Juan Perez", que casi nunca aparece literal. Ante la duda pasa varias variantes y mira cuáles trae matched_keywords.
 - get_contract_details: ficha completa (resumen, involucrados, periodos) de hasta 20 contratos ya localizados.
 - summarize_contracts: cuando necesites revisar el CONTENIDO de varios documentos a la vez. Cada documento se resume en una llamada aparte, así que puedes pasarle varios sin miedo a quedarte sin contexto.
 - show_documents: OBLIGATORIA al final de cualquier respuesta que mencione documentos concretos. Pásale los contract_id que realmente usaste; la UI muestra tarjetas para abrir, previsualizar y descargar cada archivo.
@@ -109,7 +114,7 @@ const LANGUAGE_PROMPT = (locale?: string | null) => `
 IDIOMA: responde en el idioma del último mensaje del usuario. Su interfaz usa ${locale || "un locale desconocido"} como referencia secundaria. El idioma de los contratos es contenido y nunca cambia el idioma de tu respuesta.`;
 
 function modelLists(env: Env) {
-  const deepseek = (env.DEEPSEEK_MODEL_LIST || env.DEEPSEEK_MODEL || "deepseek-chat")
+  const deepseek = (env.DEEPSEEK_MODEL_LIST || env.DEEPSEEK_MODEL || "deepseek-flash")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
@@ -212,11 +217,19 @@ const searchFilterSchema = {
   date_field: z
     .enum(["inicio", "fin", "fin_efectiva", "creacion"])
     .optional()
-    .describe("A qué fecha aplican year/month/date_from/date_to. Por defecto 'fin'"),
+    .describe(
+      "A qué fecha aplican year/month/date_from/date_to: 'inicio' = firma o arranque, 'fin' = término (por defecto), 'creacion' = cuando se subió. Elígela según la pregunta"
+    ),
   year: z.number().int().optional(),
   month: z.number().int().min(1).max(12).optional(),
   date_from: z.string().optional().describe("YYYY-MM-DD"),
   date_to: z.string().optional().describe("YYYY-MM-DD"),
+  include_undated: z
+    .boolean()
+    .optional()
+    .describe(
+      "true = el filtro de fecha también incluye los contratos SIN esa fecha. Úsalo cuando without_date > 0 y la pregunta no pueda descartarlos"
+    ),
   estatus: z.array(z.enum(["VIGENTE", "FINALIZADO", "NO_ESPECIFICADO"])).optional(),
   tipo: z.array(z.enum(["ARRENDAMIENTOS", "ALQUILERES", "VEHICULOS", "SERVICIOS", "ARTISTAS"])).optional(),
   es_notariado: z.boolean().optional(),
@@ -239,6 +252,7 @@ export function buildTools(env: Env, body: ContractsAgentRequest) {
       offset: number;
       returned: number;
       has_more: boolean;
+      without_date?: number;
       results: ContractRow[];
     }>("POST", `/internal/workspaces/${workspace}/contracts/search/`, payload);
 
@@ -318,14 +332,50 @@ export function buildTools(env: Env, body: ContractsAgentRequest) {
     }),
     execute: async (input) => {
       const data = await searchContracts({ ...input, limit: Math.min(input.limit ?? LIMITS.searchResults, 50) });
-      return {
+      return compact({
         total: data.total,
         returned: data.returned,
         offset: data.offset,
         has_more: data.has_more,
+        // Contracts the date filter dropped only because they lack that date
+        without_date: data.without_date || undefined,
         results: data.results.map((row) => compact({ ...row, resumen: truncate(row.resumen, 200) })),
-      };
+      });
     },
+  });
+
+  tools.count_contracts = tool({
+    description:
+      "Cuenta contratos agrupados por un campo (estatus, tipo, year, artista, grupo, editorial, notariado, procesamiento) con los mismos filtros que find_contracts. Devuelve el total y los grupos, sin traer documentos.",
+    inputSchema: z.object({
+      group_by: z.enum(["estatus", "tipo", "year", "artista", "grupo", "editorial", "notariado", "procesamiento"]),
+      ...searchFilterSchema,
+      limit: z.number().int().min(1).max(100).optional(),
+    }),
+    execute: async (input) => api.request("POST", `/internal/workspaces/${workspace}/contracts/group/`, input),
+  });
+
+  tools.scan_contracts = tool({
+    description:
+      "Busca términos LITERALES dentro del TEXTO COMPLETO de todos los contratos que cumplan los filtros (cientos a la vez, en el servidor) y devuelve sólo los que coinciden, con un fragmento. Ignora acentos y mayúsculas; las siglas cortas (INE, RFC) cuentan sólo como palabra completa, e INE también encuentra IFE, 'credencial para votar' y similares. match='all' exige todos los términos; near=N exige además que aparezcan a menos de N caracteres entre sí.",
+    inputSchema: z.object({
+      keywords: z
+        .array(z.string())
+        .min(1)
+        .max(6)
+        .describe("Términos cortos y por separado: ['Serrano Montoya', 'INE'], nunca una frase completa"),
+      match: z.enum(["any", "all"]).optional(),
+      near: z
+        .number()
+        .int()
+        .min(40)
+        .max(2000)
+        .optional()
+        .describe("Máxima distancia en caracteres entre los términos (≈300 = mismo párrafo). Implica match='all'"),
+      ...searchFilterSchema,
+      max_matches: z.number().int().min(1).max(40).optional(),
+    }),
+    execute: async (input) => api.request("POST", `/internal/workspaces/${workspace}/contracts/scan/`, input),
   });
 
   tools.search_contract_text = tool({

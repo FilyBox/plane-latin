@@ -10,7 +10,6 @@ through these endpoints so Django stays the single owner of the schema.
 
 # Python imports
 import re
-import unicodedata
 import uuid
 from datetime import date
 
@@ -19,7 +18,7 @@ from dateutil.relativedelta import relativedelta
 # Django imports
 from django.core.exceptions import ValidationError
 from django.db.models import Func, Q, TextField, Value
-from django.db.models.functions import Coalesce, Concat
+from django.db.models.functions import Coalesce, Concat, Lower
 from django.utils import timezone
 
 # Third party imports
@@ -39,6 +38,7 @@ from plane.db.models import (
     FileTagLink,
 )
 from plane.settings.storage import S3Storage
+from plane.utils.contract_text_search import fold, fold_aligned, terms_for, window as text_window
 
 # Fields (as returned by the AI subtasks, camel/spanish keys from the prompt
 # schema) → Contract model columns. Lists are joined to comma-separated text to
@@ -535,13 +535,12 @@ DATE_FIELD_CHOICES = {
     "fin_efectiva": "fecha_fin_efectiva",
     "creacion": "created_at__date",
 }
+DATE_FILTER_KEYS = ("year", "month", "date_from", "date_to")
 
 
 def _strip_accents(value):
     """Accent-insensitive folding so "3ball monterrey" matches "3Ball Monterrey"."""
-    return "".join(
-        char for char in unicodedata.normalize("NFD", str(value)) if unicodedata.category(char) != "Mn"
-    ).lower()
+    return fold(value)
 
 
 def _as_int(value):
@@ -583,21 +582,78 @@ def _contract_row(contract, include_summary=True):
     return row
 
 
-class Squash(Func):
-    """Lowercases and strips every non-alphanumeric character.
+# Accented letters and their plain form, for folding inside Postgres without
+# the unaccent extension (not installed everywhere).
+ACCENTED = "áàäâãåéèëêíìïîóòöôõúùüûñçÁÀÄÂÃÅÉÈËÊÍÌÏÎÓÒÖÔÕÚÙÜÛÑÇ"
+PLAIN = "aaaaaaeeeeiiiiooooouuuuncAAAAAAEEEEIIIIOOOOOUUUUNC"
 
-    This is what makes "3ball" find "3 Ball Monterrey": users and the model
-    both write group names with arbitrary spacing and casing, and plain
-    ILIKE only matches the exact spacing that happens to be stored.
+
+def Fold(expression):
+    """SQL lowercase without accents: "José" -> "jose"."""
+    return Lower(Func(expression, Value(ACCENTED), Value(PLAIN), function="TRANSLATE", output_field=TextField()))
+
+
+def Squash(expression):
+    """`Fold`, then drops every non-alphanumeric character.
+
+    This is what makes "3ball" find "3 Ball Monterrey" and "jose" find
+    "José": users and the model write names with arbitrary spacing, casing
+    and accents, and plain ILIKE only matches the exact form stored.
     """
-
-    function = "REGEXP_REPLACE"
-    template = "LOWER(REGEXP_REPLACE(%(expressions)s, '[^a-zA-Z0-9]', '', 'g'))"
-    output_field = TextField()
+    return Func(
+        Fold(expression),
+        Value("[^a-z0-9]"),
+        Value(""),
+        Value("g"),
+        function="REGEXP_REPLACE",
+        output_field=TextField(),
+    )
 
 
 def _squash(value):
-    return re.sub(r"[^a-z0-9]", "", str(value).lower())
+    return re.sub(r"[^a-z0-9]", "", fold(value))
+
+
+def _folded_contains(contracts, fields, value):
+    """Contracts where any of `fields` contains `value`, ignoring case and accents."""
+    needle = fold(value)
+    condition = Q()
+    for field in fields:
+        alias = f"folded_{field}"
+        contracts = contracts.annotate(**{alias: Fold(Coalesce(field, Value("")))})
+        condition |= Q(**{f"{alias}__contains": needle})
+    return contracts.filter(condition)
+
+
+def _date_window(data):
+    """(column, Q) for the requested date filter, or (column, None)."""
+    field = DATE_FIELD_CHOICES.get(str(data.get("date_field") or "fin").lower(), "fecha_fin")
+    condition = Q()
+    year = _as_int(data.get("year"))
+    if year:
+        condition &= Q(**{f"{field}__year": year})
+    month = _as_int(data.get("month"))
+    if month and 1 <= month <= 12:
+        condition &= Q(**{f"{field}__month": month})
+    date_from = _parse_date(data.get("date_from"))
+    if date_from:
+        condition &= Q(**{f"{field}__gte": date_from})
+    date_to = _parse_date(data.get("date_to"))
+    if date_to:
+        condition &= Q(**{f"{field}__lte": date_to})
+    return field, (condition if condition else None)
+
+
+def undated_count(contracts, data):
+    """How many contracts a date filter left out only because they have no
+    date there. Old scanned contracts often lack one, and dropping them
+    without saying so reads as "there are none"."""
+    data = data if isinstance(data, dict) else {}
+    field, condition = _date_window(data)
+    if condition is None or field == "created_at__date" or data.get("include_undated"):
+        return 0
+    undated = {key: value for key, value in data.items() if key not in DATE_FILTER_KEYS}
+    return _apply_contract_filters(contracts, undated).filter(**{f"{field}__isnull": True}).count()
 
 
 def _apply_contract_filters(contracts, data):
@@ -624,26 +680,19 @@ def _apply_contract_filters(contracts, data):
         )
     for term in terms:
         term_filter = Q(squashed_names__contains=_squash(term))
-        for field in NAME_SEARCH_FIELDS:
-            term_filter |= Q(**{f"{field}__icontains": term})
         term_filter |= Q(file_asset__attributes__name__icontains=term)
         contracts = contracts.filter(term_filter)
 
-    for key, field in (
-        ("artist", "artistas"),
-        ("group", "nombre_grupo"),
-        ("title", "titulo"),
-        ("summary_contains", "resumen_general"),
+    for key, fields in (
+        ("artist", ("artistas",)),
+        ("group", ("nombre_grupo",)),
+        ("title", ("titulo",)),
+        ("summary_contains", ("resumen_general",)),
+        ("person", ("involucrados", "testigos")),
     ):
         value = data.get(key)
         if isinstance(value, str) and value.strip():
-            contracts = contracts.filter(**{f"{field}__icontains": value.strip()})
-
-    person = data.get("person")
-    if isinstance(person, str) and person.strip():
-        contracts = contracts.filter(
-            Q(involucrados__icontains=person.strip()) | Q(testigos__icontains=person.strip())
-        )
+            contracts = _folded_contains(contracts, fields, value.strip())
 
     file_name = data.get("file_name")
     if isinstance(file_name, str) and file_name.strip():
@@ -651,19 +700,11 @@ def _apply_contract_filters(contracts, data):
 
     # Date windows. `date_field` picks which column the range applies to, so
     # the agent can ask for "signed in 2017" vs "expiring in 2017".
-    field = DATE_FIELD_CHOICES.get(str(data.get("date_field") or "fin").lower(), "fecha_fin")
-    year = _as_int(data.get("year"))
-    if year:
-        contracts = contracts.filter(**{f"{field}__year": year})
-    month = _as_int(data.get("month"))
-    if month and 1 <= month <= 12:
-        contracts = contracts.filter(**{f"{field}__month": month})
-    date_from = _parse_date(data.get("date_from"))
-    if date_from:
-        contracts = contracts.filter(**{f"{field}__gte": date_from})
-    date_to = _parse_date(data.get("date_to"))
-    if date_to:
-        contracts = contracts.filter(**{f"{field}__lte": date_to})
+    field, date_condition = _date_window(data)
+    if date_condition is not None:
+        if data.get("include_undated") and field != "created_at__date":
+            date_condition |= Q(**{f"{field}__isnull": True})
+        contracts = contracts.filter(date_condition)
 
     for key, column in (
         ("estatus", "estatus_contrato"),
@@ -715,10 +756,10 @@ class InternalContractSearchEndpoint(InternalBaseView):
 
     def post(self, request, workspace_id):
         data = request.data if isinstance(request.data, dict) else {}
-        contracts = Contract.objects.filter(workspace_id=workspace_id, file_asset__is_deleted=False).select_related(
+        base = Contract.objects.filter(workspace_id=workspace_id, file_asset__is_deleted=False).select_related(
             "file_asset"
         )
-        contracts = _apply_contract_filters(contracts, data)
+        contracts = _apply_contract_filters(base, data)
 
         allowed_order = {
             "-created_at",
@@ -747,6 +788,7 @@ class InternalContractSearchEndpoint(InternalBaseView):
                 "offset": offset,
                 "returned": len(page),
                 "has_more": offset + limit < total,
+                "without_date": undated_count(base, data),
                 "results": [_contract_row(contract, include_summary=include_summary) for contract in page],
             },
             status=status.HTTP_200_OK,
@@ -823,26 +865,24 @@ class InternalContractExcerptsEndpoint(InternalBaseView):
         except (ValueError, ValidationError):
             return Response({"error": "contract_ids must be uuids"}, status=status.HTTP_400_BAD_REQUEST)
 
+        terms = terms_for(keywords)
         results = []
         for contract in contracts:
             text = contract.extracted_text or ""
-            folded = _strip_accents(text)
+            folded = fold_aligned(text)
             excerpts = []
             matched = []
-            for keyword in keywords:
-                needle = _strip_accents(keyword)
-                if not needle:
-                    continue
-                start = folded.find(needle)
-                hits = 0
-                while start != -1 and hits < per_keyword and len(excerpts) < EXCERPT_MAX_PER_CONTRACT:
-                    left = max(0, start - window // 2)
-                    right = min(len(text), start + len(needle) + window // 2)
-                    excerpts.append({"keyword": keyword, "text": text[left:right].strip()})
-                    hits += 1
-                    start = folded.find(needle, start + len(needle))
+            for term in terms:
+                room = min(per_keyword, EXCERPT_MAX_PER_CONTRACT - len(excerpts))
+                # Still report the keyword as found when there is no room left for its excerpt
+                hits = term.occurrences(folded, limit=max(room, 1))
+                for start, end in hits[: max(room, 0)]:
+                    excerpt = {"keyword": term.keyword, "text": text_window(text, start, end, window)}
+                    if term.expanded:
+                        excerpt["found"] = text[start:end]
+                    excerpts.append(excerpt)
                 if hits:
-                    matched.append(keyword)
+                    matched.append(term.keyword)
             results.append(
                 {
                     "contract_id": str(contract.id),

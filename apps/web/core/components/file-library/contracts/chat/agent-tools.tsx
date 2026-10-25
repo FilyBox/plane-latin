@@ -226,6 +226,87 @@ export const ReadExcerptsToolUI = makeAssistantToolUI<
   },
 });
 
+/** Full-text scan over every filtered contract, done on the server */
+export const ScanContractsToolUI = makeAssistantToolUI<
+  Record<string, unknown>,
+  {
+    matched?: number;
+    scanned?: number;
+    without_date?: number;
+    results?: { titulo?: string | null; file_name?: string | null; matched_keywords?: string[] }[];
+  }
+>({
+  toolName: "scan_contracts",
+  render: function ScanContractsRender({ args, result, status }) {
+    const { t } = useTranslation();
+    const live = status.type === "running";
+    const keywords = asText(args?.keywords);
+    const outcome = result
+      ? [
+          t("file_library.contracts.chat.tools.scan_result", {
+            matched: result.matched ?? 0,
+            scanned: result.scanned ?? 0,
+          }),
+          result.without_date
+            ? t("file_library.contracts.chat.tools.without_date", { count: result.without_date })
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : "";
+    return (
+      <TraceLine
+        live={live}
+        icon={ScanText}
+        label={live ? t("file_library.contracts.chat.tools.scanning") : t("file_library.contracts.chat.tools.scanned")}
+        detail={live || !result ? keywords : `${keywords} → ${outcome}`}
+      >
+        {(result?.results?.length ?? 0) > 0 && (
+          <TraceDetails
+            rows={(result?.results ?? [])
+              .slice(0, 8)
+              .map(
+                (row) =>
+                  [row.titulo || row.file_name || "·", (row.matched_keywords ?? []).join(", ")] as [string, string]
+              )}
+          />
+        )}
+      </TraceLine>
+    );
+  },
+});
+
+/** Totals per group, without pulling any document */
+export const CountContractsToolUI = makeAssistantToolUI<
+  Record<string, unknown>,
+  { total?: number; buckets?: { value: unknown; count: number }[] }
+>({
+  toolName: "count_contracts",
+  render: function CountContractsRender({ args, result, status }) {
+    const { t } = useTranslation();
+    const live = status.type === "running";
+    const buckets = result?.buckets ?? [];
+    return (
+      <TraceLine
+        live={live}
+        icon={Layers}
+        label={live ? t("file_library.contracts.chat.tools.counting") : t("file_library.contracts.chat.tools.counted")}
+        detail={
+          live || !result
+            ? asText(args?.group_by)
+            : t("file_library.contracts.chat.tools.count_result", { total: result.total ?? 0, groups: buckets.length })
+        }
+      >
+        {buckets.length > 0 && (
+          <TraceDetails
+            rows={buckets.slice(0, 12).map((bucket) => [asText(bucket.value) || "—", String(bucket.count)])}
+          />
+        )}
+      </TraceLine>
+    );
+  },
+});
+
 export const KnownNamesToolUI = makeAssistantToolUI<
   { filter?: string },
   { artistas?: string[]; grupos?: string[]; involucrados?: string[] }
@@ -340,6 +421,8 @@ export function ContractAgentToolUIs() {
       <FindContractsToolUI />
       <SearchContractTextToolUI />
       <ReadExcerptsToolUI />
+      <ScanContractsToolUI />
+      <CountContractsToolUI />
       <ContractDetailsToolUI />
       <SummarizeContractsToolUI />
       <ShowDocumentsToolUI />

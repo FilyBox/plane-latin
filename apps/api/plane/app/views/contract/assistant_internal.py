@@ -4,8 +4,8 @@
 
 """Contract lookups for questions over hundreds of documents (Worker → Django).
 
-The contracts agent locates documents and then reads them one batch at a
-time. Two questions don't fit that shape and would otherwise drag many rows
+Locating documents by their metadata and reading them one batch at a time
+works for a handful. Two questions don't fit that shape and would otherwise drag many rows
 or documents through the model's context:
 
 - "How many …?" / "how are they split by …?" → counted here (group-by), the
@@ -13,7 +13,8 @@ or documents through the model's context:
 - "Which contracts mention …?" across a whole filtered set → scanned here,
   server-side, and only the matching windows come back.
 
-Both reuse the contracts agent's filters, so they understand the same terms.
+Both reuse the contracts search filters, so they understand the same terms.
+Both chats (contracts and workspace assistant) call them.
 """
 
 from collections import Counter
@@ -24,6 +25,7 @@ from rest_framework import status
 from rest_framework.response import Response
 
 from plane.db.models import Contract
+from plane.utils.contract_text_search import closest_cluster, fold_aligned, terms_for, window as text_window
 
 from .internal import (
     DATE_FIELD_CHOICES,
@@ -32,6 +34,7 @@ from .internal import (
     _as_int,
     _asset_name,
     _strip_accents,
+    undated_count,
 )
 
 GROUPABLE = {
@@ -48,11 +51,17 @@ SCAN_MAX_DOCUMENTS = 800
 SCAN_MAX_MATCHES = 40
 SCAN_WINDOW = 320
 SCAN_EXCERPTS_PER_CONTRACT = 2
+# Widest `near` accepted, and the widest cluster still shown as one excerpt
+SCAN_MAX_NEAR = 2000
+SCAN_CLUSTER_EXCERPT_MAX = 600
+
+
+def _all(workspace_id):
+    return Contract.objects.filter(workspace_id=workspace_id, file_asset__is_deleted=False)
 
 
 def _base(workspace_id, data):
-    contracts = Contract.objects.filter(workspace_id=workspace_id, file_asset__is_deleted=False)
-    return _apply_contract_filters(contracts, data if isinstance(data, dict) else {})
+    return _apply_contract_filters(_all(workspace_id), data if isinstance(data, dict) else {})
 
 
 class InternalContractGroupEndpoint(InternalBaseView):
@@ -111,6 +120,7 @@ class InternalContractGroupEndpoint(InternalBaseView):
                 "group_by": group_by,
                 "buckets": buckets[:limit],
                 "more_buckets": max(0, len(buckets) - limit),
+                "without_date": undated_count(_all(workspace_id), data),
             },
             status=status.HTTP_200_OK,
         )
@@ -126,13 +136,18 @@ class InternalContractScanEndpoint(InternalBaseView):
         if isinstance(keywords, str):
             keywords = [keywords]
         keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()][:6]
-        if not keywords:
+        terms = terms_for(keywords)
+        if not terms:
             return Response({"error": "keywords is required"}, status=status.HTTP_400_BAD_REQUEST)
-        mode = "all" if str(data.get("match") or "any").lower() == "all" else "any"
+        # `near` (characters) asks for every term inside one stretch of text:
+        # "José's INE" rather than a name on page 1 and someone's INE on page 30.
+        near = _as_int(data.get("near"))
+        near = min(max(near, 40), SCAN_MAX_NEAR) if near else None
+        mode = "all" if near or str(data.get("match") or "any").lower() == "all" else "any"
         max_matches = min(max(1, _as_int(data.get("max_matches")) or 20), SCAN_MAX_MATCHES)
-        needles = [(keyword, _strip_accents(keyword)) for keyword in keywords]
 
-        contracts = _base(workspace_id, data)
+        all_contracts = _all(workspace_id)
+        contracts = _apply_contract_filters(all_contracts, data)
         candidates = contracts.count()
         without_text = (
             contracts.filter(extracted_text__isnull=True).count() + contracts.filter(extracted_text="").count()
@@ -153,30 +168,42 @@ class InternalContractScanEndpoint(InternalBaseView):
                 break
             scanned += 1
             text = contract.extracted_text or ""
-            folded = _strip_accents(text)
-            positions = {keyword: folded.find(needle) for keyword, needle in needles if needle}
-            hits = [keyword for keyword, position in positions.items() if position != -1]
-            if not hits or (mode == "all" and len(hits) < len(needles)):
+            folded = fold_aligned(text)
+            occurrences = [term.occurrences(folded) for term in terms]
+            hits = [term.keyword for term, found in zip(terms, occurrences) if found]
+            if not hits or (mode == "all" and len(hits) < len(terms)):
+                continue
+            cluster = closest_cluster(occurrences) if mode == "all" and len(terms) > 1 else None
+            distance = cluster[1] - cluster[0] if cluster else None
+            if near and (distance is None or distance > near):
                 continue
             matched_total += 1
             if len(results) >= max_matches:
                 continue
-            excerpts = []
-            for keyword in hits[:SCAN_EXCERPTS_PER_CONTRACT]:
-                start = positions[keyword]
-                left = max(0, start - SCAN_WINDOW // 2)
-                right = min(len(text), start + len(keyword) + SCAN_WINDOW // 2)
-                excerpts.append({"keyword": keyword, "text": " ".join(text[left:right].split())})
-            results.append(
-                {
-                    "contract_id": str(contract.id),
-                    "titulo": contract.titulo,
-                    "file_name": _asset_name(contract),
-                    "asset_id": str(contract.file_asset_id) if contract.file_asset_id else None,
-                    "matched_keywords": hits,
-                    "excerpts": excerpts,
-                }
-            )
+            if cluster and distance <= SCAN_CLUSTER_EXCERPT_MAX:
+                # One excerpt showing the terms together
+                excerpts = [{"keyword": " + ".join(hits), "text": text_window(text, *cluster, SCAN_WINDOW)}]
+            else:
+                excerpts = []
+                for term, found in zip(terms, occurrences):
+                    if found and len(excerpts) < SCAN_EXCERPTS_PER_CONTRACT:
+                        start, end = found[0]
+                        excerpt = {"keyword": term.keyword, "text": text_window(text, start, end, SCAN_WINDOW)}
+                        if term.expanded:
+                            excerpt["found"] = text[start:end]
+                        excerpts.append(excerpt)
+            row = {
+                "contract_id": str(contract.id),
+                "titulo": contract.titulo,
+                "file_name": _asset_name(contract),
+                "asset_id": str(contract.file_asset_id) if contract.file_asset_id else None,
+                "matched_keywords": hits,
+                "excerpts": excerpts,
+            }
+            if distance is not None:
+                # Characters between the terms where they sit closest
+                row["distance"] = distance
+            results.append(row)
 
         return Response(
             {
@@ -185,6 +212,9 @@ class InternalContractScanEndpoint(InternalBaseView):
                 "without_text": without_text,
                 "matched": matched_total,
                 "returned": len(results),
+                "without_date": undated_count(all_contracts, data),
+                # Terms that also matched their other names (INE -> IFE, credencial para votar…)
+                "expanded": {term.keyword: term.variants for term in terms if term.expanded},
                 # The scan stopped before reading every candidate.
                 "truncated": scanned < candidates - without_text,
                 "results": results,
