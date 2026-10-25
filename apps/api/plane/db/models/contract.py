@@ -36,6 +36,18 @@ class ContractType(models.TextChoices):
     VEHICULOS = "VEHICULOS", "Vehículos"
     SERVICIOS = "SERVICIOS", "Servicios"
     ARTISTAS = "ARTISTAS", "Artistas"
+    REPRESENTACION = "REPRESENTACION", "Representación"
+    PRODUCCION = "PRODUCCION", "Producción y grabación"
+    EDICION = "EDICION", "Edición (editorial)"
+    LICENCIA = "LICENCIA", "Licencias"
+    DISTRIBUCION = "DISTRIBUCION", "Distribución"
+    CESION_DERECHOS = "CESION_DERECHOS", "Cesión de derechos"
+    COLABORACION = "COLABORACION", "Colaboración"
+    EVENTOS = "EVENTOS", "Eventos y presentaciones"
+    PATROCINIO = "PATROCINIO", "Patrocinio"
+    CONFIDENCIALIDAD = "CONFIDENCIALIDAD", "Confidencialidad"
+    LABORAL = "LABORAL", "Laboral"
+    OTRO = "OTRO", "Otro"
 
 
 class ContractStatusIAProcessed(models.TextChoices):
@@ -108,6 +120,21 @@ class Contract(BaseModel):
     ai_model_used = models.CharField(max_length=255, null=True, blank=True)
     processed_at = models.DateTimeField(null=True, blank=True)
 
+    # Where each field was read: {field: {quote, page, approximate?, computed?}}
+    evidence = models.JSONField(default=dict, blank=True)
+    # sha256 of the uploaded PDF, for duplicate detection
+    content_hash = models.CharField(max_length=64, null=True, blank=True, db_index=True)
+    # Expiry alerts already sent: {"for": "YYYY-MM-DD", "sent": [60, 30]}
+    expiry_alerts = models.JSONField(default=dict, blank=True)
+    # The signature request whose signed PDF this contract is
+    source_request = models.ForeignKey(
+        "db.ContractSignatureRequest",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="produced_contracts",
+    )
+
     class Meta:
         verbose_name = "Contract"
         verbose_name_plural = "Contracts"
@@ -138,6 +165,7 @@ class ContractProcessingJob(BaseModel):
         RUNNING = "RUNNING", "Running"
         COMPLETED = "COMPLETED", "Completed"
         FAILED = "FAILED", "Failed"
+        CANCELLED = "CANCELLED", "Cancelled"
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_jobs")
     contract = models.ForeignKey("db.Contract", on_delete=models.CASCADE, null=True, blank=True, related_name="jobs")

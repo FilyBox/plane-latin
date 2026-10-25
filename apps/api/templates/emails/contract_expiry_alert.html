@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+  </head>
+  <body style="font-family: Arial, sans-serif; color: #1f2937; max-width: 680px; margin: 0 auto; padding: 24px;">
+    <h2 style="margin-bottom: 4px;">Contratos por vencer</h2>
+    <p style="color: #6b7280; margin-top: 0;">
+      {% if items|length == 1 %}Este contrato llega a su fin efectivo pronto.{% else %}Estos contratos llegan a su fin efectivo pronto.{% endif %}
+    </p>
+
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+      <thead>
+        <tr style="text-align: left; border-bottom: 2px solid #e5e7eb;">
+          <th style="padding: 6px;">Contrato</th>
+          <th style="padding: 6px;">Fin efectivo</th>
+          <th style="padding: 6px;">Días</th>
+          <th style="padding: 6px;">Espacio</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr style="border-bottom: 1px solid #f3f4f6; vertical-align: top;">
+          <td style="padding: 6px;"><a href="{{ item.url }}" style="color: #2563eb;">{{ item.title }}</a></td>
+          <td style="padding: 6px;">{{ item.effective_end }}</td>
+          <td style="padding: 6px;">{% if item.days == 0 %}Hoy{% else %}{{ item.days }}{% endif %}</td>
+          <td style="padding: 6px; color: #4b5563;">{{ item.workspace_name }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p style="color: #9ca3af; font-size: 12px; margin-top: 24px;">
+      Avisamos a 60, 30 y 7 días del fin efectivo. Recibes este correo como administrador del espacio o porque subiste
+      el contrato.
+    </p>
+  </body>
+</html>

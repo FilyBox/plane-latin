@@ -131,3 +131,27 @@ class DocumensoClient:
         )
         self._raise_for_status(response)
         return response.content
+
+    def cancel_envelope(self, envelope_id, reason=None):
+        payload = {"envelopeId": envelope_id}
+        if reason:
+            payload["reason"] = reason
+        response = requests.post(
+            f"{self.base_url}/api/v2/envelope/cancel",
+            headers={**self.headers, "Content-Type": "application/json"},
+            json=payload,
+            timeout=60,
+        )
+        self._raise_for_status(response)
+        return response.json() if response.content else {}
+
+    def redistribute_envelope(self, envelope_id, recipient_ids):
+        """Re-sends the signing email to recipients who have not acted yet."""
+        response = requests.post(
+            f"{self.base_url}/api/v2/envelope/redistribute",
+            headers={**self.headers, "Content-Type": "application/json"},
+            json={"envelopeId": envelope_id, "recipients": [int(item) for item in recipient_ids]},
+            timeout=60,
+        )
+        self._raise_for_status(response)
+        return response.json() if response.content else {}

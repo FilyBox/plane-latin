@@ -5,6 +5,16 @@
 from django.urls import path
 
 from plane.app.views.contract.assistant_internal import InternalContractGroupEndpoint, InternalContractScanEndpoint
+from plane.app.views.contract.base import (
+    ContractCheckDuplicatesEndpoint,
+    ContractJobCancelEndpoint,
+    ContractsExportEndpoint,
+)
+from plane.app.views.contract.workflow import (
+    ContractSignatureRequestCancelEndpoint,
+    ContractSignatureRequestDuplicateEndpoint,
+    ContractSignatureRequestRemindEndpoint,
+)
 
 from plane.app.views import (
     ContractAssetPdfPreviewEndpoint,
@@ -137,9 +147,34 @@ urlpatterns = [
         name="contract-signature-request-sync",
     ),
     path(
+        "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/cancel/",
+        ContractSignatureRequestCancelEndpoint.as_view(),
+        name="contract-signature-request-cancel",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/remind/",
+        ContractSignatureRequestRemindEndpoint.as_view(),
+        name="contract-signature-request-remind",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-signature-requests/<uuid:request_id>/duplicate/",
+        ContractSignatureRequestDuplicateEndpoint.as_view(),
+        name="contract-signature-request-duplicate",
+    ),
+    path(
         "workspaces/<str:slug>/contracts/",
         ContractsEndpoint.as_view(),
         name="contracts",
+    ),
+    path(
+        "workspaces/<str:slug>/contracts/export/",
+        ContractsExportEndpoint.as_view(),
+        name="contracts-export",
+    ),
+    path(
+        "workspaces/<str:slug>/contracts/check-duplicates/",
+        ContractCheckDuplicatesEndpoint.as_view(),
+        name="contracts-check-duplicates",
     ),
     path(
         "workspaces/<str:slug>/contracts/jobs/",
@@ -195,6 +230,11 @@ urlpatterns = [
         "workspaces/<str:slug>/contracts/<uuid:contract_id>/jobs/",
         ContractJobsEndpoint.as_view(),
         name="contract-detail-jobs",
+    ),
+    path(
+        "workspaces/<str:slug>/contracts/<uuid:contract_id>/jobs/<uuid:job_id>/cancel/",
+        ContractJobCancelEndpoint.as_view(),
+        name="contract-job-cancel",
     ),
     path(
         "workspaces/<str:slug>/contracts/<uuid:contract_id>/retry/",

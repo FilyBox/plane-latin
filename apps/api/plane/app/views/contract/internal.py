@@ -11,14 +11,12 @@ through these endpoints so Django stays the single owner of the schema.
 # Python imports
 import re
 import uuid
-from datetime import date
-
-from dateutil.relativedelta import relativedelta
 
 # Django imports
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Func, Q, TextField, Value
-from django.db.models.functions import Coalesce, Concat, Lower
+from django.db.models.functions import Coalesce, Concat, Length, Lower
 from django.utils import timezone
 
 # Third party imports
@@ -38,100 +36,70 @@ from plane.db.models import (
     FileTagLink,
 )
 from plane.settings.storage import S3Storage
+from plane.utils.contract_extraction import (  # noqa: F401 (re-exported)
+    DATE_FIELD_MAP,
+    LIST_FIELD_MAP,
+    SIMPLE_FIELD_MAP,
+    as_bool as _as_bool,
+    normalize_extracted,
+    parse_date as _parse_date,
+    status_for,
+)
 from plane.utils.contract_text_search import fold, fold_aligned, terms_for, window as text_window
 
-# Fields (as returned by the AI subtasks, camel/spanish keys from the prompt
-# schema) → Contract model columns. Lists are joined to comma-separated text to
-# match the crm-new reference schema (String @db.Text columns).
-SIMPLE_FIELD_MAP = {
-    "tituloContrato": "titulo",
-    "resumenGeneral": "resumen_general",
-    "nombreGrupo": "nombre_grupo",
-    "esPosibleExpandirlo": "es_posible_expandirlo",
-    "tiempoExtensionPosible": "tiempo_extension_posible",
-    "clausulaRenovacion": "expansion_time_description",
-    "estatusContrato": "estatus_contrato",
-    "tipoContrato": "tipo_contrato",
-    "periodoColeccion": "periodo_coleccion",
-    "descripcionPeriodoColeccion": "collection_period_description",
-    "duracionPeriodoColeccion": "collection_period_duration",
-    "periodoRetencion": "periodo_retencion",
-    "descripcionPeriodoRetencion": "retention_period_description",
-    "duracionPeriodoRetencion": "retention_period_duration",
+# Stage codes the pipeline reports (see the contracts spec). Terminal codes
+# never open a step of their own.
+TERMINAL_STAGE_CODES = {"done", "failed", "cancelled", "timeout"}
+UNTIMED_STAGE_CODES = {"queued", *TERMINAL_STAGE_CODES}
+STAGE_TERMINAL_STATUS = {
+    "done": ContractProcessingJob.Status.COMPLETED,
+    "failed": ContractProcessingJob.Status.FAILED,
+    "cancelled": ContractProcessingJob.Status.CANCELLED,
+    "timeout": ContractProcessingJob.Status.FAILED,
 }
-LIST_FIELD_MAP = {
-    "involucrados": "involucrados",
-    "testigos": "testigos",
-    "artistas": "artistas",
+TERMINAL_JOB_STATUSES = {
+    ContractProcessingJob.Status.COMPLETED,
+    ContractProcessingJob.Status.FAILED,
+    ContractProcessingJob.Status.CANCELLED,
 }
-DATE_FIELD_MAP = {"fechaInicio": "fecha_inicio", "fechaFin": "fecha_fin"}
 
 
-def _as_bool(value):
-    """The models answer booleans as true/false, "true"/"false" or "sí"/"no"."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in ("true", "si", "sí", "yes", "1"):
-            return True
-        if lowered in ("false", "no", "0"):
-            return False
-    return None
-
-
-def _parse_date(value):
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(str(value)[:10])
-    except ValueError:
-        return None
-
-
-def apply_extracted_data(contract, data):
+def apply_extracted_data(contract, data, fields=None, allow_clear=False):
     """Applies an AI extraction payload to the contract's live columns,
-    computes fecha_fin_efectiva and auto-tags the file by artist.
+    computes fecha_fin_efectiva and estatus, stores evidence and auto-tags the
+    file by artist.
+
+    `fields` (column names) limits what is applied, for accepting part of a
+    re-analysis proposal. `allow_clear` lets an explicit null clear a column;
+    plain extraction leaves the current value when the AI answers empty.
+    Returns the normalization warnings.
     """
-    for key, field in SIMPLE_FIELD_MAP.items():
-        if key in data and data[key] not in (None, ""):
-            setattr(contract, field, data[key])
+    from .base import shifted_effective_end
 
-    for key, field in LIST_FIELD_MAP.items():
-        value = data.get(key)
-        if isinstance(value, list):
-            names = [str(item.get("nombre", item) if isinstance(item, dict) else item).strip() for item in value]
-            names = [name for name in names if name]
-            setattr(contract, field, ", ".join(names) if names else None)
-        elif isinstance(value, str) and value.strip():
-            setattr(contract, field, value.strip())
+    result = normalize_extracted(contract, data, allow_clear=allow_clear)
+    values = result["values"]
+    if fields is not None:
+        allowed = set(fields)
+        values = {field: value for field, value in values.items() if field in allowed}
 
-    for key, field in DATE_FIELD_MAP.items():
-        parsed = _parse_date(data.get(key))
-        if parsed:
-            setattr(contract, field, parsed)
+    previous_end, previous_effective = contract.fecha_fin, contract.fecha_fin_efectiva
+    for field, value in values.items():
+        setattr(contract, field, value)
 
-    if "esNotariado" in data and data["esNotariado"] is not None:
-        contract.es_notariado = bool(data["esNotariado"])
+    # Accepting a new end without its effective end carries the extension
+    # along, as a hand edit does.
+    if fields is not None and "fecha_fin" in values and "fecha_fin_efectiva" not in values:
+        contract.fecha_fin_efectiva = shifted_effective_end(previous_end, previous_effective, contract.fecha_fin)
+    if contract.fecha_fin_efectiva != previous_effective and "estatus_contrato" not in values:
+        derived = status_for(contract.fecha_fin_efectiva)
+        if derived:
+            contract.estatus_contrato = derived
 
-    # False is a real answer here (it files the contract under vigentes or
-    # vencidos), so it cannot go through SIMPLE_FIELD_MAP's emptiness check.
-    is_editorial = _as_bool(data.get("esEditorial"))
-    if is_editorial is not None:
-        contract.es_editorial = is_editorial
-
-    # Effective end date: fecha_fin + normalized extension months when the
-    # contract is expandable (avoids server-side NLP over free text). Only a
-    # payload that speaks about the term recomputes it — a classification-only
-    # run must not reset an effective end someone set by hand.
-    if any(key in data for key in ("fechaFin", "esPosibleExpandirlo", "tiempoExtensionMeses")):
-        extension_months = data.get("tiempoExtensionMeses")
-        if contract.fecha_fin and contract.es_posible_expandirlo == "SI" and isinstance(extension_months, int):
-            contract.fecha_fin_efectiva = contract.fecha_fin + relativedelta(months=extension_months)
-        elif contract.fecha_fin and (contract.fecha_fin_efectiva is None or contract.es_posible_expandirlo != "SI"):
-            # Re-analysis used to leave a stale effective end behind when the
-            # end date moved; with no extension it simply is the end date.
-            contract.fecha_fin_efectiva = contract.fecha_fin
+    evidence = dict(contract.evidence or {})
+    for field in values:
+        evidence.pop(field, None)
+    evidence.update({field: entry for field, entry in result["evidence"].items() if field in values})
+    contract.evidence = evidence
 
     contract.save()
 
@@ -148,13 +116,33 @@ def apply_extracted_data(contract, data):
             for item in value:
                 yield str(item.get("nombre", item) if isinstance(item, dict) else item)
 
-        for name in each_name(data.get("artistas")):
-            link_contract_tag(contract, name, FileTag.Kind.ARTIST)
-        for name in each_name(data.get("involucrados")):
-            link_contract_tag(contract, name, FileTag.Kind.PERSON)
+        if "artistas" in values:
+            for name in each_name(data.get("artistas")):
+                link_contract_tag(contract, name, FileTag.Kind.ARTIST)
+        if "involucrados" in values:
+            for name in each_name(data.get("involucrados")):
+                link_contract_tag(contract, name, FileTag.Kind.PERSON)
         group_name = data.get("nombreGrupo")
-        if group_name and not isinstance(group_name, list):
-            link_contract_tag(contract, group_name, FileTag.Kind.GROUP)
+        if "nombre_grupo" in values and group_name and not isinstance(group_name, list):
+            link_contract_tag(contract, str(group_name)[:255], FileTag.Kind.GROUP)
+
+    return result["warnings"]
+
+
+def record_job_warnings(contract, warnings, job_id=None):
+    """Notes dropped or coerced values on the job that produced them."""
+    if not warnings:
+        return
+    jobs = ContractProcessingJob.objects.filter(contract=contract)
+    job = jobs.filter(id=job_id).first() if job_id else None
+    if job is None:
+        job = jobs.order_by("-created_at").first()
+    if job is None:
+        return
+    metadata = dict(job.metadata or {})
+    metadata["warnings"] = [*(metadata.get("warnings") or []), *warnings][-50:]
+    job.metadata = metadata
+    job.save(update_fields=["metadata", "updated_at"])
 
 
 def link_contract_tag(contract, name, kind):
@@ -230,63 +218,177 @@ class InternalAssetPresignedUrlEndpoint(InternalBaseView):
         )
 
 
+def _iso(moment):
+    return moment.isoformat() if moment else None
+
+
+def track_step(metadata, code, now, final_status=None):
+    """Keeps metadata.steps: opening a new code closes the running one.
+    `final_status` (done/failed) closes the running step without opening one."""
+    steps = list(metadata.get("steps") or [])
+    running = steps[-1] if steps and steps[-1].get("status") == "running" else None
+    if final_status is None and running and running.get("code") == code:
+        return
+    if running:
+        running["finished_at"] = _iso(now)
+        running["status"] = final_status or ("failed" if code in ("failed", "cancelled", "timeout") else "done")
+    if final_status is None and code and code not in UNTIMED_STAGE_CODES:
+        steps.append({"code": code, "started_at": _iso(now), "finished_at": None, "status": "running"})
+    metadata["steps"] = steps
+
+
+def restore_contract_after_stop(job):
+    """A stopped run leaves the contract as it was: analyzed if it ever was,
+    otherwise in error so it can be retried."""
+    from .base import is_classify_only
+
+    if not job.contract_id or is_classify_only((job.metadata or {}).get("retry_options") or {}):
+        return
+    contract = Contract.objects.filter(id=job.contract_id).only("id", "processed_at").first()
+    if contract is None:
+        return
+    Contract.objects.filter(id=contract.id).update(processing_status="COMPLETED" if contract.processed_at else "ERROR")
+
+
+def stop_job(job, status_value, stage, message):
+    """Ends an active job from Django's side (cancel, reaper)."""
+    now = timezone.now()
+    metadata = dict(job.metadata or {})
+    track_step(metadata, stage, now, final_status="failed")
+    job.status = status_value
+    job.current_stage = stage
+    job.finished_at = now
+    job.metadata = metadata
+    if message:
+        job.error = {"message": message, "stage": stage}
+    job.save(update_fields=["status", "current_stage", "finished_at", "metadata", "error", "updated_at"])
+    restore_contract_after_stop(job)
+    ContractQuery.objects.filter(
+        job=job, status__in=[ContractProcessingJob.Status.QUEUED, ContractProcessingJob.Status.RUNNING]
+    ).update(status=ContractProcessingJob.Status.FAILED)
+
+
 class InternalJobProgressEndpoint(InternalBaseView):
     """Progress/stage/status updates from the Workflow; keeps the contract's
     processing_status in sync so panels can show live state.
+
+    Payload: stage (code; `current_stage` still accepted), progress, status,
+    detail, detail_data, usage, error. A job that already ended is never
+    reopened by a late post.
     """
 
     def post(self, request, job_id):
-        job = ContractProcessingJob.objects.filter(id=job_id).first()
-        if job is None:
-            return Response({"error": "Job not found"}, status=status.HTTP_404_NOT_FOUND)
+        data = request.data if isinstance(request.data, dict) else {}
+        with transaction.atomic():
+            job = ContractProcessingJob.objects.select_for_update().filter(id=job_id).first()
+            if job is None:
+                return Response({"error": "Job not found"}, status=status.HTTP_404_NOT_FOUND)
+            if job.status in TERMINAL_JOB_STATUSES:
+                return Response({"status": "ignored", "job_status": job.status}, status=status.HTTP_200_OK)
 
-        data = request.data
-        update_fields = []
-        if "progress" in data:
-            job.progress = max(0, min(100, int(data["progress"])))
-            update_fields.append("progress")
-        if "current_stage" in data:
-            job.current_stage = str(data["current_stage"])[:255]
-            update_fields.append("current_stage")
-        if "status" in data and data["status"] in ContractProcessingJob.Status.values:
-            job.status = data["status"]
-            update_fields.append("status")
-            if data["status"] == ContractProcessingJob.Status.RUNNING and job.started_at is None:
-                job.started_at = timezone.now()
-                update_fields.append("started_at")
-            if data["status"] in (ContractProcessingJob.Status.COMPLETED, ContractProcessingJob.Status.FAILED):
-                job.finished_at = timezone.now()
-                update_fields.append("finished_at")
-        if "error" in data:
-            job.error = data["error"]
-            update_fields.append("error")
-        job.save(update_fields=update_fields or None)
+            now = timezone.now()
+            metadata = dict(job.metadata or {})
+            update_fields = ["metadata", "updated_at"]
+
+            if "progress" in data:
+                try:
+                    job.progress = max(0, min(100, int(float(data["progress"]))))
+                    update_fields.append("progress")
+                except (TypeError, ValueError):
+                    pass
+
+            stage = data.get("stage", data.get("current_stage"))
+            if stage:
+                code = str(stage)[:255]
+                if code != job.current_stage:
+                    metadata.pop("detail", None)
+                    metadata.pop("detail_data", None)
+                job.current_stage = code
+                update_fields.append("current_stage")
+                track_step(metadata, code, now)
+            if "detail" in data:
+                metadata["detail"] = str(data["detail"])[:255] if data["detail"] else None
+            if isinstance(data.get("detail_data"), dict):
+                metadata["detail_data"] = data["detail_data"]
+            if isinstance(data.get("usage"), dict):
+                metadata["usage"] = data["usage"]
+
+            new_status = data.get("status")
+            if new_status not in ContractProcessingJob.Status.values:
+                # A terminal code ends the job even without an explicit status
+                new_status = STAGE_TERMINAL_STATUS.get(str(stage)) if stage else None
+            if new_status:
+                job.status = new_status
+                update_fields.append("status")
+                if new_status == ContractProcessingJob.Status.RUNNING and job.started_at is None:
+                    job.started_at = now
+                    update_fields.append("started_at")
+                if new_status in TERMINAL_JOB_STATUSES:
+                    job.finished_at = now
+                    update_fields.append("finished_at")
+                    track_step(
+                        metadata,
+                        None,
+                        now,
+                        final_status="done" if new_status == ContractProcessingJob.Status.COMPLETED else "failed",
+                    )
+                    if not stage:
+                        job.current_stage = {
+                            ContractProcessingJob.Status.COMPLETED: "done",
+                            ContractProcessingJob.Status.FAILED: "failed",
+                            ContractProcessingJob.Status.CANCELLED: "cancelled",
+                        }[new_status]
+                        update_fields.append("current_stage")
+
+            if "error" in data:
+                error = data["error"]
+                if isinstance(error, dict):
+                    error = {
+                        **error,
+                        "message": str(error.get("message") or "")[:2000],
+                        "stage": str(error.get("stage") or job.current_stage or "")[:255],
+                    }
+                elif error:
+                    error = {"message": str(error)[:2000], "stage": job.current_stage}
+                else:
+                    error = None
+                job.error = error
+                update_fields.append("error")
+
+            job.metadata = metadata
+            job.save(update_fields=list(dict.fromkeys(update_fields)))
 
         # Mirror terminal states onto the contract itself — except for a
         # classification-only backfill, which must leave the contract as it is.
         from .base import is_classify_only
 
         quiet = is_classify_only((job.metadata or {}).get("retry_options") or {})
-        if job.contract_id and "status" in data and not quiet:
-            if data["status"] == ContractProcessingJob.Status.COMPLETED:
-                Contract.objects.filter(id=job.contract_id).update(
-                    processing_status="COMPLETED", processed_at=timezone.now()
-                )
-            elif data["status"] == ContractProcessingJob.Status.FAILED:
-                Contract.objects.filter(id=job.contract_id).update(processing_status="ERROR")
-            elif data["status"] == ContractProcessingJob.Status.RUNNING:
-                Contract.objects.filter(id=job.contract_id).update(processing_status="PROCESSING")
+        if job.contract_id and new_status and not quiet:
+            contracts = Contract.objects.filter(id=job.contract_id)
+            if new_status == ContractProcessingJob.Status.COMPLETED:
+                # A re-analysis only proposes; processed_at moves on accept.
+                if job.task_type == ContractProcessingJob.TaskType.REANALYZE:
+                    contracts.update(processing_status="COMPLETED")
+                else:
+                    contracts.update(processing_status="COMPLETED", processed_at=timezone.now())
+            elif new_status == ContractProcessingJob.Status.FAILED:
+                contracts.update(processing_status="ERROR")
+            elif new_status == ContractProcessingJob.Status.CANCELLED:
+                restore_contract_after_stop(job)
+            elif new_status == ContractProcessingJob.Status.RUNNING:
+                contracts.update(processing_status="PROCESSING")
 
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
 
 class InternalContractTextEndpoint(InternalBaseView):
     def get(self, request, contract_id):
-        contract = Contract.objects.get(id=contract_id)
-        return Response(
-            {"extracted_text": contract.extracted_text, "has_text": bool(contract.extracted_text)},
-            status=status.HTTP_200_OK,
-        )
+        # Called once per AI step and embedding batch: one column, one query
+        row = Contract.objects.filter(id=contract_id).values_list("extracted_text", flat=True)
+        if not row:
+            return Response({"error": "Contract not found"}, status=status.HTTP_404_NOT_FOUND)
+        text = row[0]
+        return Response({"extracted_text": text, "has_text": bool(text)}, status=status.HTTP_200_OK)
 
     def post(self, request, contract_id):
         contract = Contract.objects.get(id=contract_id)
@@ -301,22 +403,27 @@ class InternalContractTextEndpoint(InternalBaseView):
 
 class InternalContractDataEndpoint(InternalBaseView):
     def post(self, request, contract_id):
-        contract = Contract.objects.get(id=contract_id)
+        contract = Contract.objects.defer("extracted_text").get(id=contract_id)
         data = request.data.get("data") or {}
+        if not isinstance(data, dict):
+            return Response({"error": "data must be an object"}, status=status.HTTP_400_BAD_REQUEST)
         mode = request.data.get("mode", "apply")
         model_used = request.data.get("model_used")
-
-        if model_used:
-            contract.ai_model_used = model_used
+        job_id = request.data.get("job_id")
 
         if mode == "proposed":
-            # Re-analysis result parked until the user confirms the overwrite
-            contract.proposed_data = data
-            contract.save(update_fields=["proposed_data", "ai_model_used"])
+            # Re-analysis result parked until the user confirms the overwrite;
+            # the model only becomes the contract's when it is accepted.
+            warnings = normalize_extracted(contract, data, allow_clear=True)["warnings"]
+            contract.proposed_data = {**data, "_model_used": model_used} if model_used else data
+            contract.save(update_fields=["proposed_data", "updated_at"])
         else:
-            apply_extracted_data(contract, data)
+            if model_used:
+                contract.ai_model_used = str(model_used)[:255]
+            warnings = apply_extracted_data(contract, data)
+        record_job_warnings(contract, warnings, job_id=job_id)
 
-        return Response({"status": "ok"}, status=status.HTTP_200_OK)
+        return Response({"status": "ok", "warnings": warnings}, status=status.HTTP_200_OK)
 
 
 class InternalContractChunksEndpoint(InternalBaseView):
@@ -398,6 +505,7 @@ class InternalWorkspaceContractsEndpoint(InternalBaseView):
                 workspace_id=workspace_id, extracted_text__isnull=False, file_asset__is_deleted=False
             )
             .exclude(extracted_text="")
+            .select_related("file_asset")
             .order_by("created_at")
         )
         total = contracts.count()
@@ -429,7 +537,15 @@ class InternalWorkspaceTagsEndpoint(InternalBaseView):
     """
 
     def get(self, request, workspace_id):
-        rows = FileTag.objects.filter(workspace_id=workspace_id).order_by("name").values("name", "kind")[:500]
+        # Filter before the cap: the artists prompt only uses these kinds, and
+        # slicing first used to drop them behind PERSON/TYPE tags.
+        kinds = [kind for kind in (request.query_params.get("kinds") or "").split(",") if kind]
+        kinds = [kind for kind in kinds if kind in FileTag.Kind.values] or [FileTag.Kind.ARTIST, FileTag.Kind.CUSTOM]
+        rows = list(
+            FileTag.objects.filter(workspace_id=workspace_id, kind__in=kinds)
+            .order_by("name")
+            .values("name", "kind")[:500]
+        )
         return Response(
             {
                 # Names-only list kept for backward compatibility with older
@@ -455,12 +571,20 @@ class InternalChunkSearchEndpoint(InternalBaseView):
             return Response({"error": "embedding is required"}, status=status.HTTP_400_BAD_REQUEST)
         limit = min(int(request.data.get("limit", 12)), 40)
 
+        chunks = ContractChunk.objects.filter(
+            workspace_id=workspace_id, contract__deleted_at__isnull=True, contract__file_asset__is_deleted=False
+        )
+        # Single-contract chat: search only that contract's chunks
+        contract_id = request.data.get("contract_id")
+        if contract_id:
+            try:
+                chunks = chunks.filter(contract_id=uuid.UUID(str(contract_id)))
+            except (TypeError, ValueError):
+                return Response({"error": "contract_id must be a uuid"}, status=status.HTTP_400_BAD_REQUEST)
         chunks = (
-            ContractChunk.objects.filter(
-                workspace_id=workspace_id, contract__deleted_at__isnull=True, contract__file_asset__is_deleted=False
-            )
-            .annotate(distance=CosineDistance("embedding", embedding))
+            chunks.annotate(distance=CosineDistance("embedding", embedding))
             .select_related("contract", "contract__file_asset")
+            .defer("contract__extracted_text", "contract__proposed_data", "contract__evidence")
             .order_by("distance")[:limit]
         )
         results = []
@@ -556,6 +680,18 @@ def _asset_name(contract):
     return (contract.file_asset.attributes or {}).get("name") if contract.file_asset_id else None
 
 
+def without_text(contracts):
+    """The queryset without loading the extracted text, measured instead."""
+    return contracts.defer("extracted_text").annotate(text_length=Length("extracted_text"))
+
+
+def _text_length(contract):
+    length = getattr(contract, "text_length", None)
+    if length is None and "extracted_text" not in contract.get_deferred_fields():
+        length = len(contract.extracted_text or "")
+    return length or 0
+
+
 def _contract_row(contract, include_summary=True):
     """Compact projection of a contract - never the extracted text."""
     row = {
@@ -575,7 +711,7 @@ def _contract_row(contract, include_summary=True):
         "tipo_contrato": contract.tipo_contrato,
         "es_editorial": contract.es_editorial,
         "processing_status": contract.processing_status,
-        "has_text": bool(contract.extracted_text),
+        "has_text": _text_length(contract) > 0,
     }
     if include_summary and contract.resumen_general:
         row["resumen"] = contract.resumen_general[:SUMMARY_PREVIEW_CHARS]
@@ -756,8 +892,10 @@ class InternalContractSearchEndpoint(InternalBaseView):
 
     def post(self, request, workspace_id):
         data = request.data if isinstance(request.data, dict) else {}
-        base = Contract.objects.filter(workspace_id=workspace_id, file_asset__is_deleted=False).select_related(
-            "file_asset"
+        base = without_text(
+            Contract.objects.filter(workspace_id=workspace_id, file_asset__is_deleted=False).select_related(
+                "file_asset"
+            )
         )
         contracts = _apply_contract_filters(base, data)
 
@@ -808,7 +946,11 @@ class InternalContractDetailsEndpoint(InternalBaseView):
 
         try:
             contracts = list(
-                Contract.objects.filter(workspace_id=workspace_id, id__in=contract_ids).select_related("file_asset")
+                without_text(
+                    Contract.objects.filter(
+                        workspace_id=workspace_id, id__in=contract_ids, file_asset__is_deleted=False
+                    ).select_related("file_asset")
+                )
             )
         except (ValueError, ValidationError):
             return Response({"error": "contract_ids must be uuids"}, status=status.HTTP_400_BAD_REQUEST)
@@ -828,7 +970,7 @@ class InternalContractDetailsEndpoint(InternalBaseView):
                     "periodo_retencion": contract.periodo_retencion,
                     "retention_period_description": contract.retention_period_description,
                     "retention_period_duration": contract.retention_period_duration,
-                    "text_length": len(contract.extracted_text or ""),
+                    "text_length": _text_length(contract),
                 }
             )
             results.append(row)
@@ -860,7 +1002,9 @@ class InternalContractExcerptsEndpoint(InternalBaseView):
 
         try:
             contracts = list(
-                Contract.objects.filter(workspace_id=workspace_id, id__in=contract_ids).select_related("file_asset")
+                Contract.objects.filter(
+                    workspace_id=workspace_id, id__in=contract_ids, file_asset__is_deleted=False
+                ).select_related("file_asset")
             )
         except (ValueError, ValidationError):
             return Response({"error": "contract_ids must be uuids"}, status=status.HTTP_400_BAD_REQUEST)

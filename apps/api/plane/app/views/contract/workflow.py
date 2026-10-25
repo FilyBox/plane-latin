@@ -45,6 +45,7 @@ from plane.settings.storage import S3Storage
 from plane.utils.exception_logger import log_exception
 
 from ..base import BaseAPIView
+from ..file_library.base import FileLibraryBaseView
 from ..file_library.collabora import DOCX_MIME, convert_to_pdf
 from .base import ensure_contract_for_asset
 
@@ -770,7 +771,7 @@ def _attach_envelope_progress(signature_request, envelope):
     return signature_request
 
 
-class ContractTemplatesEndpoint(BaseAPIView):
+class ContractTemplatesEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug):
         templates = (
@@ -824,12 +825,35 @@ class ContractTemplatesEndpoint(BaseAPIView):
         return Response(ContractTemplateSerializer(template).data, status=status.HTTP_201_CREATED)
 
 
-class ContractTemplateDetailEndpoint(BaseAPIView):
+class ContractTemplateDetailEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, template_id):
         template = (
             ContractTemplate.objects.filter(id=template_id, workspace__slug=slug, is_active=True)
             .prefetch_related("variants__source_asset", "variants__revisions__source_asset", "variants__revisions__pdf_asset")
+            .get()
+        )
+        return Response(ContractTemplateSerializer(template).data)
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def patch(self, request, slug, template_id):
+        template = ContractTemplate.objects.get(id=template_id, workspace__slug=slug, is_active=True)
+        if "name" in request.data:
+            name = str(request.data.get("name") or "").strip()[:255]
+            if not name:
+                return Response({"error": "name cannot be empty"}, status=status.HTTP_400_BAD_REQUEST)
+            taken = (
+                ContractTemplate.objects.filter(workspace=template.workspace, name=name).exclude(id=template.id).exists()
+            )
+            if taken:
+                return Response({"error": "template_name_taken"}, status=status.HTTP_409_CONFLICT)
+            template.name = name
+        if "description" in request.data:
+            template.description = str(request.data.get("description") or "").strip()
+        template.save(update_fields=["name", "description", "updated_at"])
+        template = (
+            ContractTemplate.objects.filter(id=template.id)
+            .prefetch_related("variants__source_asset", "variants__revisions")
             .get()
         )
         return Response(ContractTemplateSerializer(template).data)
@@ -845,7 +869,7 @@ class ContractTemplateDetailEndpoint(BaseAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class ContractAssetThumbnailEndpoint(BaseAPIView):
+class ContractAssetThumbnailEndpoint(FileLibraryBaseView):
     """Render a small first-page image for fast version selection."""
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
@@ -894,7 +918,7 @@ class ContractAssetThumbnailEndpoint(BaseAPIView):
         return response
 
 
-class ContractAssetPdfPreviewEndpoint(BaseAPIView):
+class ContractAssetPdfPreviewEndpoint(FileLibraryBaseView):
     """Serve a contract asset as PDF, converting Word sources on the way.
 
     The browser-side .docx renderer drops most of the document's content, so
@@ -937,7 +961,7 @@ class ContractAssetPdfPreviewEndpoint(BaseAPIView):
         return response
 
 
-class ContractTemplateVariantsEndpoint(BaseAPIView):
+class ContractTemplateVariantsEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug, template_id):
         template = ContractTemplate.objects.get(id=template_id, workspace__slug=slug)
@@ -978,12 +1002,15 @@ class ContractTemplateVariantsEndpoint(BaseAPIView):
         return Response(ContractTemplateSerializer(template).data, status=status.HTTP_201_CREATED)
 
 
-class ContractTemplateVariantDetailEndpoint(BaseAPIView):
+class ContractTemplateVariantDetailEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def patch(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.get(id=variant_id, workspace__slug=slug)
         if "name" in request.data:
-            variant.name = str(request.data["name"]).strip() or variant.name
+            name = str(request.data["name"] or "").strip()[:255] or variant.name
+            if variant.template.variants.filter(name=name).exclude(id=variant.id).exists():
+                return Response({"error": "variant_name_taken"}, status=status.HTTP_409_CONFLICT)
+            variant.name = name
         if "signature_blueprint" in request.data:
             blueprint = request.data["signature_blueprint"]
             if not isinstance(blueprint, list):
@@ -1004,8 +1031,30 @@ class ContractTemplateVariantDetailEndpoint(BaseAPIView):
         )
         return Response(ContractTemplateSerializer(variant.template).data)
 
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def delete(self, request, slug, variant_id):
+        variant = ContractTemplateVariant.objects.select_related("template").get(id=variant_id, workspace__slug=slug)
+        siblings = variant.template.variants.exclude(id=variant.id)
+        if not siblings.exists():
+            return Response({"error": "last_variant"}, status=status.HTTP_409_CONFLICT)
+        with transaction.atomic():
+            # A queryset update, not delete(): soft-deleting the instance would
+            # cascade to its revisions and the signature requests built on them.
+            ContractTemplateVariant.objects.filter(id=variant.id).update(
+                deleted_at=timezone.now(), is_default=False, updated_at=timezone.now()
+            )
+            if variant.is_default:
+                promoted = siblings.order_by("created_at").first()
+                ContractTemplateVariant.objects.filter(id=promoted.id).update(is_default=True)
+        template = (
+            ContractTemplate.objects.filter(id=variant.template_id)
+            .prefetch_related("variants__source_asset", "variants__revisions")
+            .get()
+        )
+        return Response(ContractTemplateSerializer(template).data)
 
-class ContractTemplateVariantRevisionsEndpoint(BaseAPIView):
+
+class ContractTemplateVariantRevisionsEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.get(id=variant_id, workspace__slug=slug)
@@ -1034,7 +1083,7 @@ class ContractTemplateVariantRevisionsEndpoint(BaseAPIView):
         )
 
 
-class ContractTemplateVariantEditSessionEndpoint(BaseAPIView):
+class ContractTemplateVariantEditSessionEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.select_related("source_asset", "workspace").get(
@@ -1135,7 +1184,7 @@ class ContractTemplateVariantEditSessionEndpoint(BaseAPIView):
         )
 
 
-class ContractTemplateVariantSchemaEndpoint(BaseAPIView):
+class ContractTemplateVariantSchemaEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.select_related("source_asset", "template").get(
@@ -1181,7 +1230,7 @@ class ContractTemplateVariantSchemaEndpoint(BaseAPIView):
         )
 
 
-class ContractSignatureRequestsEndpoint(BaseAPIView):
+class ContractSignatureRequestsEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug):
         requests_qs = (
@@ -1347,7 +1396,7 @@ class ContractSignatureRequestsEndpoint(BaseAPIView):
         return _delete_signature_requests_from_payload(request, slug)
 
 
-class ContractSignatureRequestsDeleteEndpoint(BaseAPIView):
+class ContractSignatureRequestsDeleteEndpoint(FileLibraryBaseView):
     """Action endpoint for clients/proxies that do not support DELETE bodies."""
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
@@ -1355,7 +1404,7 @@ class ContractSignatureRequestsDeleteEndpoint(BaseAPIView):
         return _delete_signature_requests_from_payload(request, slug)
 
 
-class ContractSignatureRequestDetailEndpoint(BaseAPIView):
+class ContractSignatureRequestDetailEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, request_id):
         signature_request = (
@@ -1481,7 +1530,7 @@ class ContractSignatureRequestDetailEndpoint(BaseAPIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-class ContractSignatureRequestPdfEndpoint(BaseAPIView):
+class ContractSignatureRequestPdfEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, request_id):
         signature_request = ContractSignatureRequest.objects.select_related(
@@ -1498,7 +1547,7 @@ class ContractSignatureRequestPdfEndpoint(BaseAPIView):
         )
 
 
-class ContractSignatureRequestSendEndpoint(BaseAPIView):
+class ContractSignatureRequestSendEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug, request_id):
         signature_request = ContractSignatureRequest.objects.select_related(
@@ -1593,7 +1642,7 @@ class ContractSignatureRequestSendEndpoint(BaseAPIView):
         return Response(ContractSignatureRequestSerializer(signature_request).data)
 
 
-class ContractSignatureRequestLinksEndpoint(BaseAPIView):
+class ContractSignatureRequestLinksEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, request_id):
         signature_request = ContractSignatureRequest.objects.get(id=request_id, workspace__slug=slug)
@@ -1624,6 +1673,9 @@ def _complete_signature_request(signature_request):
         entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
     )
     analysis_contract = ensure_contract_for_asset(signed_asset, user=signature_request.created_by)
+    if analysis_contract is not None and analysis_contract.source_request_id is None:
+        analysis_contract.source_request = signature_request
+        analysis_contract.save(update_fields=["source_request", "updated_at"])
     signature_request.signed_asset = signed_asset
     signature_request.analysis_contract = analysis_contract
     signature_request.status = ContractSignatureRequest.Status.COMPLETED
@@ -1715,7 +1767,7 @@ class DocumensoWebhookEndpoint(BaseAPIView):
         return Response({"received": True})
 
 
-class ContractSignatureRequestSyncEndpoint(BaseAPIView):
+class ContractSignatureRequestSyncEndpoint(FileLibraryBaseView):
     """Manual recovery path when a webhook was delayed or misconfigured."""
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
@@ -1736,3 +1788,116 @@ class ContractSignatureRequestSyncEndpoint(BaseAPIView):
             log_exception(exc)
             return Response({"error": exc.public_message}, status=status.HTTP_502_BAD_GATEWAY)
         return Response(ContractSignatureRequestSerializer(signature_request).data)
+
+
+ACTIVE_SIGNATURE_STATUSES = {
+    ContractSignatureRequest.Status.DRAFT,
+    ContractSignatureRequest.Status.PREPARING,
+    ContractSignatureRequest.Status.READY,
+    ContractSignatureRequest.Status.PENDING,
+    ContractSignatureRequest.Status.ERROR,
+}
+
+
+class ContractSignatureRequestCancelEndpoint(FileLibraryBaseView):
+    """Withdraws a request. A sent envelope is cancelled in Documenso too, so
+    the signing links stop working; the local record is kept."""
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def post(self, request, slug, request_id):
+        signature_request = ContractSignatureRequest.objects.get(id=request_id, workspace__slug=slug)
+        if signature_request.status not in ACTIVE_SIGNATURE_STATUSES:
+            return Response({"error": "request_not_active"}, status=status.HTTP_409_CONFLICT)
+        if signature_request.documenso_envelope_id:
+            try:
+                reason = str(request.data.get("reason") or "").strip()[:500] or None
+                DocumensoClient().cancel_envelope(signature_request.documenso_envelope_id, reason=reason)
+            except DocumensoError as exc:
+                log_exception(exc)
+                return Response({"error": exc.public_message}, status=status.HTTP_502_BAD_GATEWAY)
+        signature_request.status = ContractSignatureRequest.Status.CANCELLED
+        signature_request.error = None
+        signature_request.save(update_fields=["status", "error", "updated_at"])
+        return Response(ContractSignatureRequestSerializer(signature_request).data)
+
+
+class ContractSignatureRequestRemindEndpoint(FileLibraryBaseView):
+    """Re-sends the signing email to everyone who has not signed yet."""
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def post(self, request, slug, request_id):
+        signature_request = ContractSignatureRequest.objects.get(id=request_id, workspace__slug=slug)
+        if signature_request.status != ContractSignatureRequest.Status.PENDING or not (
+            signature_request.documenso_envelope_id
+        ):
+            return Response({"error": "request_not_pending"}, status=status.HTTP_409_CONFLICT)
+        try:
+            client = DocumensoClient()
+            envelope = client.get_envelope(signature_request.documenso_envelope_id)
+            waiting = [
+                recipient["id"]
+                for recipient in envelope.get("recipients") or []
+                if recipient.get("id") is not None
+                and recipient.get("role") not in ("CC", "VIEWER")
+                and recipient.get("signingStatus") not in ("SIGNED", "REJECTED")
+            ]
+            if not waiting:
+                return Response({"error": "nobody_to_remind"}, status=status.HTTP_409_CONFLICT)
+            client.redistribute_envelope(signature_request.documenso_envelope_id, waiting)
+        except DocumensoError as exc:
+            log_exception(exc)
+            return Response({"error": exc.public_message}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({"reminded": len(waiting)})
+
+
+class ContractSignatureRequestDuplicateEndpoint(FileLibraryBaseView):
+    """A fresh, unsent copy of a request (same document, recipients and
+    fields), ready to adjust and send."""
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def post(self, request, slug, request_id):
+        source = ContractSignatureRequest.objects.select_related(
+            "workspace", "revision", "rendered_source_asset", "rendered_pdf_asset"
+        ).get(id=request_id, workspace__slug=slug, authoring_mode=ContractSignatureRequest.AuthoringMode.DOCUMENT)
+        title = str(request.data.get("title") or f"{source.title} (copia)").strip()[:500]
+        try:
+            copies = {}
+            for field, entity_type, purpose in (
+                ("rendered_source_asset", FileAsset.EntityTypeContext.CONTRACT_REVISION, "rendered"),
+                ("rendered_pdf_asset", FileAsset.EntityTypeContext.CONTRACT_UNSIGNED, "unsigned"),
+            ):
+                original = getattr(source, field)
+                if original is None:
+                    copies[field] = None
+                    continue
+                extension = ((original.attributes or {}).get("name") or "").rsplit(".", 1)[-1].lower() or "pdf"
+                copies[field] = _copy_asset(
+                    source=original,
+                    workspace=source.workspace,
+                    user=request.user,
+                    name=f"{title}.{extension}",
+                    entity_type=entity_type,
+                    purpose=purpose,
+                )
+            duplicate = ContractSignatureRequest.objects.create(
+                workspace=source.workspace,
+                revision=source.revision,
+                rendered_source_asset=copies["rendered_source_asset"],
+                rendered_pdf_asset=copies["rendered_pdf_asset"],
+                title=title,
+                authoring_mode=source.authoring_mode,
+                status=ContractSignatureRequest.Status.READY,
+                recipients=source.recipients,
+                fields=source.fields,
+                authoring_settings=source.authoring_settings,
+                variable_values=source.variable_values,
+                preparation_warnings=source.preparation_warnings,
+                rendered_layout_signature=source.rendered_layout_signature,
+                created_by=request.user,
+            )
+        except Exception as exc:
+            log_exception(exc)
+            return Response(
+                {"error": "Something went wrong please try again later"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response(ContractSignatureRequestSerializer(duplicate).data, status=status.HTTP_201_CREATED)

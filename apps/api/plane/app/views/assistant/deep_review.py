@@ -10,16 +10,13 @@ contracts through the internal endpoints below (shared secret), and every
 text endpoint only answers for a contract that belongs to a running review.
 """
 
-import csv
 import gzip
 import json
-from io import BytesIO
 
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse
 from django.utils import timezone
-from openpyxl import Workbook
 from rest_framework import status
 from rest_framework.response import Response
 
@@ -51,6 +48,7 @@ from plane.utils.deep_review import (
     without_text_count,
 )
 from plane.utils.exception_logger import log_exception
+from plane.utils.tabular_export import spreadsheet_response
 from plane.utils.worker_client import WorkerTriggerError, estimate_deep_review, trigger_deep_review
 
 Status = AssistantDeepReview.Status
@@ -249,28 +247,8 @@ class AssistantDeepReviewExportEndpoint(BaseAPIView):
         ]
         filename = f"revision-contratos-{review.created_at:%Y%m%d}"
         # "format" is reserved by DRF content negotiation
-        if request.query_params.get("type") == "xlsx":
-            workbook = Workbook()
-            sheet = workbook.active
-            sheet.title = "Revisión"
-            sheet.append(EXPORT_HEADERS)
-            for row in rows:
-                sheet.append(row)
-            output = BytesIO()
-            workbook.save(output)
-            response = HttpResponse(
-                output.getvalue(),
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-            response["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
-            return response
-        response = HttpResponse(content_type="text/csv; charset=utf-8")
-        response["Content-Disposition"] = f'attachment; filename="{filename}.csv"'
-        response.write("﻿")
-        writer = csv.writer(response)
-        writer.writerow(EXPORT_HEADERS)
-        writer.writerows(rows)
-        return response
+        kind = "xlsx" if request.query_params.get("type") == "xlsx" else "csv"
+        return spreadsheet_response(filename, EXPORT_HEADERS, rows, kind=kind, sheet_title="Revisión")
 
 
 class AssistantDeepReviewPageEndpoint(BaseAPIView):

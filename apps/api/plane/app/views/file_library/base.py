@@ -4,6 +4,7 @@
 
 # Python imports
 import mimetypes
+import re
 import uuid
 
 # Django imports
@@ -263,6 +264,10 @@ class FileLibraryAssetEndpoint(FileLibraryBaseView):
         extra_attributes = request.data.get("attributes")
         if not isinstance(extra_attributes, dict):
             extra_attributes = {}
+        # sha256 of the file, computed by the web; contracts use it to spot duplicates
+        content_hash = str(request.data.get("content_hash") or "").strip().lower()
+        if re.fullmatch(r"[0-9a-f]{64}", content_hash):
+            extra_attributes = {**extra_attributes, "content_hash": content_hash}
         asset = FileAsset.objects.create(
             attributes={
                 "name": name,
@@ -270,7 +275,7 @@ class FileLibraryAssetEndpoint(FileLibraryBaseView):
                 "size": size,
                 **{
                     key: extra_attributes[key]
-                    for key in ("music_asset_kind", "upload_source")
+                    for key in ("music_asset_kind", "upload_source", "content_hash")
                     if key in extra_attributes
                 },
             },
@@ -310,7 +315,11 @@ class FileLibraryAssetDetailEndpoint(FileLibraryBaseView):
         asset.is_uploaded = True
         if not asset.storage_metadata:
             get_asset_object_metadata.delay(asset_id=str(asset_id))
+        previous_hash = (asset.attributes or {}).get("content_hash")
         asset.attributes = request.data.get("attributes", asset.attributes)
+        # A client resending attributes must not drop the upload hash
+        if previous_hash and isinstance(asset.attributes, dict) and "content_hash" not in asset.attributes:
+            asset.attributes = {**asset.attributes, "content_hash": previous_hash}
         # Rename: only the display name changes; the stored object is untouched
         new_name = (request.data.get("name") or "").strip()
         if new_name:

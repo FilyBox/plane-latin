@@ -14,7 +14,7 @@ from unittest import mock
 
 import pytest
 from django.core.management import call_command
-from django.test import override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from plane.app.views.contract.base import create_and_dispatch_job, is_classify_only
@@ -41,7 +41,8 @@ def make_contract(workspace):
 
 
 def dispatch_classify(contract, options):
-    with mock.patch(DISPATCH) as dispatch:
+    # Dispatch waits for the transaction to commit
+    with mock.patch(DISPATCH) as dispatch, TestCase.captureOnCommitCallbacks(execute=True):
         job = create_and_dispatch_job(
             workspace=contract.workspace,
             contract=contract,
@@ -220,7 +221,7 @@ class TestBackfillCommand:
         call_command("classify_editorial_contracts", "--dry-run", stdout=dry)
         assert "1 contracts would be classified" in dry.getvalue()
 
-        with mock.patch(DISPATCH) as dispatch:
+        with mock.patch(DISPATCH) as dispatch, TestCase.captureOnCommitCallbacks(execute=True):
             call_command("classify_editorial_contracts", stdout=StringIO())
         assert dispatch.call_count == 1
         job = ContractProcessingJob.objects.get(contract=eligible)
@@ -232,7 +233,7 @@ class TestBackfillCommand:
     def test_limit_and_workspace_filters(self, make_contract):
         for index in range(3):
             make_contract(f"batch-{index}", extracted_text="texto")
-        with mock.patch(DISPATCH) as dispatch:
+        with mock.patch(DISPATCH) as dispatch, TestCase.captureOnCommitCallbacks(execute=True):
             call_command("classify_editorial_contracts", "--limit", "2", stdout=StringIO())
         assert dispatch.call_count == 2
         out = StringIO()

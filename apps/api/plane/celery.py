@@ -72,6 +72,14 @@ app.conf.beat_schedule = {
         "task": "plane.bgtasks.contract_task.sync_contract_status_by_date",
         "schedule": crontab(hour=3, minute=0),  # UTC 03:00
     },
+    "check-every-ten-minutes-to-reap-stuck-contract-jobs": {
+        "task": "plane.bgtasks.contract_task.reap_stuck_contract_jobs",
+        "schedule": crontab(minute="*/10"),
+    },
+    "check-every-day-to-send-contract-expiry-alerts": {
+        "task": "plane.bgtasks.contract_task.send_contract_expiry_alerts",
+        "schedule": crontab(hour=14, minute=0),  # UTC 14:00 (morning in the Americas)
+    },
     "check-every-day-to-delete-file-asset": {
         "task": "plane.bgtasks.file_asset_task.delete_unuploaded_file_asset",
         "schedule": crontab(hour=2, minute=0),  # UTC 02:00

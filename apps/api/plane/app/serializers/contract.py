@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+# Python imports
+from django.utils import timezone
+
 # Third party imports
 from rest_framework import serializers
 
@@ -50,6 +53,8 @@ CONTRACT_EDITABLE_FIELDS = [
 
 class ContractSerializer(BaseSerializer):
     file_name = serializers.SerializerMethodField()
+    has_proposal = serializers.SerializerMethodField()
+    days_to_expiry = serializers.SerializerMethodField()
 
     class Meta:
         model = Contract
@@ -61,6 +66,8 @@ class ContractSerializer(BaseSerializer):
             "file_name",
             "processing_status",
             "proposed_data",
+            "has_proposal",
+            "days_to_expiry",
             "ai_model_used",
             "processed_at",
             "text_extracted_at",
@@ -72,6 +79,42 @@ class ContractSerializer(BaseSerializer):
 
     def get_file_name(self, obj):
         return (obj.file_asset.attributes or {}).get("name") if obj.file_asset_id else None
+
+    def get_has_proposal(self, obj):
+        return obj.proposed_data is not None
+
+    def get_days_to_expiry(self, obj):
+        if obj.fecha_fin_efectiva is None:
+            return None
+        today = self.context.get("today") or timezone.now().date()
+        return (obj.fecha_fin_efectiva - today).days
+
+
+class ContractDetailSerializer(ContractSerializer):
+    proposed_changes = serializers.SerializerMethodField()
+    source_template_id = serializers.SerializerMethodField()
+
+    class Meta(ContractSerializer.Meta):
+        fields = [
+            *ContractSerializer.Meta.fields,
+            "evidence",
+            "proposed_changes",
+            "source_request_id",
+            "source_template_id",
+            "content_hash",
+        ]
+        read_only_fields = fields
+
+    def get_proposed_changes(self, obj):
+        from plane.utils.contract_extraction import proposed_changes
+
+        return proposed_changes(obj, obj.proposed_data) if obj.proposed_data is not None else []
+
+    def get_source_template_id(self, obj):
+        request = obj.source_request if obj.source_request_id else None
+        if request is None or request.revision_id is None:
+            return None
+        return request.revision.variant.template_id
 
 
 class ContractUpdateSerializer(BaseSerializer):

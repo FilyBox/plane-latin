@@ -175,6 +175,7 @@ from .contract import (
     ContractQuerySerializer,
     ContractSignatureRequestSerializer,
     ContractSignerSerializer,
+    ContractDetailSerializer,
     ContractSerializer,
     ContractTemplateRevisionSerializer,
     ContractTemplateSerializer,

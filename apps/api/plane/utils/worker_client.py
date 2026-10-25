@@ -25,6 +25,10 @@ class WorkerTriggerError(Exception):
         self.public_message = public_message
 
 
+class WorkerUnreachableError(WorkerTriggerError):
+    """Network-level failure (connection refused, timeout): safe to retry."""
+
+
 def _post(path, payload, timeout=30):
     base_url = settings.CF_WORKER_TRIGGER_URL
     secret = settings.CF_WORKER_TRIGGER_SECRET
@@ -39,7 +43,7 @@ def _post(path, payload, timeout=30):
             timeout=timeout,
         )
     except requests.RequestException as exc:
-        raise WorkerTriggerError(f"Worker unreachable at {base_url}: {exc}") from exc
+        raise WorkerUnreachableError(f"Worker unreachable at {base_url}: {exc}") from exc
     if response.status_code >= 400:
         raise WorkerTriggerError(f"Worker trigger failed ({response.status_code}): {response.text[:500]}")
     return response.json()
@@ -59,6 +63,11 @@ def trigger_contract_pipeline(job_id, contract_id, workspace_id, asset_id, mode=
         },
     )
     return data.get("workflow_instance_id")
+
+
+def terminate_contract_pipeline(job_id):
+    """Asks the Worker to stop a pipeline instance (instance id = job id)."""
+    return _post(f"/pipeline/{job_id}/terminate", {}, timeout=15)
 
 
 def _get(path):
