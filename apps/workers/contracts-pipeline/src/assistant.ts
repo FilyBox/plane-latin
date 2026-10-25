@@ -288,11 +288,19 @@ TAREAS (elementos de trabajo)
 PÁGINAS
 - Cuándo: el usuario pide una página o "page" ("haz / crea / genera / arma una page", "pon esto en una página", "guárdalo como página", "hazme un informe, dossier, minuta o tabla en una página"), aunque lo diga de pasada o en inglés. Termina SIEMPRE con propose_page; no respondas solo con texto ni con una tabla en el chat.
 - Datos: primero reúne lo que vaya en la página con las herramientas (nunca inventes cifras, fechas ni nombres). Si la página es sobre algo de turnos anteriores ("esos contratos que me dijiste") y ya no tienes sus ids a la vista, vuelve a consultarlos antes de escribir.
-- Elementos interactivos: cada contrato, archivo, canción, lanzamiento, artista, tarea, página, presupuesto o gasto que aparezca en la página va como mención :tipo[Nombre]{name=id}, con el id real que devolvió una herramienta (en contratos, su contract_id). En la página se ve como una ficha que abre el elemento con un clic, igual que al mencionarlo con @. Úsala también dentro de tablas y listas, y cada vez que nombres el elemento; nunca escribas solo el título. En el nombre no pongas "]" ni "|", y no la envuelvas en negritas ni en enlaces. Los tipos son: contract, file, music_track, music_release, music_artist, issue, page, budget, expense. Una etiqueta va como enlace a su vista: [Nombre](path).
-- Tablas: una fila por elemento, con la mención en la primera columna (no pongas el id en otra columna) y exactamente las columnas que pidió, con los datos que sacaste; si un dato no aparece, pon "—" o "No se encontró". Por ejemplo:
+${
+  caps.references
+    ? `- Elementos interactivos: cada contrato, archivo, canción, lanzamiento, artista, tarea, página, presupuesto o gasto que aparezca en la página va como mención :tipo[Nombre]{name=id}, con el id real que devolvió una herramienta (en contratos, su contract_id). En la página se ve como una ficha que abre el elemento con un clic, igual que al mencionarlo con @. Úsala también dentro de tablas y listas, y cada vez que nombres el elemento; nunca escribas solo el título. En el nombre no pongas "]" ni "|", y no la envuelvas en negritas ni en enlaces. Los tipos son: contract, file, music_track, music_release, music_artist, issue, page, budget, expense. Una etiqueta va como enlace a su vista: [Nombre](path).`
+    : `- Sin fichas: las referencias no están activas en este workspace, así que escribe los nombres de los elementos como texto (en negritas si ayuda), sin el formato :tipo[Nombre]{name=id}.`
+}
+- Tablas: una fila por elemento, con el elemento en la primera columna${caps.references ? " como mención (no pongas el id en otra columna)" : ""} y exactamente las columnas que pidió, con los datos que sacaste; si un dato no aparece, pon "—" o "No se encontró".${
+    caps.references
+      ? ` Por ejemplo:
   | Contrato | Identificación | Fecha |
   |---|---|---|
-  | :contract[Contrato de edición Pérez]{name=3f2c…} | INE | 2016-05-02 |
+  | :contract[Contrato de edición Pérez]{name=3f2c…} | INE | 2016-05-02 |`
+      : ""
+  }
 - Formato: Markdown con títulos (#, ##), párrafos, listas, tablas, negritas, citas y enlaces. Empieza con una introducción breve de qué es y de dónde salen los datos.
 - La tarjeta deja revisar, editar y elegir proyecto antes de crearla, y se puede deshacer. En el chat solo resume en una frase qué contiene.
 - "Reporte / listado de todo lo de un artista, grupo o etiqueta" (contratos con sus fechas, canciones con lanzamiento, videos y enlaces, lanzamientos): propose_report con la etiqueta exacta (find_tags antes). Lo arma el servidor con los datos reales, en tablas y con cada fila enlazada; tú solo escribes una introducción breve (intro) con lo más relevante. No copies esas listas a mano en propose_page.${
@@ -482,7 +490,10 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
           for (const part of message.parts) sources.push((part as { output?: unknown }).output);
         }
         for (const message of messages) if (message.role === "tool") sources.push(message.content);
-        const { markdown, linked } = linkMentions(input.markdown, collectEntities(sources, ENTITY_TYPES));
+        // Without References the chips can't load, so names stay text
+        const { markdown, linked } = caps.references
+          ? linkMentions(input.markdown, collectEntities(sources, ENTITY_TYPES))
+          : { markdown: input.markdown, linked: 0 };
         return { ...compact({ ...input, markdown }), workspace_slug: slug, linked_mentions: linked };
       },
     });

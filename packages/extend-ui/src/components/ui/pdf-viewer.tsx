@@ -48,6 +48,7 @@ import {
   ViewportElementContext,
   ViewportPluginPackage,
 } from "@embedpdf/plugin-viewport/react";
+import { ZoomMode } from "@embedpdf/plugin-zoom";
 import { useZoom, ZoomPluginPackage } from "@embedpdf/plugin-zoom/react";
 import {
   ArrowLeft01Icon,
@@ -102,7 +103,8 @@ export type PDFViewerHandle = {
 
 export type PDFViewerProps = {
   className?: string;
-  defaultZoom?: number;
+  /** A zoom factor (1 = 100%) or a mode; by default pages fit the width, up to 100%. */
+  defaultZoom?: number | ZoomMode;
   /** Disable the PDF selection engine for canvas-style authoring overlays. */
   enableTextSelection?: boolean;
   fileName?: string;
@@ -123,7 +125,9 @@ export type PDFViewerProps = {
   onPagePointerCancel?: (event: React.PointerEvent<HTMLDivElement>, pageNumber: number) => void;
 };
 
-const DEFAULT_ZOOM = 1;
+// Fits the page to the viewer's width without going past 100%, and refits
+// when the viewer resizes: a fixed 100% cut pages off in narrow panels.
+const DEFAULT_ZOOM = ZoomMode.Automatic;
 const ZOOM_OPTIONS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 const PAGE_GAP = 24;
 const THUMBNAIL_PAGE_WIDTH = 92;
@@ -1586,7 +1590,7 @@ type PDFViewerInnerProps = {
   pdfFile: string;
   documentId: string;
   document: PdfDocumentObject | null;
-  defaultZoom: number;
+  defaultZoom: number | ZoomMode;
   enableTextSelection: boolean;
   className?: string;
   fileName?: string;

@@ -22,11 +22,23 @@ type Props = { entity_name: TEntityName; id: string };
 export function EntityMentionChip({ entity_name, id }: Props) {
   const { t } = useTranslation();
   const { workspaceSlug } = useParams();
-  const { data: card } = useEntityCard(workspaceSlug?.toString(), entity_name, id);
+  const { data: card, error } = useEntityCard(workspaceSlug?.toString(), entity_name, id);
   // Contracts, songs, releases and expenses open their panel here
   const openInPlace = usePeekLinkClick();
   const Icon = ENTITY_ICONS[entity_name];
 
+  // The lookup failed (References off, offline…): say so instead of loading forever
+  if (!card && error) {
+    return (
+      <span
+        className="not-prose inline-flex items-center gap-1 rounded-sm bg-layer-1 px-1 py-0.5 align-baseline text-tertiary"
+        title={t("references.unavailable_help")}
+      >
+        <Icon className="size-3 shrink-0" />
+        {t("references.unavailable")}
+      </span>
+    );
+  }
   if (!card) {
     return (
       <span className="not-prose inline-flex items-center gap-1 rounded-sm bg-layer-1 px-1 py-0.5 align-baseline text-tertiary">

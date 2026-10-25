@@ -248,6 +248,9 @@ def create_page(ctx, user, data: dict, payload=None) -> AssistantAction:
     visible_cache: dict[str, set[str]] = {}
 
     def allowed(kind: str, identifier: str) -> bool:
+        # Without References the chips can't load: write the plain name instead.
+        if "references" not in ctx.features:
+            return False
         if kind not in visible_cache:
             ids = [match.group(3) for match in MENTION_RE.finditer(str(data.get("markdown") or "")) if match.group(1) == kind]
             visible_cache[kind] = set(_visible(ctx, kind, ids))

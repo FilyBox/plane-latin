@@ -9,7 +9,7 @@
  * set (document, info, process, chat) where each view takes the whole panel.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -65,6 +65,15 @@ type Props = {
 /** The header's icon buttons, one size so the row reads as a toolbar */
 const HEADER_ICON =
   "flex size-7 items-center justify-center rounded-sm text-tertiary hover:bg-layer-1-hover hover:text-secondary disabled:opacity-50";
+
+// Tailwind's `lg`: the panel switches from tabs to document-beside-pane here
+const DESKTOP_QUERY = "(min-width: 1024px)";
+const subscribeDesktop = (onChange: () => void) => {
+  const query = window.matchMedia(DESKTOP_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+};
+const isDesktopNow = () => window.matchMedia(DESKTOP_QUERY).matches;
 
 type TPeekModes = "side-peek" | "modal" | "full-screen";
 /** "document" is mobile-only (desktop always shows the PDF beside the tabs) */
@@ -134,6 +143,8 @@ export function ContractPeekPanel(props: Props) {
   const { isWorkspaceFeatureEnabled } = useWorkspace();
   const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
   const { t } = useTranslation();
+  // Only one layout mounts the PDF viewer, so the file loads and renders once
+  const isDesktop = useSyncExternalStore(subscribeDesktop, isDesktopNow, () => true);
   // states
   const [peekMode, setPeekMode] = useState<TPeekModes>("side-peek");
   const [tab, setTab] = useState<Tab>("document");
@@ -664,7 +675,7 @@ export function ContractPeekPanel(props: Props) {
             {(["document", "info", "process", "chat"] as Tab[]).map((key) => tabButton(key))}
           </div>
           {tab === "document" ? (
-            <div className="min-h-0 flex-1">{pdfViewer(null)}</div>
+            <div className="min-h-0 flex-1">{isDesktop ? null : pdfViewer(null)}</div>
           ) : isLoading || !contract ? (
             loaderPane
           ) : tab === "chat" ? (
@@ -699,7 +710,7 @@ export function ContractPeekPanel(props: Props) {
             <div
               className={cn("min-h-0 border-r border-subtle", expanded === "document" ? "w-full border-r-0" : "w-1/2")}
             >
-              {pdfViewer(expandButton("document"))}
+              {isDesktop ? pdfViewer(expandButton("document")) : null}
             </div>
           )}
           {expanded !== "document" && (

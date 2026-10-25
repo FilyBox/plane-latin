@@ -26,6 +26,8 @@
     "restricted_help": "It exists, but you don't have access to that module.",
     "missing": "Deleted item",
     "missing_help": "It no longer exists.",
+    "unavailable": "Not available",
+    "unavailable_help": "Couldn't load it. References may be turned off for this workspace.",
     "attach": "Reference",
     "detach": "Remove attachment",
     "in_comment": "in a comment",

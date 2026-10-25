@@ -26,6 +26,8 @@
     "restricted_help": "Existe, pero no tienes acceso a ese módulo.",
     "missing": "Elemento eliminado",
     "missing_help": "Ya no existe.",
+    "unavailable": "No disponible",
+    "unavailable_help": "No se pudo cargar. Puede que las referencias no estén activas en este workspace.",
     "attach": "Referenciar",
     "detach": "Quitar adjunto",
     "in_comment": "en un comentario",
