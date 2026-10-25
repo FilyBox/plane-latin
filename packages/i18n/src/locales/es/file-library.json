@@ -912,7 +912,8 @@
           "validation_title": "Ingresa un título para el contrato.",
           "validation_variable": "Completa {name}.",
           "version_variables": "Variables de esta versión",
-          "version_variables_description": "Revisa qué datos se solicitarán antes de preparar el contrato."
+          "version_variables_description": "Revisa qué datos se solicitarán antes de preparar el contrato.",
+          "signers_label": "Firmantes"
         },
         "collabora": {
           "deferred_commit_hint": "Los cambios quedan como borrador; al cerrar eliges cómo guardarlos."

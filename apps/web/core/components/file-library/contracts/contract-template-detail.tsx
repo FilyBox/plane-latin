@@ -369,9 +369,17 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
         }
       : undefined;
 
-  const fieldCount = selectedRevision?.signature_blueprint.length ?? selectedVariant?.signature_blueprint.length ?? 0;
-  const recipientCount =
-    selectedRevision?.recipient_blueprint.length ?? selectedVariant?.recipient_blueprint.length ?? 0;
+  // Signers and signature boxes written as {{FirmaFirmante1}}-style variables
+  // aren't stored in the blueprints (the server rebuilds them on use), so
+  // count them from the document's schema as well.
+  const semantic = selectedRevision?.variable_schema ?? schema?.schema;
+  const fieldCount =
+    (selectedRevision?.signature_blueprint.length ?? selectedVariant?.signature_blueprint.length ?? 0) +
+    (semantic?.signing_fields?.length ?? 0);
+  const recipientCount = Math.max(
+    selectedRevision?.recipient_blueprint.length ?? selectedVariant?.recipient_blueprint.length ?? 0,
+    semantic?.recipients?.length ?? 0
+  );
   const variableCount = selectedRevision?.variable_schema?.placeholder_count ?? schema?.schema.placeholder_count ?? 0;
   const isConfigured = fieldCount > 0 && recipientCount > 0;
   const hasVersion = (selectedVariant?.revision_count ?? 0) > 0;
@@ -539,7 +547,13 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                           subtitle={new Date(revision.created_at).toLocaleString()}
                           meta={t("file_library.contracts.workflow.template_detail.version_meta", {
                             variables: revision.variable_schema?.placeholder_count ?? 0,
-                            fields: revision.signature_blueprint.length,
+                            fields:
+                              revision.signature_blueprint.length +
+                              (revision.variable_schema?.signing_fields?.length ?? 0),
+                            participants: Math.max(
+                              revision.recipient_blueprint.length,
+                              revision.variable_schema?.recipients?.length ?? 0
+                            ),
                           })}
                           thumbnailUrl={contractService.getContractAssetThumbnailUrl(
                             workspaceSlug,

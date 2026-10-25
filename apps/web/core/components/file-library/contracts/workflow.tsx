@@ -556,7 +556,7 @@ function TemplateDetectionSummary({
           <DetectionStat
             icon={<UserRound className="size-4" />}
             value={signerCount}
-            label={t("file_library.contracts.workflow.use.people_count")}
+            label={t("file_library.contracts.workflow.use.signers_label")}
           />
         </div>
 

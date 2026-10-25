@@ -912,7 +912,8 @@
           "validation_title": "Enter a title for the contract.",
           "validation_variable": "Complete {name}.",
           "version_variables": "Variables in this version",
-          "version_variables_description": "Review what will be requested before preparing the contract."
+          "version_variables_description": "Review what will be requested before preparing the contract.",
+          "signers_label": "Signers"
         },
         "collabora": {
           "deferred_commit_hint": "Changes are kept as a draft; on closing you choose how to save them."
