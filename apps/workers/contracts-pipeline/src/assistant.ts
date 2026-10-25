@@ -38,6 +38,7 @@ import {
 import { listChatModels } from "./lib/ai";
 import { estimateTurnCost } from "./lib/pricing";
 import { internalApi } from "./lib/internal-api";
+import { collectEntities, linkMentions } from "./lib/page-links";
 
 export type AssistantPageContext = {
   page?: string;
@@ -170,6 +171,8 @@ const LIMITS = {
   tracksMax: 100,
   /** Older tool results above this size are reduced to their counts */
   historyChars: 3_000,
+  /** Items listed per summarized result (~90 characters each) */
+  historyItems: 60,
 } as const;
 
 const itemLine = (item: { entity_name: string; id: string; title?: string; path?: string }) =>
@@ -283,7 +286,15 @@ TAREAS (elementos de trabajo)
 - "Crea una tarea / recuérdame / hay que…": propose_work_item con título claro y accionable, descripción breve, proyecto, responsable y fecha si los dijo, y como references los elementos de los que trata (contratos, canciones, archivos mencionados o encontrados). La tarjeta deja editar todo antes de crearla y se puede deshacer.
 
 PÁGINAS
-- "Escribe / redacta / hazme una página, un informe, un dossier, una minuta…": primero reúne los datos con las herramientas (nunca inventes cifras, fechas ni nombres) y luego llama propose_page con el documento completo en Markdown: títulos (#, ##), listas, negritas y citas. Menciona los elementos con el formato :tipo[Nombre]{name=id} usando ids reales (contract, file, music_track, music_release, music_artist, issue, page, budget, expense): en la página quedan como enlaces. La tarjeta deja revisar, editar y elegir proyecto antes de crearla, y se puede deshacer. En el chat solo resume en una frase qué contiene.
+- Cuándo: el usuario pide una página o "page" ("haz / crea / genera / arma una page", "pon esto en una página", "guárdalo como página", "hazme un informe, dossier, minuta o tabla en una página"), aunque lo diga de pasada o en inglés. Termina SIEMPRE con propose_page; no respondas solo con texto ni con una tabla en el chat.
+- Datos: primero reúne lo que vaya en la página con las herramientas (nunca inventes cifras, fechas ni nombres). Si la página es sobre algo de turnos anteriores ("esos contratos que me dijiste") y ya no tienes sus ids a la vista, vuelve a consultarlos antes de escribir.
+- Elementos interactivos: cada contrato, archivo, canción, lanzamiento, artista, tarea, página, presupuesto o gasto que aparezca en la página va como mención :tipo[Nombre]{name=id}, con el id real que devolvió una herramienta (en contratos, su contract_id). En la página se ve como una ficha que abre el elemento con un clic, igual que al mencionarlo con @. Úsala también dentro de tablas y listas, y cada vez que nombres el elemento; nunca escribas solo el título. En el nombre no pongas "]" ni "|", y no la envuelvas en negritas ni en enlaces. Los tipos son: contract, file, music_track, music_release, music_artist, issue, page, budget, expense. Una etiqueta va como enlace a su vista: [Nombre](path).
+- Tablas: una fila por elemento, con la mención en la primera columna (no pongas el id en otra columna) y exactamente las columnas que pidió, con los datos que sacaste; si un dato no aparece, pon "—" o "No se encontró". Por ejemplo:
+  | Contrato | Identificación | Fecha |
+  |---|---|---|
+  | :contract[Contrato de edición Pérez]{name=3f2c…} | INE | 2016-05-02 |
+- Formato: Markdown con títulos (#, ##), párrafos, listas, tablas, negritas, citas y enlaces. Empieza con una introducción breve de qué es y de dónde salen los datos.
+- La tarjeta deja revisar, editar y elegir proyecto antes de crearla, y se puede deshacer. En el chat solo resume en una frase qué contiene.
 - "Reporte / listado de todo lo de un artista, grupo o etiqueta" (contratos con sus fechas, canciones con lanzamiento, videos y enlaces, lanzamientos): propose_report con la etiqueta exacta (find_tags antes). Lo arma el servidor con los datos reales, en tablas y con cada fila enlazada; tú solo escribes una introducción breve (intro) con lo más relevante. No copies esas listas a mano en propose_page.${
     caps.tagAdmin
       ? `
@@ -449,17 +460,31 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
 
     tools.propose_page = tool({
       description:
-        "Propone crear una página de proyecto con un documento en Markdown (informe, dossier, minuta, guía). Devuelve una tarjeta para revisar, editar y elegir proyecto; se puede deshacer.",
+        'Propone crear una página de proyecto con un documento en Markdown (informe, dossier, minuta, tabla, guía). Úsala siempre que pidan una página o "page". Los elementos mencionados quedan como fichas clicables. Devuelve una tarjeta para revisar, editar y elegir proyecto; se puede deshacer.',
       inputSchema: z.object({
         title: z.string().max(255),
         markdown: z
           .string()
           .max(20_000)
-          .describe("El documento completo en Markdown; menciones como :tipo[Nombre]{name=id}"),
+          .describe(
+            "El documento completo en Markdown. Cada elemento (contratos, canciones, archivos…) como mención :tipo[Nombre]{name=id} con su id real, también dentro de tablas"
+          ),
         project: z.string().optional().describe("Nombre o identificador del proyecto, si lo dijo"),
         private: z.boolean().optional().describe("true solo si pidió que sea privada"),
       }),
-      execute: async (input) => ({ ...compact(input), workspace_slug: slug }),
+      execute: async (input, { messages }) => {
+        // Names of things the conversation returned become mentions (chips) even
+        // when the model wrote them as plain text. Only tool results and the
+        // user's own @-mentions count: never ids the model wrote itself.
+        const sources: unknown[] = [body.mentions, body.context?.items];
+        for (const message of body.messages) {
+          if (message.role !== "assistant") continue;
+          for (const part of message.parts) sources.push((part as { output?: unknown }).output);
+        }
+        for (const message of messages) if (message.role === "tool") sources.push(message.content);
+        const { markdown, linked } = linkMentions(input.markdown, collectEntities(sources, ENTITY_TYPES));
+        return { ...compact({ ...input, markdown }), workspace_slug: slug, linked_mentions: linked };
+      },
     });
 
     tools.read_file = tool({
@@ -982,7 +1007,8 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
 const SUMMARY_KEYS = ["total", "returned", "count", "matched", "candidates", "scanned", "has_more", "summary"];
 
 /**
- * Older turns' tool results are reduced to their counts before re-sending.
+ * Older turns' tool results are reduced to their counts, plus the items they
+ * listed (kind, id, name), before re-sending.
  *
  * The full history goes to the model on every turn; a 100-row table from three
  * questions ago only costs tokens (and context window) by now. The latest turn
@@ -1003,6 +1029,10 @@ function compactHistory(messages: UIMessage[]): UIMessage[] {
             if (key in output) kept[key] = (output as Record<string, unknown>)[key];
           }
         }
+        // Keep who was in it (kind, id, name), so a follow-up ("make a page with
+        // those contracts") can still mention them without searching again.
+        const items = collectEntities([output], ENTITY_TYPES).slice(0, LIMITS.historyItems);
+        if (items.length) kept.items = items.map(({ kind, id, names }) => ({ type: kind, id, name: names[0] }));
         return { ...part, output: kept } as typeof part;
       }),
     };
