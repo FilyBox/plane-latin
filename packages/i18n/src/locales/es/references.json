@@ -157,6 +157,13 @@
         "music_track": "canciones",
         "music_release": "lanzamientos"
       }
+    },
+    "peek": {
+      "copy_link": "Copiar enlace",
+      "link_copied": "Enlace copiado: cualquiera del workspace lo abre aquí",
+      "link_failed": "No se pudo copiar el enlace",
+      "open_in_section": "Abrir en su sección",
+      "not_available": "No se encontró o no tienes acceso"
     }
   }
 }

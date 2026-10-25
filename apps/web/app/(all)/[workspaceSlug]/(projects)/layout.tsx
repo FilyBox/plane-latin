@@ -7,6 +7,7 @@
 import { observer } from "mobx-react";
 import { Outlet } from "react-router";
 import { AssistantPanel } from "@/components/assistant/panel";
+import { EntityPeekHost } from "@/components/entity-peek/host";
 import { ProjectsAppPowerKProvider } from "@/components/power-k/projects-app-provider";
 // plane web components
 import { ProjectAppSidebar } from "./_sidebar";
@@ -27,6 +28,8 @@ function WorkspaceLayout() {
               <Outlet />
             </main>
           </div>
+          {/* Contract, song, release or expense panels opened from anywhere (?open=) */}
+          <EntityPeekHost />
         </div>
         <AssistantPanel />
       </div>

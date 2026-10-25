@@ -35,6 +35,7 @@ import { CONTRACT_STATUS_OPTIONS, CONTRACT_TYPE_OPTIONS, YES_NO_UNSPECIFIED_OPTI
 import { ProcessingBadge } from "./processing-badge";
 import { RetryOptionsModal } from "./retry-options-modal";
 import { AskAssistantButton } from "@/components/assistant/ask";
+import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 
 type Props = {
   workspaceSlug: string;
@@ -44,6 +45,8 @@ type Props = {
   onMutate: () => void;
   /** Called once the contract has been deleted; the caller closes the peek. */
   onDeleted: () => void;
+  /** Set when opened outside the contracts list: go to it there */
+  onOpenInSection?: () => void;
 };
 
 type TPeekModes = "side-peek" | "modal" | "full-screen";
@@ -110,7 +113,7 @@ const SELECT_FIELDS: {
 ];
 
 export function ContractPeekPanel(props: Props) {
-  const { workspaceSlug, contractId, onClose, onMutate, onDeleted } = props;
+  const { workspaceSlug, contractId, onClose, onMutate, onDeleted, onOpenInSection } = props;
   const { isWorkspaceFeatureEnabled } = useWorkspace();
   const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
   const { t } = useTranslation();
@@ -567,6 +570,7 @@ export function ContractPeekPanel(props: Props) {
                 <Trash2 className="size-4" />
               </button>
             </Tooltip>
+            <PeekLinkActions onOpenInSection={onOpenInSection} />
             <button type="button" onClick={onClose} className="rounded-sm p-1.5 hover:bg-layer-1-hover">
               <X className="size-4" />
             </button>

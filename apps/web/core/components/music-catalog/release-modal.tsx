@@ -4,6 +4,7 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TMusicCatalogOptions, TMusicParty, TMusicRelease } from "@plane/types";
+import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 import { EntityBacklinks } from "@/components/references/references-section";
 import { SharedTagPicker } from "@/components/references/shared-tag-picker";
 import { useWorkspace } from "@/hooks/store/use-workspace";
@@ -21,6 +22,8 @@ type Props = {
   onClose: () => void;
   onSaved: () => void;
   onResourcesChanged: () => void;
+  /** Set when opened outside the catalog: go to the release there */
+  onOpenInSection?: () => void;
 };
 
 const EMPTY = {
@@ -50,6 +53,7 @@ export function MusicReleaseModal({
   onClose,
   onSaved,
   onResourcesChanged,
+  onOpenInSection,
 }: Props) {
   const { t } = useTranslation();
   const { isWorkspaceFeatureEnabled } = useWorkspace();
@@ -118,6 +122,7 @@ export function MusicReleaseModal({
     <BudgetPeekPanel
       title={release ? "Edit release" : "New release"}
       description="Group songs under a date, classification and commercial identifier."
+      headerActions={release ? <PeekLinkActions onOpenInSection={onOpenInSection} /> : undefined}
       onClose={onClose}
     >
       <div className="vertical-scrollbar h-full overflow-y-auto bg-surface-1 p-5">

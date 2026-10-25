@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Download, Loader2, MoreHorizontal, Plus, RefreshCw, Search, Tags } from "lucide-react";
 import useSWR, { useSWRConfig } from "swr";
@@ -57,25 +57,47 @@ export function ExpensesTab({
   const [sort, setSort] = useState("date_desc");
   const [limit, setLimit] = useState(PAGE);
   const [editing, setEditing] = useState<TExpense | null | undefined>(undefined);
-  // ?expense=<id> arrives from a mention or a shared tag: open that expense.
+  // The open expense lives in the URL (?expense=<id>), so the page can be
+  // shared with it open; mentions, shared tags and Back/Forward drive it too.
   const [searchParams, setSearchParams] = useSearchParams();
+  const expenseParam = searchParams.get("expense");
+  const shownExpense = useRef<string | null>(null);
   useEffect(() => {
-    const linked = searchParams.get("expense");
-    if (!linked) return;
+    if (!expenseParam) {
+      // Closed from the URL (Back); a new expense being created has no id
+      setEditing((current) => (current?.id ? undefined : current));
+      return;
+    }
+    if (editing?.id === expenseParam) return;
     void financeService
-      .getExpense(workspaceSlug, linked)
+      .getExpense(workspaceSlug, expenseParam)
       .then(setEditing)
       .catch(() => undefined);
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.delete("expense");
-        return next;
-      },
-      { replace: true }
-    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [expenseParam, workspaceSlug]);
+  useEffect(() => {
+    const id = editing?.id ?? null;
+    const previous = shownExpense.current;
+    shownExpense.current = id;
+    if (id && id !== expenseParam) {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.set("expense", id);
+        return next;
+      });
+    } else if (!id && previous && expenseParam === previous) {
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.delete("expense");
+          return next;
+        },
+        { replace: true }
+      );
+    }
+    // Follows the open expense only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing?.id]);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [deleting, setDeleting] = useState<TExpense | null>(null);
   const [busy, setBusy] = useState(false);

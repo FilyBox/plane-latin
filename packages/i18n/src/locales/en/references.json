@@ -157,6 +157,13 @@
         "music_track": "songs",
         "music_release": "releases"
       }
+    },
+    "peek": {
+      "copy_link": "Copy link",
+      "link_copied": "Link copied: anyone in the workspace opens it here",
+      "link_failed": "Could not copy the link",
+      "open_in_section": "Open in its section",
+      "not_available": "Not found, or you don't have access"
     }
   }
 }

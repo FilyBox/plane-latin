@@ -3,12 +3,16 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  * See the LICENSE file for details.
  *
- * Links inside the assistant open in the app (router, no reload). On phones
- * the panel covers the screen, so following a link also closes it.
+ * Links inside the assistant open in the app (router, no reload). A contract,
+ * song, release or expense opens its panel right where the user is instead
+ * of leaving the page. On phones the panel covers the screen, so following a
+ * link also closes it.
  */
 
 import type { ComponentProps, MouseEvent } from "react";
 import { useCallback } from "react";
+import { parsePeekHref } from "@/components/entity-peek/routes";
+import { useEntityPeek } from "@/components/entity-peek/use-entity-peek";
 import { useAppRouter } from "@/hooks/use-app-router";
 import { useAppTheme } from "@/hooks/store/use-app-theme";
 import { cn } from "@plane/utils";
@@ -19,12 +23,15 @@ const MOBILE_QUERY = "(max-width: 1023px)";
 export function useAssistantNavigate() {
   const router = useAppRouter();
   const { toggleAssistantPanel } = useAppTheme();
+  const { open } = useEntityPeek();
   return useCallback(
     (path: string) => {
-      router.push(path);
+      const target = parsePeekHref(path);
+      if (target) open(target);
+      else router.push(path);
       if (typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches) toggleAssistantPanel(false);
     },
-    [router, toggleAssistantPanel]
+    [router, toggleAssistantPanel, open]
   );
 }
 

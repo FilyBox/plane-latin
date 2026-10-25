@@ -11,6 +11,7 @@ import { useTranslation } from "@plane/i18n";
 import { Popover } from "@plane/propel/popover";
 import type { TEntityCard, TEntityName } from "@plane/types";
 import { cn } from "@plane/utils";
+import { usePeekLinkClick } from "@/components/entity-peek/use-entity-peek";
 import { ENTITY_ICONS, entityLabelKey } from "./entity-meta";
 import { useEntityCard } from "./use-entity-card";
 
@@ -22,6 +23,8 @@ export function EntityMentionChip({ entity_name, id }: Props) {
   const { t } = useTranslation();
   const { workspaceSlug } = useParams();
   const { data: card } = useEntityCard(workspaceSlug?.toString(), entity_name, id);
+  // Contracts, songs, releases and expenses open their panel here
+  const openInPlace = usePeekLinkClick();
   const Icon = ENTITY_ICONS[entity_name];
 
   if (!card) {
@@ -51,6 +54,7 @@ export function EntityMentionChip({ entity_name, id }: Props) {
         <Popover.Button>
           <Link
             to={card.path ?? "#"}
+            onClick={(event) => openInPlace(event, { entity_name, id })}
             className="inline-flex items-center gap-1 rounded-sm bg-layer-1 px-1 py-0.5 text-primary no-underline hover:bg-layer-1-hover"
           >
             <Icon className="size-3 shrink-0 text-secondary" />

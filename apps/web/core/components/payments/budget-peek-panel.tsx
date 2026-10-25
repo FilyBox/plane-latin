@@ -3,6 +3,7 @@ export function BudgetPeekPanel(props: {
   children: React.ReactNode;
   title: string;
   description?: string;
+  headerActions?: React.ReactNode;
   onClose: () => void;
 }) {
   return (

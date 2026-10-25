@@ -32,6 +32,7 @@ import { FinanceComments } from "./finance-comments";
 import { PaymentsSidePanel } from "./side-panel";
 import { FinanceCategorySelect, FinanceTagPicker } from "./tag-picker";
 import { CURRENCIES, formatMoney, todayIso, getApiErrorMessage } from "./shared";
+import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 
 /** Plain-looking controls: inside a property row the value should read as text
  * until you reach for it, the way a work item's dropdowns do. */
@@ -51,6 +52,8 @@ type Props = {
   duplicates?: NonNullable<TExpenseImport["data"]["duplicates"]>;
   onDelete?: () => void;
   commentCell?: string;
+  /** Set when opened outside the expenses page: go to the expense there */
+  onOpenInSection?: () => void;
 };
 
 type FormState = {
@@ -112,6 +115,7 @@ export function ExpenseModal(props: Props) {
     duplicates = [],
     onDelete,
     commentCell = "",
+    onOpenInSection,
   } = props;
   const { t } = useTranslation();
   const { data: scenarios = [] } = useSWR(`BUDGET_SCENARIOS_${workspaceSlug}`, () =>
@@ -374,16 +378,19 @@ export function ExpenseModal(props: Props) {
       onClose={() => !isSubmitting && onClose()}
       title={t(expense ? "payments.edit_expense" : importId ? "payments.ledger.review" : "payments.new_expense")}
       headerActions={
-        onDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            aria-label={t("payments.actions.delete")}
-            className="rounded-sm p-1 text-tertiary hover:bg-layer-1-hover hover:text-danger-primary"
-          >
-            <Trash2 className="size-4" />
-          </button>
-        )
+        <>
+          {expense && <PeekLinkActions onOpenInSection={onOpenInSection} className="p-1" />}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label={t("payments.actions.delete")}
+              className="rounded-sm p-1 text-tertiary hover:bg-layer-1-hover hover:text-danger-primary"
+            >
+              <Trash2 className="size-4" />
+            </button>
+          )}
+        </>
       }
     >
       <form

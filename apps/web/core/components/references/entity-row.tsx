@@ -10,6 +10,7 @@ import { Link } from "react-router";
 import { useTranslation } from "@plane/i18n";
 import type { TEntityCard } from "@plane/types";
 import { cn } from "@plane/utils";
+import { usePeekLinkClick } from "@/components/entity-peek/use-entity-peek";
 import { ENTITY_ICONS, entityLabelKey } from "./entity-meta";
 
 type Props = {
@@ -24,6 +25,8 @@ type Props = {
 /** One referenced or tagged thing in a list: icon, name, where it is from. */
 export function EntityRow({ card, note, actions, showType = true, className }: Props) {
   const { t } = useTranslation();
+  // Contracts, songs, releases and expenses open their panel here
+  const openInPlace = usePeekLinkClick();
   const Icon = card.status === "restricted" ? Lock : ENTITY_ICONS[card.entity_name];
   const restricted = card.status !== "ok";
   const title = restricted
@@ -50,7 +53,11 @@ export function EntityRow({ card, note, actions, showType = true, className }: P
       {restricted || !card.path ? (
         <span className="flex min-w-0 flex-1 items-center gap-2.5">{body}</span>
       ) : (
-        <Link to={card.path} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md hover:bg-layer-1-hover">
+        <Link
+          to={card.path}
+          onClick={(event) => openInPlace(event, card)}
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md hover:bg-layer-1-hover"
+        >
           {body}
         </Link>
       )}

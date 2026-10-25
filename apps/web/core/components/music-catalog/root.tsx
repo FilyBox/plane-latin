@@ -120,7 +120,9 @@ const TrackCardSkeleton = () => (
   </article>
 );
 
-const DEEP_LINK_KEYS = ["import_run", "import_file", "import_files", "track", "release", "artist"];
+// One-shot filters. The open song (?track=) and release (?release=) stay in
+// the URL instead, so the page can be shared with that panel open.
+const DEEP_LINK_KEYS = ["import_run", "import_file", "import_files", "artist"];
 
 export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const { t, currentLocale } = useTranslation();
@@ -163,22 +165,50 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // ?track=<id> / ?release=<id> (mentions, references, shared tags) open
-  // that song's panel or that release's editor.
-  const [linkedRelease, setLinkedRelease] = useState(() => searchParams.get("release"));
+  // The open song and release live in the URL (?track=<id>, ?release=<id>):
+  // a shared link, a mention or Back/Forward opens or closes them.
+  const trackParam = searchParams.get("track");
+  const releaseParam = searchParams.get("release");
+  const setPanelParam = (key: "track" | "release", id: string | null) =>
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (id) next.set(key, id);
+        else next.delete(key);
+        return next;
+      },
+      { replace: !id }
+    );
+  const openTrack = (track: TMusicTrack) => {
+    setPeekTrack(track);
+    setPanelParam("track", track.id);
+  };
+  const openRelease = (release: TMusicRelease | undefined) => {
+    setEditingRelease(release);
+    setReleaseOpen(true);
+    if (release) setPanelParam("release", release.id);
+  };
   useEffect(() => {
-    const trackId = searchParams.get("track");
-    if (!trackId) return;
+    if (!trackParam) {
+      setPeekTrack((current) => (current ? undefined : current));
+      return;
+    }
+    if (peekTrack?.id === trackParam) return;
+    let cancelled = false;
     void musicService
-      .getTracks(workspaceSlug, { ids: trackId })
+      .getTracks(workspaceSlug, { ids: trackParam })
       .then((response) => {
         const found = (Array.isArray(response) ? response : response.results)[0];
-        if (found) setPeekTrack(found);
+        if (found && !cancelled) setPeekTrack(found);
         return undefined;
       })
       .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // Follows the URL only; the panel's own copy updates peekTrack.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [trackParam, workspaceSlug]);
   const [deletingTrack, setDeletingTrack] = useState<TMusicTrack>();
   const [isDeletingTrack, setIsDeletingTrack] = useState(false);
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
@@ -226,16 +256,19 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
   });
 
   useEffect(() => {
-    if (!linkedRelease || releaseOpen) return;
-    const found = releases.find((item) => item.id === linkedRelease);
+    if (!releaseParam) {
+      if (releaseOpen && editingRelease) setReleaseOpen(false);
+      return;
+    }
+    if (releaseOpen && editingRelease?.id === releaseParam) return;
+    const found = releases.find((item) => item.id === releaseParam);
     if (found) {
       setEditingRelease(found);
       setReleaseOpen(true);
-      setLinkedRelease(null);
     }
-    // Only for the release named in the link, once it has loaded.
+    // Follows the URL, once the releases have loaded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkedRelease, releases]);
+  }, [releaseParam, releases]);
 
   const trackPage = Array.isArray(trackResponse) ? undefined : trackResponse;
   const tracks = Array.isArray(trackResponse) ? trackResponse : (trackResponse?.results ?? []);
@@ -612,7 +645,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                     <tr
                       key={track.id}
                       className="group cursor-pointer border-t border-subtle hover:bg-layer-1-hover"
-                      onClick={() => setPeekTrack(track)}
+                      onClick={() => openTrack(track)}
                     >
                       <td className="px-4 py-2.5">
                         <input
@@ -704,9 +737,9 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                   // eslint-disable-next-line jsx-a11y/prefer-tag-over-role
                   role="button"
                   tabIndex={0}
-                  onClick={() => setPeekTrack(track)}
+                  onClick={() => openTrack(track)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") setPeekTrack(track);
+                    if (event.key === "Enter" || event.key === " ") openTrack(track);
                   }}
                 >
                   <div className="flex gap-3">
@@ -743,8 +776,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
                         key={release.id}
                         onClick={(event) => {
                           event.stopPropagation();
-                          setEditingRelease(releases.find((item) => item.id === release.id));
-                          setReleaseOpen(true);
+                          openRelease(releases.find((item) => item.id === release.id));
                         }}
                       >
                         {badge(release.title)}
@@ -813,11 +845,12 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
           onClose={() => {
             setPeekTrack(undefined);
             setPeekCreateOpen(false);
+            setPanelParam("track", null);
           }}
           onSaved={() => void mutateTracks()}
           onCreated={(created) => {
             setPeekCreateOpen(false);
-            setPeekTrack(created);
+            openTrack(created);
           }}
           onResourcesChanged={refreshResources}
         />
@@ -829,7 +862,10 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         release={editingRelease}
         parties={parties}
         options={options}
-        onClose={() => setReleaseOpen(false)}
+        onClose={() => {
+          setReleaseOpen(false);
+          setPanelParam("release", null);
+        }}
         onSaved={refreshAll}
         onResourcesChanged={refreshResources}
       />

@@ -54,6 +54,7 @@ import { EditableField } from "./editable-field";
 import { MusicResourcePickerModal } from "./resource-picker-modal";
 import { SearchableSelect } from "./searchable-select";
 import { AskAssistantButton } from "@/components/assistant/ask";
+import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 
 type Props = {
   workspaceSlug: string;
@@ -71,6 +72,8 @@ type Props = {
   /** Create mode: the record was persisted — switch the panel to it */
   onCreated: (track: TMusicTrack) => void;
   onResourcesChanged: () => void;
+  /** Set when opened outside the catalog: go to the song there */
+  onOpenInSection?: () => void;
 };
 
 /** Blank draft for create mode (relations arrive after the first save) */
@@ -269,6 +272,7 @@ export function MusicTrackPeekPanel(props: Props) {
     onSaved,
     onCreated,
     onResourcesChanged,
+    onOpenInSection,
   } = props;
   // The panel owns the freshest copy: PATCH responses replace it in place
   const [track, setTrack] = useState<TMusicTrack>(initialTrack ?? EMPTY_TRACK);
@@ -842,6 +846,7 @@ export function MusicTrackPeekPanel(props: Props) {
                 >
                   {isExporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
                 </button>
+                <PeekLinkActions onOpenInSection={onOpenInSection} className={iconButton} small />
               </>
             )}
             <button type="button" onClick={onClose} className={iconButton} title="Cerrar (Esc)">
