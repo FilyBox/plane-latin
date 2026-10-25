@@ -386,6 +386,9 @@ export type TContractAuthoringField = {
   width: number;
   height: number;
   fieldMeta?: TContractFieldMeta;
+  /** Set by the API on fields derived from {{…FirmanteN}} tokens: placed from the Word file, not movable. */
+  locked?: boolean;
+  source?: "template_variable" | (string & {});
 };
 
 export type TContractAuthoringRecipient = {
@@ -430,6 +433,68 @@ export type TContractAuthoringSettings = {
     sendAfter: { disabled: true } | { unit: "day" | "week" | "month"; amount: number };
     repeatEvery: { disabled: true } | { unit: "day" | "week" | "month"; amount: number };
   };
+  /** Signers must attach an ID (INE). Off unless set; older requests may not have it. */
+  identity_verification_required?: boolean;
+};
+
+/** Optional per-variable settings stored on a variant (absent = inferred from the key). */
+export type TContractVariableSetting = {
+  label?: string;
+  type?: "text" | "date" | "number" | "currency" | "choice";
+  required?: boolean;
+  default?: string;
+  help?: string;
+  options?: string[];
+  date_format?: "long" | "iso";
+};
+
+/** Unpublished Word edits of a variant. Null/absent on older API responses. */
+export type TContractTemplateDraft = {
+  exists: boolean;
+  started_by_name: string | null;
+  started_at: string | null;
+  updated_at: string | null;
+  /** Who has the editor open right now (heartbeat in the last ~90 s). */
+  active_by_name: string | null;
+  active_at: string | null;
+  /** The draft differs from the published document. */
+  changed: boolean;
+  asset_id?: string | null;
+};
+
+/** What the browser needs to load Collabora (same shape as the file-library session). */
+export type TContractCollaboraSession = {
+  editor_url: string;
+  access_token: string;
+  wopi_src?: string;
+  can_write?: boolean;
+};
+
+export type TContractDraftStartResponse = {
+  draft: TContractTemplateDraft | null;
+  editor: TContractCollaboraSession | null;
+};
+
+export type TContractVariableChanges = {
+  added: string[];
+  removed: string[];
+  signers_added: number[];
+  signers_removed: number[];
+};
+
+export type TContractDraftPublishResponse = {
+  revision?: TContractTemplateRevision | null;
+  /** The draft matched the latest version: nothing was published. */
+  unchanged?: boolean;
+  variable_changes?: TContractVariableChanges;
+  manual_fields_status?: "COMPATIBLE" | "REQUIRES_REVIEW" | "NONE";
+  manual_field_count?: number;
+};
+
+export type TContractDraftAsVariantResponse = {
+  template?: TContractTemplate;
+  variant?: TContractTemplateVariant;
+  variant_id?: string;
 };
 
 export type TContractTemplateVariant = {
@@ -453,6 +518,12 @@ export type TContractTemplateVariant = {
     }
   >;
   authoring_settings: Partial<TContractAuthoringSettings>;
+  /** Absent on older API responses; treat as no draft. */
+  draft?: TContractTemplateDraft | null;
+  /** Keyed by variable key; {} or absent = defaults. */
+  variable_settings?: Record<string, TContractVariableSetting>;
+  /** Role names by zero-based signer index, e.g. {"0": "Representante"}. */
+  recipient_roles?: Record<string, string>;
   created_at: string;
   updated_at: string;
 };
@@ -521,16 +592,40 @@ export type TContractTemplateVariableSchema = {
   recipients: TContractTemplateSemanticRecipient[];
   signing_fields: TContractTemplateSemanticField[];
   placeholder_count: number;
+  summary?: TContractTemplateSummary;
+  warnings?: TContractTemplateWarning[];
+};
+
+/** "N datos · N firmantes · N campos de firma", counted once by the API. */
+export type TContractTemplateSummary = {
+  data_count: number;
+  signer_count: number;
+  signing_field_count: number;
+};
+
+export type TContractTemplateWarningCode =
+  | "reserved_token"
+  | "space_in_name"
+  | "signer_gap"
+  | "signer_without_signature";
+
+export type TContractTemplateWarning = {
+  code: TContractTemplateWarningCode | (string & {});
+  token?: string;
+  params?: Record<string, string | number | null | undefined>;
 };
 
 export type TContractTemplateSchemaResponse = {
   variant_id: string;
   content_sha256: string;
-  source: { kind: "CURRENT" | "REVISION"; revision_id: string | null; revision: number | null };
+  source: { kind: "CURRENT" | "REVISION" | "DRAFT"; revision_id: string | null; revision: number | null };
   schema: TContractTemplateVariableSchema;
   manual_fields_status: "COMPATIBLE" | "REQUIRES_REVIEW" | "NONE";
   manual_field_count: number;
   revisions: TContractTemplateRevision[];
+  /** Absent on older API responses. */
+  summary?: TContractTemplateSummary;
+  warnings?: TContractTemplateWarning[];
 };
 
 export type TContractSigner = {
@@ -540,7 +635,7 @@ export type TContractSigner = {
   email: string;
   role: string;
   signing_order: number;
-  status: "NOT_SENT" | "SENT" | "OPENED" | "SIGNED" | "REJECTED";
+  status: "NOT_SENT" | "SENT" | "OPENED" | "SIGNED" | "REJECTED" | "EXPIRED";
   documenso_recipient_id: number | null;
   created_at: string;
   updated_at: string;
@@ -594,7 +689,24 @@ export type TContractSignatureStatus =
   | "COMPLETED"
   | "REJECTED"
   | "CANCELLED"
+  | "EXPIRED"
   | "ERROR";
+
+/** Background send progress kept in request.metadata.send (absent on older requests). */
+export type TContractSendStep = "queued" | "uploading" | "creating" | "distributing" | "done" | "failed";
+
+export type TContractSendState = {
+  step: TContractSendStep | (string & {});
+  error?: { code?: string; message?: string } | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+};
+
+export type TContractPendingSigner = {
+  name: string;
+  email: string;
+  status: string;
+};
 
 export type TContractSignatureRequest = {
   id: string;
@@ -625,6 +737,16 @@ export type TContractSignatureRequest = {
   completed_at: string | null;
   signers: TContractSigner[];
   signing_details: TContractSigningDetails | null;
+  /** Fields below are optional: older API responses and requests do not have them. */
+  metadata?: { send?: TContractSendState; superseded?: boolean; [key: string]: unknown } | null;
+  pending_signers?: TContractPendingSigner[];
+  expires_at?: string | null;
+  last_reminded_at?: string | null;
+  /** TEMPLATE requests: the template being configured (for the back link). */
+  template_id?: string | null;
+  template_name?: string | null;
+  variant_id?: string | null;
+  variant_name?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -635,17 +757,41 @@ export type TContractTemplateUpdatePayload = {
   description?: string;
 };
 
-/** PATCH contract-variants/{id}/ */
+/** PATCH contract-variants/{id}/ — only the fields being changed. */
 export type TContractVariantUpdatePayload = {
-  name: string;
+  name?: string;
+  variable_settings?: Record<string, TContractVariableSetting>;
+  recipient_roles?: Record<string, string>;
 };
+
+/** Error codes the API returns in `error` (400/409). */
+export type TContractErrorCode =
+  | "template_name_taken"
+  | "variant_name_taken"
+  | "invalid_docx"
+  | "file_too_large"
+  | "upload_failed"
+  | "conversion_failed"
+  | "missing_value"
+  | "missing_signer"
+  | "draft_locked"
+  | "no_draft"
+  | "job_active"
+  | "request_not_ready"
+  | "already_sending";
 
 /**
  * Error thrown by template / signature-request actions: the API body plus the
- * HTTP status, so callers can tell "not implemented yet" (501) apart.
+ * HTTP status. `error` is a code from TContractErrorCode or, on older
+ * endpoints, a human-readable message.
  */
 export type TContractActionError = {
-  error?: string;
+  error?: TContractErrorCode | (string & {});
   detail?: string;
   status?: number;
+  key?: string;
+  index?: number;
+  field?: "name" | "email";
+  by_name?: string;
+  since?: string;
 };

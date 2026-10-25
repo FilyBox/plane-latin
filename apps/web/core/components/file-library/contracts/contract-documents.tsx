@@ -14,6 +14,7 @@ import {
   Ban,
   BellRing,
   Copy,
+  CopyPlus,
   Download,
   FileCheck2,
   Link2,
@@ -29,18 +30,28 @@ import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TContractActionError, TContractSignatureRequest } from "@plane/types";
+import type { TContractSignatureRequest } from "@plane/types";
 import { AlertModalCore, CustomMenu } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
 import { downloadAssets } from "../download";
 import { ContractDeleteDialog } from "./contract-delete-dialog";
 import { ContractRequestPeek } from "./contract-request-peek";
+import {
+  cancelAndDuplicateRequest,
+  hasSendFailed,
+  isSendInProgress,
+  sendErrorMessage,
+  sendStepLabelKey,
+  sendStepOf,
+} from "./contract-send-progress";
+import { contractErrorMessage, requestStatusLabelKey } from "./template-utils";
 import { ContractBulkActionsBar, ContractSelectionCheckbox } from "./list-controls";
 import { ContractEmptyState, ContractLoading, RequestStatusBadge } from "./ui";
 
 type Props = { workspaceSlug: string };
-type RequestAction = "cancel" | "remind" | "duplicate";
+type RequestAction = "cancel" | "remind" | "duplicate" | "cancel_duplicate";
+type ConfirmAction = { action: "cancel" | "cancel_duplicate"; request: TContractSignatureRequest };
 
 const ACTION_TOAST_KEYS: Record<RequestAction, { success: string; failed: string }> = {
   cancel: {
@@ -55,20 +66,13 @@ const ACTION_TOAST_KEYS: Record<RequestAction, { success: string; failed: string
     success: "file_library.contracts.workflow.documents.duplicate_success",
     failed: "file_library.contracts.workflow.documents.duplicate_failed",
   },
+  cancel_duplicate: {
+    success: "file_library.contracts.workflow.tracking.cancel_duplicate_success",
+    failed: "file_library.contracts.workflow.tracking.cancel_duplicate_failed",
+  },
 };
 
-type StatusFilter = "ALL" | "IN_PROGRESS" | "COMPLETED" | "DRAFTS" | "ATTENTION";
-
-const STATUS_LABEL_KEYS: Record<TContractSignatureRequest["status"], string> = {
-  DRAFT: "file_library.contracts.workflow.request_status.draft",
-  PREPARING: "file_library.contracts.workflow.request_status.preparing",
-  READY: "file_library.contracts.workflow.request_status.ready",
-  PENDING: "file_library.contracts.workflow.request_status.pending",
-  COMPLETED: "file_library.contracts.workflow.request_status.completed",
-  REJECTED: "file_library.contracts.workflow.request_status.rejected",
-  CANCELLED: "file_library.contracts.workflow.request_status.cancelled",
-  ERROR: "file_library.contracts.workflow.request_status.error",
-};
+type StatusFilter = "ALL" | "IN_PROGRESS" | "COMPLETED" | "DRAFTS" | "CANCELLED" | "REJECTED" | "EXPIRED" | "ERROR";
 
 const FILTERS: {
   key: StatusFilter;
@@ -83,7 +87,7 @@ const FILTERS: {
   {
     key: "IN_PROGRESS",
     labelKey: "file_library.contracts.workflow.documents.filter_in_progress",
-    match: (r) => r.status === "PENDING",
+    match: (r) => r.status === "PENDING" || isSendInProgress(r),
   },
   {
     key: "COMPLETED",
@@ -93,16 +97,61 @@ const FILTERS: {
   {
     key: "DRAFTS",
     labelKey: "file_library.contracts.workflow.documents.filter_drafts",
-    match: (r) => r.status === "DRAFT" || r.status === "READY" || r.status === "PREPARING",
+    // PREPARING with send state is being sent (In progress), not a draft.
+    match: (r) =>
+      !hasSendFailed(r) &&
+      (r.status === "DRAFT" || r.status === "READY" || (r.status === "PREPARING" && !r.metadata?.send)),
   },
   {
-    key: "ATTENTION",
-    labelKey: "file_library.contracts.workflow.documents.filter_attention",
-    match: (r) => r.status === "ERROR" || r.status === "REJECTED",
+    key: "CANCELLED",
+    labelKey: "file_library.contracts.workflow.tracking.filter_cancelled",
+    match: (r) => r.status === "CANCELLED",
+  },
+  {
+    key: "REJECTED",
+    labelKey: "file_library.contracts.workflow.tracking.filter_rejected",
+    match: (r) => r.status === "REJECTED",
+  },
+  {
+    key: "EXPIRED",
+    labelKey: "file_library.contracts.workflow.tracking.filter_expired",
+    match: (r) => r.status === "EXPIRED",
+  },
+  {
+    key: "ERROR",
+    labelKey: "file_library.contracts.workflow.tracking.filter_error",
+    match: (r) => r.status === "ERROR" || hasSendFailed(r),
   },
 ];
 
 const isCompletedSignerStatus = (status: string) => ["SIGNED", "APPROVED", "COMPLETED"].includes(status);
+const PASSIVE_ROLES = new Set(["CC", "VIEWER"]);
+
+/** Who still has to sign: the API list when present, else computed from the signers. */
+function pendingSignerNames(request: TContractSignatureRequest): string[] {
+  if (request.status !== "PENDING") return [];
+  if (Array.isArray(request.pending_signers))
+    return request.pending_signers.map((signer) => signer.name?.trim() || signer.email).filter(Boolean);
+  const remote = request.signing_details?.recipients ?? [];
+  const people: Array<{ name: string; email: string; role: string; status: string }> = remote.length
+    ? remote.map((recipient) => ({
+        name: recipient.name,
+        email: recipient.email,
+        role: recipient.role,
+        status: recipient.signing_status,
+      }))
+    : request.signers;
+  return people
+    .filter(
+      (person) => !isCompletedSignerStatus(person.status) && !PASSIVE_ROLES.has((person.role ?? "").toUpperCase())
+    )
+    .map((person) => person.name?.trim() || person.email)
+    .filter(Boolean);
+}
+
+/** "Ana López, Juan Pérez +2". */
+const shortNames = (names: string[], max = 2) =>
+  names.length <= max ? names.join(", ") : `${names.slice(0, max).join(", ")} +${names.length - max}`;
 
 /** Compact "x minutes ago" without pulling in a date library. */
 function useRelativeTime() {
@@ -136,7 +185,7 @@ export function ContractDocuments({ workspaceSlug }: Props) {
   const [isBulkSyncing, setIsBulkSyncing] = useState(false);
   const [deletingRequests, setDeletingRequests] = useState<TContractSignatureRequest[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [cancellingRequest, setCancellingRequest] = useState<TContractSignatureRequest>();
+  const [confirming, setConfirming] = useState<ConfirmAction>();
   const [actingId, setActingId] = useState<string>();
 
   const {
@@ -174,8 +223,13 @@ export function ContractDocuments({ workspaceSlug }: Props) {
     [ordered]
   );
 
+  const pendingNames = useMemo(
+    () => new Map(ordered.map((request) => [request.id, pendingSignerNames(request)])),
+    [ordered]
+  );
+
   const visible = useMemo(() => {
-    const activeFilter = FILTERS.find((item) => item.key === filter)!;
+    const activeFilter = FILTERS.find((item) => item.key === filter) ?? FILTERS[0];
     const term = search.trim().toLowerCase();
     return ordered.filter(
       (request) =>
@@ -184,9 +238,10 @@ export function ContractDocuments({ workspaceSlug }: Props) {
           request.title.toLowerCase().includes(term) ||
           request.signers.some(
             (signer) => signer.name.toLowerCase().includes(term) || signer.email.toLowerCase().includes(term)
-          ))
+          ) ||
+          (pendingNames.get(request.id) ?? []).some((name) => name.toLowerCase().includes(term)))
     );
-  }, [filter, ordered, search]);
+  }, [filter, ordered, pendingNames, search]);
 
   const sync = async (requestId: string) => {
     setSyncingId(requestId);
@@ -197,50 +252,48 @@ export function ContractDocuments({ workspaceSlug }: Props) {
         type: TOAST_TYPE.SUCCESS,
         title: t("file_library.contracts.workflow.documents.sync_success"),
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.documents.sync_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.documents.sync_failed"),
       });
     } finally {
       setSyncingId(undefined);
     }
   };
 
-  /** Cancel / remind / duplicate. A 501 means the signing service does not support it yet. */
+  /** Cancel / remind / duplicate / cancel and copy. Resolves true on success. */
   const runAction = async (action: RequestAction, request: TContractSignatureRequest) => {
     setActingId(request.id);
     try {
       if (action === "cancel") await contractService.cancelSignatureRequest(workspaceSlug, request.id);
       else if (action === "remind") await contractService.remindSignatureRequest(workspaceSlug, request.id);
-      else {
+      else if (action === "duplicate") {
         const copy = await contractService.duplicateSignatureRequest(workspaceSlug, request.id);
         if (copy?.id) setPeekRequestId(copy.id);
+      } else {
+        // The copy exists to be corrected and resent, so open it in the editor when it is ready.
+        const copy = await cancelAndDuplicateRequest(workspaceSlug, request.id);
+        if (copy?.id && (copy.status === "READY" || copy.status === "DRAFT")) openEditor(copy);
+        else if (copy?.id) setPeekRequestId(copy.id);
       }
-      await mutate();
+      void mutate();
       setToast({ type: TOAST_TYPE.SUCCESS, title: t(ACTION_TOAST_KEYS[action].success) });
-    } catch (error) {
-      const apiError = error as TContractActionError;
-      if (apiError?.status === 501)
-        setToast({
-          type: TOAST_TYPE.INFO,
-          title: t("file_library.contracts.workflow.documents.action_unavailable"),
-          message: t("file_library.contracts.workflow.documents.action_unavailable_description"),
-        });
-      else
-        setToast({
-          type: TOAST_TYPE.ERROR,
-          title: apiError?.error ?? t(ACTION_TOAST_KEYS[action].failed),
-        });
+      return true;
+    } catch (error: unknown) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: contractErrorMessage(t, error, ACTION_TOAST_KEYS[action].failed),
+      });
+      return false;
     } finally {
       setActingId(undefined);
     }
   };
 
-  const confirmCancel = async () => {
-    if (!cancellingRequest) return;
-    await runAction("cancel", cancellingRequest);
-    setCancellingRequest(undefined);
+  const confirmAction = async () => {
+    if (!confirming) return;
+    if (await runAction(confirming.action, confirming.request)) setConfirming(undefined);
   };
 
   const toggleSelect = (requestId: string) =>
@@ -317,10 +370,10 @@ export function ContractDocuments({ workspaceSlug }: Props) {
         type: TOAST_TYPE.SUCCESS,
         title: t("file_library.contracts.workflow.documents.delete_success", { count: result.deleted.length }),
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.documents.delete_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.documents.delete_failed"),
       });
     } finally {
       setIsDeleting(false);
@@ -449,6 +502,16 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                 // Only a contract out for signature can be cancelled or chased.
                 const isPending = request.status === "PENDING";
                 const isActing = actingId === request.id;
+                const sending = isSendInProgress(request);
+                const sendFailed =
+                  hasSendFailed(request) || (request.status === "ERROR" && Boolean(request.metadata?.send?.error));
+                const badgeStatus = sending ? "PREPARING" : sendFailed ? "ERROR" : request.status;
+                const badgeLabel = sending
+                  ? t("file_library.contracts.workflow.send.sending")
+                  : hasSendFailed(request)
+                    ? t("file_library.contracts.workflow.send.failed_short")
+                    : t(requestStatusLabelKey(request.status));
+                const waitingOn = pendingNames.get(request.id) ?? [];
                 return (
                   <li
                     key={request.id}
@@ -487,11 +550,23 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                           })}{" "}
                           · {relative(request.updated_at)}
                         </p>
+                        {sending ? (
+                          <p className="mt-0.5 flex items-center gap-1 truncate text-11 text-accent-primary">
+                            <Loader2 className="size-3 shrink-0 animate-spin" />
+                            {t(sendStepLabelKey(sendStepOf(request)))}
+                          </p>
+                        ) : sendFailed ? (
+                          <p className="mt-0.5 truncate text-11 text-danger-primary">{sendErrorMessage(t, request)}</p>
+                        ) : waitingOn.length > 0 ? (
+                          <p className="mt-0.5 truncate text-11 text-secondary">
+                            {t("file_library.contracts.workflow.tracking.waiting_on", { names: shortNames(waitingOn) })}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
                     <div className="pointer-events-none z-1 flex shrink-0 flex-col items-end gap-1 md:hidden">
-                      <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} />
+                      <RequestStatusBadge status={badgeStatus} label={badgeLabel} />
                       <span className="text-10 text-tertiary">
                         {t("file_library.contracts.workflow.documents.signers_completed", {
                           completed: signedCount,
@@ -501,7 +576,7 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                     </div>
 
                     <div className="pointer-events-none z-1 hidden min-w-0 overflow-hidden px-3 py-2.5 md:block">
-                      <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} />
+                      <RequestStatusBadge status={badgeStatus} label={badgeLabel} />
                     </div>
 
                     <div className="pointer-events-none z-1 hidden min-w-0 overflow-hidden px-3 py-2.5 md:block">
@@ -569,7 +644,21 @@ export function ContractDocuments({ workspaceSlug }: Props) {
                           </span>
                         </CustomMenu.MenuItem>
                         {isPending ? (
-                          <CustomMenu.MenuItem disabled={isActing} onClick={() => setCancellingRequest(request)}>
+                          <CustomMenu.MenuItem
+                            disabled={isActing}
+                            onClick={() => setConfirming({ action: "cancel_duplicate", request })}
+                          >
+                            <span className="flex items-center gap-2">
+                              <CopyPlus className="size-3.5" />
+                              {t("file_library.contracts.workflow.tracking.cancel_duplicate")}
+                            </span>
+                          </CustomMenu.MenuItem>
+                        ) : null}
+                        {isPending ? (
+                          <CustomMenu.MenuItem
+                            disabled={isActing}
+                            onClick={() => setConfirming({ action: "cancel", request })}
+                          >
                             <span className="flex items-center gap-2 text-danger-primary">
                               <Ban className="size-3.5" />
                               {t("file_library.contracts.workflow.documents.cancel_request")}
@@ -602,20 +691,36 @@ export function ContractDocuments({ workspaceSlug }: Props) {
             setPeekRequestId(undefined);
             openEditor(request);
           }}
+          onOpenRequest={setPeekRequestId}
         />
       ) : null}
       <AlertModalCore
-        isOpen={Boolean(cancellingRequest)}
-        handleClose={() => setCancellingRequest(undefined)}
-        handleSubmit={() => void confirmCancel()}
-        isSubmitting={Boolean(cancellingRequest) && actingId === cancellingRequest?.id}
+        isOpen={confirming?.action === "cancel"}
+        handleClose={() => setConfirming(undefined)}
+        handleSubmit={() => void confirmAction()}
+        isSubmitting={Boolean(confirming) && actingId === confirming?.request.id}
         title={t("file_library.contracts.workflow.documents.cancel_title")}
         content={t("file_library.contracts.workflow.documents.cancel_description", {
-          title: cancellingRequest?.title ?? "",
+          title: confirming?.request.title ?? "",
         })}
         primaryButtonText={{
           default: t("file_library.contracts.workflow.documents.cancel_confirm"),
           loading: t("file_library.contracts.workflow.documents.cancel_confirming"),
+        }}
+        secondaryButtonText={t("file_library.contracts.workflow.documents.keep")}
+      />
+      <AlertModalCore
+        isOpen={confirming?.action === "cancel_duplicate"}
+        handleClose={() => setConfirming(undefined)}
+        handleSubmit={() => void confirmAction()}
+        isSubmitting={Boolean(confirming) && actingId === confirming?.request.id}
+        title={t("file_library.contracts.workflow.tracking.cancel_duplicate_title")}
+        content={t("file_library.contracts.workflow.tracking.cancel_duplicate_description", {
+          title: confirming?.request.title ?? "",
+        })}
+        primaryButtonText={{
+          default: t("file_library.contracts.workflow.tracking.cancel_duplicate_confirm"),
+          loading: t("file_library.contracts.workflow.tracking.cancel_duplicate_confirming"),
         }}
         secondaryButtonText={t("file_library.contracts.workflow.documents.keep")}
       />

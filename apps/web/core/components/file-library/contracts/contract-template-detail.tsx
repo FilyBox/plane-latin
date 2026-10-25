@@ -5,70 +5,108 @@
  *
  * Template detail.
  *
- * The two axes that used to compete for the same control are now separated:
- * *variants* live in the left rail (parallel presentations of the same
- * contract) and *versions* live in the right rail (the immutable history of
- * one variant). A preparation checklist tells the user what still stands
- * between the uploaded Word file and a contract they can actually send.
+ * Variants live in the left rail (parallel presentations of the same contract)
+ * and versions in the right rail (the immutable history of one variant). Word
+ * edits go to a per-variant draft that is published as a new version, kept
+ * for later or discarded; the published document is never edited in place.
+ * Servers without the draft endpoints fall back to the older edit session.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Braces,
   Check,
   CheckCircle2,
   CopyPlus,
+  FileClock,
   FileText,
   Loader2,
   Maximize2,
   Pencil,
   Plus,
-  Save,
   Send,
   Settings2,
   Trash2,
+  UserRound,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";
-import type { TContractActionError, TContractSignatureRequest, TContractTemplateVariant } from "@plane/types";
+import type {
+  TContractCollaboraSession,
+  TContractDraftPublishResponse,
+  TContractTemplate,
+  TContractTemplateVariant,
+} from "@plane/types";
 import { AlertModalCore, CustomMenu, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
-import { CollaboraEditorModal } from "../collabora-editor-modal";
+import { CollaboraEditorModal, type TCollaboraCloseState } from "../collabora-editor-modal";
 import { FilePreviewModal, type TPreviewFile } from "../file-preview-modal";
 import { ContractAssetPreview } from "./contract-asset-preview";
+import {
+  ContractDraftCloseDialog,
+  ContractPublishResultDialog,
+  type TDraftCloseAction,
+} from "./contract-draft-dialogs";
 import { ContractTemplateDetailsDialog } from "./contract-template-details-dialog";
 import { ContractTemplateUseDialog } from "./contract-template-use-dialog";
+import { ContractVariablesPanel } from "./contract-variables-panel";
 import { ContractWordEditDecisionDialog, type TContractEditDecision } from "./contract-word-edit-decision-dialog";
+import {
+  contractErrorMessage,
+  formatTemplateCounts,
+  isEndpointMissing,
+  requestStatusLabelKey,
+  schemaWarnings,
+  templateCounts,
+  templateFieldEditorUrl,
+} from "./template-utils";
+import { TemplateWarnings } from "./template-warnings";
 import { ContractField, ContractInput, ContractPageHeader, ContractSection, RequestStatusBadge } from "./ui";
 
 type Props = { workspaceSlug: string; templateId: string };
 type UseSelection = { variant: TContractTemplateVariant; revisionId?: string };
-type EditSession = {
-  variant: TContractTemplateVariant;
-  backupAssetId: string;
-  phase: "EDITING" | "CONFIRM";
-};
+
+/** One Word session: a draft (current API) or the legacy in-place edit. */
+type WordSession =
+  | {
+      mode: "DRAFT";
+      variant: TContractTemplateVariant;
+      editor: TContractCollaboraSession | null;
+      assetId: string | null;
+      phase: "EDITING" | "CONFIRM";
+    }
+  | { mode: "LEGACY"; variant: TContractTemplateVariant; backupAssetId: string; phase: "EDITING" | "CONFIRM" };
 
 const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-const STATUS_LABEL_KEYS: Record<TContractSignatureRequest["status"], string> = {
-  DRAFT: "file_library.contracts.workflow.request_status.draft",
-  PREPARING: "file_library.contracts.workflow.request_status.preparing",
-  READY: "file_library.contracts.workflow.request_status.ready",
-  PENDING: "file_library.contracts.workflow.request_status.pending",
-  COMPLETED: "file_library.contracts.workflow.request_status.completed",
-  REJECTED: "file_library.contracts.workflow.request_status.rejected",
-  CANCELLED: "file_library.contracts.workflow.request_status.cancelled",
-  ERROR: "file_library.contracts.workflow.request_status.error",
+const HEARTBEAT_MS = 30000;
+/** A heartbeat older than this means nobody has the editor open. */
+const ACTIVE_WINDOW_MS = 90000;
+/** Compact Collabora: no properties sidebar or ruler. Unknown keys are ignored by the server. */
+const COLLABORA_UI_DEFAULTS = "UIMode=compact;TextSidebar=false;TextRuler=false;SaveAsMode=group";
+
+const nextVersionNumber = (variant?: TContractTemplateVariant) =>
+  (variant?.latest_revision?.revision ?? variant?.revision_count ?? 0) + 1;
+
+const isDraftActive = (variant?: TContractTemplateVariant) => {
+  const activeAt = variant?.draft?.active_at;
+  return Boolean(activeAt && Date.now() - new Date(activeAt).getTime() < ACTIVE_WINDOW_MS);
 };
+
+/** The draft holds changes the published document doesn't have. */
+const hasPendingDraft = (variant?: TContractTemplateVariant) =>
+  Boolean(variant?.draft?.exists && variant.draft.changed !== false);
+
+const formatClock = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" }) : "";
 
 export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { mutate: globalMutate } = useSWRConfig();
   const {
     data: template,
     mutate: mutateTemplate,
@@ -76,7 +114,11 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   } = useSWR(
     `CONTRACT_TEMPLATE_${workspaceSlug}_${templateId}`,
     () => contractService.getTemplate(workspaceSlug, templateId),
-    { revalidateOnFocus: false }
+    {
+      revalidateOnFocus: false,
+      // Keeps "en edición por…" honest while a draft exists.
+      refreshInterval: (latest) => (latest?.variants?.some((variant) => variant.draft?.exists) ? HEARTBEAT_MS : 0),
+    }
   );
   const { data: requests, mutate: mutateRequests } = useSWR(
     `CONTRACT_SIGNATURE_REQUESTS_${workspaceSlug}`,
@@ -97,14 +139,17 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   );
   const [previewFile, setPreviewFile] = useState<TPreviewFile | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState("CURRENT");
-  const [editSession, setEditSession] = useState<EditSession>();
+  const [wordSession, setWordSession] = useState<WordSession>();
   const [isStartingEdit, setIsStartingEdit] = useState(false);
   const [isFinishingEdit, setIsFinishingEdit] = useState(false);
+  const [draftActionError, setDraftActionError] = useState<string>();
+  const [publishResult, setPublishResult] = useState<TContractDraftPublishResponse & { versionNumber?: number }>();
+  const [discardingDraft, setDiscardingDraft] = useState<TContractTemplateVariant>();
+  const [isDraftActing, setIsDraftActing] = useState(false);
   const [usingSelection, setUsingSelection] = useState<UseSelection>();
   const [variantDraft, setVariantDraft] = useState("");
   const [variantModalOpen, setVariantModalOpen] = useState(false);
   const [isCreatingVariant, setIsCreatingVariant] = useState(false);
-  const [isSavingVersion, setIsSavingVersion] = useState(false);
   const [isConfiguring, setIsConfiguring] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -115,6 +160,21 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   const [deletingVariant, setDeletingVariant] = useState<TContractTemplateVariant>();
   const [isDeletingVariant, setIsDeletingVariant] = useState(false);
 
+  // Live variables of the draft being edited, refreshed after each save.
+  const draftVariantId = wordSession?.mode === "DRAFT" ? wordSession.variant.id : undefined;
+  const {
+    data: draftSchema,
+    mutate: mutateDraftSchema,
+    isValidating: isDraftSchemaValidating,
+  } = useSWR(
+    draftVariantId ? `CONTRACT_TEMPLATE_SCHEMA_${workspaceSlug}_${draftVariantId}_DRAFT` : null,
+    () =>
+      contractService
+        .getTemplateSchema(workspaceSlug, draftVariantId!, undefined, { draft: true })
+        .catch(() => contractService.getTemplateSchema(workspaceSlug, draftVariantId!)),
+    { revalidateOnFocus: false }
+  );
+
   useEffect(() => {
     if (!selectedVariantId && template?.variants[0]) setSelectedVariantId(template.variants[0].id);
   }, [selectedVariantId, template]);
@@ -123,28 +183,185 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     setSelectedVersionId("CURRENT");
   }, [selectedVariant?.id]);
 
+  /** Every cached schema of this template (detail, use dialog) after the document changes. */
+  const refreshSchemas = useCallback(
+    () =>
+      // No data argument: revalidate in place instead of clearing the cache.
+      globalMutate((key) => typeof key === "string" && key.startsWith(`CONTRACT_TEMPLATE_SCHEMA_${workspaceSlug}_`)),
+    [globalMutate, workspaceSlug]
+  );
+
+  // heartbeat while the draft editor is open
+  const editingDraftVariantId =
+    wordSession?.mode === "DRAFT" && wordSession.phase === "EDITING" ? wordSession.variant.id : undefined;
+  useEffect(() => {
+    if (!editingDraftVariantId) return;
+    const timer = window.setInterval(() => {
+      contractService.heartbeatTemplateDraft(workspaceSlug, editingDraftVariantId).catch(() => undefined);
+    }, HEARTBEAT_MS);
+    return () => window.clearInterval(timer);
+  }, [editingDraftVariantId, workspaceSlug]);
+
+  // Leaving the page with the editor open still frees the draft for others.
+  const editingRef = useRef(editingDraftVariantId);
+  editingRef.current = editingDraftVariantId;
+  useEffect(
+    () => () => {
+      if (editingRef.current)
+        contractService.releaseTemplateDraft(workspaceSlug, editingRef.current).catch(() => undefined);
+    },
+    [workspaceSlug]
+  );
+
+  /** Legacy path: the older API edits the live document behind a backup. */
+  const startLegacyEdit = useCallback(
+    async (variant: TContractTemplateVariant) => {
+      const session = await contractService.startTemplateEditSession(workspaceSlug, variant.id);
+      setWordSession({ mode: "LEGACY", variant, backupAssetId: session.backup_asset_id, phase: "EDITING" });
+    },
+    [workspaceSlug]
+  );
+
   const startWordEdit = useCallback(
     async (variant: TContractTemplateVariant) => {
-      if (isStartingEdit || editSession) return;
+      if (isStartingEdit || wordSession?.phase === "EDITING") return;
       setIsStartingEdit(true);
       try {
-        const session = await contractService.startTemplateEditSession(workspaceSlug, variant.id);
-        setEditSession({
-          variant,
-          backupAssetId: session.backup_asset_id,
-          phase: "EDITING",
-        });
-      } catch (error: any) {
+        try {
+          const result = await contractService.startTemplateDraft(workspaceSlug, variant.id);
+          const assetId = result?.draft?.asset_id ?? null;
+          if (!result?.editor && !assetId) {
+            await startLegacyEdit(variant);
+            return;
+          }
+          setDraftActionError(undefined);
+          setWordSession({ mode: "DRAFT", variant, editor: result.editor ?? null, assetId, phase: "EDITING" });
+          void mutateTemplate();
+        } catch (error) {
+          if (!isEndpointMissing(error)) throw error;
+          await startLegacyEdit(variant);
+        }
+      } catch (error) {
         setToast({
           type: TOAST_TYPE.ERROR,
-          title: error?.error ?? t("file_library.contracts.workflow.template_detail.edit_start_failed"),
+          title: contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.edit_start_failed"),
         });
       } finally {
         setIsStartingEdit(false);
       }
     },
-    [editSession, isStartingEdit, t, workspaceSlug]
+    [isStartingEdit, mutateTemplate, startLegacyEdit, t, wordSession?.phase, workspaceSlug]
   );
+
+  /** The editor closed: free the draft, then ask only if something changed. */
+  const onEditorClosed = async (state: TCollaboraCloseState) => {
+    if (!wordSession) return;
+    if (wordSession.mode === "LEGACY") {
+      setWordSession({ ...wordSession, phase: "CONFIRM" });
+      return;
+    }
+    const session = wordSession;
+    contractService.releaseTemplateDraft(workspaceSlug, session.variant.id).catch(() => undefined);
+    const latest: TContractTemplate | undefined = await mutateTemplate();
+    const draft = latest?.variants.find((variant) => variant.id === session.variant.id)?.draft;
+    // Trust the server when it says the draft equals the published document.
+    const changed = draft ? draft.exists && draft.changed !== false : state.modified;
+    if (!changed || !state.modified) {
+      setWordSession(undefined);
+      return;
+    }
+    setDraftActionError(undefined);
+    setWordSession({ ...session, phase: "CONFIRM" });
+  };
+
+  const publishDraft = async (variant: TContractTemplateVariant, name?: string) => {
+    const result = await contractService.publishTemplateDraft(workspaceSlug, variant.id, name);
+    await Promise.all([mutateTemplate(), mutateSchema(), refreshSchemas()]);
+    if (result?.unchanged) {
+      setToast({ type: TOAST_TYPE.INFO, title: t("file_library.contracts.workflow.draft.unchanged") });
+      return;
+    }
+    if (result?.revision?.id) setSelectedVersionId(result.revision.id);
+    setPublishResult({ ...result, versionNumber: result?.revision?.revision ?? nextVersionNumber(variant) });
+  };
+
+  const submitDraftAction = async (action: TDraftCloseAction, name?: string) => {
+    if (wordSession?.mode !== "DRAFT") return;
+    const { variant } = wordSession;
+    setIsFinishingEdit(true);
+    setDraftActionError(undefined);
+    try {
+      if (action === "PUBLISH") await publishDraft(variant, name);
+      else if (action === "DISCARD") {
+        await contractService.discardTemplateDraft(workspaceSlug, variant.id);
+        await mutateTemplate();
+        setToast({
+          type: TOAST_TYPE.SUCCESS,
+          title: t("file_library.contracts.workflow.template_detail.changes_discarded"),
+        });
+      } else if (action === "NEW_VARIANT" && name) {
+        const before = new Set(template?.variants.map((item) => item.id));
+        const result = await contractService.saveTemplateDraftAsVariant(workspaceSlug, variant.id, name);
+        const latest: TContractTemplate | undefined = result?.template
+          ? await mutateTemplate(result.template, { revalidate: true })
+          : await mutateTemplate();
+        const newId =
+          result?.variant_id ??
+          result?.variant?.id ??
+          latest?.variants.find((item) => !before.has(item.id))?.id ??
+          latest?.variants.find((item) => item.name === name)?.id;
+        if (newId) setSelectedVariantId(newId);
+        setToast({
+          type: TOAST_TYPE.SUCCESS,
+          title: t("file_library.contracts.workflow.template_detail.variant_created"),
+        });
+      }
+      // KEEP: nothing to call — the draft stays and the banner offers it again.
+      setWordSession(undefined);
+    } catch (error) {
+      setDraftActionError(
+        contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.apply_failed")
+      );
+    } finally {
+      setIsFinishingEdit(false);
+    }
+  };
+
+  /** "Publicar" from the banner, without opening Word. */
+  const publishFromBanner = async (variant: TContractTemplateVariant) => {
+    setIsDraftActing(true);
+    try {
+      await publishDraft(variant);
+    } catch (error) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.apply_failed"),
+      });
+    } finally {
+      setIsDraftActing(false);
+    }
+  };
+
+  const discardFromBanner = async () => {
+    if (!discardingDraft) return;
+    setIsDraftActing(true);
+    try {
+      await contractService.discardTemplateDraft(workspaceSlug, discardingDraft.id);
+      await mutateTemplate();
+      setDiscardingDraft(undefined);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: t("file_library.contracts.workflow.template_detail.changes_discarded"),
+      });
+    } catch (error) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.apply_failed"),
+      });
+    } finally {
+      setIsDraftActing(false);
+    }
+  };
 
   const templateRequests = useMemo(
     () =>
@@ -161,48 +378,32 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   const createVariant = async () => {
     if (!template || !selectedVariant || !variantDraft.trim()) return;
     setIsCreatingVariant(true);
+    const name = variantDraft.trim();
+    const before = new Set(template.variants.map((variant) => variant.id));
     try {
       const updated = await contractService.createVariant(workspaceSlug, template.id, {
-        name: variantDraft.trim(),
+        name,
         source_variant_id: selectedVariant.id,
       });
       await mutateTemplate(updated, { revalidate: true });
       setVariantModalOpen(false);
       setVariantDraft("");
-      setSelectedVariantId(updated.variants.at(-1)?.id);
+      // The new one, not whichever sorts last.
+      const created =
+        updated.variants.find((variant) => !before.has(variant.id)) ??
+        updated.variants.find((variant) => variant.name === name);
+      if (created) setSelectedVariantId(created.id);
       setToast({
         type: TOAST_TYPE.SUCCESS,
         title: t("file_library.contracts.workflow.template_detail.variant_created"),
       });
-    } catch (error: any) {
+    } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.template_detail.variant_create_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.variant_create_failed"),
       });
     } finally {
       setIsCreatingVariant(false);
-    }
-  };
-
-  const saveVersion = async () => {
-    if (!selectedVariant) return;
-    setIsSavingVersion(true);
-    try {
-      const revision = await contractService.saveTemplateRevision(workspaceSlug, selectedVariant.id);
-      await Promise.all([mutateTemplate(), mutateSchema()]);
-      // Select the version that was just created so the save has a visible result.
-      setSelectedVersionId(revision.id);
-      setToast({
-        type: TOAST_TYPE.SUCCESS,
-        title: t("file_library.contracts.workflow.template_detail.version_saved"),
-      });
-    } catch (error: any) {
-      setToast({
-        type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.template_detail.version_save_failed"),
-      });
-    } finally {
-      setIsSavingVersion(false);
     }
   };
 
@@ -213,17 +414,14 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     try {
       const request = await contractService.prepareSignatureRequest(workspaceSlug, {
         variant_id: selectedVariant.id,
-        title: t("file_library.contracts.workflow.template_detail.configuration_title", { name: template.name }),
+        title: template.name,
         authoring_mode: "TEMPLATE",
       });
-      const returnTo = `/${workspaceSlug}/file-library/contracts/templates/${template.id}`;
-      navigate(
-        `/${workspaceSlug}/file-library/contracts/documents/${request.id}/editor?returnTo=${encodeURIComponent(returnTo)}`
-      );
-    } catch (error: any) {
+      navigate(templateFieldEditorUrl(workspaceSlug, request.id, template.id));
+    } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.template_detail.configuration_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.configuration_failed"),
       });
     } finally {
       setIsConfiguring(false);
@@ -240,9 +438,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     if (!renamingVariant || !name) return;
     setIsRenamingVariant(true);
     try {
-      await contractService.updateVariant(workspaceSlug, renamingVariant.id, {
-        name,
-      });
+      await contractService.updateVariant(workspaceSlug, renamingVariant.id, { name });
       await mutateTemplate();
       setRenamingVariant(undefined);
       setToast({
@@ -252,9 +448,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title:
-          (error as TContractActionError)?.error ??
-          t("file_library.contracts.workflow.template_detail.variant_rename_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.variant_rename_failed"),
       });
     } finally {
       setIsRenamingVariant(false);
@@ -278,9 +472,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title:
-          (error as TContractActionError)?.error ??
-          t("file_library.contracts.workflow.template_detail.variant_delete_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.variant_delete_failed"),
       });
     } finally {
       setIsDeletingVariant(false);
@@ -297,37 +489,31 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
         title: t("file_library.contracts.workflow.templates.deleted"),
       });
       navigate(`/${workspaceSlug}/file-library/contracts/templates`);
-    } catch (error: any) {
+    } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.templates.delete_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.templates.delete_failed"),
       });
     } finally {
       setIsDeleting(false);
     }
   };
 
-  const finishWordEdit = async (decision: TContractEditDecision, name?: string) => {
-    if (!editSession) return;
+  /** Legacy decision (older API only). */
+  const finishLegacyEdit = async (decision: TContractEditDecision, name?: string) => {
+    if (wordSession?.mode !== "LEGACY") return;
     setIsFinishingEdit(true);
     try {
-      const result = await contractService.finishTemplateEditSession(workspaceSlug, editSession.variant.id, {
-        backup_asset_id: editSession.backupAssetId,
+      const result = await contractService.finishTemplateEditSession(workspaceSlug, wordSession.variant.id, {
+        backup_asset_id: wordSession.backupAssetId,
         action: decision,
         name,
       });
       await mutateTemplate(result.template, { revalidate: false });
-      const resultVariant = result.template.variants.find((variant) => variant.id === result.variant_id);
       setSelectedVariantId(result.variant_id);
       setSelectedVersionId(result.revision_id ?? "CURRENT");
-      if (usingSelection && resultVariant) {
-        setUsingSelection({
-          variant: resultVariant,
-          revisionId: result.revision_id ?? usingSelection.revisionId,
-        });
-      }
-      setEditSession(undefined);
-      await Promise.all([mutateTemplate(), mutateSchema(), mutateRequests()]);
+      setWordSession(undefined);
+      await Promise.all([mutateTemplate(), mutateSchema(), mutateRequests(), refreshSchemas()]);
       setToast({
         type: TOAST_TYPE.SUCCESS,
         title:
@@ -339,10 +525,10 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                 ? t("file_library.contracts.workflow.template_detail.version_saved")
                 : t("file_library.contracts.workflow.template_detail.document_updated"),
       });
-    } catch (error: any) {
+    } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.template_detail.apply_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.apply_failed"),
       });
     } finally {
       setIsFinishingEdit(false);
@@ -350,39 +536,41 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   };
 
   const selectedRevision = schema?.revisions.find((revision) => revision.id === selectedVersionId);
-  const selectedAsset = selectedRevision
+  // The current document usually equals the latest version: reuse that PDF
+  // instead of converting the Word file again.
+  const matchingRevision = schema?.revisions.find((revision) => revision.content_sha256 === schema.content_sha256);
+  const previewRevision = selectedRevision ?? (selectedVersionId === "CURRENT" ? matchingRevision : undefined);
+  const selectedAsset = previewRevision
     ? {
-        assetId: selectedRevision.pdf_asset_id,
-        version: selectedRevision.content_sha256,
+        assetId: previewRevision.pdf_asset_id,
+        version: previewRevision.content_sha256,
         name: `${t("file_library.contracts.workflow.template_detail.revision_pdf_name", {
           name: template?.name ?? t("file_library.contracts.workflow.common.contract"),
-          number: selectedRevision.revision,
+          number: previewRevision.revision,
         })}.pdf`,
         contentType: "application/pdf" as const,
       }
-    : selectedVariant
+    : selectedVariant && schema
       ? {
           assetId: selectedVariant.source_asset_id,
-          version: schema?.content_sha256 ?? selectedVariant.updated_at,
+          version: schema.content_sha256 ?? selectedVariant.updated_at,
           name: selectedVariant.source_file_name,
           contentType: DOCX_TYPE,
         }
       : undefined;
 
-  // Signers and signature boxes written as {{FirmaFirmante1}}-style variables
-  // aren't stored in the blueprints (the server rebuilds them on use), so
-  // count them from the document's schema as well.
-  const semantic = selectedRevision?.variable_schema ?? schema?.schema;
-  const fieldCount =
-    (selectedRevision?.signature_blueprint.length ?? selectedVariant?.signature_blueprint.length ?? 0) +
-    (semantic?.signing_fields?.length ?? 0);
-  const recipientCount = Math.max(
-    selectedRevision?.recipient_blueprint.length ?? selectedVariant?.recipient_blueprint.length ?? 0,
-    semantic?.recipients?.length ?? 0
-  );
-  const variableCount = selectedRevision?.variable_schema?.placeholder_count ?? schema?.schema.placeholder_count ?? 0;
-  const isConfigured = fieldCount > 0 && recipientCount > 0;
-  const hasVersion = (selectedVariant?.revision_count ?? 0) > 0;
+  // One count for every screen: token-derived signers and fields included.
+  const counts = templateCounts({
+    summary: selectedRevision ? selectedRevision.variable_schema?.summary : schema?.summary,
+    schema: selectedRevision?.variable_schema ?? schema?.schema,
+    recipientBlueprint: selectedRevision?.recipient_blueprint ?? selectedVariant?.recipient_blueprint,
+    signatureBlueprint: selectedRevision?.signature_blueprint ?? selectedVariant?.signature_blueprint,
+  });
+  const warnings = selectedRevision ? (selectedRevision.variable_schema?.warnings ?? []) : schemaWarnings(schema);
+  const isConfigured = counts.fields > 0 && counts.signers > 0;
+  const pendingDraft = hasPendingDraft(selectedVariant);
+  const activeEditor =
+    !wordSession && isDraftActive(selectedVariant) ? selectedVariant?.draft?.active_by_name : undefined;
 
   if (isLoading || !template)
     return (
@@ -391,19 +579,35 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
       </div>
     );
 
+  const useButton = selectedVariant ? (
+    <Tooltip
+      tooltipContent={t("file_library.contracts.workflow.template_detail.use_blocked_hint")}
+      disabled={isConfigured}
+    >
+      {/* The wrapper keeps the tooltip reachable: a disabled button gets no pointer events. */}
+      <span className="inline-flex">
+        <Button
+          variant={isConfigured ? "primary" : "secondary"}
+          size="sm"
+          disabled={!isConfigured}
+          className={cn(!isConfigured && "pointer-events-none")}
+          onClick={() => setUsingSelection({ variant: selectedVariant, revisionId: selectedRevision?.id })}
+        >
+          <Send className="size-4" />
+          {selectedRevision
+            ? t("file_library.contracts.workflow.template_detail.use_version", {
+                number: selectedRevision.revision,
+              })
+            : t("file_library.contracts.workflow.template_detail.use_current")}
+        </Button>
+      </span>
+    </Tooltip>
+  ) : null;
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="w-full space-y-5 px-4 py-5 sm:px-5 lg:px-6">
         <ContractPageHeader
-          // breadcrumb={
-          //   <Link
-          //     to={`/${workspaceSlug}/file-library/contracts/templates`}
-          //     className="mb-2 inline-flex items-center gap-1 text-11 text-tertiary hover:text-primary"
-          //   >
-          //     <ArrowLeft className="size-3.5" />{" "}
-          //     {t("file_library.contracts.workflow.navigation.templates")}
-          //   </Link>
-          // }
           title={template.name}
           description={template.description || undefined}
           actions={
@@ -423,6 +627,37 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
 
         {selectedVariant ? (
           <>
+            {pendingDraft && !wordSession ? (
+              <DraftBanner
+                variant={selectedVariant}
+                activeEditor={activeEditor ?? undefined}
+                isActing={isDraftActing}
+                onPublish={() => void publishFromBanner(selectedVariant)}
+                onDiscard={() => setDiscardingDraft(selectedVariant)}
+                onContinue={() => void startWordEdit(selectedVariant)}
+              />
+            ) : activeEditor ? (
+              <div className="flex items-center gap-2 rounded-lg border border-subtle bg-layer-1 px-4 py-2.5 text-12 text-secondary">
+                <UserRound className="size-4 shrink-0 text-accent-primary" />
+                {t("file_library.contracts.workflow.draft.editing_by", {
+                  name: activeEditor,
+                  date: formatClock(selectedVariant.draft?.started_at),
+                })}
+              </div>
+            ) : null}
+
+            {/* Until the template can be used, what is missing comes first. */}
+            {!isSchemaLoading && (!isConfigured || warnings.length > 0) ? (
+              <PreparationChecklist
+                isConfigured={isConfigured}
+                countsLabel={formatTemplateCounts(t, counts)}
+                fileName={selectedVariant.source_file_name}
+                warnings={warnings}
+                isConfiguring={isConfiguring}
+                onConfigure={() => void configureFields()}
+              />
+            ) : null}
+
             <div className="grid gap-4 xl:grid-cols-[13rem_minmax(0,1fr)]">
               {/* variants: parallel presentations of the same contract */}
               <VariantRail
@@ -442,7 +677,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                       })
                     : t("file_library.contracts.workflow.common.current_document")
                 }
-                description={selectedAsset?.name}
+                description={selectedAsset?.name ?? selectedVariant.source_file_name}
                 icon={<FileText className="size-4" />}
                 actions={
                   <>
@@ -462,8 +697,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                           setPreviewFile({
                             assetId: selectedRevision.source_asset_id,
                             // The extension has to be on the name: the preview
-                            // modal picks its viewer (and decides whether the
-                            // file is editable) from it, not only from the MIME.
+                            // modal picks its viewer from it, not only from the MIME.
                             name: `${t("file_library.contracts.workflow.template_detail.revision_word_name", {
                               name: template.name,
                               number: selectedRevision.revision,
@@ -475,9 +709,9 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                         {t("file_library.contracts.workflow.common.view_word")}
                       </Button>
                     ) : null}
-                    {/* Editing always targets the variant's live document —
-                        saved versions are immutable snapshots — so this stays
-                        available whichever version is being previewed. */}
+                    {/* Editing always targets the variant's draft — saved
+                        versions are immutable — so this stays available
+                        whichever version is being previewed. */}
                     <Button
                       variant="secondary"
                       size="sm"
@@ -485,7 +719,9 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                       onClick={() => void startWordEdit(selectedVariant)}
                     >
                       {isStartingEdit ? <Loader2 className="size-4 animate-spin" /> : null}
-                      {t("file_library.contracts.workflow.common.edit_word")}
+                      {pendingDraft
+                        ? t("file_library.contracts.workflow.draft.continue_editing")
+                        : t("file_library.contracts.workflow.common.edit_word")}
                     </Button>
                   </>
                 }
@@ -503,7 +739,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                         className="shadow-sm h-[min(64vh,720px)] min-h-130 overflow-hidden rounded-md border border-subtle bg-surface-1"
                       />
                     ) : (
-                      <div className="grid h-full place-items-center">
+                      <div className="grid h-[min(64vh,720px)] min-h-130 place-items-center rounded-md border border-subtle bg-surface-1">
                         <Loader2 className="size-5 animate-spin text-tertiary" />
                       </div>
                     )}
@@ -523,11 +759,17 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                       <ContractVersionCard
                         isSelected={selectedVersionId === "CURRENT"}
                         title={t("file_library.contracts.workflow.common.current_document")}
-                        subtitle={t("file_library.contracts.workflow.template_detail.current_subtitle")}
+                        subtitle={
+                          matchingRevision
+                            ? t("file_library.contracts.workflow.detail.current_matches", {
+                                number: matchingRevision.revision,
+                              })
+                            : t("file_library.contracts.workflow.template_detail.current_subtitle")
+                        }
                         thumbnailUrl={contractService.getContractAssetThumbnailUrl(
                           workspaceSlug,
-                          selectedVariant.source_asset_id,
-                          schema?.content_sha256 ?? selectedVariant.updated_at
+                          matchingRevision?.pdf_asset_id ?? selectedVariant.source_asset_id,
+                          matchingRevision?.content_sha256 ?? schema?.content_sha256 ?? selectedVariant.updated_at
                         )}
                         onSelect={() => setSelectedVersionId("CURRENT")}
                       />
@@ -545,16 +787,14 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                             t("file_library.contracts.workflow.common.version_number", { number: revision.revision })
                           }
                           subtitle={new Date(revision.created_at).toLocaleString()}
-                          meta={t("file_library.contracts.workflow.template_detail.version_meta", {
-                            variables: revision.variable_schema?.placeholder_count ?? 0,
-                            fields:
-                              revision.signature_blueprint.length +
-                              (revision.variable_schema?.signing_fields?.length ?? 0),
-                            participants: Math.max(
-                              revision.recipient_blueprint.length,
-                              revision.variable_schema?.recipients?.length ?? 0
-                            ),
-                          })}
+                          meta={formatTemplateCounts(
+                            t,
+                            templateCounts({
+                              schema: revision.variable_schema,
+                              recipientBlueprint: revision.recipient_blueprint,
+                              signatureBlueprint: revision.signature_blueprint,
+                            })
+                          )}
                           thumbnailUrl={contractService.getContractAssetThumbnailUrl(
                             workspaceSlug,
                             revision.pdf_asset_id,
@@ -565,7 +805,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                       ))}
                       {!isSchemaLoading && (schema?.revisions.length ?? 0) === 0 ? (
                         <p className="rounded-md border border-dashed border-subtle p-3 text-center text-11 text-tertiary">
-                          {t("file_library.contracts.workflow.template_detail.save_first_version")}
+                          {t("file_library.contracts.workflow.detail.no_versions")}
                         </p>
                       ) : null}
                     </div>
@@ -573,72 +813,25 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-subtle p-4">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-11 text-tertiary">
-                    <span className="flex items-center gap-1.5">
-                      <Braces className="size-3.5" />
-                      {variableCount} {t("file_library.contracts.workflow.common.variables")}
-                    </span>
-                    <span>
-                      {fieldCount} {t("file_library.contracts.workflow.common.fields")}
-                    </span>
-                    <span>
-                      {recipientCount} {t("file_library.contracts.workflow.common.participants")}
-                    </span>
-                  </div>
+                  <p className="text-11 text-tertiary">{formatTemplateCounts(t, counts)}</p>
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={isConfiguring}
-                      onClick={() => void configureFields()}
-                    >
-                      {isConfiguring ? <Loader2 className="size-4 animate-spin" /> : <Settings2 className="size-4" />}
-                      {t("file_library.contracts.workflow.template_detail.configure_current")}
-                    </Button>
-                    <Tooltip
-                      tooltipContent={t("file_library.contracts.workflow.template_detail.use_blocked_hint")}
-                      disabled={isConfigured}
-                    >
-                      {/* The wrapper keeps the tooltip reachable: a disabled
-                          button gets no pointer events. */}
-                      <span className="inline-flex">
-                        <Button
-                          variant={isConfigured ? "primary" : "secondary"}
-                          size="sm"
-                          disabled={!isConfigured}
-                          className={cn(!isConfigured && "pointer-events-none")}
-                          onClick={() =>
-                            setUsingSelection({
-                              variant: selectedVariant,
-                              revisionId: selectedRevision?.id,
-                            })
-                          }
-                        >
-                          <Send className="size-4" />
-                          {selectedRevision
-                            ? t("file_library.contracts.workflow.template_detail.use_version", {
-                                number: selectedRevision.revision,
-                              })
-                            : t("file_library.contracts.workflow.template_detail.use_current")}
-                        </Button>
-                      </span>
-                    </Tooltip>
+                    {/* While setup is incomplete the checklist above owns this button. */}
+                    {isConfigured ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={isConfiguring}
+                        onClick={() => void configureFields()}
+                      >
+                        {isConfiguring ? <Loader2 className="size-4 animate-spin" /> : <Settings2 className="size-4" />}
+                        {t("file_library.contracts.workflow.detail.configure_fields")}
+                      </Button>
+                    ) : null}
+                    {useButton}
                   </div>
                 </div>
               </ContractSection>
             </div>
-            <PreparationChecklist
-              isConfigured={isConfigured}
-              hasVersion={hasVersion}
-              fieldCount={fieldCount}
-              recipientCount={recipientCount}
-              variableCount={variableCount}
-              fileName={selectedVariant.source_file_name}
-              isConfiguring={isConfiguring}
-              isSavingVersion={isSavingVersion}
-              onConfigure={() => void configureFields()}
-              onSaveVersion={() => void saveVersion()}
-            />
           </>
         ) : null}
 
@@ -678,7 +871,7 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
                         })}
                       </p>
                     </div>
-                    <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} />
+                    <RequestStatusBadge status={request.status} label={t(requestStatusLabelKey(request.status))} />
                   </Link>
                 );
               })}
@@ -696,16 +889,52 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
       />
       <CollaboraEditorModal
         workspaceSlug={workspaceSlug}
-        assetId={editSession?.phase === "EDITING" ? editSession.variant.source_asset_id : null}
-        fileName={editSession?.variant.source_file_name ?? ""}
-        deferredCommit
-        onClose={() => setEditSession((current) => (current ? { ...current, phase: "CONFIRM" } : current))}
+        session={wordSession?.mode === "DRAFT" && wordSession.phase === "EDITING" ? wordSession.editor : null}
+        assetId={
+          wordSession?.phase !== "EDITING"
+            ? null
+            : wordSession.mode === "LEGACY"
+              ? wordSession.variant.source_asset_id
+              : wordSession.editor
+                ? null
+                : wordSession.assetId
+        }
+        fileName={template.name}
+        subtitle={
+          wordSession
+            ? t(
+                wordSession.mode === "DRAFT"
+                  ? "file_library.contracts.workflow.word_editor.subtitle_draft"
+                  : "file_library.contracts.workflow.word_editor.subtitle_live",
+                { variant: wordSession.variant.name }
+              )
+            : undefined
+        }
+        uiDefaults={COLLABORA_UI_DEFAULTS}
+        variablesPanel={
+          wordSession?.mode === "DRAFT" ? (
+            <ContractVariablesPanel
+              documentVariables={{
+                schema: draftSchema?.schema,
+                summary: draftSchema?.summary,
+                warnings: schemaWarnings(draftSchema),
+                isLoading: isDraftSchemaValidating,
+                variableSettings: wordSession.variant.variable_settings,
+                recipientRoles: wordSession.variant.recipient_roles,
+              }}
+            />
+          ) : undefined
+        }
+        onSaved={wordSession?.mode === "DRAFT" ? () => void mutateDraftSchema() : undefined}
+        onClose={(state) => void onEditorClosed(state)}
       />
       {usingSelection ? (
         <ContractTemplateUseDialog
           workspaceSlug={workspaceSlug}
           templateName={template.name}
-          variant={usingSelection.variant}
+          variant={
+            template.variants.find((variant) => variant.id === usingSelection.variant.id) ?? usingSelection.variant
+          }
           initialRevisionId={usingSelection.revisionId}
           onEditWord={() => {
             void startWordEdit(usingSelection.variant);
@@ -721,14 +950,52 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
           }}
         />
       ) : null}
+      {wordSession?.mode === "DRAFT" ? (
+        <ContractDraftCloseDialog
+          key={`${wordSession.variant.id}-${wordSession.phase}`}
+          isOpen={wordSession.phase === "CONFIRM"}
+          nextVersionNumber={nextVersionNumber(
+            template.variants.find((variant) => variant.id === wordSession.variant.id) ?? wordSession.variant
+          )}
+          isSubmitting={isFinishingEdit}
+          error={draftActionError}
+          onSubmit={(action, name) => void submitDraftAction(action, name)}
+          onKeepEditing={() => {
+            const { variant } = wordSession;
+            setWordSession(undefined);
+            void startWordEdit(variant);
+          }}
+          onDismiss={() => setWordSession(undefined)}
+        />
+      ) : null}
       <ContractWordEditDecisionDialog
-        key={editSession?.backupAssetId ?? "closed"}
-        isOpen={editSession?.phase === "CONFIRM"}
+        key={wordSession?.mode === "LEGACY" ? wordSession.backupAssetId : "closed"}
+        isOpen={wordSession?.mode === "LEGACY" && wordSession.phase === "CONFIRM"}
         isSubmitting={isFinishingEdit}
+        hasVersions={(wordSession?.variant.revision_count ?? 0) > 0}
         suggestedRevisionName={t("file_library.contracts.workflow.common.version_number", {
-          number: (editSession?.variant.revision_count ?? 0) + 1,
+          number: nextVersionNumber(wordSession?.variant),
         })}
-        onSubmit={(decision, name) => void finishWordEdit(decision, name)}
+        onKeepEditing={() =>
+          setWordSession((current) => (current?.mode === "LEGACY" ? { ...current, phase: "EDITING" } : current))
+        }
+        onSubmit={(decision, name) => void finishLegacyEdit(decision, name)}
+      />
+      <ContractPublishResultDialog
+        result={publishResult}
+        onClose={() => setPublishResult(undefined)}
+        onReviewFields={() => {
+          setPublishResult(undefined);
+          void configureFields();
+        }}
+      />
+      <AlertModalCore
+        isOpen={Boolean(discardingDraft)}
+        handleClose={() => setDiscardingDraft(undefined)}
+        handleSubmit={() => void discardFromBanner()}
+        isSubmitting={isDraftActing}
+        title={t("file_library.contracts.workflow.draft.discard_banner_title")}
+        content={t("file_library.contracts.workflow.draft.discard_banner_description")}
       />
 
       <ModalCore
@@ -846,79 +1113,99 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
   );
 }
 
+/** "Borrador sin publicar": the draft waits until someone publishes or drops it. */
+function DraftBanner({
+  variant,
+  activeEditor,
+  isActing,
+  onPublish,
+  onDiscard,
+  onContinue,
+}: {
+  variant: TContractTemplateVariant;
+  activeEditor?: string;
+  isActing: boolean;
+  onPublish: () => void;
+  onDiscard: () => void;
+  onContinue: () => void;
+}) {
+  const { t } = useTranslation();
+  const draft = variant.draft;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-subtle bg-layer-1 px-4 py-3">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <FileClock className="mt-0.5 size-4 shrink-0 text-warning-primary" />
+        <div className="min-w-0">
+          <p className="text-13 font-medium text-primary">
+            {t("file_library.contracts.workflow.draft.banner_title", { variant: variant.name })}
+          </p>
+          <p className="mt-0.5 text-11 text-tertiary">
+            {activeEditor
+              ? t("file_library.contracts.workflow.draft.editing_by", {
+                  name: activeEditor,
+                  date: formatClock(draft?.started_at),
+                })
+              : t("file_library.contracts.workflow.draft.banner_description", {
+                  name: draft?.started_by_name ?? "—",
+                  date: formatClock(draft?.updated_at ?? draft?.started_at),
+                })}
+          </p>
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-wrap gap-2">
+        <Button variant="secondary" size="sm" disabled={isActing} onClick={onDiscard}>
+          {t("file_library.contracts.workflow.draft.discard_short")}
+        </Button>
+        <Button variant="secondary" size="sm" disabled={isActing} onClick={onContinue}>
+          {t("file_library.contracts.workflow.draft.continue_editing")}
+        </Button>
+        <Button variant="primary" size="sm" disabled={isActing || Boolean(activeEditor)} onClick={onPublish}>
+          {isActing ? <Loader2 className="size-4 animate-spin" /> : null}
+          {t("file_library.contracts.workflow.draft.publish_confirm", { number: nextVersionNumber(variant) })}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /**
- * Tells the user exactly what stands between an uploaded Word file and a
- * sendable contract. Replaces the old footer where every action looked equal.
+ * What stands between the uploaded Word file and a contract that can be sent.
+ * Shown on top while incomplete (or while the document has warnings), with the
+ * only "Configure" button on the page at that moment.
  */
 function PreparationChecklist({
   isConfigured,
-  hasVersion,
-  fieldCount,
-  recipientCount,
-  variableCount,
+  countsLabel,
   fileName,
+  warnings,
   isConfiguring,
-  isSavingVersion,
   onConfigure,
-  onSaveVersion,
 }: {
   isConfigured: boolean;
-  hasVersion: boolean;
-  fieldCount: number;
-  recipientCount: number;
-  variableCount: number;
+  countsLabel: string;
   fileName: string;
+  warnings: Parameters<typeof TemplateWarnings>[0]["warnings"];
   isConfiguring: boolean;
-  isSavingVersion: boolean;
   onConfigure: () => void;
-  onSaveVersion: () => void;
 }) {
   const { t } = useTranslation();
-  const done = 1 + (isConfigured ? 1 : 0) + (hasVersion ? 1 : 0);
-
   const steps = [
     {
       key: "document",
       done: true,
       title: t("file_library.contracts.workflow.template_detail.step_document"),
-      detail: t("file_library.contracts.workflow.template_detail.step_document_detail", {
-        name: fileName,
-        count: variableCount,
-      }),
-      action: null,
+      detail: `${fileName} · ${countsLabel}`,
     },
     {
       key: "fields",
       done: isConfigured,
       title: t("file_library.contracts.workflow.template_detail.step_fields"),
       detail: isConfigured
-        ? t("file_library.contracts.workflow.template_detail.step_fields_done", {
-            fields: fieldCount,
-            recipients: recipientCount,
-          })
+        ? t("file_library.contracts.workflow.detail.fields_ready")
         : t("file_library.contracts.workflow.template_detail.step_fields_todo"),
-      action: (
-        <Button variant="secondary" size="sm" disabled={isConfiguring} onClick={onConfigure}>
-          {isConfiguring ? <Loader2 className="size-3.5 animate-spin" /> : <Settings2 className="size-3.5" />}
-          {t("file_library.contracts.workflow.template_detail.configure_current")}
-        </Button>
-      ),
-    },
-    {
-      key: "version",
-      done: hasVersion,
-      title: t("file_library.contracts.workflow.template_detail.step_version"),
-      detail: hasVersion
-        ? t("file_library.contracts.workflow.template_detail.step_version_done")
-        : t("file_library.contracts.workflow.template_detail.step_version_todo"),
-      action: (
-        <Button variant="secondary" size="sm" disabled={isSavingVersion} onClick={onSaveVersion}>
-          {isSavingVersion ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-          {t("file_library.contracts.workflow.common.save_version")}
-        </Button>
-      ),
     },
   ];
+  const done = steps.filter((step) => step.done).length;
 
   return (
     <ContractSection
@@ -927,6 +1214,14 @@ function PreparationChecklist({
         done,
         total: steps.length,
       })}
+      actions={
+        isConfigured ? null : (
+          <Button variant="primary" size="sm" disabled={isConfiguring} onClick={onConfigure}>
+            {isConfiguring ? <Loader2 className="size-3.5 animate-spin" /> : <Settings2 className="size-3.5" />}
+            {t("file_library.contracts.workflow.detail.configure_fields")}
+          </Button>
+        )
+      }
       bodyClassName="divide-y divide-subtle"
     >
       {steps.map((step) => (
@@ -945,9 +1240,13 @@ function PreparationChecklist({
             </p>
             <p className="truncate text-11 text-tertiary">{step.detail}</p>
           </div>
-          {step.done ? null : step.action}
         </div>
       ))}
+      {warnings.length > 0 ? (
+        <div className="px-4 py-3">
+          <TemplateWarnings warnings={warnings} />
+        </div>
+      ) : null}
     </ContractSection>
   );
 }
@@ -1000,10 +1299,15 @@ function VariantRail({
                 >
                   {variant.name}
                 </span>
-                <span className="block text-11 text-tertiary">
-                  {t("file_library.contracts.workflow.common.version_count", {
-                    count: variant.revision_count,
-                  })}
+                <span className="flex items-center gap-1.5 text-11 text-tertiary">
+                  {variant.revision_count > 0
+                    ? t("file_library.contracts.workflow.common.version_count", { count: variant.revision_count })
+                    : t("file_library.contracts.workflow.detail.current_only")}
+                  {hasPendingDraft(variant) ? (
+                    <span className="rounded-sm bg-warning-primary/10 px-1 text-10 text-warning-primary">
+                      {t("file_library.contracts.workflow.draft.badge")}
+                    </span>
+                  ) : null}
                 </span>
               </button>
               <div className="absolute top-2 right-2">

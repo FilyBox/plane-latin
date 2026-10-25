@@ -48,15 +48,20 @@ export function ContractWordEditDecisionDialog({
   isOpen,
   isSubmitting,
   suggestedRevisionName,
+  hasVersions = true,
+  onKeepEditing,
   onSubmit,
 }: {
   isOpen: boolean;
   isSubmitting: boolean;
   suggestedRevisionName: string;
+  /** Without saved versions "update the current version" means nothing; default to creating one. */
+  hasVersions?: boolean;
+  onKeepEditing?: () => void;
   onSubmit: (decision: TContractEditDecision, name?: string) => void;
 }) {
   const { t } = useTranslation();
-  const [decision, setDecision] = useState<TContractEditDecision>("OVERWRITE");
+  const [decision, setDecision] = useState<TContractEditDecision>(hasVersions ? "OVERWRITE" : "NEW_REVISION");
   const [name, setName] = useState(suggestedRevisionName);
   const needsName = decision === "NEW_REVISION" || decision === "NEW_VARIANT";
 
@@ -72,7 +77,7 @@ export function ContractWordEditDecisionDialog({
       </header>
 
       <div className="space-y-2 p-5">
-        {OPTIONS.map((option) => {
+        {OPTIONS.filter((option) => hasVersions || option.value !== "OVERWRITE").map((option) => {
           const Icon = option.icon;
           const selected = decision === option.value;
           return (
@@ -126,7 +131,12 @@ export function ContractWordEditDecisionDialog({
         ) : null}
       </div>
 
-      <footer className="flex justify-end border-t border-subtle px-6 py-4">
+      <footer className="flex justify-end gap-2 border-t border-subtle px-6 py-4">
+        {onKeepEditing ? (
+          <Button variant="secondary" size="sm" disabled={isSubmitting} onClick={onKeepEditing}>
+            {t("file_library.contracts.workflow.draft.keep_editing")}
+          </Button>
+        ) : null}
         <Button
           variant={decision === "DISCARD" ? "secondary" : "primary"}
           size="sm"

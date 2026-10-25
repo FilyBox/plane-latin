@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Link2, Loader2, RefreshCcw } from "lucide-react";
+import { AlertTriangle, Ban, BellRing, CopyPlus, Link2, Loader2, RefreshCcw } from "lucide-react";
 import { Link } from "react-router";
 import useSWR from "swr";
 // plane imports
@@ -18,6 +18,7 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TContract, TContractSignatureRequest, TContractSigningLink } from "@plane/types";
+import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 // services
 import { contractService } from "@/services/contract.service";
@@ -25,19 +26,43 @@ import { fileLibraryService } from "@/services/file-library.service";
 // local imports
 import { downloadAssets } from "../download";
 import { ContractPeekLayout, type TContractPeekTab } from "./contract-peek-layout";
+import {
+  cancelAndDuplicateRequest,
+  ContractSendSteps,
+  hasSendFailed,
+  isSendInProgress,
+  sendErrorMessage,
+  sendStepOf,
+} from "./contract-send-progress";
+import { contractErrorMessage, requestStatusLabelKey } from "./template-utils";
 import { ContractEmptyState, ContractLoading, ContractSection, RequestStatusBadge } from "./ui";
 
 type Tab = "document" | "signature" | "analysis" | "process" | "links";
+type PeekAction = "remind" | "cancel" | "cancel_duplicate" | "duplicate";
 
-const STATUS_LABEL_KEYS: Record<TContractSignatureRequest["status"], string> = {
-  DRAFT: "file_library.contracts.workflow.request_status.draft",
-  PREPARING: "file_library.contracts.workflow.request_status.preparing",
-  READY: "file_library.contracts.workflow.request_status.ready",
-  PENDING: "file_library.contracts.workflow.request_status.pending",
-  COMPLETED: "file_library.contracts.workflow.request_status.completed",
-  REJECTED: "file_library.contracts.workflow.request_status.rejected",
-  CANCELLED: "file_library.contracts.workflow.request_status.cancelled",
-  ERROR: "file_library.contracts.workflow.request_status.error",
+const ACTION_TOAST_KEYS: Record<PeekAction, { success: string; failed: string }> = {
+  remind: {
+    success: "file_library.contracts.workflow.documents.remind_success",
+    failed: "file_library.contracts.workflow.documents.remind_failed",
+  },
+  cancel: {
+    success: "file_library.contracts.workflow.documents.cancel_success",
+    failed: "file_library.contracts.workflow.documents.cancel_failed",
+  },
+  cancel_duplicate: {
+    success: "file_library.contracts.workflow.tracking.cancel_duplicate_success",
+    failed: "file_library.contracts.workflow.tracking.cancel_duplicate_failed",
+  },
+  duplicate: {
+    success: "file_library.contracts.workflow.documents.duplicate_success",
+    failed: "file_library.contracts.workflow.documents.duplicate_failed",
+  },
+};
+
+const formatDate = (iso?: string | null) => {
+  if (!iso) return "";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
 };
 
 const SIGNER_STATUS_LABEL_KEYS: Record<string, string> = {
@@ -50,6 +75,7 @@ const SIGNER_STATUS_LABEL_KEYS: Record<string, string> = {
   PENDING: "file_library.contracts.workflow.signer_status.pending",
   APPROVED: "file_library.contracts.workflow.signer_status.approved",
   COMPLETED: "file_library.contracts.workflow.signer_status.completed",
+  EXPIRED: "file_library.contracts.workflow.signer_status.expired",
 };
 
 const isSignedStatus = (status: string) => ["SIGNED", "APPROVED", "COMPLETED"].includes(status);
@@ -60,11 +86,22 @@ type Props = {
   onClose: () => void;
   onMutate: () => void;
   onOpenEditor: (request: TContractSignatureRequest) => void;
+  /** Shows another request in the panel (a copy that is not ready to edit yet). */
+  onOpenRequest?: (requestId: string) => void;
 };
 
-export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutate, onOpenEditor }: Props) {
+export function ContractRequestPeek({
+  workspaceSlug,
+  requestId,
+  onClose,
+  onMutate,
+  onOpenEditor,
+  onOpenRequest,
+}: Props) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("signature");
+  const [acting, setActing] = useState<PeekAction>();
+  const [confirming, setConfirming] = useState<"cancel" | "cancel_duplicate">();
   const [isSyncing, setIsSyncing] = useState(false);
   const [links, setLinks] = useState<TContractSigningLink[]>();
   const [isLoadingLinks, setIsLoadingLinks] = useState(false);
@@ -79,7 +116,12 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
     `CONTRACT_SIGNATURE_REQUEST_${workspaceSlug}_${requestId}`,
     () => contractService.getSignatureRequest(workspaceSlug, requestId),
     {
-      refreshInterval: (latest) => (latest && ["PENDING", "PREPARING", "READY"].includes(latest.status) ? 10000 : 0),
+      // Faster while a background send is moving, so its steps read live.
+      refreshInterval: (latest) => {
+        if (!latest) return 0;
+        if (isSendInProgress(latest) && sendStepOf(latest) !== "done") return 2000;
+        return ["PENDING", "PREPARING", "READY"].includes(latest.status) ? 10000 : 0;
+      },
       revalidateOnFocus: false,
     }
   );
@@ -99,12 +141,14 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
       : request?.rendered_pdf_asset_id || request?.pdf_asset_id;
 
   useEffect(() => {
+    // Escape closes the confirmation first, not the panel under it.
+    if (confirming) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [confirming, onClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,13 +187,45 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
       await contractService.syncSignatureRequest(workspaceSlug, requestId);
       await mutate();
       onMutate();
-    } catch (error: any) {
+    } catch (error: unknown) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.documents.sync_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.documents.sync_failed"),
       });
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  /** A copy opens in the editor when it can be edited, otherwise in this panel. */
+  const openCopy = (copy: TContractSignatureRequest) => {
+    if (!copy.id) return;
+    if (copy.status === "READY" || copy.status === "DRAFT" || !onOpenRequest) onOpenEditor(copy);
+    else onOpenRequest(copy.id);
+  };
+
+  const runAction = async (action: PeekAction) => {
+    if (!request) return;
+    setActing(action);
+    try {
+      let copy: TContractSignatureRequest | undefined;
+      if (action === "remind") await contractService.remindSignatureRequest(workspaceSlug, request.id);
+      else if (action === "cancel") await contractService.cancelSignatureRequest(workspaceSlug, request.id);
+      else if (action === "duplicate")
+        copy = await contractService.duplicateSignatureRequest(workspaceSlug, request.id);
+      else copy = await cancelAndDuplicateRequest(workspaceSlug, request.id);
+      setConfirming(undefined);
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t(ACTION_TOAST_KEYS[action].success) });
+      onMutate();
+      if (copy) {
+        openCopy(copy);
+        return;
+      }
+      await mutate();
+    } catch (error: unknown) {
+      setToast({ type: TOAST_TYPE.ERROR, title: contractErrorMessage(t, error, ACTION_TOAST_KEYS[action].failed) });
+    } finally {
+      setActing(undefined);
     }
   };
 
@@ -274,8 +350,13 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
       <RequestOutcomeBanner
         workspaceSlug={workspaceSlug}
         request={request}
+        acting={acting}
         onOpenEditor={() => onOpenEditor(request)}
         onDownloadSigned={() => void downloadSigned()}
+        onRemind={() => void runAction("remind")}
+        onCancel={() => setConfirming("cancel")}
+        onCancelDuplicate={() => setConfirming("cancel_duplicate")}
+        onDuplicate={() => void runAction("duplicate")}
       />
       <ContractSection
         title={t("file_library.contracts.workflow.request_peek.signers_title")}
@@ -429,33 +510,72 @@ export function ContractRequestPeek({ workspaceSlug, requestId, onClose, onMutat
     tab === "analysis" ? analysisPane : tab === "process" ? processPane : tab === "links" ? linksPane : signaturePane;
 
   return (
-    <ContractPeekLayout
-      title={request?.title ?? t("file_library.contracts.workflow.documents.title")}
-      status={
-        request ? <RequestStatusBadge status={request.status} label={t(STATUS_LABEL_KEYS[request.status])} /> : null
-      }
-      headerActions={
-        request?.documenso_envelope_id ? (
-          <button
-            type="button"
-            aria-label={t("file_library.contracts.workflow.documents.sync")}
-            title={t("file_library.contracts.workflow.documents.sync")}
-            disabled={isSyncing}
-            onClick={() => void sync()}
-            className="grid size-7 place-items-center rounded-md text-tertiary hover:bg-layer-1-hover hover:text-primary disabled:opacity-50"
-          >
-            <RefreshCcw className={cn("size-3.5", isSyncing && "animate-spin")} />
-          </button>
-        ) : null
-      }
-      tabs={tabs}
-      activeTab={tab}
-      desktopActiveTab={tab === "document" ? "signature" : tab}
-      onTabChange={(key) => setTab(key as Tab)}
-      documentPane={documentPane}
-      sidePane={sidePane}
-      onClose={onClose}
-    />
+    <>
+      <ContractPeekLayout
+        title={request?.title ?? t("file_library.contracts.workflow.documents.title")}
+        status={
+          request ? (
+            <RequestStatusBadge
+              status={isSendInProgress(request) ? "PREPARING" : request.status}
+              label={
+                isSendInProgress(request)
+                  ? t("file_library.contracts.workflow.send.sending")
+                  : t(requestStatusLabelKey(request.status))
+              }
+            />
+          ) : null
+        }
+        headerActions={
+          request?.documenso_envelope_id ? (
+            <button
+              type="button"
+              aria-label={t("file_library.contracts.workflow.documents.sync")}
+              title={t("file_library.contracts.workflow.documents.sync")}
+              disabled={isSyncing}
+              onClick={() => void sync()}
+              className="grid size-7 place-items-center rounded-md text-tertiary hover:bg-layer-1-hover hover:text-primary disabled:opacity-50"
+            >
+              <RefreshCcw className={cn("size-3.5", isSyncing && "animate-spin")} />
+            </button>
+          ) : null
+        }
+        tabs={tabs}
+        activeTab={tab}
+        desktopActiveTab={tab === "document" ? "signature" : tab}
+        onTabChange={(key) => setTab(key as Tab)}
+        documentPane={documentPane}
+        sidePane={sidePane}
+        onClose={onClose}
+      />
+      <AlertModalCore
+        isOpen={confirming === "cancel"}
+        handleClose={() => setConfirming(undefined)}
+        handleSubmit={() => void runAction("cancel")}
+        isSubmitting={acting === "cancel"}
+        title={t("file_library.contracts.workflow.documents.cancel_title")}
+        content={t("file_library.contracts.workflow.documents.cancel_description", { title: request?.title ?? "" })}
+        primaryButtonText={{
+          default: t("file_library.contracts.workflow.documents.cancel_confirm"),
+          loading: t("file_library.contracts.workflow.documents.cancel_confirming"),
+        }}
+        secondaryButtonText={t("file_library.contracts.workflow.documents.keep")}
+      />
+      <AlertModalCore
+        isOpen={confirming === "cancel_duplicate"}
+        handleClose={() => setConfirming(undefined)}
+        handleSubmit={() => void runAction("cancel_duplicate")}
+        isSubmitting={acting === "cancel_duplicate"}
+        title={t("file_library.contracts.workflow.tracking.cancel_duplicate_title")}
+        content={t("file_library.contracts.workflow.tracking.cancel_duplicate_description", {
+          title: request?.title ?? "",
+        })}
+        primaryButtonText={{
+          default: t("file_library.contracts.workflow.tracking.cancel_duplicate_confirm"),
+          loading: t("file_library.contracts.workflow.tracking.cancel_duplicate_confirming"),
+        }}
+        secondaryButtonText={t("file_library.contracts.workflow.documents.keep")}
+      />
+    </>
   );
 }
 
@@ -562,42 +682,75 @@ function AnalysisProcess({
 function RequestOutcomeBanner({
   workspaceSlug,
   request,
+  acting,
   onOpenEditor,
   onDownloadSigned,
+  onRemind,
+  onCancel,
+  onCancelDuplicate,
+  onDuplicate,
 }: {
   workspaceSlug: string;
   request: TContractSignatureRequest;
+  acting?: PeekAction;
   onOpenEditor: () => void;
   onDownloadSigned: () => void;
+  onRemind: () => void;
+  onCancel: () => void;
+  onCancelDuplicate: () => void;
+  onDuplicate: () => void;
 }) {
   const { t } = useTranslation();
 
-  const shell = (tone: "default" | "success" | "danger", title: string, detail: string, actions?: React.ReactNode) => (
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-subtle bg-layer-1 px-3 py-2">
-      <div className="min-w-0 flex-1">
-        <p
-          className={cn(
-            "truncate text-12 font-medium",
-            tone === "success" ? "text-success-primary" : tone === "danger" ? "text-danger-primary" : "text-primary"
-          )}
-        >
-          {title}
-        </p>
-        {detail ? <p className="mt-0.5 truncate text-11 text-tertiary">{detail}</p> : null}
+  const shell = (
+    tone: "default" | "success" | "danger",
+    title: string,
+    details: string[],
+    actions?: React.ReactNode,
+    extra?: React.ReactNode
+  ) => (
+    <div className="mb-3 rounded-md border border-subtle bg-layer-1 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              "truncate text-12 font-medium",
+              tone === "success" ? "text-success-primary" : tone === "danger" ? "text-danger-primary" : "text-primary"
+            )}
+          >
+            {title}
+          </p>
+          {details
+            .filter((detail) => detail.trim())
+            .map((detail) => (
+              <p key={detail} className="mt-0.5 text-11 break-words text-tertiary">
+                {detail}
+              </p>
+            ))}
+        </div>
+        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-1.5">{actions}</div> : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-1.5">{actions}</div> : null}
+      {extra ? <div className="mt-3 border-t border-subtle pt-3">{extra}</div> : null}
     </div>
+  );
+
+  const resendButton = (
+    <Button variant="secondary" size="sm" onClick={onOpenEditor}>
+      {t("file_library.contracts.workflow.request_peek.resend")}
+    </Button>
   );
 
   if (request.status === "COMPLETED")
     return shell(
       "success",
       t("file_library.contracts.workflow.request_peek.completed_title"),
-      request.completed_at
-        ? t("file_library.contracts.workflow.request_peek.completed_at", {
-            date: new Date(request.completed_at).toLocaleString(),
-          })
-        : t("file_library.contracts.workflow.request_peek.completed_description"),
+      [
+        request.completed_at
+          ? t("file_library.contracts.workflow.request_peek.completed_at", {
+              date: new Date(request.completed_at).toLocaleString(),
+            })
+          : t("file_library.contracts.workflow.request_peek.completed_description"),
+      ],
       <>
         {request.signed_asset_id ? (
           <Button variant="primary" size="sm" onClick={onDownloadSigned}>
@@ -619,6 +772,25 @@ function RequestOutcomeBanner({
       </>
     );
 
+  // Being sent in the background: the steps, live.
+  if (isSendInProgress(request))
+    return shell(
+      "default",
+      t("file_library.contracts.workflow.send.sending_title"),
+      [],
+      undefined,
+      <ContractSendSteps phase="sending" step={sendStepOf(request)} />
+    );
+
+  // The send failed before the envelope went out.
+  if (hasSendFailed(request))
+    return shell(
+      "danger",
+      t("file_library.contracts.workflow.send.failed"),
+      [sendErrorMessage(t, request)],
+      resendButton
+    );
+
   if (request.status === "ERROR" || request.status === "REJECTED")
     return shell(
       "danger",
@@ -627,11 +799,29 @@ function RequestOutcomeBanner({
           ? "file_library.contracts.workflow.request_peek.rejected_title"
           : "file_library.contracts.workflow.request_peek.error_title"
       ),
-      request.error?.message ??
-        request.signing_details?.error ??
-        t("file_library.contracts.workflow.request_peek.error_description"),
-      <Button variant="secondary" size="sm" onClick={onOpenEditor}>
-        {t("file_library.contracts.workflow.request_peek.resend")}
+      [
+        request.status === "ERROR" && request.metadata?.send?.error
+          ? sendErrorMessage(t, request)
+          : (request.error?.message ??
+            request.signing_details?.error ??
+            t("file_library.contracts.workflow.request_peek.error_description")),
+      ],
+      resendButton
+    );
+
+  if (request.status === "EXPIRED")
+    return shell(
+      "danger",
+      t("file_library.contracts.workflow.tracking.expired_title"),
+      [
+        t("file_library.contracts.workflow.tracking.expired_description"),
+        request.expires_at
+          ? t("file_library.contracts.workflow.tracking.expired_on", { date: formatDate(request.expires_at) })
+          : "",
+      ],
+      <Button variant="primary" size="sm" loading={acting === "duplicate"} onClick={onDuplicate}>
+        <CopyPlus className="size-3.5" />
+        {t("file_library.contracts.workflow.tracking.create_copy")}
       </Button>
     );
 
@@ -639,27 +829,57 @@ function RequestOutcomeBanner({
     return shell(
       "default",
       t("file_library.contracts.workflow.request_peek.ready_title"),
-      t("file_library.contracts.workflow.request_peek.ready_description"),
+      [t("file_library.contracts.workflow.request_peek.ready_description")],
       <Button variant="primary" size="sm" onClick={onOpenEditor}>
         {t("file_library.contracts.workflow.request_peek.open_editor")}
       </Button>
     );
 
   if (request.status === "PREPARING")
+    return shell("default", t("file_library.contracts.workflow.request_peek.preparing_title"), [
+      t("file_library.contracts.workflow.request_peek.preparing_description"),
+    ]);
+
+  const sentLine = request.sent_at
+    ? t("file_library.contracts.workflow.request_peek.sent_at", { date: formatDate(request.sent_at) })
+    : "";
+
+  // Out for signature: chase, cancel, or cancel and start over from a copy.
+  if (request.status === "PENDING")
     return shell(
       "default",
-      t("file_library.contracts.workflow.request_peek.preparing_title"),
-      t("file_library.contracts.workflow.request_peek.preparing_description")
+      t(requestStatusLabelKey(request.status)),
+      [
+        sentLine,
+        request.last_reminded_at
+          ? t("file_library.contracts.workflow.tracking.last_reminded", { date: formatDate(request.last_reminded_at) })
+          : "",
+        request.expires_at
+          ? t("file_library.contracts.workflow.tracking.expires_on", { date: formatDate(request.expires_at) })
+          : "",
+      ],
+      <>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={acting === "remind"}
+          disabled={Boolean(acting)}
+          onClick={onRemind}
+        >
+          <BellRing className="size-3.5" />
+          {t("file_library.contracts.workflow.documents.remind")}
+        </Button>
+        <Button variant="secondary" size="sm" disabled={Boolean(acting)} onClick={onCancelDuplicate}>
+          <CopyPlus className="size-3.5" />
+          {t("file_library.contracts.workflow.tracking.cancel_duplicate")}
+        </Button>
+        <Button variant="error-outline" size="sm" disabled={Boolean(acting)} onClick={onCancel}>
+          <Ban className="size-3.5" />
+          {t("file_library.contracts.workflow.documents.cancel_request")}
+        </Button>
+      </>
     );
 
-  // PENDING / CANCELLED — the status line alone is enough.
-  return shell(
-    "default",
-    t(STATUS_LABEL_KEYS[request.status]),
-    request.sent_at
-      ? t("file_library.contracts.workflow.request_peek.sent_at", {
-          date: new Date(request.sent_at).toLocaleString(),
-        })
-      : ""
-  );
+  // CANCELLED and statuses this build does not know: the status line alone.
+  return shell("default", t(requestStatusLabelKey(request.status)), [sentLine]);
 }

@@ -23,10 +23,17 @@ import type {
   TContractRetryOptions,
   TContractSignatureRequest,
   TContractSigningLink,
+  TContractActionError,
+  TContractDraftAsVariantResponse,
+  TContractDraftPublishResponse,
+  TContractDraftStartResponse,
   TContractTemplate,
   TContractTemplateRevision,
   TContractTemplateSchemaResponse,
+  TContractTemplateUpdatePayload,
+  TContractTemplateVariant,
   TContractUpdatePayload,
+  TContractVariantUpdatePayload,
   TContractView,
 } from "@plane/types";
 // services
@@ -357,6 +364,18 @@ export class ContractService extends APIService {
       });
   }
 
+  /* Template / signature-request calls. Errors are rethrown as the API body
+     plus the HTTP status (TContractActionError), so the UI can map error codes
+     to messages and fall back when an endpoint does not exist yet (404/405). */
+
+  private rethrowWithStatus(error: any): never {
+    const data = error?.response?.data;
+    throw {
+      ...(data && typeof data === "object" ? data : {}),
+      status: error?.response?.status,
+    } satisfies TContractActionError;
+  }
+
   async getTemplates(workspaceSlug: string): Promise<TContractTemplate[]> {
     return this.get(`/api/workspaces/${workspaceSlug}/contract-templates/`).then((response) => response.data);
   }
@@ -392,22 +411,25 @@ export class ContractService extends APIService {
   }
 
   async deleteTemplate(workspaceSlug: string, templateId: string): Promise<void> {
-    return this.delete(`/api/workspaces/${workspaceSlug}/contract-templates/${templateId}/`).then(
-      (response) => response.data
-    );
+    return this.delete(`/api/workspaces/${workspaceSlug}/contract-templates/${templateId}/`)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
+  /** The response may also carry the parsed schema (newer API); callers fetch it otherwise. */
   async createTemplate(
     workspaceSlug: string,
     payload: { name: string; description?: string; file: File }
-  ): Promise<TContractTemplate> {
+  ): Promise<TContractTemplate & { schema?: TContractTemplateSchemaResponse }> {
     const data = new FormData();
     data.append("name", payload.name);
     data.append("description", payload.description ?? "");
     data.append("file", payload.file);
     return this.post(`/api/workspaces/${workspaceSlug}/contract-templates/`, data, {
       headers: { "Content-Type": "multipart/form-data" },
-    }).then((response) => response.data);
+    })
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async createVariant(
@@ -415,20 +437,26 @@ export class ContractService extends APIService {
     templateId: string,
     payload: { name: string; source_variant_id: string }
   ): Promise<TContractTemplate> {
-    return this.post(`/api/workspaces/${workspaceSlug}/contract-templates/${templateId}/variants/`, payload).then(
-      (response) => response.data
-    );
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-templates/${templateId}/variants/`, payload)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async getTemplateSchema(
     workspaceSlug: string,
     variantId: string,
-    revisionId?: string
+    revisionId?: string,
+    options?: { draft?: boolean }
   ): Promise<TContractTemplateSchemaResponse> {
-    const query = revisionId ? `?revision_id=${encodeURIComponent(revisionId)}` : "";
-    return this.get(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/schema/${query}`).then(
-      (response) => response.data
-    );
+    const params = new URLSearchParams();
+    if (revisionId) params.set("revision_id", revisionId);
+    if (options?.draft) params.set("source", "draft");
+    const query = params.toString();
+    return this.get(
+      `/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/schema/${query ? `?${query}` : ""}`
+    )
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async saveTemplateRevision(
@@ -436,15 +464,16 @@ export class ContractService extends APIService {
     variantId: string,
     name?: string
   ): Promise<TContractTemplateRevision> {
-    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/revisions/`, { name }).then(
-      (response) => response.data
-    );
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/revisions/`, { name })
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
+  /** Legacy Word editing (edits the live document); used only when the draft endpoints are missing. */
   async startTemplateEditSession(workspaceSlug: string, variantId: string): Promise<{ backup_asset_id: string }> {
-    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/edit-session/`).then(
-      (response) => response.data
-    );
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/edit-session/`)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async finishTemplateEditSession(
@@ -456,9 +485,58 @@ export class ContractService extends APIService {
       name?: string;
     }
   ): Promise<{ template: TContractTemplate; variant_id: string; revision_id: string | null; action: string }> {
-    return this.patch(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/edit-session/`, payload).then(
-      (response) => response.data
-    );
+    return this.patch(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/edit-session/`, payload)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  // Word drafts: edits go to a per-variant copy until they are published.
+
+  async startTemplateDraft(workspaceSlug: string, variantId: string): Promise<TContractDraftStartResponse> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/draft/`)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  async heartbeatTemplateDraft(workspaceSlug: string, variantId: string): Promise<void> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/draft/heartbeat/`)
+      .then(() => undefined)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  async releaseTemplateDraft(workspaceSlug: string, variantId: string): Promise<void> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/draft/release/`)
+      .then(() => undefined)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  async publishTemplateDraft(
+    workspaceSlug: string,
+    variantId: string,
+    name?: string
+  ): Promise<TContractDraftPublishResponse> {
+    return this.post(
+      `/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/draft/publish/`,
+      name ? { name } : {}
+    )
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  async discardTemplateDraft(workspaceSlug: string, variantId: string): Promise<void> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/draft/discard/`)
+      .then(() => undefined)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  async saveTemplateDraftAsVariant(
+    workspaceSlug: string,
+    variantId: string,
+    name: string
+  ): Promise<TContractDraftAsVariantResponse> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/draft/as-variant/`, { name })
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async getSignatureRequests(workspaceSlug: string): Promise<TContractSignatureRequest[]> {
@@ -475,7 +553,9 @@ export class ContractService extends APIService {
       delete_files: options.deleteFiles,
       delete_analysis: options.deleteAnalysis,
       confirm: true,
-    }).then((response) => response.data);
+    })
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async getSignatureRequest(workspaceSlug: string, requestId: string): Promise<TContractSignatureRequest> {
@@ -496,9 +576,9 @@ export class ContractService extends APIService {
       recipients?: Array<Partial<TContractAuthoringRecipient>>;
     }
   ): Promise<TContractSignatureRequest> {
-    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/`, payload).then(
-      (response) => response.data
-    );
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/`, payload)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async getSignatureRequestPdf(workspaceSlug: string, requestId: string): Promise<{ url: string }> {
@@ -507,20 +587,29 @@ export class ContractService extends APIService {
     );
   }
 
+  /**
+   * `commit` (TEMPLATE requests): false saves only this session, true validates
+   * and writes the fields to the template. Omitted = legacy behaviour.
+   */
   async saveSignatureRequest(
     workspaceSlug: string,
     requestId: string,
     recipients: TContractAuthoringRecipient[],
     authoringSettings?: TContractAuthoringSettings,
-    title?: string
+    title?: string,
+    options?: { commit?: boolean }
   ): Promise<TContractSignatureRequest> {
     return this.patch(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/`, {
       recipients,
       authoring_settings: authoringSettings,
       title,
-    }).then((response) => response.data);
+      ...(options?.commit === undefined ? {} : { commit: options.commit }),
+    })
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
+  /** Newer API: answers 202 right away and sends in the background (poll the request). */
   async sendSignatureRequest(
     workspaceSlug: string,
     requestId: string,
@@ -530,36 +619,27 @@ export class ContractService extends APIService {
     return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/send/`, {
       recipients,
       authoring_settings: authoringSettings,
-    }).then((response) => response.data);
+    })
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async syncSignatureRequest(workspaceSlug: string, requestId: string): Promise<TContractSignatureRequest> {
-    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/sync/`).then(
-      (response) => response.data
-    );
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/sync/`)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async getSignatureRequestLinks(workspaceSlug: string, requestId: string): Promise<TContractSigningLink[]> {
-    return this.get(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/links/`).then(
-      (response) => response.data.links
-    );
-  }
-
-  /* Template / signature-request actions. Errors carry the HTTP status so the
-     UI can tell an endpoint that is not implemented yet (501) apart. */
-
-  private rethrowWithStatus(error: any): never {
-    const data = error?.response?.data;
-    throw {
-      ...(data && typeof data === "object" ? data : {}),
-      status: error?.response?.status,
-    } satisfies import("@plane/types").TContractActionError;
+    return this.get(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/links/`)
+      .then((response) => response.data.links)
+      .catch((error) => this.rethrowWithStatus(error));
   }
 
   async updateTemplate(
     workspaceSlug: string,
     templateId: string,
-    payload: import("@plane/types").TContractTemplateUpdatePayload
+    payload: TContractTemplateUpdatePayload
   ): Promise<TContractTemplate> {
     return this.patch(`/api/workspaces/${workspaceSlug}/contract-templates/${templateId}/`, payload)
       .then((response) => response.data)
@@ -569,8 +649,8 @@ export class ContractService extends APIService {
   async updateVariant(
     workspaceSlug: string,
     variantId: string,
-    payload: import("@plane/types").TContractVariantUpdatePayload
-  ): Promise<import("@plane/types").TContractTemplateVariant> {
+    payload: TContractVariantUpdatePayload
+  ): Promise<TContractTemplateVariant> {
     return this.patch(`/api/workspaces/${workspaceSlug}/contract-variants/${variantId}/`, payload)
       .then((response) => response.data)
       .catch((error) => this.rethrowWithStatus(error));
@@ -597,6 +677,16 @@ export class ContractService extends APIService {
   /** Returns the new request (a draft copy of the original). */
   async duplicateSignatureRequest(workspaceSlug: string, requestId: string): Promise<TContractSignatureRequest> {
     return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/duplicate/`)
+      .then((response) => response.data)
+      .catch((error) => this.rethrowWithStatus(error));
+  }
+
+  /** Cancels the sent envelope and returns a READY copy to correct and resend. */
+  async cancelAndDuplicateSignatureRequest(
+    workspaceSlug: string,
+    requestId: string
+  ): Promise<TContractSignatureRequest> {
+    return this.post(`/api/workspaces/${workspaceSlug}/contract-signature-requests/${requestId}/cancel-and-duplicate/`)
       .then((response) => response.data)
       .catch((error) => this.rethrowWithStatus(error));
   }

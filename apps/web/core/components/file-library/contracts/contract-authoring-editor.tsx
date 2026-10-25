@@ -6,6 +6,7 @@
 
 import type { ComponentType, PointerEvent as ReactPointerEvent } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import useSWR from "swr";
 import {
   ArrowLeft,
   ArrowRight,
@@ -17,6 +18,7 @@ import {
   CheckSquare,
   ChevronDown,
   CircleDot,
+  Lock,
   Copy,
   Eye,
   FileText,
@@ -47,15 +49,20 @@ import type {
   TContractAuthoringSettings,
   TContractSignatureRequest,
   TContractSigningLink,
+  TContractVariableSetting,
+  TContractVariantUpdatePayload,
 } from "@plane/types";
+import { AlertModalCore } from "@plane/ui";
 // services
 import { contractService } from "@/services/contract.service";
 import { useUser } from "@/hooks/store/user";
 import { ContractEnvelopeSettingsDialog } from "./contract-envelope-settings-dialog";
 import { ContractDistributeDialog } from "./contract-distribute-dialog";
 import { ContractFieldSettings, getDefaultFieldMeta } from "./contract-field-settings";
+import { useSignatureSend } from "./contract-send-progress";
 import { ContractSigningLinksDialog } from "./contract-signing-links-dialog";
-import { ContractField, ContractInput, ContractSelect } from "./ui";
+import { contractErrorMessage, humanizeKey, variableLabel } from "./template-utils";
+import { ContractCheckbox, ContractField, ContractInput, ContractSelect } from "./ui";
 
 type AuthoringTab = "RECIPIENTS" | "FIELDS" | "PREVIEW";
 type FieldType = TContractAuthoringField["type"];
@@ -96,8 +103,8 @@ const FIELD_DEFINITIONS: Record<FieldType, FieldDefinition> = {
 const DEFAULT_SETTINGS: TContractAuthoringSettings = {
   subject: "Signature required: {{document.name}}",
   message: "Hello {{recipient.name}}, please review and sign {{document.name}}.",
-  timezone: "Etc/UTC",
-  dateFormat: "yyyy-MM-dd hh:mm a",
+  timezone: "America/Monterrey",
+  dateFormat: "dd/MM/yyyy",
   redirectUrl: "",
   language: "es",
   distributionMethod: "EMAIL",
@@ -123,6 +130,7 @@ const DEFAULT_SETTINGS: TContractAuthoringSettings = {
     sendAfter: { unit: "day", amount: 5 },
     repeatEvery: { unit: "day", amount: 2 },
   },
+  identity_verification_required: false,
 };
 
 const mergeSettings = (value?: Partial<TContractAuthoringSettings>): TContractAuthoringSettings => ({
@@ -204,6 +212,9 @@ const recipientsForRequest = (signatureRequest: TContractSignatureRequest): TCon
 const getRecipientLabel = (recipient: TContractAuthoringRecipient, fallback: string) =>
   recipient.name.trim() || recipient.email.trim() || recipient.placeholderLabel?.trim() || fallback;
 
+/** Placed from a {{…FirmanteN}} token in the Word file: moved by editing the Word, not here. */
+const isLockedField = (field: TContractAuthoringField) => Boolean(field.locked || field.source === "template_variable");
+
 const isFieldRole = (role: TContractAuthoringRecipient["role"]) =>
   role === "SIGNER" || role === "APPROVER" || role === "ASSISTANT";
 
@@ -283,8 +294,17 @@ function FieldOverlay({
   const Icon = definition.icon;
   const view = draft ? { ...field, ...draft } : field;
 
+  const locked = isLockedField(field);
+  const canMove = isEditable && !locked;
+
   const startInteraction = (event: ReactPointerEvent<HTMLElement>, mode: "move" | "resize") => {
     if (!isEditable) return;
+    if (locked) {
+      // Selectable (to explain why), never draggable.
+      event.stopPropagation();
+      onSelect();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const pageElement = event.currentTarget.closest<HTMLElement>("[data-pdf-viewer-page]");
@@ -334,9 +354,12 @@ function FieldOverlay({
   return (
     <div
       data-contract-field
+      title={locked ? t("file_library.contracts.workflow.template_config.locked_field_title") : undefined}
       className={cn(
         "shadow-sm pointer-events-auto absolute flex touch-none items-center overflow-hidden rounded-[3px] border-2 bg-white/95 text-[10px] font-medium select-none",
-        isEditable && "cursor-move"
+        canMove && "cursor-move",
+        locked && "border-dashed bg-white/80",
+        locked && isEditable && "cursor-pointer"
       )}
       style={{
         left: `${view.positionX}%`,
@@ -354,7 +377,7 @@ function FieldOverlay({
       onPointerCancel={stopInteraction}
     >
       <span className="flex min-w-0 flex-1 items-center gap-1 px-1.5">
-        <Icon className="size-3 shrink-0" />
+        {locked ? <Lock className="size-3 shrink-0" /> : <Icon className="size-3 shrink-0" />}
         <span className="truncate">
           {field.type === "TEXT"
             ? field.fieldMeta?.text || field.fieldMeta?.placeholder || t(definition.labelKey)
@@ -365,7 +388,7 @@ function FieldOverlay({
                 : t(definition.labelKey)}
         </span>
       </span>
-      {isEditable ? (
+      {canMove ? (
         <button
           type="button"
           aria-label={t("file_library.contracts.workflow.authoring.resize_field")}
@@ -626,6 +649,154 @@ function RecipientCoverage({
   );
 }
 
+/** Drops empty values so an untouched variable keeps the default behaviour. */
+const cleanVariableSettings = (settings: Record<string, TContractVariableSetting>) =>
+  Object.fromEntries(
+    Object.entries(settings).flatMap(([key, setting]) => {
+      const cleaned: TContractVariableSetting = {};
+      if (setting.label?.trim()) cleaned.label = setting.label.trim();
+      if (setting.type) cleaned.type = setting.type;
+      if (setting.required !== undefined) cleaned.required = setting.required;
+      if (setting.default?.trim()) cleaned.default = setting.default.trim();
+      if (setting.help?.trim()) cleaned.help = setting.help.trim();
+      const options = (setting.options ?? []).map((option) => option.trim()).filter(Boolean);
+      if (options.length > 0) cleaned.options = options;
+      if (setting.date_format) cleaned.date_format = setting.date_format;
+      return Object.keys(cleaned).length > 0 ? [[key, cleaned]] : [];
+    })
+  );
+
+const VARIABLE_TYPES: Array<NonNullable<TContractVariableSetting["type"]>> = [
+  "text",
+  "date",
+  "number",
+  "currency",
+  "choice",
+];
+
+/**
+ * How each piece of data is asked for when the template is used: label,
+ * type, required, default and help. Empty = what the key implies today.
+ */
+function TemplateVariableSettingsEditor({
+  variables,
+  value,
+  onChange,
+}: {
+  variables: Array<{ key: string; label: string; type: string; required: boolean }>;
+  value: Record<string, TContractVariableSetting>;
+  onChange: (key: string, setting: TContractVariableSetting) => void;
+}) {
+  const { t } = useTranslation();
+  const [openKey, setOpenKey] = useState<string>();
+  if (variables.length === 0) return null;
+  const prefix = "file_library.contracts.workflow.variable_settings";
+
+  return (
+    <section className="shadow-sm rounded-xl border border-subtle bg-surface-1 p-6">
+      <h2 className="text-15 font-semibold">{t(`${prefix}.title`)}</h2>
+      <p className="mt-1 text-13 text-tertiary">{t(`${prefix}.description`)}</p>
+      <ul className="mt-4 divide-y divide-subtle rounded-lg border border-subtle">
+        {variables.map((variable) => {
+          const setting = value[variable.key] ?? {};
+          const type = setting.type ?? (variable.type as NonNullable<TContractVariableSetting["type"]>);
+          const required = setting.required ?? variable.required;
+          const isOpen = openKey === variable.key;
+          const update = (patch: Partial<TContractVariableSetting>) => onChange(variable.key, { ...setting, ...patch });
+          return (
+            <li key={variable.key}>
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                onClick={() => setOpenKey(isOpen ? undefined : variable.key)}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-layer-1-hover"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-13 font-medium text-primary">
+                    {variableLabel(variable.key, variable.label, setting)}
+                  </span>
+                  <code className="block truncate text-11 text-tertiary">{`{{${variable.key}}}`}</code>
+                </span>
+                <span className="shrink-0 text-11 text-tertiary">
+                  {t(`${prefix}.type_${type}`)} · {required ? t(`${prefix}.required`) : t(`${prefix}.optional`)}
+                </span>
+                <ChevronDown
+                  className={cn("size-4 shrink-0 text-tertiary transition-transform", isOpen && "rotate-180")}
+                />
+              </button>
+              {isOpen ? (
+                <div className="grid gap-3 bg-layer-1 px-4 py-3 sm:grid-cols-2">
+                  <ContractField label={t(`${prefix}.label`)}>
+                    <ContractInput
+                      value={setting.label ?? ""}
+                      placeholder={variableLabel(variable.key, variable.label) || humanizeKey(variable.key)}
+                      onChange={(event) => update({ label: event.target.value })}
+                    />
+                  </ContractField>
+                  <ContractField label={t(`${prefix}.type`)}>
+                    <ContractSelect
+                      value={type}
+                      onChange={(next) => update({ type: next })}
+                      options={VARIABLE_TYPES.map((option) => ({
+                        value: option,
+                        label: t(`${prefix}.type_${option}`),
+                      }))}
+                    />
+                  </ContractField>
+                  <ContractField label={t(`${prefix}.default`)} hint={t(`${prefix}.default_hint`)}>
+                    <ContractInput
+                      type={type === "date" ? "date" : type === "number" || type === "currency" ? "number" : "text"}
+                      value={setting.default ?? ""}
+                      onChange={(event) => update({ default: event.target.value })}
+                    />
+                  </ContractField>
+                  <ContractField label={t(`${prefix}.help`)}>
+                    <ContractInput
+                      value={setting.help ?? ""}
+                      placeholder={t(`${prefix}.help_placeholder`)}
+                      onChange={(event) => update({ help: event.target.value })}
+                    />
+                  </ContractField>
+                  {type === "choice" ? (
+                    <ContractField
+                      className="sm:col-span-2"
+                      label={t(`${prefix}.options`)}
+                      hint={t(`${prefix}.options_hint`)}
+                    >
+                      <ContractInput
+                        value={(setting.options ?? []).join(", ")}
+                        onChange={(event) => update({ options: event.target.value.split(",") })}
+                      />
+                    </ContractField>
+                  ) : null}
+                  {type === "date" ? (
+                    <ContractField label={t(`${prefix}.date_format`)}>
+                      <ContractSelect
+                        value={setting.date_format ?? "long"}
+                        onChange={(next: "long" | "iso") => update({ date_format: next })}
+                        options={[
+                          { value: "long", label: t(`${prefix}.date_long`) },
+                          { value: "iso", label: t(`${prefix}.date_iso`) },
+                        ]}
+                      />
+                    </ContractField>
+                  ) : null}
+                  <ContractCheckbox
+                    className="sm:col-span-2"
+                    checked={required}
+                    label={t(`${prefix}.required_label`)}
+                    onChange={(checked) => update({ required: checked })}
+                  />
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export function ContractAuthoringEditor({
   workspaceSlug,
   signatureRequest,
@@ -640,6 +811,32 @@ export function ContractAuthoringEditor({
 }) {
   const { t } = useTranslation();
   const { data: currentUser } = useUser();
+  const isTemplate = signatureRequest.authoring_mode === "TEMPLATE";
+  const variantId = signatureRequest.variant_id ?? signatureRequest.revision?.variant_id;
+  // Older configuration sessions were titled "Configurar documento"; show the template instead.
+  const templateName = signatureRequest.template_name?.trim() || signatureRequest.title;
+  const templateId = signatureRequest.template_id ?? undefined;
+  const { data: templateData } = useSWR(
+    isTemplate && templateId ? `CONTRACT_TEMPLATE_${workspaceSlug}_${templateId}` : null,
+    () => contractService.getTemplate(workspaceSlug, templateId!),
+    { revalidateOnFocus: false }
+  );
+  const templateVariant = templateData?.variants.find((variant) => variant.id === variantId);
+  const { data: variantSchema } = useSWR(
+    isTemplate && variantId ? `CONTRACT_TEMPLATE_SCHEMA_${workspaceSlug}_${variantId}_CURRENT` : null,
+    () => contractService.getTemplateSchema(workspaceSlug, variantId!),
+    { revalidateOnFocus: false }
+  );
+  /** undefined until the variant is loaded (older APIs never load it: the editor stays hidden). */
+  const [variableSettings, setVariableSettings] = useState<Record<string, TContractVariableSetting>>();
+  const [variableSettingsDirty, setVariableSettingsDirty] = useState(false);
+  useEffect(() => {
+    if (templateVariant && variableSettings === undefined)
+      setVariableSettings({ ...templateVariant.variable_settings });
+  }, [templateVariant, variableSettings]);
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [committedVersion, setCommittedVersion] = useState(0);
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string>();
   const [pdfLoadFailed, setPdfLoadFailed] = useState(false);
   const [pdfPageCount, setPdfPageCount] = useState(1);
@@ -652,7 +849,8 @@ export function ContractAuthoringEditor({
     return {
       ...merged,
       subject:
-        signatureRequest.authoring_settings?.subject || t("file_library.contracts.workflow.authoring.default_subject"),
+        signatureRequest.authoring_settings?.subject ||
+        t("file_library.contracts.workflow.authoring.default_subject", { title: signatureRequest.title }),
       message:
         signatureRequest.authoring_settings?.message || t("file_library.contracts.workflow.authoring.default_message"),
     };
@@ -769,6 +967,10 @@ export function ContractAuthoringEditor({
 
   const removeSelectedField = useCallback(() => {
     if (!selectedField) return;
+    const target = recipients[selectedField.recipientIndex]?.fields.find(
+      (field) => field.clientId === selectedField.clientId
+    );
+    if (target && isLockedField(target)) return;
     updateRecipients((current) =>
       current.map((recipient, index) =>
         index === selectedField.recipientIndex
@@ -780,7 +982,7 @@ export function ContractAuthoringEditor({
       )
     );
     setSelectedField(undefined);
-  }, [selectedField, updateRecipients]);
+  }, [recipients, selectedField, updateRecipients]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -819,7 +1021,9 @@ export function ContractAuthoringEditor({
           signatureRequest.id,
           snapshot.recipients,
           snapshot.settings,
-          snapshot.title
+          snapshot.title,
+          // Template sessions autosave only themselves; "Guardar campos" commits.
+          isTemplate ? { commit: false } : undefined
         )
         .then(() => undefined);
       savePromiseRef.current = request;
@@ -830,10 +1034,10 @@ export function ContractAuthoringEditor({
         if (showConfirmation)
           setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.workflow.authoring.draft_saved") });
         return true;
-      } catch (error: any) {
+      } catch (error) {
         setToast({
           type: TOAST_TYPE.ERROR,
-          title: error?.error ?? t("file_library.contracts.workflow.authoring.draft_save_failed"),
+          title: contractErrorMessage(t, error, "file_library.contracts.workflow.authoring.draft_save_failed"),
         });
         return false;
       } finally {
@@ -841,7 +1045,7 @@ export function ContractAuthoringEditor({
         setIsSaving(false);
       }
     },
-    [signatureRequest.id, t, workspaceSlug]
+    [isTemplate, signatureRequest.id, t, workspaceSlug]
   );
 
   useEffect(() => {
@@ -890,13 +1094,18 @@ export function ContractAuthoringEditor({
     return undefined;
   }, [recipients, signatureRequest.authoring_mode, t]);
 
+  const signatureSend = useSignatureSend(workspaceSlug, signatureRequest.id);
+
+  /** Sends in the background (newer API) and follows its steps; links come after it is out. */
   const handleSend = async () => {
     if (validationMessage) return;
     setIsSending(true);
     try {
       if (!(await saveDraft())) return;
-      await contractService.sendSignatureRequest(workspaceSlug, signatureRequest.id, recipients, settings);
+      const sent = await signatureSend.send(recipients, settings);
       onSent();
+      // Failed or still going in the background: the dialog shows why.
+      if (!sent) return;
       if (settings.distributionMethod === "NONE") {
         const links = await contractService.getSignatureRequestLinks(workspaceSlug, signatureRequest.id);
         setDistributionOpen(false);
@@ -909,23 +1118,29 @@ export function ContractAuthoringEditor({
         setToast({
           type: TOAST_TYPE.SUCCESS,
           title: t("file_library.contracts.workflow.authoring.sent_email"),
-          message: t("file_library.contracts.workflow.authoring.local_inbucket"),
         });
         onClose();
       }
-    } catch (error: any) {
+    } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.authoring.send_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.authoring.send_failed"),
       });
     } finally {
       setIsSending(false);
     }
   };
 
+  const hasUncommittedChanges = isTemplate && editVersion !== committedVersion;
+
   const handleClose = async () => {
     if (editVersion !== savedVersion) {
       if (!(await saveDraft())) return;
+    }
+    // The session keeps the work, but the template only uses committed fields.
+    if (hasUncommittedChanges) {
+      setLeaveConfirmOpen(true);
+      return;
     }
     onClose();
   };
@@ -993,23 +1208,67 @@ export function ContractAuthoringEditor({
     });
   };
 
-  const handleTemplateSave = async () => {
-    setIsSaving(true);
+  /** "Guardar campos": validates, writes the fields to the template, saves role names and data settings. */
+  const commitTemplate = async () => {
+    if (validationMessage) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: t("file_library.contracts.workflow.authoring.missing_information"),
+        message: validationMessage,
+      });
+      setActiveTab("RECIPIENTS");
+      return;
+    }
+    setIsCommitting(true);
     try {
-      if (!(await saveDraft())) return;
+      if (savePromiseRef.current) await savePromiseRef.current.catch(() => undefined);
+      const version = latestVersionRef.current;
+      const snapshot = latestDraftRef.current;
+      await contractService.saveSignatureRequest(
+        workspaceSlug,
+        signatureRequest.id,
+        snapshot.recipients,
+        snapshot.settings,
+        snapshot.title,
+        { commit: true }
+      );
+      savedVersionRef.current = version;
+      setSavedVersion(version);
+      setCommittedVersion(version);
+      if (variantId) {
+        const recipientRoles = Object.fromEntries(
+          snapshot.recipients.flatMap((recipient, index) =>
+            recipient.placeholderLabel?.trim() ? [[String(index), recipient.placeholderLabel.trim()]] : []
+          )
+        );
+        const payload: TContractVariantUpdatePayload = { recipient_roles: recipientRoles };
+        if (variableSettings && variableSettingsDirty)
+          payload.variable_settings = cleanVariableSettings(variableSettings);
+        try {
+          await contractService.updateVariant(workspaceSlug, variantId, payload);
+          setVariableSettingsDirty(false);
+        } catch (error) {
+          // The fields are saved; only the names/settings failed.
+          setToast({
+            type: TOAST_TYPE.WARNING,
+            title: t("file_library.contracts.workflow.template_config.settings_save_failed"),
+            message: contractErrorMessage(t, error, "file_library.contracts.workflow.authoring.template_save_failed"),
+          });
+        }
+      }
       setToast({
         type: TOAST_TYPE.SUCCESS,
-        title: t("file_library.contracts.workflow.authoring.template_saved"),
+        title: t("file_library.contracts.workflow.template_config.saved"),
       });
       onSent();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.authoring.template_save_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.authoring.template_save_failed"),
       });
     } finally {
-      setIsSaving(false);
+      setIsCommitting(false);
     }
   };
 
@@ -1103,23 +1362,32 @@ export function ContractAuthoringEditor({
   }> = [
     {
       id: "RECIPIENTS",
-      label: t("file_library.contracts.workflow.authoring.document"),
-      description: t("file_library.contracts.workflow.authoring.add_recipients"),
+      label: isTemplate
+        ? t("file_library.contracts.workflow.template_config.step_roles")
+        : t("file_library.contracts.workflow.authoring.document"),
+      description: isTemplate
+        ? t("file_library.contracts.workflow.template_config.step_roles_description")
+        : t("file_library.contracts.workflow.authoring.add_recipients"),
       icon: FileText,
     },
     {
       id: "FIELDS",
       label: t("file_library.contracts.workflow.common.fields"),
-      description: t("file_library.contracts.workflow.authoring.place_fields"),
+      description: isTemplate
+        ? t("file_library.contracts.workflow.template_config.step_fields_description")
+        : t("file_library.contracts.workflow.authoring.place_fields"),
       icon: PenLine,
     },
     {
       id: "PREVIEW",
       label: t("file_library.contracts.workflow.common.preview"),
-      description: t("file_library.contracts.workflow.authoring.review_send"),
+      description: isTemplate
+        ? t("file_library.contracts.workflow.template_config.step_review_description")
+        : t("file_library.contracts.workflow.authoring.review_send"),
       icon: Eye,
     },
   ];
+  const documentName = isTemplate ? templateName : title;
   const activeStepIndex = paritySteps.findIndex((step) => step.id === activeTab);
 
   const parityDocumentSelector = (
@@ -1129,7 +1397,7 @@ export function ContractAuthoringEditor({
           <FileText className="size-5" />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-13 font-medium">{title}.pdf</span>
+          <span className="block truncate text-13 font-medium">{isTemplate ? documentName : `${title}.pdf`}</span>
           <span className="block text-11 text-tertiary">
             {t("file_library.contracts.workflow.authoring.page_count", { count: pdfPageCount })}
           </span>
@@ -1138,40 +1406,40 @@ export function ContractAuthoringEditor({
     </div>
   );
 
-  const parityHeaderAction =
-    signatureRequest.authoring_mode === "TEMPLATE" ? (
-      <Button
-        variant="primary"
-        size="sm"
-        disabled={isSaving || Boolean(validationMessage)}
-        onClick={() => void handleTemplateSave()}
-      >
-        {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-        {t("file_library.contracts.workflow.authoring.save_template")}
-      </Button>
-    ) : (
-      <Button
-        variant="primary"
-        size="sm"
-        disabled={isSending}
-        onClick={() => {
-          if (validationMessage) {
-            setToast({
-              type: TOAST_TYPE.ERROR,
-              title: t("file_library.contracts.workflow.authoring.missing_information"),
-              message: validationMessage,
-            });
-            setActiveTab("RECIPIENTS");
-            return;
-          }
-          setActiveTab("PREVIEW");
-          setDistributionOpen(true);
-        }}
-      >
-        <Send className="size-3.5" />
-        {t("file_library.contracts.workflow.distribute.title")}
-      </Button>
-    );
+  const parityHeaderAction = isTemplate ? (
+    <Button
+      variant="primary"
+      size="sm"
+      disabled={isCommitting}
+      title={validationMessage}
+      onClick={() => void commitTemplate()}
+    >
+      {isCommitting ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+      {t("file_library.contracts.workflow.template_config.save_fields")}
+    </Button>
+  ) : (
+    <Button
+      variant="primary"
+      size="sm"
+      disabled={isSending}
+      onClick={() => {
+        if (validationMessage) {
+          setToast({
+            type: TOAST_TYPE.ERROR,
+            title: t("file_library.contracts.workflow.authoring.missing_information"),
+            message: validationMessage,
+          });
+          setActiveTab("RECIPIENTS");
+          return;
+        }
+        setActiveTab("PREVIEW");
+        setDistributionOpen(true);
+      }}
+    >
+      <Send className="size-3.5" />
+      {t("file_library.contracts.workflow.distribute.title")}
+    </Button>
+  );
 
   const documensoModal = (
     <div className="flex size-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface-1 text-primary">
@@ -1180,21 +1448,50 @@ export function ContractAuthoringEditor({
           <span className="grid size-8 shrink-0 place-items-center rounded-md bg-layer-1 text-accent-primary">
             <FileText className="size-4" />
           </span>
-          <input
-            value={title}
-            aria-label={t("file_library.contracts.workflow.authoring.contract_title")}
-            className="w-[min(38vw,480px)] truncate border-0 bg-transparent text-14 font-medium outline-none"
-            onChange={(event) => {
-              setTitle(event.target.value);
-              markEdited();
-            }}
-          />
-          <span className="rounded-full bg-layer-2 px-2.5 py-1 text-11 font-medium text-secondary">
-            {signatureRequest.authoring_mode === "TEMPLATE"
-              ? t("file_library.contracts.workflow.common.template")
+          {isTemplate ? (
+            <div className="min-w-0">
+              <p className="w-[min(38vw,480px)] truncate text-14 font-medium">{templateName}</p>
+              {signatureRequest.variant_name ? (
+                <p className="truncate text-11 text-tertiary">
+                  {t("file_library.contracts.workflow.template_config.variant_label", {
+                    name: signatureRequest.variant_name,
+                  })}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <input
+              value={title}
+              aria-label={t("file_library.contracts.workflow.authoring.contract_title")}
+              className="w-[min(38vw,480px)] truncate border-0 bg-transparent text-14 font-medium outline-none"
+              onChange={(event) => {
+                setTitle(event.target.value);
+                markEdited();
+              }}
+            />
+          )}
+          <span className="shrink-0 rounded-full bg-layer-2 px-2.5 py-1 text-11 font-medium text-secondary">
+            {isTemplate
+              ? t("file_library.contracts.workflow.template_config.badge")
               : t("file_library.contracts.workflow.request_status.draft")}
           </span>
-          <SaveIndicator isSaving={isSaving} isDirty={editVersion !== savedVersion} />
+          {isTemplate ? (
+            <span className="flex shrink-0 items-center gap-1.5 text-11 text-tertiary">
+              {hasUncommittedChanges ? (
+                <>
+                  <span className="size-1.5 rounded-full bg-warning-primary" />
+                  {t("file_library.contracts.workflow.template_config.uncommitted")}
+                </>
+              ) : (
+                <>
+                  <Check className="size-3 text-success-primary" />
+                  {t("file_library.contracts.workflow.template_config.committed")}
+                </>
+              )}
+            </span>
+          ) : (
+            <SaveIndicator isSaving={isSaving} isDirty={editVersion !== savedVersion} />
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1268,7 +1565,10 @@ export function ContractAuthoringEditor({
             className="mt-auto flex items-center gap-2 rounded-md px-3 py-2.5 text-13 text-secondary hover:bg-layer-1-hover"
             onClick={() => void handleClose()}
           >
-            <ArrowLeft className="size-4" /> {t("file_library.contracts.workflow.authoring.back_to_contracts")}
+            <ArrowLeft className="size-4" />{" "}
+            {isTemplate
+              ? t("file_library.contracts.workflow.template_config.back_to_template")
+              : t("file_library.contracts.workflow.authoring.back_to_contracts")}
           </button>
         </aside>
 
@@ -1293,40 +1593,60 @@ export function ContractAuthoringEditor({
                     </div>
                   </div>
                 ) : null}
-                <section className="shadow-sm rounded-xl border border-subtle bg-surface-1 p-6">
-                  <h2 className="text-15 font-semibold">{t("file_library.contracts.workflow.authoring.documents")}</h2>
-                  <p className="mt-1 text-13 text-tertiary">
-                    {t("file_library.contracts.workflow.authoring.documents_description")}
-                  </p>
-                  <div className="mt-5 rounded-lg border border-dashed border-subtle bg-layer-1/50 p-8 text-center">
-                    <span className="mx-auto grid size-11 place-items-center rounded-full bg-layer-2 text-tertiary">
-                      <FileText className="size-5" />
-                    </span>
-                    <p className="mt-3 text-13 font-medium">{title}.pdf</p>
-                    <p className="mt-1 text-11 text-tertiary">
-                      {t("file_library.contracts.workflow.authoring.generated_pdf")}
+                {isTemplate ? (
+                  <section className="shadow-sm rounded-xl border border-subtle bg-surface-1 p-6">
+                    <h2 className="text-15 font-semibold">
+                      {t("file_library.contracts.workflow.template_config.intro_title", { name: templateName })}
+                    </h2>
+                    <p className="mt-1 text-13 text-tertiary">
+                      {t("file_library.contracts.workflow.template_config.intro_description")}
                     </p>
-                  </div>
-                  <div className="mt-4 flex items-center gap-3 rounded-lg border border-subtle px-4 py-3">
-                    <FileText className="size-5 shrink-0 text-accent-primary" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-13 font-medium">{title}.pdf</p>
-                      <p className="text-11 text-tertiary">
-                        {t("file_library.contracts.workflow.authoring.page_count", { count: pdfPageCount })}
+                    <p className="mt-3 text-11 text-tertiary">
+                      {t("file_library.contracts.workflow.template_config.sample_values_hint")}
+                    </p>
+                  </section>
+                ) : (
+                  <section className="shadow-sm rounded-xl border border-subtle bg-surface-1 p-6">
+                    <h2 className="text-15 font-semibold">
+                      {t("file_library.contracts.workflow.authoring.documents")}
+                    </h2>
+                    <p className="mt-1 text-13 text-tertiary">
+                      {t("file_library.contracts.workflow.authoring.documents_description")}
+                    </p>
+                    <div className="mt-5 rounded-lg border border-dashed border-subtle bg-layer-1/50 p-8 text-center">
+                      <span className="mx-auto grid size-11 place-items-center rounded-full bg-layer-2 text-tertiary">
+                        <FileText className="size-5" />
+                      </span>
+                      <p className="mt-3 text-13 font-medium">{title}.pdf</p>
+                      <p className="mt-1 text-11 text-tertiary">
+                        {t("file_library.contracts.workflow.authoring.generated_pdf")}
                       </p>
                     </div>
-                    <span className="rounded bg-layer-2 px-2 py-1 text-11 font-medium">PDF</span>
-                  </div>
-                </section>
+                    <div className="mt-4 flex items-center gap-3 rounded-lg border border-subtle px-4 py-3">
+                      <FileText className="size-5 shrink-0 text-accent-primary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-13 font-medium">{title}.pdf</p>
+                        <p className="text-11 text-tertiary">
+                          {t("file_library.contracts.workflow.authoring.page_count", { count: pdfPageCount })}
+                        </p>
+                      </div>
+                      <span className="rounded bg-layer-2 px-2 py-1 text-11 font-medium">PDF</span>
+                    </div>
+                  </section>
+                )}
 
                 <section className="shadow-sm rounded-xl border border-subtle bg-surface-1 p-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <h2 className="text-15 font-semibold">
-                        {t("file_library.contracts.workflow.authoring.recipients")}
+                        {isTemplate
+                          ? t("file_library.contracts.workflow.template_config.roles_title")
+                          : t("file_library.contracts.workflow.authoring.recipients")}
                       </h2>
                       <p className="mt-1 text-13 text-tertiary">
-                        {t("file_library.contracts.workflow.authoring.recipients_description")}
+                        {isTemplate
+                          ? t("file_library.contracts.workflow.template_config.roles_description")
+                          : t("file_library.contracts.workflow.authoring.recipients_description")}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1413,7 +1733,10 @@ export function ContractAuthoringEditor({
                           <ContractInput
                             className="min-w-0 flex-1"
                             value={recipient.placeholderLabel ?? ""}
-                            placeholder={t("file_library.contracts.workflow.authoring.role_placeholder")}
+                            aria-label={t("file_library.contracts.workflow.template_config.role_name")}
+                            placeholder={t("file_library.contracts.workflow.template_config.role_name_placeholder", {
+                              number: recipientIndex + 1,
+                            })}
                             onChange={(event) =>
                               updateRecipient(recipientIndex, {
                                 placeholderLabel: event.target.value,
@@ -1494,6 +1817,17 @@ export function ContractAuthoringEditor({
                   </button>
                 </section>
                 <ContractPrefillFields recipients={recipients} onChange={updateField} />
+                {isTemplate && variableSettings && variantSchema?.schema.variables.length ? (
+                  <TemplateVariableSettingsEditor
+                    variables={variantSchema.schema.variables}
+                    value={variableSettings}
+                    onChange={(key, setting) => {
+                      setVariableSettings((current) => ({ ...current, [key]: setting }));
+                      setVariableSettingsDirty(true);
+                      markEdited();
+                    }}
+                  />
+                ) : null}
                 <div className="flex justify-end">
                   <Button variant="primary" size="sm" onClick={() => setActiveTab("FIELDS")}>
                     {t("file_library.contracts.workflow.authoring.add_fields")} <ArrowRight className="size-3.5" />
@@ -1567,7 +1901,21 @@ export function ContractAuthoringEditor({
                   >
                     <Layers className="size-4" /> {t("file_library.contracts.workflow.authoring.detect_ai")}
                   </button>
-                  {selectedFieldData && selectedField ? (
+                  {selectedFieldData && isLockedField(selectedFieldData) ? (
+                    <section className="mt-5 space-y-2 border-t border-subtle pt-5">
+                      <p className="flex items-center gap-1.5 text-13 font-semibold">
+                        <Lock className="size-3.5 text-tertiary" />
+                        {t("file_library.contracts.workflow.template_config.locked_field_title")}
+                      </p>
+                      <p className="text-11 leading-relaxed text-tertiary">
+                        {t("file_library.contracts.workflow.template_config.locked_field_description", {
+                          token: selectedFieldData.fieldMeta?.templateVariable
+                            ? `{{${selectedFieldData.fieldMeta.templateVariable}}}`
+                            : t(FIELD_DEFINITIONS[selectedFieldData.type].labelKey),
+                        })}
+                      </p>
+                    </section>
+                  ) : selectedFieldData && selectedField ? (
                     <section className="mt-5 space-y-3 border-t border-subtle pt-5">
                       <div className="flex items-center justify-between">
                         <div>
@@ -1646,7 +1994,9 @@ export function ContractAuthoringEditor({
               {parityDocumentSelector}
               <div className="border-warning-primary/30 border-b bg-warning-primary/10 px-5 py-3 text-center text-13 text-warning-primary">
                 <strong>{t("file_library.contracts.workflow.authoring.preview_mode")}</strong>{" "}
-                {t("file_library.contracts.workflow.authoring.preview_description")}
+                {isTemplate
+                  ? t("file_library.contracts.workflow.template_config.preview_description")
+                  : t("file_library.contracts.workflow.authoring.preview_description")}
               </div>
               <div className="min-h-0 flex-1">{pdfCanvas}</div>
             </div>
@@ -1666,11 +2016,38 @@ export function ContractAuthoringEditor({
           settings={settings}
           validationMessage={validationMessage}
           isSubmitting={isSending}
+          progress={
+            signatureSend.phase === "idle"
+              ? undefined
+              : { phase: signatureSend.phase, step: signatureSend.step, error: signatureSend.error }
+          }
           onChange={updateSettings}
-          onClose={() => setDistributionOpen(false)}
+          onClose={() => {
+            setDistributionOpen(false);
+            // Once it is out (or running server-side) there is nothing left to do here.
+            if (signatureSend.phase === "done" || signatureSend.phase === "background") onClose();
+            else signatureSend.reset();
+          }}
           onSubmit={() => void handleSend()}
         />
       ) : null}
+      <AlertModalCore
+        isOpen={leaveConfirmOpen}
+        variant="primary"
+        handleClose={() => setLeaveConfirmOpen(false)}
+        handleSubmit={() => {
+          setLeaveConfirmOpen(false);
+          onClose();
+        }}
+        isSubmitting={false}
+        title={t("file_library.contracts.workflow.template_config.leave_title")}
+        content={t("file_library.contracts.workflow.template_config.leave_description")}
+        primaryButtonText={{
+          default: t("file_library.contracts.workflow.template_config.leave_confirm"),
+          loading: t("file_library.contracts.workflow.template_config.leave_confirm"),
+        }}
+        secondaryButtonText={t("file_library.contracts.workflow.template_config.keep_configuring")}
+      />
       {signingLinks ? (
         <ContractSigningLinksDialog
           links={signingLinks}

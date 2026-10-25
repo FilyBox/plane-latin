@@ -279,6 +279,7 @@ export const REQUEST_STATUS_VARIANT: Record<string, TBadgeVariant> = {
   COMPLETED: "success",
   REJECTED: "danger",
   CANCELLED: "neutral",
+  EXPIRED: "danger",
   ERROR: "danger",
 };
 

@@ -26,6 +26,40 @@ const tabs: Array<{ id: SettingsTab; labelKey: string; icon: typeof Settings }> 
   { id: "SECURITY", labelKey: "file_library.contracts.workflow.settings.security", icon: ShieldCheck },
 ];
 
+/** Common zones for our users; Monterrey first because it is the default. */
+const TIMEZONES = [
+  "America/Monterrey",
+  "America/Mexico_City",
+  "America/Tijuana",
+  "America/Cancun",
+  "America/Chihuahua",
+  "America/Hermosillo",
+  "America/Bogota",
+  "America/Lima",
+  "America/Santiago",
+  "America/Argentina/Buenos_Aires",
+  "Europe/Madrid",
+  "America/New_York",
+  "America/Los_Angeles",
+  "Etc/UTC",
+];
+
+const timezoneLabel = (zone: string) => (zone === "Etc/UTC" ? "UTC" : zone.replace(/_/g, " "));
+
+/** The fixed list, plus the saved value when it is not in it (older requests). */
+const timezoneOptions = (current: string) =>
+  (current && !TIMEZONES.includes(current) ? [current, ...TIMEZONES] : TIMEZONES).map((zone) => ({
+    value: zone,
+    label: timezoneLabel(zone),
+  }));
+
+const DATE_FORMATS = [
+  { value: "dd/MM/yyyy", label: "31/07/2026" },
+  { value: "yyyy-MM-dd hh:mm a", label: "2026-07-31 07:30 PM" },
+  { value: "MM/dd/yyyy", label: "07/31/2026" },
+  { value: "dd MMMM yyyy", label: "31 julio 2026" },
+];
+
 const emailOptions: Array<{ key: keyof TContractAuthoringSettings["emailSettings"]; labelKey: string }> = [
   { key: "recipientSigningRequest", labelKey: "file_library.contracts.workflow.settings.recipient_signing_request" },
   { key: "recipientRemoved", labelKey: "file_library.contracts.workflow.settings.recipient_removed" },
@@ -97,21 +131,21 @@ export function ContractEnvelopeSettingsDialog({ value, onChange, onClose }: Pro
               <div className="space-y-5">
                 <section className="grid grid-cols-2 gap-4">
                   <ContractField label={t("file_library.contracts.workflow.settings.timezone")}>
-                    <ContractInput
+                    <ContractSelect
                       value={value.timezone}
-                      onChange={(event) => update({ timezone: event.target.value })}
+                      onChange={(timezone) => update({ timezone })}
+                      options={timezoneOptions(value.timezone)}
                     />
                   </ContractField>
                   <ContractField label={t("file_library.contracts.workflow.settings.date_format")}>
                     <ContractSelect
                       value={value.dateFormat}
                       onChange={(dateFormat) => update({ dateFormat })}
-                      options={[
-                        { value: "yyyy-MM-dd hh:mm a", label: "2026-07-31 07:30 PM" },
-                        { value: "dd/MM/yyyy", label: "31/07/2026" },
-                        { value: "MM/dd/yyyy", label: "07/31/2026" },
-                        { value: "dd MMMM yyyy", label: "31 julio 2026" },
-                      ]}
+                      options={
+                        value.dateFormat && !DATE_FORMATS.some((format) => format.value === value.dateFormat)
+                          ? [{ value: value.dateFormat, label: value.dateFormat }, ...DATE_FORMATS]
+                          : DATE_FORMATS
+                      }
                     />
                   </ContractField>
                   <ContractField label={t("file_library.contracts.workflow.settings.language")}>
@@ -197,6 +231,12 @@ export function ContractEnvelopeSettingsDialog({ value, onChange, onClose }: Pro
 
             {activeTab === "SECURITY" ? (
               <div className="space-y-4">
+                <Toggle
+                  label={t("file_library.contracts.workflow.send.identity_verification")}
+                  description={t("file_library.contracts.workflow.send.identity_verification_hint")}
+                  checked={value.identity_verification_required ?? false}
+                  onChange={(checked) => update({ identity_verification_required: checked })}
+                />
                 <p className="text-13 text-tertiary">
                   {t("file_library.contracts.workflow.settings.signature_methods")}
                 </p>
@@ -235,16 +275,21 @@ export function ContractEnvelopeSettingsDialog({ value, onChange, onClose }: Pro
 
 function Toggle({
   label,
+  description,
   checked,
   onChange,
 }: {
   label: string;
+  description?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between rounded-lg border border-subtle p-3 text-13">
-      {label}
+    <label className="flex items-center justify-between gap-3 rounded-lg border border-subtle p-3 text-13">
+      <span className="min-w-0">
+        {label}
+        {description ? <span className="mt-0.5 block text-11 text-tertiary">{description}</span> : null}
+      </span>
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     </label>
   );

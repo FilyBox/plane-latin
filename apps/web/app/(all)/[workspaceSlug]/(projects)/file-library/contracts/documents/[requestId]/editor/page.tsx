@@ -38,6 +38,7 @@ export default function ContractAuthoringEditorPage() {
   // Template configuration returns to the template it belongs to; everything
   // else returns to the tracking list focused on this contract.
   const returnTo = searchParams.get("returnTo");
+  const isTemplateMode = searchParams.get("mode") === "template" || request?.authoring_mode === "TEMPLATE";
   const leave = () =>
     navigate(returnTo ?? `/${workspaceSlug}/file-library/contracts/documents?request=${requestId}`, {
       replace: true,
@@ -45,7 +46,13 @@ export default function ContractAuthoringEditorPage() {
 
   return (
     <>
-      <PageHead title={t("file_library.contracts.workflow.page_titles.editor")} />
+      <PageHead
+        title={
+          isTemplateMode
+            ? t("file_library.contracts.workflow.template_config.page_title")
+            : t("file_library.contracts.workflow.page_titles.editor")
+        }
+      />
       {isLoading && !request ? (
         <div className="grid h-full place-items-center">
           <Loader2 className="size-5 animate-spin text-tertiary" />
@@ -59,9 +66,15 @@ export default function ContractAuthoringEditorPage() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => navigate(`/${workspaceSlug}/file-library/contracts/documents`)}
+              onClick={() =>
+                navigate(
+                  returnTo ?? `/${workspaceSlug}/file-library/contracts/${isTemplateMode ? "templates" : "documents"}`
+                )
+              }
             >
-              {t("file_library.contracts.workflow.authoring.back_to_contracts")}
+              {isTemplateMode
+                ? t("file_library.contracts.workflow.template_config.back_to_template")
+                : t("file_library.contracts.workflow.authoring.back_to_contracts")}
             </Button>
           }
         />

@@ -13,12 +13,14 @@
 
 import { useMemo, useState } from "react";
 import {
+  AlertTriangle,
   Braces,
   CheckCircle2,
   Download,
   FilePlus2,
   FileText,
   Loader2,
+  PenLine,
   Plus,
   Search,
   Trash2,
@@ -30,13 +32,22 @@ import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TContractTemplate, TContractTemplateSchemaResponse } from "@plane/types";
+import type { TContractActionError, TContractTemplate, TContractTemplateSchemaResponse } from "@plane/types";
 import { AlertModalCore, CustomMenu, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { contractService } from "@/services/contract.service";
 import { downloadAssets } from "../download";
 import { ContractTemplateDetailsDialog } from "./contract-template-details-dialog";
 import { ContractBulkActionsBar, ContractSelectionCheckbox } from "./list-controls";
+import {
+  contractErrorMessage,
+  MAX_TEMPLATE_FILE_BYTES,
+  nameFromFileName,
+  schemaWarnings,
+  templateCounts,
+  templateFieldEditorUrl,
+} from "./template-utils";
+import { TemplateWarnings } from "./template-warnings";
 import { ContractEmptyState, ContractField, ContractInput, ContractLoading, ContractTextarea } from "./ui";
 
 type Props = { workspaceSlug: string };
@@ -60,6 +71,9 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
   const [templateFile, setTemplateFile] = useState<File>();
   const [isUploading, setIsUploading] = useState(false);
   const [created, setCreated] = useState<CreatedTemplate>();
+  const [createError, setCreateError] = useState<string>();
+  const [nameTaken, setNameTaken] = useState(false);
+  const [isOpeningEditor, setIsOpeningEditor] = useState(false);
   const [deletingTemplate, setDeletingTemplate] = useState<TContractTemplate>();
   const [editingTemplate, setEditingTemplate] = useState<TContractTemplate>();
   const [isDeleting, setIsDeleting] = useState(false);
@@ -73,11 +87,37 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
     setTemplateName("");
     setTemplateDescription("");
     setTemplateFile(undefined);
+    setCreateError(undefined);
+    setNameTaken(false);
+  };
+
+  /** Picking a file fills the name unless the user already typed their own. */
+  const pickFile = (file: File | undefined) => {
+    setCreateError(undefined);
+    if (!file) return;
+    if (!/\.docx$/i.test(file.name)) {
+      setTemplateFile(undefined);
+      setCreateError(t("file_library.contracts.workflow.errors.invalid_docx"));
+      return;
+    }
+    if (file.size > MAX_TEMPLATE_FILE_BYTES) {
+      setTemplateFile(undefined);
+      setCreateError(t("file_library.contracts.workflow.errors.file_too_large"));
+      return;
+    }
+    setTemplateFile(file);
+    setTemplateName((current) =>
+      !current.trim() || current === (templateFile ? nameFromFileName(templateFile.name) : "")
+        ? nameFromFileName(file.name)
+        : current
+    );
   };
 
   const uploadTemplate = async () => {
     if (!templateFile || !templateName.trim()) return;
     setIsUploading(true);
+    setCreateError(undefined);
+    setNameTaken(false);
     try {
       const template = await contractService.createTemplate(workspaceSlug, {
         name: templateName.trim(),
@@ -87,18 +127,50 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
       await mutate();
       // Read back what the parser found so step 2 can report it. A schema
       // failure must not block the flow — the template already exists.
-      const variantId = template.variants[0]?.id;
-      const schema = variantId
-        ? await contractService.getTemplateSchema(workspaceSlug, variantId).catch(() => undefined)
-        : undefined;
+      const variantId = template.variants?.[0]?.id;
+      const schema =
+        template.schema && "schema" in template.schema
+          ? template.schema
+          : variantId
+            ? await contractService.getTemplateSchema(workspaceSlug, variantId).catch(() => undefined)
+            : undefined;
       setCreated({ template, schema });
-    } catch (error: any) {
-      setToast({
-        type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.templates.create_failed"),
-      });
+    } catch (error) {
+      const message = contractErrorMessage(t, error, "file_library.contracts.workflow.templates.create_failed");
+      setNameTaken((error as TContractActionError | undefined)?.error === "template_name_taken");
+      setCreateError(message);
+      setToast({ type: TOAST_TYPE.ERROR, title: message });
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  /** Opens the field editor for the new template's first variant. */
+  const configureCreated = async () => {
+    if (!created) return;
+    const variantId = created.template.variants?.[0]?.id;
+    if (!variantId) {
+      goToTemplate(created.template.id);
+      return;
+    }
+    setIsOpeningEditor(true);
+    try {
+      const request = await contractService.prepareSignatureRequest(workspaceSlug, {
+        variant_id: variantId,
+        title: created.template.name,
+        authoring_mode: "TEMPLATE",
+      });
+      const templateId = created.template.id;
+      closeCreation();
+      navigate(templateFieldEditorUrl(workspaceSlug, request.id, templateId));
+    } catch (error) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.template_detail.configuration_failed"),
+      });
+      goToTemplate(created.template.id);
+    } finally {
+      setIsOpeningEditor(false);
     }
   };
 
@@ -110,10 +182,10 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
       await mutate();
       setDeletingTemplate(undefined);
       setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.workflow.templates.deleted") });
-    } catch (error: any) {
+    } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.templates.delete_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.templates.delete_failed"),
       });
     } finally {
       setIsDeleting(false);
@@ -179,10 +251,10 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
         type: TOAST_TYPE.SUCCESS,
         title: t("file_library.contracts.workflow.templates.bulk_deleted", { count: selectedIds.length }),
       });
-    } catch (error: any) {
+    } catch (error) {
       setToast({
         type: TOAST_TYPE.ERROR,
-        title: error?.error ?? t("file_library.contracts.workflow.templates.delete_failed"),
+        title: contractErrorMessage(t, error, "file_library.contracts.workflow.templates.delete_failed"),
       });
     } finally {
       setIsDeleting(false);
@@ -399,7 +471,8 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
         {created ? (
           <TemplateDetectionSummary
             created={created}
-            onConfigure={() => goToTemplate(created.template.id)}
+            isConfiguring={isOpeningEditor}
+            onConfigure={() => void configureCreated()}
             onFinish={closeCreation}
           />
         ) : (
@@ -418,10 +491,57 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
               </p>
             </div>
             <div className="space-y-4 p-5">
-              <ContractField label={t("file_library.contracts.workflow.common.name")}>
+              {/* The file comes first: the name is filled from it. */}
+              <label
+                className={cn(
+                  "grid cursor-pointer place-items-center rounded-lg border border-dashed bg-layer-1 px-5 py-7 text-center hover:bg-layer-1-hover",
+                  templateFile ? "border-success-primary" : "border-subtle"
+                )}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (!isUploading) pickFile(event.dataTransfer.files?.[0]);
+                }}
+              >
+                {templateFile ? (
+                  <CheckCircle2 className="size-6 text-success-primary" />
+                ) : (
+                  <Upload className="size-6 text-tertiary" />
+                )}
+                <span className="mt-2 text-13 font-medium text-primary">
+                  {templateFile?.name ?? t("file_library.contracts.workflow.templates.select_word")}
+                </span>
+                <span className="mt-1 text-11 text-tertiary">
+                  {templateFile
+                    ? t("file_library.contracts.workflow.creation.change_file")
+                    : t("file_library.contracts.workflow.creation.file_hint")}
+                </span>
+                <input
+                  type="file"
+                  disabled={isUploading}
+                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="hidden"
+                  onChange={(event) => {
+                    pickFile(event.target.files?.[0]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+              <ContractField
+                label={t("file_library.contracts.workflow.common.name")}
+                error={nameTaken ? createError : undefined}
+              >
                 <ContractInput
                   value={templateName}
-                  onChange={(event) => setTemplateName(event.target.value)}
+                  hasError={nameTaken}
+                  disabled={isUploading}
+                  onChange={(event) => {
+                    setTemplateName(event.target.value);
+                    if (nameTaken) {
+                      setNameTaken(false);
+                      setCreateError(undefined);
+                    }
+                  }}
                   placeholder={t("file_library.contracts.workflow.templates.name_placeholder")}
                 />
               </ContractField>
@@ -432,47 +552,43 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
               >
                 <ContractTextarea
                   value={templateDescription}
+                  disabled={isUploading}
                   onChange={(event) => setTemplateDescription(event.target.value)}
-                  className="min-h-20 resize-none"
+                  className="min-h-16 resize-none"
                 />
               </ContractField>
-              <label className="grid cursor-pointer place-items-center rounded-lg border border-dashed border-subtle bg-layer-1 px-5 py-7 text-center hover:bg-layer-1-hover">
-                {templateFile ? (
-                  <CheckCircle2 className="size-6 text-success-primary" />
-                ) : (
-                  <Upload className="size-6 text-tertiary" />
-                )}
-                <span className="mt-2 text-13 font-medium text-primary">
-                  {templateFile?.name ?? t("file_library.contracts.workflow.templates.select_word")}
-                </span>
-                <span className="mt-1 text-11 text-tertiary">
-                  {t("file_library.contracts.workflow.templates.editable_docx")}
-                </span>
-                <input
-                  type="file"
-                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  className="hidden"
-                  onChange={(event) => setTemplateFile(event.target.files?.[0])}
-                />
-              </label>
+              {createError && !nameTaken ? (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-md bg-danger-primary/10 px-3 py-2 text-12 text-danger-primary"
+                >
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>{createError}</span>
+                </div>
+              ) : null}
             </div>
-            <footer className="flex justify-end gap-2 border-t border-subtle px-5 py-4">
-              <Button variant="secondary" size="sm" type="button" disabled={isUploading} onClick={closeCreation}>
-                {t("file_library.contracts.workflow.common.cancel")}
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                type="submit"
-                disabled={!templateFile || !templateName.trim() || isUploading}
-              >
-                {isUploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}{" "}
-                {t(
-                  isUploading
-                    ? "file_library.contracts.workflow.templates.analyzing"
-                    : "file_library.contracts.workflow.templates.create"
-                )}
-              </Button>
+            <footer className="flex items-center justify-between gap-2 border-t border-subtle px-5 py-4">
+              <span className="min-w-0 truncate text-11 text-tertiary">
+                {isUploading ? t("file_library.contracts.workflow.creation.uploading_hint") : ""}
+              </span>
+              <div className="flex shrink-0 gap-2">
+                <Button variant="secondary" size="sm" type="button" disabled={isUploading} onClick={closeCreation}>
+                  {t("file_library.contracts.workflow.common.cancel")}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  type="submit"
+                  disabled={!templateFile || !templateName.trim() || isUploading}
+                >
+                  {isUploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}{" "}
+                  {t(
+                    isUploading
+                      ? "file_library.contracts.workflow.templates.analyzing"
+                      : "file_library.contracts.workflow.templates.create"
+                  )}
+                </Button>
+              </div>
             </footer>
           </form>
         )}
@@ -520,16 +636,25 @@ export function ContractWorkflow({ workspaceSlug }: Props) {
  */
 function TemplateDetectionSummary({
   created,
+  isConfiguring,
   onConfigure,
   onFinish,
 }: {
   created: CreatedTemplate;
+  isConfiguring: boolean;
   onConfigure: () => void;
   onFinish: () => void;
 }) {
   const { t } = useTranslation();
+  const variant = created.template.variants?.[0];
   const variables = created.schema?.schema.variables ?? [];
-  const signerCount = created.schema?.schema.recipients.length ?? 0;
+  const counts = templateCounts({
+    summary: created.schema?.summary,
+    schema: created.schema?.schema,
+    recipientBlueprint: variant?.recipient_blueprint,
+    signatureBlueprint: variant?.signature_blueprint,
+  });
+  const warnings = schemaWarnings(created.schema);
   const tokens = variables.slice(0, 8);
 
   return (
@@ -547,18 +672,25 @@ function TemplateDetectionSummary({
       </div>
 
       <div className="space-y-4 p-5">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <DetectionStat
             icon={<Braces className="size-4" />}
-            value={variables.length}
-            label={t("file_library.contracts.workflow.use.data")}
+            value={counts.data}
+            label={t("file_library.contracts.workflow.summary.data")}
           />
           <DetectionStat
             icon={<UserRound className="size-4" />}
-            value={signerCount}
-            label={t("file_library.contracts.workflow.use.signers_label")}
+            value={counts.signers}
+            label={t("file_library.contracts.workflow.summary.signers")}
+          />
+          <DetectionStat
+            icon={<PenLine className="size-4" />}
+            value={counts.fields}
+            label={t("file_library.contracts.workflow.summary.fields")}
           />
         </div>
+
+        <TemplateWarnings warnings={warnings} />
 
         {tokens.length > 0 ? (
           <div className="rounded-lg border border-subtle bg-layer-1 p-3">
@@ -594,10 +726,11 @@ function TemplateDetectionSummary({
       </div>
 
       <footer className="flex justify-end gap-2 border-t border-subtle px-5 py-4">
-        <Button variant="secondary" size="sm" onClick={onFinish}>
+        <Button variant="secondary" size="sm" disabled={isConfiguring} onClick={onFinish}>
           {t("file_library.contracts.workflow.templates.save_and_exit")}
         </Button>
-        <Button variant="primary" size="sm" onClick={onConfigure}>
+        <Button variant="primary" size="sm" disabled={isConfiguring} onClick={onConfigure}>
+          {isConfiguring ? <Loader2 className="size-4 animate-spin" /> : null}
           {t("file_library.contracts.workflow.templates.continue_setup")}
         </Button>
       </footer>

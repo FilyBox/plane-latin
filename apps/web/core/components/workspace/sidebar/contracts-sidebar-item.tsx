@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
 import { BookOpen, CalendarCheck2, CalendarX2, FileCheck2, LayoutTemplate, Sparkles } from "lucide-react";
 // plane imports
 import type { IWorkspaceSidebarNavigationItem } from "@plane/constants";
@@ -69,7 +69,11 @@ const CONTRACT_ROUTES = [
 export const ContractsSidebarItem = observer(function ContractsSidebarItem({ item }: Props) {
   const { t } = useTranslation();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { workspaceSlug } = useParams();
+  // The template field editor lives on a documents route but belongs to Plantillas.
+  const isTemplateFieldEditor =
+    pathname.includes("/file-library/contracts/documents/") && searchParams.get("mode") === "template";
   const { allowPermissions } = useUserPermissions();
   const { isWorkspaceItemPinned } = useWorkspaceNavigationPreferences();
   const { toggleSidebar, isExtendedSidebarOpened, toggleExtendedSidebar } = useAppTheme();
@@ -125,8 +129,10 @@ export const ContractsSidebarItem = observer(function ContractsSidebarItem({ ite
               const Icon = route.icon;
               const isActive =
                 route.key === "templates"
-                  ? pathname.includes(href)
-                  : pathname === href || pathname.startsWith(`${href}/`);
+                  ? pathname.includes(href) || isTemplateFieldEditor
+                  : route.key === "documents" && isTemplateFieldEditor
+                    ? false
+                    : pathname === href || pathname.startsWith(`${href}/`);
               return (
                 <Link key={route.key} href={href} onClick={handleLinkClick}>
                   <SidebarNavItem isActive={isActive} className="py-1">
