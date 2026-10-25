@@ -1,4 +1,16 @@
-type AIEnvironment = Pick<Env, "AI_PROVIDER" | "CHAT_DEFAULT_MODEL" | "DEEPSEEK_API_KEY" | "DEEPSEEK_MODEL" | "DEEPSEEK_MODEL_LIST" | "EMBEDDING_DIMENSIONS" | "GEMINI_MODEL_FALLBACK_LIST" | "GOOGLE_GENERATIVE_AI_API_KEY" | "OPENAI_API_KEY" | "OPENAI_EMBEDDING_MODEL">;
+type AIEnvironment = Pick<
+  Env,
+  | "AI_PROVIDER"
+  | "CHAT_DEFAULT_MODEL"
+  | "DEEPSEEK_API_KEY"
+  | "DEEPSEEK_MODEL"
+  | "DEEPSEEK_MODEL_LIST"
+  | "EMBEDDING_DIMENSIONS"
+  | "GEMINI_MODEL_FALLBACK_LIST"
+  | "GOOGLE_GENERATIVE_AI_API_KEY"
+  | "OPENAI_API_KEY"
+  | "OPENAI_EMBEDDING_MODEL"
+>;
 
 /**
  * AI provider layer — raw fetch against the providers' REST endpoints (no
@@ -6,7 +18,7 @@ type AIEnvironment = Pick<Env, "AI_PROVIDER" | "CHAT_DEFAULT_MODEL" | "DEEPSEEK_
  * come from env vars, never hardcoded:
  *   AI_PROVIDER=gemini|deepseek        primary provider
  *   GEMINI_MODEL_FALLBACK_LIST=a,b,c   ordered fallback chain
- *   DEEPSEEK_MODEL=deepseek-chat
+ *   DEEPSEEK_MODEL=deepseek-flash
  *   OPENAI_EMBEDDING_MODEL / EMBEDDING_DIMENSIONS
  * With gemini as primary, every model in the chain is tried on retryable
  * errors (429/503/overloaded) and DeepSeek runs as the last resort.
@@ -67,7 +79,7 @@ async function callDeepseek(env: AIEnvironment, req: StructuredJsonRequest): Pro
       Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
     },
     body: JSON.stringify({
-      model: env.DEEPSEEK_MODEL || "deepseek-chat",
+      model: env.DEEPSEEK_MODEL || "deepseek-flash",
       messages: [
         { role: "system", content: keysHint.trim() },
         { role: "user", content: req.prompt },
@@ -86,7 +98,10 @@ async function callDeepseek(env: AIEnvironment, req: StructuredJsonRequest): Pro
 }
 
 /** Walks the Gemini fallback chain; throws (with the last error) if all fail. */
-async function geminiChainStructuredJson(env: AIEnvironment, req: StructuredJsonRequest): Promise<StructuredJsonResult> {
+async function geminiChainStructuredJson(
+  env: AIEnvironment,
+  req: StructuredJsonRequest
+): Promise<StructuredJsonResult> {
   const models = (env.GEMINI_MODEL_FALLBACK_LIST || "")
     .split(",")
     .map((m) => m.trim())
@@ -96,6 +111,7 @@ async function geminiChainStructuredJson(env: AIEnvironment, req: StructuredJson
   let lastError: unknown;
   for (const model of models) {
     try {
+      // eslint-disable-next-line no-await-in-loop -- fallback chain: try one model at a time
       return { text: await callGemini(env, model, req), model };
     } catch (error) {
       lastError = error;
@@ -111,12 +127,15 @@ async function geminiChainStructuredJson(env: AIEnvironment, req: StructuredJson
  * the raw JSON text + model used. Each provider falls back to the other as a
  * last resort, so a provider outage doesn't fail the pipeline.
  */
-export async function generateStructuredJson(env: AIEnvironment, req: StructuredJsonRequest): Promise<StructuredJsonResult> {
+export async function generateStructuredJson(
+  env: AIEnvironment,
+  req: StructuredJsonRequest
+): Promise<StructuredJsonResult> {
   const provider = (env.AI_PROVIDER || "deepseek").toLowerCase();
 
   if (provider === "deepseek") {
     try {
-      return { text: await callDeepseek(env, req), model: env.DEEPSEEK_MODEL || "deepseek-chat" };
+      return { text: await callDeepseek(env, req), model: env.DEEPSEEK_MODEL || "deepseek-flash" };
     } catch (deepseekError) {
       console.log(JSON.stringify({ message: "deepseek unavailable, falling back to gemini chain" }));
       try {
@@ -133,7 +152,7 @@ export async function generateStructuredJson(env: AIEnvironment, req: Structured
   } catch (geminiError) {
     try {
       console.log(JSON.stringify({ message: "all gemini models unavailable, falling back to deepseek" }));
-      return { text: await callDeepseek(env, req), model: `deepseek:${env.DEEPSEEK_MODEL || "deepseek-chat"}` };
+      return { text: await callDeepseek(env, req), model: `deepseek:${env.DEEPSEEK_MODEL || "deepseek-flash"}` };
     } catch (deepseekError) {
       console.error(JSON.stringify({ message: "deepseek fallback failed", error: String(deepseekError) }));
       throw geminiError;
@@ -220,7 +239,7 @@ const geminiModels = (env: AIEnvironment): string[] =>
     .filter(Boolean);
 
 const deepseekModels = (env: AIEnvironment): string[] => {
-  const list = (env.DEEPSEEK_MODEL_LIST || env.DEEPSEEK_MODEL || "deepseek-chat")
+  const list = (env.DEEPSEEK_MODEL_LIST || env.DEEPSEEK_MODEL || "deepseek-flash")
     .split(",")
     .map((m) => m.trim())
     .filter(Boolean);
@@ -233,7 +252,7 @@ export function listChatModels(env: AIEnvironment): { models: ChatModelOption[];
     ...deepseekModels(env).map((id) => ({ id, provider: "deepseek" as const })),
     ...geminiModels(env).map((id) => ({ id, provider: "gemini" as const })),
   ];
-  const fallback = models[0]?.id ?? "deepseek-chat";
+  const fallback = models[0]?.id ?? "deepseek-flash";
   const configuredDefault = env.CHAT_DEFAULT_MODEL?.trim();
   const default_model =
     configuredDefault && models.some((model) => model.id === configuredDefault) ? configuredDefault : fallback;
@@ -280,6 +299,7 @@ export async function generateText(
       const geminiFallback = geminiModels(env);
       for (const geminiModel of geminiFallback) {
         try {
+          // eslint-disable-next-line no-await-in-loop -- fallback chain: try one model at a time
           return { text: await callGeminiChat(env, geminiModel, system, history, query), model: geminiModel };
         } catch (error) {
           if (!(error as Error & { retryable?: boolean }).retryable) throw error;
@@ -295,6 +315,7 @@ export async function generateText(
   let lastError: unknown;
   for (const model of models) {
     try {
+      // eslint-disable-next-line no-await-in-loop -- fallback chain: try one model at a time
       return { text: await callGeminiChat(env, model, system, history, query), model };
     } catch (error) {
       lastError = error;

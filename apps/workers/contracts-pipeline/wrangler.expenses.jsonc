@@ -17,8 +17,8 @@
     }
   ],
   "vars": {
-    "DEEPSEEK_MODEL": "deepseek-v4-flash",
-    "CHAT_DEFAULT_MODEL": "deepseek-v4-flash",
+    "DEEPSEEK_MODEL": "deepseek-flash",
+    "CHAT_DEFAULT_MODEL": "deepseek-flash",
     "EMBEDDING_DIMENSIONS": "1536"
   }
 }
