@@ -148,6 +148,8 @@ from .description import Description, DescriptionVersion
 from .reference import EntityReference, EntityTagLink, TaggingRun
 from .assistant import (
     AssistantAction,
+    AssistantDeepReview,
+    AssistantDeepReviewItem,
     AssistantChat,
     AssistantChatMessage,
     AssistantMemory,

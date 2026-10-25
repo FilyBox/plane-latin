@@ -17,6 +17,20 @@ from plane.app.views.assistant import (
     InternalAssistantFileReadEndpoint,
     InternalAssistantMemorySearchEndpoint,
     InternalAssistantReportEndpoint,
+    AssistantDeepReviewDecisionEndpoint,
+    AssistantDeepReviewEndpoint,
+    AssistantDeepReviewExportEndpoint,
+    AssistantDeepReviewPageEndpoint,
+    AssistantDeepReviewRemainingEndpoint,
+    AssistantDeepReviewStartEndpoint,
+    InternalDeepReviewCandidatesEndpoint,
+    InternalDeepReviewCompleteEndpoint,
+    InternalDeepReviewCreateEndpoint,
+    InternalDeepReviewPlanEndpoint,
+    InternalDeepReviewResultEndpoint,
+    InternalDeepReviewResultsEndpoint,
+    InternalDeepReviewStateEndpoint,
+    InternalDeepReviewTextEndpoint,
 )
 
 urlpatterns = [
@@ -78,5 +92,77 @@ urlpatterns = [
         "internal/workspaces/<uuid:workspace_id>/assistant/report/",
         InternalAssistantReportEndpoint.as_view(),
         name="internal-assistant-report",
+    ),
+    # Deep reviews: every contract read against one question (admins)
+    path(
+        "workspaces/<str:slug>/assistant/deep-reviews/<uuid:review_id>/",
+        AssistantDeepReviewEndpoint.as_view(),
+        name="assistant-deep-review",
+    ),
+    path(
+        "workspaces/<str:slug>/assistant/deep-reviews/<uuid:review_id>/start/",
+        AssistantDeepReviewStartEndpoint.as_view(),
+        name="assistant-deep-review-start",
+    ),
+    path(
+        "workspaces/<str:slug>/assistant/deep-reviews/<uuid:review_id>/decision/",
+        AssistantDeepReviewDecisionEndpoint.as_view(),
+        name="assistant-deep-review-decision",
+    ),
+    path(
+        "workspaces/<str:slug>/assistant/deep-reviews/<uuid:review_id>/remaining/",
+        AssistantDeepReviewRemainingEndpoint.as_view(),
+        name="assistant-deep-review-remaining",
+    ),
+    path(
+        "workspaces/<str:slug>/assistant/deep-reviews/<uuid:review_id>/export/",
+        AssistantDeepReviewExportEndpoint.as_view(),
+        name="assistant-deep-review-export",
+    ),
+    path(
+        "workspaces/<str:slug>/assistant/deep-reviews/<uuid:review_id>/page/",
+        AssistantDeepReviewPageEndpoint.as_view(),
+        name="assistant-deep-review-page",
+    ),
+    # Worker callbacks (shared secret)
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/deep-reviews/",
+        InternalDeepReviewCreateEndpoint.as_view(),
+        name="internal-deep-review-create",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/deep-reviews/<uuid:review_id>/results/",
+        InternalDeepReviewResultsEndpoint.as_view(),
+        name="internal-deep-review-results",
+    ),
+    path(
+        "internal/assistant/deep-reviews/<uuid:review_id>/state/",
+        InternalDeepReviewStateEndpoint.as_view(),
+        name="internal-deep-review-state",
+    ),
+    path(
+        "internal/assistant/deep-reviews/<uuid:review_id>/plan/",
+        InternalDeepReviewPlanEndpoint.as_view(),
+        name="internal-deep-review-plan",
+    ),
+    path(
+        "internal/assistant/deep-reviews/<uuid:review_id>/candidates/",
+        InternalDeepReviewCandidatesEndpoint.as_view(),
+        name="internal-deep-review-candidates",
+    ),
+    path(
+        "internal/assistant/deep-reviews/<uuid:review_id>/complete/",
+        InternalDeepReviewCompleteEndpoint.as_view(),
+        name="internal-deep-review-complete",
+    ),
+    path(
+        "internal/assistant/deep-reviews/<uuid:review_id>/contracts/<uuid:contract_id>/text/",
+        InternalDeepReviewTextEndpoint.as_view(),
+        name="internal-deep-review-text",
+    ),
+    path(
+        "internal/assistant/deep-reviews/<uuid:review_id>/contracts/<uuid:contract_id>/result/",
+        InternalDeepReviewResultEndpoint.as_view(),
+        name="internal-deep-review-result",
     ),
 ]

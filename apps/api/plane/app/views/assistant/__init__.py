@@ -8,3 +8,19 @@ from .memory import AssistantMemoriesEndpoint, AssistantMemoryDetailEndpoint, In
 from .files import InternalAssistantFileReadEndpoint
 from .actions import AssistantActionUndoEndpoint, AssistantActionsEndpoint
 from .reports import InternalAssistantReportEndpoint
+from .deep_review import (
+    AssistantDeepReviewDecisionEndpoint,
+    AssistantDeepReviewEndpoint,
+    AssistantDeepReviewExportEndpoint,
+    AssistantDeepReviewPageEndpoint,
+    AssistantDeepReviewRemainingEndpoint,
+    AssistantDeepReviewStartEndpoint,
+    InternalDeepReviewCandidatesEndpoint,
+    InternalDeepReviewCompleteEndpoint,
+    InternalDeepReviewCreateEndpoint,
+    InternalDeepReviewPlanEndpoint,
+    InternalDeepReviewResultEndpoint,
+    InternalDeepReviewResultsEndpoint,
+    InternalDeepReviewStateEndpoint,
+    InternalDeepReviewTextEndpoint,
+)

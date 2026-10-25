@@ -395,6 +395,8 @@ class AssistantChatEndpoint(BaseAPIView):
                 "tag_admin": WorkspaceFeature.FeatureKey.REFERENCES in enabled and is_admin,
                 # Admins save memories; members can only suggest them.
                 "memory_admin": is_admin,
+                # Reading every contract costs real money: admins only.
+                "deep_review": WorkspaceFeature.FeatureKey.FILE_LIBRARY in enabled and is_admin,
             },
             "context": _page_context(request, slug, WorkspaceFeature.FeatureKey.REFERENCES in enabled),
             "mentions": _mentions(request, slug, messages, WorkspaceFeature.FeatureKey.REFERENCES in enabled),

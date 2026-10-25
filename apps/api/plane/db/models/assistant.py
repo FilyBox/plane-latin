@@ -173,3 +173,115 @@ class AssistantAction(BaseModel):
         verbose_name_plural = "Assistant Actions"
         db_table = "assistant_actions"
         ordering = ("-created_at",)
+
+
+class AssistantDeepReview(BaseModel):
+    """Every contract read by the AI against one question, launched from the
+    assistant after an admin confirmed the estimate.
+
+    The Worker fans the contracts out to parallel lanes; each finished
+    contract lands as an item and adds to the counters here, so the chat card
+    can show progress and spend live and the run can pause when it goes over
+    the estimate.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Waiting for confirmation"
+        SCHEDULED = "SCHEDULED", "Waiting for off-peak hours"
+        RUNNING = "RUNNING", "Running"
+        PAUSED = "PAUSED", "Paused: over the estimate"
+        STOPPING = "STOPPING", "Stopping: answering with what was read"
+        SYNTHESIZING = "SYNTHESIZING", "Writing the answer"
+        COMPLETED = "COMPLETED", "Completed"
+        PARTIAL = "PARTIAL", "Answered with part of the contracts"
+        FAILED = "FAILED", "Failed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="assistant_deep_reviews")
+    user = models.ForeignKey("db.User", on_delete=models.CASCADE, related_name="assistant_deep_reviews")
+    # Short name for the card and the page ("Cláusulas de exclusividad").
+    title = models.CharField(max_length=200, blank=True)
+    # What every contract is checked against, self-contained.
+    question = models.TextField()
+    model = models.CharField(max_length=100, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    off_peak = models.BooleanField(default=False)
+    # "Continue with the rest" of a partial answer.
+    parent = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="continuations")
+    total_count = models.PositiveIntegerField(default=0)
+    total_bytes = models.BigIntegerField(default=0)
+    # Ranges per model and time window, computed by the Worker from the sizes.
+    estimate = models.JSONField(default=dict)
+    # The high end for the chosen model and window: the projection is
+    # compared against it.
+    estimate_usd = models.FloatField(null=True, blank=True)
+    done_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    done_bytes = models.BigIntegerField(default=0)
+    spent_usd = models.FloatField(default=0)
+    input_tokens = models.BigIntegerField(default=0)
+    output_tokens = models.BigIntegerField(default=0)
+    # Set once the admin chose to continue past the estimate.
+    alerts_muted = models.BooleanField(default=False)
+    pause_reason = models.CharField(max_length=40, blank=True)
+    paused_at = models.DateTimeField(null=True, blank=True)
+    summary = models.TextField(blank=True)
+    error = models.JSONField(default=dict, blank=True)
+    workflow_instance_id = models.CharField(max_length=255, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    emailed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Assistant Deep Review"
+        verbose_name_plural = "Assistant Deep Reviews"
+        db_table = "assistant_deep_reviews"
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return self.question[:60]
+
+
+class AssistantDeepReviewItem(BaseModel):
+    """One contract of a deep review and what the AI found in it."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        RUNNING = "RUNNING", "Being read"
+        DONE = "DONE", "Done"
+        FAILED = "FAILED", "Failed"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="assistant_deep_review_items")
+    review = models.ForeignKey("db.AssistantDeepReview", on_delete=models.CASCADE, related_name="items")
+    contract = models.ForeignKey("db.Contract", on_delete=models.CASCADE, related_name="assistant_deep_review_items")
+    # Size of the extracted text when the run started (octet_length).
+    bytes = models.BigIntegerField(default=0)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    matches = models.BooleanField(null=True, blank=True)
+    confidence = models.PositiveSmallIntegerField(null=True, blank=True)
+    reason = models.TextField(blank=True)
+    # Short verbatim passage backing the answer.
+    quote = models.TextField(blank=True)
+    # Dates and artists as the AI read them in this contract.
+    details = models.JSONField(default=dict, blank=True)
+    # Kept after the final pass weeded out false positives.
+    selected = models.BooleanField(default=False)
+    chunks = models.PositiveSmallIntegerField(default=1)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    cost_usd = models.FloatField(default=0)
+    error = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        verbose_name = "Assistant Deep Review Item"
+        verbose_name_plural = "Assistant Deep Review Items"
+        db_table = "assistant_deep_review_items"
+        ordering = ("created_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["review", "contract"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="assistant_deep_review_item_unique",
+            )
+        ]
+        indexes = [models.Index(fields=["review", "status"], name="assistant_deep_review_status")]

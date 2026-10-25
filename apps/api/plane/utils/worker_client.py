@@ -212,3 +212,23 @@ def trigger_tagging_run(run_id, workspace_id, types):
         {"run_id": str(run_id), "workspace_id": str(workspace_id), "types": list(types)},
     )
     return data.get("workflow_instance_id")
+
+
+def estimate_deep_review(sizes):
+    """Cost and time ranges for reading texts of these sizes (bytes), priced
+    by the Worker, which owns the provider rates."""
+    return _post("/assistant/deep-review/estimate", {"sizes": [int(size) for size in sizes]})
+
+
+def trigger_deep_review(review_id, workspace_id, model, off_peak):
+    """Starts the deep review workflow; a retried trigger reuses the instance."""
+    data = _post(
+        "/trigger/deep-review",
+        {
+            "review_id": str(review_id),
+            "workspace_id": str(workspace_id),
+            "model": model,
+            "off_peak": bool(off_peak),
+        },
+    )
+    return data.get("workflow_instance_id")
