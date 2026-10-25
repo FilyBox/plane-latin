@@ -160,6 +160,184 @@ export async function generateStructuredJson(
   }
 }
 
+// ---------------------------------------------------------- analysis calls
+
+/** Long contracts take a while to prefill; past this the call is abandoned. */
+const ANALYSIS_TIMEOUT_MS = 240_000;
+
+export type AnalysisJsonRequest = {
+  /** Same for every prompt over one text, so it stays inside the cached prefix */
+  system: string;
+  prompt: string;
+  maxTokens: number;
+};
+
+export type AnalysisJsonResult = {
+  text: string;
+  model: string;
+  provider: "deepseek" | "gemini";
+  /** The answer hit the token limit */
+  truncated: boolean;
+  usage: { input: number; cached: number; output: number };
+};
+
+/** Error with a hint for the step: worth retrying (429, 5xx, timeout) or not. */
+export class ProviderError extends Error {
+  readonly retryable: boolean;
+  readonly status: number;
+  constructor(message: string, status: number, retryable: boolean) {
+    super(message);
+    this.name = "ProviderError";
+    this.status = status;
+    this.retryable = retryable;
+  }
+}
+
+const providerFetch = async (label: string, url: string, init: RequestInit): Promise<Response> => {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(ANALYSIS_TIMEOUT_MS) });
+  } catch (error) {
+    throw new ProviderError(`${label} request failed: ${String(error).slice(0, 200)}`, 0, true);
+  }
+};
+
+async function deepseekAnalysis(env: AIEnvironment, req: AnalysisJsonRequest): Promise<AnalysisJsonResult> {
+  const model = env.DEEPSEEK_MODEL || "deepseek-flash";
+  const response = await providerFetch("DeepSeek", "https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.DEEPSEEK_API_KEY}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: req.system },
+        { role: "user", content: req.prompt },
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: req.maxTokens,
+      thinking: { type: "disabled" },
+    }),
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    const retryable = response.status === 429 || response.status >= 500;
+    throw new ProviderError(`DeepSeek -> ${response.status}: ${detail}`, response.status, retryable);
+  }
+  const data = await response.json<{
+    model?: string;
+    choices?: { message?: { content?: string }; finish_reason?: string }[];
+    usage?: { prompt_cache_hit_tokens?: number; prompt_cache_miss_tokens?: number; completion_tokens?: number };
+  }>();
+  const choice = data.choices?.[0];
+  const cached = data.usage?.prompt_cache_hit_tokens ?? 0;
+  return {
+    text: choice?.message?.content ?? "",
+    model: data.model || model,
+    provider: "deepseek",
+    truncated: choice?.finish_reason === "length",
+    usage: {
+      input: cached + (data.usage?.prompt_cache_miss_tokens ?? 0),
+      cached,
+      output: data.usage?.completion_tokens ?? 0,
+    },
+  };
+}
+
+async function geminiAnalysis(
+  env: AIEnvironment,
+  model: string,
+  req: AnalysisJsonRequest
+): Promise<AnalysisJsonResult> {
+  const response = await providerFetch(
+    `Gemini ${model}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GOOGLE_GENERATIVE_AI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: req.system }] },
+        contents: [{ role: "user", parts: [{ text: req.prompt }] }],
+        generationConfig: { maxOutputTokens: req.maxTokens, responseMimeType: "application/json" },
+      }),
+    }
+  );
+  const bodyText = await response.text();
+  if (!response.ok) {
+    throw new ProviderError(
+      `Gemini ${model} -> ${response.status}: ${bodyText.slice(0, 300)}`,
+      response.status,
+      isRetryableGeminiError(response.status, bodyText) || response.status >= 500
+    );
+  }
+  const data = JSON.parse(bodyText) as {
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+    usageMetadata?: {
+      promptTokenCount?: number;
+      cachedContentTokenCount?: number;
+      candidatesTokenCount?: number;
+      thoughtsTokenCount?: number;
+    };
+  };
+  const candidate = data.candidates?.[0];
+  const meta = data.usageMetadata;
+  return {
+    text: candidate?.content?.parts?.map((part) => part.text ?? "").join("") ?? "",
+    model,
+    provider: "gemini",
+    truncated: candidate?.finishReason === "MAX_TOKENS",
+    usage: {
+      input: meta?.promptTokenCount ?? 0,
+      cached: meta?.cachedContentTokenCount ?? 0,
+      output: (meta?.candidatesTokenCount ?? 0) + (meta?.thoughtsTokenCount ?? 0),
+    },
+  };
+}
+
+/**
+ * One analysis call on the configured provider with its token usage. The
+ * other provider is the fallback when the first fails; the error kept is the
+ * primary one, so the step can decide whether a retry makes sense.
+ */
+export async function generateAnalysisJson(env: AIEnvironment, req: AnalysisJsonRequest): Promise<AnalysisJsonResult> {
+  const provider = (env.AI_PROVIDER || "deepseek").toLowerCase();
+  const gemini = async () => {
+    let lastError: unknown = new ProviderError("GEMINI_MODEL_FALLBACK_LIST is not configured", 0, false);
+    for (const model of geminiModels(env)) {
+      try {
+        // eslint-disable-next-line no-await-in-loop -- fallback chain: one model at a time
+        return await geminiAnalysis(env, model, req);
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof ProviderError && error.retryable)) break;
+      }
+    }
+    throw lastError;
+  };
+
+  if (provider === "deepseek") {
+    try {
+      return await deepseekAnalysis(env, req);
+    } catch (deepseekError) {
+      console.log(
+        JSON.stringify({ message: "deepseek failed, trying gemini", error: String(deepseekError).slice(0, 200) })
+      );
+      try {
+        return await gemini();
+      } catch {
+        throw deepseekError;
+      }
+    }
+  }
+  try {
+    return await gemini();
+  } catch (geminiError) {
+    try {
+      return await deepseekAnalysis(env, req);
+    } catch {
+      throw geminiError;
+    }
+  }
+}
+
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
 async function callGeminiChat(
@@ -345,6 +523,7 @@ export async function generateEmbeddings(env: AIEnvironment, texts: string[]): P
       input: texts,
       dimensions: parseInt(env.EMBEDDING_DIMENSIONS || "1536", 10),
     }),
+    signal: AbortSignal.timeout(90_000),
   });
   if (!response.ok) {
     throw new Error(`OpenAI embeddings -> ${response.status}: ${(await response.text()).slice(0, 300)}`);

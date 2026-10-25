@@ -1,17 +1,43 @@
 /**
  * Durable multi-step pipeline over one contract: text extraction → embeddings
- * → AI analysis (3 parallel subtasks) → thumbnail → finalize. Mirrors the
- * crm-new reference orchestrator step-for-step; each phase is an
- * independently-retriable step.do() whose return value is persisted.
+ * → AI analysis → finalize. Each phase is an independently-retriable step.do()
+ * whose return value is persisted.
+ *
+ * The contract text never travels between steps (a step result is capped at
+ * 1 MiB): steps return its length and a short hash, and every step that needs
+ * the text reads it from Django itself.
  */
 
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent, WorkflowStepConfig } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 
-import { generateEmbeddings, generateStructuredJson } from "../lib/ai";
+import { generateAnalysisJson, generateEmbeddings, ProviderError, type AnalysisJsonResult } from "../lib/ai";
 import { chunkText } from "../lib/chunking";
-import { internalApi } from "../lib/internal-api";
-import { parseJsonResponse } from "../lib/json-repair";
+import {
+  ARTISTS_EVIDENCE_KEYS,
+  ARTISTS_SCHEMA,
+  CLASSIFY_SCHEMA,
+  PRIMARY_EVIDENCE_KEYS,
+  PRIMARY_SCHEMA,
+  SECONDARY_EVIDENCE_KEYS,
+  SECONDARY_SCHEMA,
+  finalizeExtracted,
+  mergePartResults,
+  packVector,
+  partRanges,
+  relevantTags,
+  runValidated,
+  summarizeUsage,
+  textFingerprint,
+  toBool,
+  unpackVector,
+  withEvidence,
+  type UsageCall,
+  type ValidatedRun,
+} from "../lib/contract-analysis";
+import { internalApi, type JobProgress, type JobStage } from "../lib/internal-api";
+import { repairTruncatedJson } from "../lib/json-repair";
+import { deepseekCallCost } from "../lib/pricing";
 import {
   collectTextDetectionText,
   getTextDetectionStatus,
@@ -19,12 +45,10 @@ import {
   type TextractError,
 } from "../lib/textract";
 import {
-  ARTISTS_KEYS,
-  CLASSIFY_KEYS,
-  PRIMARY_KEYS,
-  SECONDARY_KEYS,
+  ANALYSIS_SYSTEM,
   artistsPrompt,
   classificationPrompt,
+  contractPrefix,
   primaryPrompt,
   secondaryPrompt,
 } from "../prompts";
@@ -48,7 +72,16 @@ export type PipelineParams = {
   asset_id?: string;
 };
 
-const AI_RETRIES: WorkflowStepConfig = { retries: { limit: 2, delay: "10 seconds", backoff: "exponential" } };
+type TextInfo = { length: number; hash: string };
+type PromptKind = "primary" | "secondary" | "artists";
+
+// Rate limits (429) are common on bulk runs: a long exponential chain
+// (20s → ~5 min) lets many pipelines space themselves out.
+const AI_RETRIES: WorkflowStepConfig = {
+  retries: { limit: 5, delay: "20 seconds", backoff: "exponential" },
+  timeout: "10 minutes",
+};
+const API_RETRIES: WorkflowStepConfig = { retries: { limit: 5, delay: "5 seconds", backoff: "exponential" } };
 
 // Textract throttles under burst load (ProvisionedThroughputExceededException
 // at ~5-20 async starts/second) — a deep exponential-backoff retry chain lets
@@ -58,11 +91,70 @@ const TEXTRACT_RETRIES: WorkflowStepConfig = {
   timeout: "2 minutes",
 };
 
+/** Chunks per embedding batch: ~40 × (8 KB packed vector + text) stays far
+ * under the 1 MiB step result and Django's request-body limit. */
+const EMBED_BATCH = 40;
+
+const MAX_TOKENS: Record<PromptKind, number> = { primary: 6_000, secondary: 3_000, artists: 2_500 };
+
 /** Maps AWS errors: throttling stays retryable, everything else aborts the step chain. */
 const rethrowTextract = (error: unknown): never => {
   if ((error as TextractError).retryable) throw error;
   throw new NonRetryableError(error instanceof Error ? error.message : String(error));
 };
+
+/** Provider errors that a retry won't fix (bad key, no balance) stop the run. */
+const rethrowProvider = (error: unknown): never => {
+  if (error instanceof ProviderError && !error.retryable) throw new NonRetryableError(error.message);
+  throw error;
+};
+
+/** Progress posts inside long steps must not fail the step. */
+const bestEffort = async (promise: Promise<unknown>) => {
+  try {
+    await promise;
+  } catch (error) {
+    console.warn(JSON.stringify({ message: "progress post failed", error: String(error).slice(0, 200) }));
+  }
+};
+
+/** Token usage and cost of the calls behind one prompt (retries included). */
+function usageOf(
+  prompt: string,
+  outputs: readonly AnalysisJsonResult[],
+  extra: { part?: number; attempts: number; repaired: boolean }
+): UsageCall {
+  const at = new Date();
+  const usage: UsageCall = {
+    prompt,
+    model: outputs[outputs.length - 1]?.model ?? "",
+    input_tokens: 0,
+    cached_tokens: 0,
+    output_tokens: 0,
+    cost_usd: 0,
+    attempts: extra.attempts,
+  };
+  for (const output of outputs) {
+    usage.input_tokens += output.usage.input;
+    usage.cached_tokens += output.usage.cached;
+    usage.output_tokens += output.usage.output;
+    // Gemini runs only as a fallback; its cost is not tracked (0).
+    if (output.provider === "deepseek") {
+      usage.cost_usd += deepseekCallCost(
+        output.model,
+        {
+          cacheHit: output.usage.cached,
+          cacheMiss: Math.max(0, output.usage.input - output.usage.cached),
+          output: output.usage.output,
+        },
+        at
+      );
+    }
+  }
+  if (extra.part !== undefined) usage.part = extra.part;
+  if (extra.repaired) usage.repaired = true;
+  return usage;
+}
 
 export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams> {
   async run(event: WorkflowEvent<PipelineParams>, step: WorkflowStep) {
@@ -74,31 +166,57 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
     const wants = (key: keyof NonNullable<PipelineParams["retry_options"]>) =>
       mode !== "RETRY_PARTIAL" || Boolean(retryOptions?.[key]);
 
-    const report = (progress: number, stage: string, status?: string) =>
-      api.reportProgress(jobId, { progress, current_stage: stage, status });
+    // Rebuilt the same way on every replay, so the failure report always
+    // names the stage that was running and carries the calls already paid.
+    let stage: JobStage = "starting";
+    const calls: UsageCall[] = [];
+
+    const report = (code: JobStage, progress: number, extra: Omit<JobProgress, "stage" | "current_stage"> = {}) =>
+      api.reportProgress(jobId, { progress, current_stage: code, stage: code, ...extra });
+
+    /** The stored text, read inside the step that needs it. */
+    const loadText = async (expected?: TextInfo) => {
+      const { extracted_text } = await api.getContractText(contractId);
+      const text = extracted_text ?? "";
+      if (expected && (text.length !== expected.length || (await textFingerprint(text)) !== expected.hash)) {
+        console.warn(JSON.stringify({ message: "contract text changed during the run", job: jobId }));
+      }
+      return text;
+    };
+    const describe = async (text: string): Promise<TextInfo> => ({
+      length: text.length,
+      hash: await textFingerprint(text),
+    });
+
+    const fileNameStep = (name: string) =>
+      step.do(name, API_RETRIES, async () => {
+        const assetId = event.payload.asset_id;
+        if (!assetId) return "contrato.pdf";
+        const { name: fileName } = await api.getPresignedUrl(assetId);
+        return fileName ?? "contrato.pdf";
+      });
 
     try {
-      await step.do("init", async () => {
-        await report(5, "Inicializando", "RUNNING");
+      await step.do("init", API_RETRIES, async () => {
+        await report("starting", 5, { status: "RUNNING" });
       });
 
       // ── Text ──────────────────────────────────────────────────────────
-      let extractedText = await step.do("resolve existing text", async () => {
-        const { extracted_text } = await api.getContractText(contractId);
-        return extracted_text ?? "";
-      });
+      let info = await step.do("inspect existing text", API_RETRIES, async () => describe(await loadText()));
+      let textExtracted = false;
 
-      if ((!extractedText || wants("extract_text")) && !isReanalysis) {
+      if ((!info.length || wants("extract_text")) && !isReanalysis) {
+        stage = "extracting_text";
         const extractionMode = (this.env.TEXT_EXTRACTION_MODE || "textract").toLowerCase();
 
         if (extractionMode === "textract") {
           // ── Textract straight from S3: no presigned URL, no download ──
-          const location = await step.do("resolve asset location", async () => {
+          const location = await step.do("resolve asset location", API_RETRIES, async () => {
             const assetId = event.payload.asset_id;
             if (!assetId) throw new NonRetryableError("asset_id missing from payload");
             const { s3_key, s3_bucket } = await api.getPresignedUrl(assetId);
             if (!s3_key || !s3_bucket) throw new NonRetryableError("Asset S3 location unavailable");
-            await report(15, "Iniciando extracción de texto (Textract)");
+            await report("extracting_text", 10);
             return { key: s3_key, bucket: s3_bucket };
           });
 
@@ -112,44 +230,64 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
 
           // Poll with step.sleep — idle time costs no CPU, so long documents
           // (Textract can take minutes) never hit Worker wall-time limits.
+          stage = "waiting_ocr";
           let textractStatus = "IN_PROGRESS";
-          // Polling is sequential by nature: each check waits on the previous one.
           for (let attempt = 0; attempt < 120 && textractStatus === "IN_PROGRESS"; attempt++) {
+            // Polling is sequential by nature: each check waits on the previous one.
             // eslint-disable-next-line no-await-in-loop
             await step.sleep(`textract wait ${attempt}`, attempt < 12 ? "5 seconds" : "15 seconds");
             // eslint-disable-next-line no-await-in-loop
             textractStatus = await step.do(`textract status ${attempt}`, TEXTRACT_RETRIES, async () => {
+              let status: string;
               try {
-                const { status } = await getTextDetectionStatus(this.env, textractJobId);
-                return status;
+                ({ status } = await getTextDetectionStatus(this.env, textractJobId));
               } catch (error) {
                 return rethrowTextract(error);
               }
+              // Textract gives no page progress while it runs: post a slow
+              // climb (15 → ~32) with the time waited, every few polls.
+              if (attempt % 3 === 0 && status === "IN_PROGRESS") {
+                const waited = attempt < 12 ? (attempt + 1) * 5 : 60 + (attempt - 11) * 15;
+                await bestEffort(
+                  report("waiting_ocr", 15 + Math.round(17 * (1 - Math.exp(-attempt / 25))), {
+                    detail_data: { waited_seconds: waited },
+                  })
+                );
+              }
+              return status;
             });
           }
           if (textractStatus !== "SUCCEEDED" && textractStatus !== "PARTIAL_SUCCESS") {
             throw new NonRetryableError(`Textract job ended with status ${textractStatus}`);
           }
 
-          extractedText = await step.do("collect textract text", TEXTRACT_RETRIES, async () => {
+          stage = "collecting_text";
+          info = await step.do("collect textract text", TEXTRACT_RETRIES, async () => {
+            let collected: Awaited<ReturnType<typeof collectTextDetectionText>>;
             try {
-              const text = (await collectTextDetectionText(this.env, textractJobId)).trim();
-              if (!text) throw new NonRetryableError("Textract returned no text for this document");
-              await api.saveContractText(contractId, text);
-              await report(35, "Texto extraído");
-              return text;
+              await bestEffort(report("collecting_text", 33));
+              collected = await collectTextDetectionText(this.env, textractJobId);
             } catch (error) {
-              if (error instanceof NonRetryableError) throw error;
               return rethrowTextract(error);
             }
+            const text = collected.text.trim();
+            if (!text) throw new NonRetryableError("Textract returned no text for this document");
+            await api.saveContractText(contractId, text);
+            const detail: Record<string, number | boolean> = {
+              pages_done: collected.pages - collected.failedPages.length,
+              pages_total: collected.pages,
+            };
+            if (textractStatus === "PARTIAL_SUCCESS") detail.partial = true;
+            await bestEffort(report("collecting_text", 38, { detail_data: detail }));
+            return describe(text);
           });
         } else {
           // ── Fallback: external extraction API (POST {url} -> {extracted_text}) ──
-          extractedText = await step.do(
+          info = await step.do(
             "extract text",
             { retries: { limit: 3, delay: "30 seconds", backoff: "exponential" }, timeout: "10 minutes" },
             async () => {
-              await report(20, "Extrayendo texto");
+              await bestEffort(report("extracting_text", 20));
               const assetId = event.payload.asset_id;
               if (!assetId) throw new NonRetryableError("asset_id missing from payload");
               const { url } = await api.getPresignedUrl(assetId);
@@ -168,108 +306,189 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
               const text = data.extracted_text?.trim();
               if (!text) throw new NonRetryableError("The extractor returned no text for this document");
               await api.saveContractText(contractId, text);
-              await report(35, "Texto extraído");
-              return text;
+              return describe(text);
             }
           );
         }
+        textExtracted = true;
       }
 
-      if (!extractedText) {
+      if (!info.length) {
         throw new NonRetryableError("The contract has no extracted text to analyze");
       }
+      const textInfo = info;
 
-      // ── Embeddings / vectorization ───────────────────────────────────
-      if (wants("generate_embeddings") && !isReanalysis) {
-        await step.do("generate embeddings", AI_RETRIES, async () => {
-          await report(50, "Generando embeddings (vectorización)");
-          const { exists } = await api.chunksExist(contractId);
-          if (exists && mode !== "RETRY_PARTIAL") return { skipped: true };
-          const chunks = chunkText(extractedText);
-          // Embed in batches to stay under provider payload limits
-          const embeddings: number[][] = [];
-          for (let i = 0; i < chunks.length; i += 64) {
-            const batch = chunks.slice(i, i + 64);
-            embeddings.push(
-              // Sequential on purpose: parallel batches trip provider rate limits.
-              // eslint-disable-next-line no-await-in-loop
-              ...(await generateEmbeddings(
-                this.env,
-                batch.map((c) => c.text)
-              ))
-            );
-          }
-          const records = chunks.map((chunk, i) => ({
-            index: chunk.index,
-            content: chunk.text,
-            token_count: chunk.tokens,
-            embedding: embeddings[i],
-          }));
-          // Persist in batches: a 1536-dim vector is ~30KB serialized, so a
-          // full contract easily exceeds Django's request-body limit (→ 413).
-          // First batch replaces the old chunk set, the rest append.
-          const SAVE_BATCH = 40;
-          for (let i = 0; i < records.length; i += SAVE_BATCH) {
-            // Order matters: the first batch replaces, the rest append.
-            // eslint-disable-next-line no-await-in-loop
-            await api.saveChunks(contractId, records.slice(i, i + SAVE_BATCH), i === 0 ? "replace" : "append");
-          }
-          return { skipped: false, count: chunks.length };
+      // ── Embeddings: generate and save in separate steps per batch ────
+      // New text always rebuilds the chunks, even when not asked, so search
+      // never serves fragments of the old text.
+      if ((wants("generate_embeddings") || textExtracted) && !isReanalysis) {
+        stage = "embedding";
+        const plan = await step.do("plan embeddings", API_RETRIES, async () => {
+          await bestEffort(report("embedding", 45));
+          const total = chunkText(await loadText(textInfo)).length;
+          const { exists, count } = await api.chunksExist(contractId);
+          // Fresh text always gets fresh chunks; otherwise a complete set is
+          // kept unless the user asked to rebuild it.
+          const keep = !textExtracted && mode !== "RETRY_PARTIAL" && exists && count === total;
+          return { total, skip: keep || total === 0 };
         });
+
+        if (!plan.skip) {
+          const batches = Math.ceil(plan.total / EMBED_BATCH);
+          for (let batch = 0; batch < batches; batch++) {
+            // Batches run in order: the first replaces the old set, the rest append.
+            // eslint-disable-next-line no-await-in-loop
+            const embedded = await step.do(`embed batch ${batch}`, AI_RETRIES, async () => {
+              await bestEffort(
+                report("embedding", 45 + Math.round((13 * batch) / batches), {
+                  detail_data: { chunks_done: batch * EMBED_BATCH, chunks_total: plan.total },
+                })
+              );
+              const chunks = chunkText(await loadText(textInfo)).slice(batch * EMBED_BATCH, (batch + 1) * EMBED_BATCH);
+              const vectors = await generateEmbeddings(
+                this.env,
+                chunks.map((chunk) => chunk.text)
+              );
+              return chunks.map((chunk, i) => ({
+                index: chunk.index,
+                content: chunk.text,
+                tokens: chunk.tokens,
+                vector: packVector(vectors[i]),
+              }));
+            });
+            // eslint-disable-next-line no-await-in-loop
+            await step.do(`save embeddings ${batch}`, API_RETRIES, async () => {
+              await api.saveChunks(
+                contractId,
+                embedded.map((item) => ({
+                  index: item.index,
+                  content: item.content,
+                  token_count: item.tokens,
+                  embedding: unpackVector(item.vector),
+                })),
+                batch === 0 ? "replace" : "append"
+              );
+              return { saved: embedded.length };
+            });
+          }
+        }
       }
 
-      // ── AI analysis (3 parallel, independently-retriable subtasks) ───
+      // ── AI analysis: primary first, then secondary + artists on the cache ──
       if (wants("ai_analysis") || isReanalysis) {
-        await step.do("report analysis start", async () => {
-          await report(60, "Analizando con IA");
+        stage = "analyzing";
+        const fileName = await fileNameStep("resolve file name");
+        await step.do("report analysis start", API_RETRIES, async () => {
+          await report("analyzing", 60);
         });
 
-        const fileName = await step.do("resolve file name", async () => {
-          const assetId = event.payload.asset_id;
-          if (!assetId) return "contrato.pdf";
-          const { name } = await api.getPresignedUrl(assetId);
-          return name ?? "contrato.pdf";
-        });
-
-        const currentDateIso = await step.do("current date", async () => new Date().toISOString());
-
-        // Each step parses inside the step (a retry regenerates malformed AI
-        // output) but returns the validated JSON as a string — step return
-        // values must be Serializable, which Record<string, unknown> is not.
-        const analyzeStep = (name: string, prompt: string, keys: readonly string[], maxTokens: number) =>
-          step.do(name, AI_RETRIES, async () => {
-            const { text, model } = await generateStructuredJson(this.env, { prompt, keys, maxTokens });
-            const parsed = parseJsonResponse<Record<string, unknown>>(text);
-            return { data: JSON.stringify(parsed), model };
-          });
-
-        // Existing artist tags travel into the prompt so the AI maps name
-        // variants (alias, casing, partial names) onto them instead of
-        // creating near-duplicate tags for the same artist.
-        const existingTags = await step.do("load existing tags", async () => {
+        // Artist tags help the model reuse existing spellings; only the ones
+        // that appear in the text are sent (filtered inside the artists step).
+        const existingTags = await step.do("load existing tags", API_RETRIES, async () => {
           const { tags, detailed } = await api.getWorkspaceTags(event.payload.workspace_id);
-          // Only artist-kind (and legacy unclassified) tags are relevant for
-          // normalizing artist names; group/person tags would add noise.
           if (detailed) {
             return detailed.filter((tag) => tag.kind === "ARTIST" || tag.kind === "CUSTOM").map((tag) => tag.name);
           }
           return tags;
         });
 
-        const [primary, secondary, artists] = await Promise.all([
-          analyzeStep("analyze primary", primaryPrompt(fileName, extractedText, currentDateIso), PRIMARY_KEYS, 4096),
-          analyzeStep("analyze secondary", secondaryPrompt(fileName, extractedText), SECONDARY_KEYS, 2048),
-          analyzeStep("analyze artists", artistsPrompt(extractedText, existingTags), ARTISTS_KEYS, 2048),
-        ]);
+        const ranges = partRanges(textInfo.length);
+        const analyze = (kind: PromptKind, index: number) =>
+          step.do(
+            ranges.length > 1 ? `analyze ${kind} ${index + 1}/${ranges.length}` : `analyze ${kind}`,
+            AI_RETRIES,
+            async () => {
+              if (kind === "primary") {
+                await bestEffort(
+                  report("analyzing", 60 + Math.round((20 * index) / ranges.length), {
+                    detail_data: { parts_done: index, parts_total: ranges.length },
+                  })
+                );
+              }
+              const full = await loadText(textInfo);
+              const [start, end] = ranges[index];
+              const prefix = contractPrefix(fileName, full.slice(start, end), {
+                index: index + 1,
+                total: ranges.length,
+              });
+              const spec = {
+                primary: {
+                  prompt: () => primaryPrompt(prefix, PRIMARY_EVIDENCE_KEYS),
+                  schema: PRIMARY_SCHEMA,
+                  keys: PRIMARY_EVIDENCE_KEYS,
+                },
+                secondary: {
+                  prompt: () => secondaryPrompt(prefix, SECONDARY_EVIDENCE_KEYS),
+                  schema: SECONDARY_SCHEMA,
+                  keys: SECONDARY_EVIDENCE_KEYS,
+                },
+                artists: {
+                  prompt: () => artistsPrompt(prefix, relevantTags(existingTags, full), ARTISTS_EVIDENCE_KEYS),
+                  schema: ARTISTS_SCHEMA,
+                  keys: ARTISTS_EVIDENCE_KEYS,
+                },
+              }[kind];
+              const prompt = spec.prompt();
+              let result: ValidatedRun<AnalysisJsonResult>;
+              try {
+                result = await runValidated(
+                  // The retry keeps the same prompt (cache hit) with more room to answer.
+                  (attempt) =>
+                    generateAnalysisJson(this.env, {
+                      system: ANALYSIS_SYSTEM,
+                      prompt,
+                      maxTokens: attempt === 1 ? MAX_TOKENS[kind] : MAX_TOKENS[kind] * 2,
+                    }),
+                  spec.schema,
+                  repairTruncatedJson
+                );
+              } catch (error) {
+                return rethrowProvider(error);
+              }
+              if (result.repaired) {
+                console.warn(JSON.stringify({ message: "model output repaired", job: jobId, prompt: kind }));
+              }
+              return {
+                data: JSON.stringify(withEvidence(result.data, full, spec.keys)),
+                model: result.outputs[result.outputs.length - 1].model,
+                usage: usageOf(kind, result.outputs, {
+                  part: ranges.length > 1 ? index + 1 : undefined,
+                  attempts: result.attempts,
+                  repaired: result.repaired,
+                }),
+              };
+            }
+          );
 
-        await step.do("save extracted data", async () => {
-          await report(85, "Guardando información extraída");
-          const merged = {
-            ...JSON.parse(primary.data),
-            ...JSON.parse(secondary.data),
-            ...JSON.parse(artists.data),
-          } as Record<string, unknown>;
-          await api.saveExtractedData(contractId, merged, isReanalysis ? "proposed" : "apply", primary.model);
+        const answers: Record<PromptKind, Record<string, unknown>[]> = { primary: [], secondary: [], artists: [] };
+        let primaryModel = "";
+        for (let index = 0; index < ranges.length; index++) {
+          // Primary first writes the prefix to DeepSeek's cache; the other two
+          // then read it. Parts run one after another for the same reason.
+          // eslint-disable-next-line no-await-in-loop
+          const primary = await analyze("primary", index);
+          // eslint-disable-next-line no-await-in-loop
+          const [secondary, artists] = await Promise.all([analyze("secondary", index), analyze("artists", index)]);
+          primaryModel ||= primary.model;
+          for (const [kind, result] of [
+            ["primary", primary],
+            ["secondary", secondary],
+            ["artists", artists],
+          ] as const) {
+            answers[kind].push(JSON.parse(result.data) as Record<string, unknown>);
+            calls.push(result.usage);
+          }
+        }
+
+        stage = "saving";
+        await step.do("save extracted data", API_RETRIES, async () => {
+          await report("saving", 85);
+          const merged = finalizeExtracted([
+            mergePartResults(answers.primary),
+            mergePartResults(answers.secondary),
+            mergePartResults(answers.artists),
+          ]);
+          await api.saveExtractedData(contractId, merged, isReanalysis ? "proposed" : "apply", primaryModel);
         });
       }
 
@@ -278,56 +497,69 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
       // test the mode itself; a full analysis already classifies through the
       // secondary prompt.
       const classifyOnly = mode === "RETRY_PARTIAL" && Boolean(retryOptions?.classify) && !retryOptions?.ai_analysis;
-      if (classifyOnly && extractedText) {
-        const fileName = await step.do("resolve file name for classification", async () => {
-          const assetId = event.payload.asset_id;
-          if (!assetId) return "contrato.pdf";
-          const { name } = await api.getPresignedUrl(assetId);
-          return name ?? "contrato.pdf";
-        });
+      if (classifyOnly) {
+        stage = "classifying";
+        const fileName = await fileNameStep("resolve file name for classification");
 
         const classification = await step.do("classify editorial", AI_RETRIES, async () => {
-          await report(60, "Clasificando contrato");
-          const { text } = await generateStructuredJson(this.env, {
-            prompt: classificationPrompt(fileName, extractedText),
-            keys: CLASSIFY_KEYS,
-            maxTokens: 256,
-          });
-          return JSON.stringify(parseJsonResponse<Record<string, unknown>>(text));
+          await bestEffort(report("classifying", 60));
+          const prompt = classificationPrompt(fileName, await loadText(textInfo));
+          try {
+            const result = await runValidated(
+              (attempt) =>
+                generateAnalysisJson(this.env, {
+                  system: ANALYSIS_SYSTEM,
+                  prompt,
+                  maxTokens: attempt === 1 ? 256 : 512,
+                }),
+              CLASSIFY_SCHEMA,
+              repairTruncatedJson
+            );
+            return {
+              esEditorial: toBool(result.data.esEditorial),
+              usage: usageOf("classify", result.outputs, { attempts: result.attempts, repaired: result.repaired }),
+            };
+          } catch (error) {
+            return rethrowProvider(error);
+          }
         });
+        calls.push(classification.usage);
 
-        await step.do("save classification", async () => {
+        stage = "saving";
+        await step.do("save classification", API_RETRIES, async () => {
           // Only `esEditorial` travels, and the ingest writes only the keys it
           // receives — nothing else on the contract moves. The empty model
           // keeps `ai_model_used` naming the model of the full analysis.
-          const { esEditorial } = JSON.parse(classification) as Record<string, unknown>;
-          await api.saveExtractedData(contractId, { esEditorial }, "apply", "");
+          await api.saveExtractedData(contractId, { esEditorial: classification.esEditorial }, "apply", "");
         });
       }
 
       // ── Thumbnail ─────────────────────────────────────────────────────
       if (wants("extract_thumbnail") && !isReanalysis) {
         await step.do("thumbnail placeholder", async () => {
-          // Browser Rendering spike pending (see plan §3.2). Non-fatal: the
-          // pipeline completes without a thumbnail and this step can be
-          // retried selectively once the renderer lands.
-          await report(92, "Miniatura pendiente de renderer");
+          // Browser Rendering spike pending. Non-fatal: the pipeline completes
+          // without a thumbnail and this step can be retried selectively.
           return { skipped: true };
         });
       }
 
-      await step.do("finalize", async () => {
-        await report(100, "Completado", "COMPLETED");
+      stage = "done";
+      await step.do("finalize", API_RETRIES, async () => {
+        await report("done", 100, { status: "COMPLETED", usage: summarizeUsage(calls) });
       });
 
       return { status: "completed", contract_id: contractId };
     } catch (error) {
-      // Report the failure with its stage so the UI can show where it broke
+      // Report the failure with the stage that broke, and what was spent
       const message = error instanceof Error ? error.message : String(error);
-      await step.do("report failure", async () => {
+      const failedStage = stage;
+      await step.do("report failure", API_RETRIES, async () => {
         await api.reportProgress(jobId, {
           status: "FAILED",
-          error: { message: message.slice(0, 500), stage: "pipeline" },
+          current_stage: "failed",
+          stage: "failed",
+          error: { message: message.slice(0, 500), stage: failedStage },
+          ...(calls.length > 0 ? { usage: summarizeUsage(calls) } : {}),
         });
       });
       throw error;

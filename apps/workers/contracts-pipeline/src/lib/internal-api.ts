@@ -25,6 +25,36 @@ export class WorkerConfigurationError extends Error {
   }
 }
 
+/** Stage codes a contract job moves through (shown translated in the UI). */
+export type JobStage =
+  | "queued"
+  | "starting"
+  | "extracting_text"
+  | "waiting_ocr"
+  | "collecting_text"
+  | "embedding"
+  | "analyzing"
+  | "saving"
+  | "classifying"
+  | "syncing_tags"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | "timeout";
+
+export type JobProgress = {
+  progress?: number;
+  /** Stage code (`JobStage` for contract jobs; query jobs still send text).
+   * Sent both as `current_stage` (what Django reads today) and `stage`. */
+  current_stage?: string;
+  stage?: string;
+  status?: string;
+  detail?: string;
+  detail_data?: Record<string, number | boolean | string>;
+  error?: { message: string; stage: string };
+  usage?: { calls: unknown[]; total_cost_usd: number };
+};
+
 type InternalApiEnv = Pick<Env, "PLANE_INTERNAL_API_URL" | "PLANE_INTERNAL_API_SECRET">;
 
 export function resolveInternalApiConfig(env: InternalApiEnv): { baseUrl: string; secret: string } {
@@ -79,10 +109,8 @@ export function internalApi(env: Env) {
         s3_key: string | null;
         s3_bucket: string | null;
       }>("GET", `/internal/assets/${assetId}/presigned-url/`),
-    reportProgress: (
-      jobId: string,
-      data: { progress?: number; current_stage?: string; status?: string; error?: { message: string; stage: string } }
-    ) => request<{ status: string }>("POST", `/internal/contract-jobs/${jobId}/progress/`, data),
+    reportProgress: (jobId: string, data: JobProgress) =>
+      request<{ status: string }>("POST", `/internal/contract-jobs/${jobId}/progress/`, data),
     getContractText: (contractId: string) =>
       request<{ extracted_text: string | null; has_text: boolean }>("GET", `/internal/contracts/${contractId}/text/`),
     saveContractText: (contractId: string, extractedText: string) =>
@@ -141,7 +169,8 @@ export function internalApi(env: Env) {
         "GET",
         `/internal/workspaces/${workspaceId}/file-tags/`
       ),
-    searchChunks: (workspaceId: string, embedding: number[], limit: number) =>
+    // contract_id narrows the search to one contract on the server
+    searchChunks: (workspaceId: string, embedding: number[], limit: number, contractId?: string) =>
       request<{
         results: Array<{
           content: string;
@@ -152,7 +181,11 @@ export function internalApi(env: Env) {
           file_name: string | null;
           asset_id: string | null;
         }>;
-      }>("POST", `/internal/workspaces/${workspaceId}/chunks/search/`, { embedding, limit }),
+      }>("POST", `/internal/workspaces/${workspaceId}/chunks/search/`, {
+        embedding,
+        limit,
+        ...(contractId ? { contract_id: contractId } : {}),
+      }),
     // Generic escape hatch for one-off internal endpoints (assistant tools)
     request,
   };

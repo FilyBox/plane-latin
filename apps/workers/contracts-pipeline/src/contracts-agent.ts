@@ -33,6 +33,7 @@ import { convertToModelMessages, createUIMessageStreamResponse, generateText, st
 import { z } from "zod";
 
 import { generateEmbeddings, listChatModels } from "./lib/ai";
+import { CONTRACT_TYPE_VALUES } from "./lib/contract-analysis";
 import { internalApi } from "./lib/internal-api";
 
 export type ContractsAgentRequest = {
@@ -193,7 +194,8 @@ type ContractRow = {
   fecha_fin?: string | null;
   fecha_fin_efectiva?: string | null;
   estatus_contrato?: string | null;
-  tipo_contrato?: string | null;
+  /** One of CONTRACT_TYPE_VALUES (lib/contract-analysis) */
+  tipo_contrato?: (typeof CONTRACT_TYPE_VALUES)[number] | null;
   es_editorial?: boolean | null;
   processing_status?: string | null;
   has_text?: boolean;
@@ -231,7 +233,7 @@ const searchFilterSchema = {
       "true = el filtro de fecha también incluye los contratos SIN esa fecha. Úsalo cuando without_date > 0 y la pregunta no pueda descartarlos"
     ),
   estatus: z.array(z.enum(["VIGENTE", "FINALIZADO", "NO_ESPECIFICADO"])).optional(),
-  tipo: z.array(z.enum(["ARRENDAMIENTOS", "ALQUILERES", "VEHICULOS", "SERVICIOS", "ARTISTAS"])).optional(),
+  tipo: z.array(z.enum(CONTRACT_TYPE_VALUES)).optional(),
   es_notariado: z.boolean().optional(),
   es_editorial: z
     .boolean()
@@ -387,7 +389,10 @@ export function buildTools(env: Env, body: ContractsAgentRequest) {
     }),
     execute: async ({ query, top_k }) => {
       const [embedding] = await generateEmbeddings(env, [query]);
-      const { results } = await api.searchChunks(workspace, embedding, top_k ?? LIMITS.fragments);
+      const contractId = (body.mode === "CONTRACT" && body.contract_id) || undefined;
+      // Django filters by contract before ranking; the filter below only
+      // guards against an older server that ignores contract_id.
+      const { results } = await api.searchChunks(workspace, embedding, top_k ?? LIMITS.fragments, contractId);
       const scoped =
         body.mode === "CONTRACT" && body.contract_id
           ? results.filter((chunk) => chunk.contract_id === body.contract_id)

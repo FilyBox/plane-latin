@@ -33,6 +33,9 @@ function deepReviewModels(env: Env): { prices: Record<string, Price>; defaultMod
   return { prices, defaultModel: configured && ids.includes(configured) ? configured : (ids[0] ?? "") };
 }
 
+/** Workflow instance id format (https://developers.cloudflare.com/workflows/build/workers-api/). */
+const INSTANCE_ID = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,99}$/;
+
 /** Constant-time secret comparison (hash first so length differences don't leak). */
 async function verifySecret(provided: string, expected: string): Promise<boolean> {
   if (!expected) return false;
@@ -93,12 +96,52 @@ export default {
         if (!params.job_id || !params.contract_id || !params.workspace_id) {
           return Response.json({ error: "job_id, contract_id and workspace_id are required" }, { status: 400 });
         }
-        const instance = await env.CONTRACT_PIPELINE.create({
-          id: crypto.randomUUID(),
-          params,
-        });
-        console.log(JSON.stringify({ message: "pipeline instance created", id: instance.id, job: params.job_id }));
-        return Response.json({ workflow_instance_id: instance.id });
+        if (!INSTANCE_ID.test(params.job_id)) {
+          return Response.json({ error: "job_id is not a valid instance id" }, { status: 400 });
+        }
+        // The job id is the instance id: a retried trigger gets the same instance.
+        let instance: WorkflowInstance;
+        let reused = false;
+        try {
+          instance = await env.CONTRACT_PIPELINE.create({ id: params.job_id, params });
+        } catch (createError) {
+          try {
+            instance = await env.CONTRACT_PIPELINE.get(params.job_id);
+            reused = true;
+          } catch {
+            throw createError;
+          }
+        }
+        console.log(JSON.stringify({ message: "pipeline instance ready", id: instance.id, reused }));
+        return Response.json({ workflow_instance_id: instance.id, reused });
+      }
+
+      const terminate = url.pathname.match(/^\/pipeline\/([^/]+)\/terminate\/?$/);
+      if (terminate) {
+        const jobId = decodeURIComponent(terminate[1]);
+        if (!INSTANCE_ID.test(jobId)) return Response.json({ error: "Invalid job id" }, { status: 400 });
+        let instance: WorkflowInstance;
+        try {
+          instance = await env.CONTRACT_PIPELINE.get(jobId);
+        } catch {
+          return Response.json({ terminated: false, status: "not_found" }, { status: 404 });
+        }
+        const { status } = await instance.status();
+        if (["complete", "errored", "terminated"].includes(status)) {
+          return Response.json({ terminated: false, status });
+        }
+        try {
+          await instance.terminate();
+        } catch (error) {
+          // It finished between the status read and the terminate call
+          const { status: latest } = await instance.status();
+          console.log(
+            JSON.stringify({ message: "terminate refused", id: jobId, status: latest, error: String(error) })
+          );
+          return Response.json({ terminated: false, status: latest });
+        }
+        console.log(JSON.stringify({ message: "pipeline instance terminated", id: jobId }));
+        return Response.json({ terminated: true, status: "terminated" });
       }
 
       if (url.pathname === "/trigger/query") {

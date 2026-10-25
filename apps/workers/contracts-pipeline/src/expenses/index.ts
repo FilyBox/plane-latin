@@ -73,7 +73,10 @@ export class ExpensePipelineWorkflow extends WorkflowEntrypoint<ExpenseEnv, Para
         }
         /* eslint-enable no-await-in-loop */
         if (status !== "SUCCEEDED") throw new NonRetryableError("Receipt OCR did not complete");
-        text = await step.do("collect receipt text", () => collectTextDetectionText(this.env, id));
+        text = await step.do(
+          "collect receipt text",
+          async () => (await collectTextDetectionText(this.env, id, { pageMarkers: false })).text
+        );
       } else {
         text = await step.do(
           "extract receipt",

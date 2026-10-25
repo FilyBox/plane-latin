@@ -14,6 +14,8 @@ type TextractEnvironment = Pick<Env, "AWS_ACCESS_KEY_ID" | "AWS_REGION" | "AWS_S
 
 import { AwsClient } from "aws4fetch";
 
+import { joinPageLines } from "./contract-analysis";
+
 export type TextractError = Error & { retryable?: boolean };
 
 const RETRYABLE_ERRORS = /Throttling|ProvisionedThroughputExceeded|LimitExceeded|InternalServer|ServiceUnavailable/i;
@@ -44,7 +46,9 @@ async function textractCall<T>(env: TextractEnvironment, target: string, body: R
     } catch {
       // non-JSON error body — keep the header value
     }
-    const error: TextractError = new Error(`Textract ${target} -> ${response.status} ${errorType}: ${text.slice(0, 200)}`);
+    const error: TextractError = new Error(
+      `Textract ${target} -> ${response.status} ${errorType}: ${text.slice(0, 200)}`
+    );
     error.retryable = RETRYABLE_ERRORS.test(`${errorType} ${text}`) || response.status >= 500;
     throw error;
   }
@@ -60,37 +64,58 @@ export async function startTextDetection(env: TextractEnvironment, bucket: strin
   return result.JobId;
 }
 
-type TextractBlock = { BlockType?: string; Text?: string };
+type TextractBlock = { BlockType?: string; Text?: string; Page?: number };
 type GetDetectionResponse = {
   JobStatus: "IN_PROGRESS" | "SUCCEEDED" | "FAILED" | "PARTIAL_SUCCESS";
   StatusMessage?: string;
+  DocumentMetadata?: { Pages?: number };
+  Warnings?: { ErrorCode?: string; Pages?: number[] }[];
   Blocks?: TextractBlock[];
   NextToken?: string;
 };
 
-/** One page of results — used for cheap status polling (MaxResults=1). */
-export async function getTextDetectionStatus(env: TextractEnvironment, jobId: string): Promise<{ status: string; message?: string }> {
+/** One page of results — used for cheap status polling (MaxResults=1). The
+ * page count is only known once the job has finished. */
+export async function getTextDetectionStatus(
+  env: TextractEnvironment,
+  jobId: string
+): Promise<{ status: string; message?: string; pages?: number }> {
   const result = await textractCall<GetDetectionResponse>(env, "GetDocumentTextDetection", {
     JobId: jobId,
     MaxResults: 1,
   });
-  return { status: result.JobStatus, message: result.StatusMessage };
+  return { status: result.JobStatus, message: result.StatusMessage, pages: result.DocumentMetadata?.Pages };
 }
 
-/** Collects every result page (NextToken pagination) and joins LINE blocks. */
-export async function collectTextDetectionText(env: TextractEnvironment, jobId: string): Promise<string> {
-  const lines: string[] = [];
+/**
+ * Collects every result page (NextToken pagination) and joins LINE blocks,
+ * opening each page with a `[[p. N]]` marker so the analysis can cite pages.
+ * `failedPages` lists pages Textract could not read (PARTIAL_SUCCESS).
+ */
+export async function collectTextDetectionText(
+  env: TextractEnvironment,
+  jobId: string,
+  options: { pageMarkers?: boolean } = {}
+): Promise<{ text: string; pages: number; failedPages: number[] }> {
+  const lines: { text: string; page?: number }[] = [];
+  const failed = new Set<number>();
+  let pages = 0;
   let nextToken: string | undefined;
   do {
+    // Pagination is sequential: each call needs the previous NextToken.
+    // eslint-disable-next-line no-await-in-loop
     const page: GetDetectionResponse = await textractCall<GetDetectionResponse>(env, "GetDocumentTextDetection", {
       JobId: jobId,
       MaxResults: 1000,
       ...(nextToken ? { NextToken: nextToken } : {}),
     });
+    pages = page.DocumentMetadata?.Pages ?? pages;
+    for (const warning of page.Warnings ?? []) for (const number of warning.Pages ?? []) failed.add(number);
     for (const block of page.Blocks ?? []) {
-      if (block.BlockType === "LINE" && block.Text) lines.push(block.Text);
+      if (block.BlockType === "LINE" && block.Text) lines.push({ text: block.Text, page: block.Page });
     }
     nextToken = page.NextToken;
   } while (nextToken);
-  return lines.join("\n");
+  const text = options.pageMarkers === false ? lines.map((line) => line.text).join("\n") : joinPageLines(lines);
+  return { text, pages, failedPages: [...failed].sort((a, b) => a - b) };
 }
