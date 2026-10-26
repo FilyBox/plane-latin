@@ -30,6 +30,8 @@ type Props = {
   triggerClassName?: string;
   /** Classes for the trigger's text (e.g. hidden until hover on small bars). */
   labelClassName?: string;
+  /** Where the panel opens; bottom action bars open it upward (the default). */
+  placement?: "top-start" | "bottom-start";
 };
 
 /** "Etiquetar": put one workspace tag on (or take it off) every selected item
@@ -42,17 +44,18 @@ export function BulkTagMenu({
   disabled,
   triggerClassName,
   labelClassName,
+  placement = "top-start",
 }: Props) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"add" | "remove">("add");
   const [busyTag, setBusyTag] = useState<string | null>(null);
   const focusOnOpen = useCallback((node: HTMLInputElement | null) => node?.focus(), []);
-  // Action bars sit at the bottom of the screen: open upward, flip if needed.
+  // Bottom action bars open upward, top strips downward; flip if needed.
   const [reference, setReference] = useState<HTMLButtonElement | null>(null);
   const [popper, setPopper] = useState<HTMLElement | null>(null);
   const { styles, attributes } = usePopper(reference, popper, {
-    placement: "top-start",
+    placement,
     strategy: "fixed",
     modifiers: [
       { name: "preventOverflow", options: { padding: 12 } },

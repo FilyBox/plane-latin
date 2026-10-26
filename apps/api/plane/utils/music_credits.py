@@ -379,6 +379,102 @@ def workspace_role_catalog(workspace_id):
     )
 
 
+# ── Exporting tagged credits ────────────────────────────────────────────────
+
+# How distributor files spell the built-in roles ("Executiveproducer" and "AR"
+# as their exports write them). Every other built-in role is its label in
+# CamelCase. All of them read back as the same role (see RoleCatalog.match).
+EXPORT_TAGS = {
+    PRIMARY_ARTIST: "PrimaryArtist",
+    FEATURED_ARTIST: "FeaturedArtist",
+    LYRICIST: "Lyricist",
+    COMPOSER: "Composer",
+    EXECUTIVE_PRODUCER: "Executiveproducer",
+    CO_PRODUCER: "CoProducer",
+    VOCAL_PRODUCER: "VocalProducer",
+    ASSISTANT_PRODUCER: "AssistantProducer",
+    MUSICAL_DIRECTOR: "MusicalDirector",
+    RECORDING_ENGINEER: "RecordingEngineer",
+    MIXER: "MixingEngineer",
+    MASTERING_ENGINEER: "MasteringEngineer",
+    SOUND_ENGINEER: "SoundEngineer",
+    SOUND_EDITOR: "SoundEditor",
+    VIDEO_PRODUCER: "VideoProducer",
+    A_AND_R: "AR",
+}
+
+
+def camel_tag(label):
+    """A role label as a tag without spaces or symbols: "Bajo Quinto" ->
+    "BajoQuinto", "Co-Producer" -> "CoProducer", "A&R" -> "AR"."""
+    words = re.findall(r"[^\W_]+", str(label or ""))
+    return "".join(word[:1].upper() + word[1:] for word in words)
+
+
+def _clean_tag(tag):
+    return re.sub(r"[<>]", "", str(tag or "")).strip(" .,;")
+
+
+def _clean_export_name(name):
+    # "<" and ">" would read as a tag when the file comes back
+    return re.sub(r"\s+", " ", str(name or "").replace("<", "(").replace(">", ")")).strip()
+
+
+class CreditTagger:
+    """The tag each credit is exported with, in the source file's spelling.
+
+    A workspace role uses the first tag it was imported from (source_tags),
+    a built-in role its distributor spelling; a credit whose original tag was
+    kept as its detail (imported into another role) exports that tag, one
+    entry per tag when it holds several ("Tuba, Chorus").
+    """
+
+    def __init__(self, custom=()):
+        self._tags = {}
+        self._categories = {}
+        for key, (label, category) in BUILTIN_ROLES.items():
+            self._tags[key] = EXPORT_TAGS.get(key) or camel_tag(label)
+            self._categories[key] = category
+        for role in custom:
+            key = role["key"]
+            if key in self._tags:
+                continue
+            source = next((_clean_tag(tag) for tag in role.get("source_tags") or () if _clean_tag(tag)), "")
+            self._tags[key] = source or camel_tag(role.get("label") or humanize_key(key))
+            self._categories[key] = role.get("category") or OTHER_CATEGORY
+
+    def category(self, key):
+        return self._categories.get(key, OTHER_CATEGORY)
+
+    def tags_for(self, key, detail=""):
+        details = [_clean_tag(part) for part in str(detail or "").replace("…", "").split(",")]
+        details = [tag for tag in details if tag]
+        if details:
+            return details
+        return [self._tags.get(key) or camel_tag(humanize_key(key))]
+
+
+def workspace_credit_tagger(workspace_id):
+    """CreditTagger with the workspace's own roles (lazy model import)."""
+    from plane.db.models import MusicCreditRole
+
+    return CreditTagger(
+        MusicCreditRole.objects.filter(workspace_id=workspace_id).values("key", "label", "category", "source_tags")
+    )
+
+
+def format_tagged(entries):
+    """``Ana <Lyricist>, Ana <Composer>`` for [(name, tag)], one entry per
+    person and tag, as distributor files write credits."""
+    parts = []
+    for name, tag in entries:
+        name = _clean_export_name(name)
+        if not name:
+            continue
+        parts.append(f"{name} <{tag}>" if tag else name)
+    return ", ".join(parts)
+
+
 def _clean_name(name):
     return str(name or "").strip(" .,;|\t\r\n")
 

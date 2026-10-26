@@ -29,6 +29,7 @@ from plane.app.views.contract.works import (
     InternalContractWorksSuggestEndpoint,
     MusicReleaseContractsEndpoint,
     MusicTrackContractsEndpoint,
+    MusicTracksLinkContractEndpoint,
 )
 from plane.app.views.contract.workflow import (
     ContractSignatureRequestCancelAndDuplicateEndpoint,
@@ -337,6 +338,11 @@ urlpatterns = [
         "workspaces/<str:slug>/music/releases/<uuid:release_id>/contracts/",
         MusicReleaseContractsEndpoint.as_view(),
         name="music-release-contracts",
+    ),
+    path(
+        "workspaces/<str:slug>/music/tracks/link-contract/",
+        MusicTracksLinkContractEndpoint.as_view(),
+        name="music-tracks-link-contract",
     ),
     # Internal (Cloudflare Worker)
     path(

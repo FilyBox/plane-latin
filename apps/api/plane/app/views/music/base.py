@@ -8,11 +8,11 @@ from io import BytesIO, StringIO
 
 from crum import impersonate
 from django.db import DatabaseError, connection, models, transaction
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 from rest_framework import status
 from rest_framework.negotiation import DefaultContentNegotiation
 from rest_framework.response import Response
@@ -229,6 +229,32 @@ def _names_in(row, mapping, key, parse):
             if name.lower() not in (existing.lower() for existing in names):
                 names.append(name)
     return names
+
+
+def _named_tags_in(row, mapping, key):
+    """{name: [tags]} across a credit field's cells, names in order (same
+    names and filtering as `_names_in(..., _names_for)`), keeping the tags
+    each name came with: "Ana <Lyricist>, Ana <Composer>" in a writers column
+    is Ana with ["Lyricist", "Composer"]."""
+    found = {}
+    wanted = ROLE_TAG_FIELDS.get(key)
+    for column, text in _mapped_cells(row, mapping, key):
+        if column.startswith(CONSTANT_PREFIX):
+            entries = [(text, None)]
+        elif not ROLE_TAG.search(text):
+            entries = [(name, None) for name in _split(text)]
+        else:
+            entries = [
+                (name, tag)
+                for name, tag in tagged_entries(text)
+                if not (tag and wanted is not None and normalize_tag(tag) not in wanted)
+            ]
+        for name, tag in entries:
+            existing = next((item for item in found if item.lower() == name.lower()), name)
+            tags = found.setdefault(existing, [])
+            if tag and tag not in tags:
+                tags.append(tag)
+    return found
 
 
 def _tagged_in(row, mapping, key):
@@ -927,6 +953,18 @@ def _clean_ai_suggestions(data, headers, locked):
     return suggestions
 
 
+def _urls_in(values):
+    """The http(s) URLs in some cells; a cell may hold several separated by
+    spaces, ";" or "|" (how the catalog export writes them)."""
+    urls = []
+    for value in values:
+        for part in re.split(r"[\s;|]+", str(value or "")):
+            part = part.strip(" ,")
+            if part.startswith(("http://", "https://")) and part not in urls:
+                urls.append(part)
+    return urls
+
+
 def _link_platform(url):
     """Readable platform name from a URL's host ("YouTube", "Spotify"…)."""
     match = re.search(r"https?://(?:www\.)?([^/:]+)", str(url or ""))
@@ -1321,8 +1359,14 @@ def _filter_tracks(queryset, params):
     if params.get("import_run"):
         queryset = queryset.filter(import_links__import_run_id=params["import_run"])
     if params.get("import_file"):
-        # Any run of those source files (re-imports of the same upload included)
-        queryset = queryset.filter(import_links__import_run__file_asset_id__in=_values("import_file"))
+        # Any run of those source files (re-imports of the same upload included);
+        # "run:<id>" picks a run that kept no source file
+        values = _values("import_file")
+        asset_ids = [value for value in values if not value.startswith("run:")]
+        run_ids = [value[4:] for value in values if value.startswith("run:")]
+        queryset = queryset.filter(
+            Q(import_links__import_run__file_asset_id__in=asset_ids) | Q(import_links__import_run_id__in=run_ids)
+        )
     # with | without | expired: covered by a linked contract (a song also by its releases')
     if params.get("contract"):
         queryset = filter_by_contract(queryset, params["contract"], "track")
@@ -1381,6 +1425,21 @@ class MusicReleaseDetailEndpoint(MusicBaseView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+# `order_by` values the song list accepts (a leading "-" sorts descending);
+# anything else keeps the model's default (newest release first).
+TRACK_ORDERINGS = {"title", "created_at", "updated_at", "release_date", "isrc", "status", "contract_count"}
+
+
+def _order_tracks(queryset, value):
+    field = (value or "").lstrip("-")
+    if field not in TRACK_ORDERINGS:
+        return queryset
+    expression = F(field)
+    # Songs without a date go last whichever way dates are sorted.
+    ordered = expression.desc(nulls_last=True) if value.startswith("-") else expression.asc(nulls_last=True)
+    return queryset.order_by(ordered, "title", "id")
+
+
 class MusicTrackEndpoint(MusicBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
@@ -1398,6 +1457,7 @@ class MusicTrackEndpoint(MusicBaseView):
             return Response({"ids": [str(pk) for pk in queryset.values_list("id", flat=True)]})
 
         queryset = queryset.annotate(contract_count=track_contract_count())
+        queryset = _order_tracks(queryset, request.query_params.get("order_by"))
 
         # Keep the original array response for existing consumers that do not request a page.
         if "page" not in request.query_params:
@@ -1702,7 +1762,8 @@ class MusicCatalogOptionsEndpoint(MusicBaseView):
                 "import_fields": IMPORT_FIELDS,
                 "multi_fields": MULTI_COLUMN_FIELDS,
                 # One entry per FILE (several runs of the same upload collapse
-                # into it); files deleted from the library disappear here too.
+                # into it). Deleting the source file afterwards keeps the entry:
+                # its songs are still linked to the run.
                 "import_files": self._import_files(slug),
             }
         )
@@ -1710,11 +1771,13 @@ class MusicCatalogOptionsEndpoint(MusicBaseView):
     @staticmethod
     def _import_files(slug):
         files = {}
-        runs = MusicImportRun.objects.filter(
-            workspace__slug=slug, file_asset__isnull=False, file_asset__is_deleted=False
-        ).order_by("-created_at")[:500]
+        runs = (
+            MusicImportRun.objects.filter(workspace__slug=slug)
+            .select_related("file_asset")
+            .order_by("-created_at")[:500]
+        )
         for run in runs:
-            asset_id = str(run.file_asset_id)
+            asset_id = str(run.file_asset_id) if run.file_asset_id else f"run:{run.id}"
             entry = files.get(asset_id)
             if entry is None:
                 files[asset_id] = {
@@ -1723,6 +1786,7 @@ class MusicCatalogOptionsEndpoint(MusicBaseView):
                     "source": run.source,
                     "runs": 1,
                     "last_imported_at": run.created_at.isoformat(),
+                    "file_deleted": run.file_asset is None or bool(run.file_asset.is_deleted),
                 }
             else:
                 entry["runs"] += 1
@@ -2613,8 +2677,12 @@ class MusicImportEndpoint(MusicBaseView):
                 entry[1].append(detail)
 
         for field, (kind, role) in role_fields.items():
-            for name in _names_in(row, mapping, field, lambda text, field=field: _names_for(text, field)):
-                want(_party(workspace, name, kind), role)
+            for name, tags in _named_tags_in(row, mapping, field).items():
+                # A tag that names another role ("<Lyricist>" in a writers
+                # column) is kept as the credit's detail, so an export
+                # writes the credit back the way the file had it.
+                details = [tag for tag in tags if catalog.match(tag) != role]
+                want(_party(workspace, name, kind), role, ", ".join(details))
         # Tagged names: each tag is its own role (existing or created from
         # the tag) unless the role map sends it elsewhere.
         for field in TAGGED_CREDIT_FIELDS:
@@ -2681,7 +2749,9 @@ class MusicImportEndpoint(MusicBaseView):
             raw = row.get(column)
             text = str(_jsonable_import_value(raw)).strip() if raw is not None else ""
             if text:
-                extra[str(column)[:255]] = text[:2000]
+                # "Extra: Price Tier" from a catalog export is "Price Tier" again
+                key = re.sub(r"^Extra:\s*", "", str(column)) or str(column)
+                extra[key[:255]] = text[:2000]
         if not external_id and not extra:
             return
         metadata = dict(track.metadata or {})
@@ -2771,7 +2841,7 @@ class MusicImportEndpoint(MusicBaseView):
         """
         # Several link columns may map to the same field: the first video URL
         # materializes the video child, the rest attach as extra links on it.
-        video_urls = [url for url in _mapped_many(row, mapping, "track.video_url") if url.startswith(("http://", "https://"))]
+        video_urls = _urls_in(_mapped_many(row, mapping, "track.video_url"))
         if video_urls:
             video = track.videos.filter(kind=MusicTrack.Kind.MUSIC_VIDEO).first()
             video_release_date = _mapped_date(row, mapping, "track.video_release_date")
@@ -2812,7 +2882,7 @@ class MusicImportEndpoint(MusicBaseView):
                 _prune(video.links.filter(kind=MusicLink.Kind.MUSIC_VIDEO).exclude(url__in=video_urls))
 
         streaming_urls = [
-            url for url in _mapped_many(row, mapping, "track.streaming_url") if url.startswith(("http://", "https://"))
+            url for url in _urls_in(_mapped_many(row, mapping, "track.streaming_url"))
         ]
         for streaming_url in streaming_urls:
             if not track.links.filter(url=streaming_url).exists():
@@ -2895,72 +2965,19 @@ class MusicReportEndpoint(MusicBaseView):
         elif window == "last_30_days":
             params["from"] = (today - timedelta(days=30)).isoformat()
             params["to"] = today.isoformat()
-        tracks = _filter_tracks(
-            MusicTrack.objects.filter(workspace__slug=slug, parent_track__isnull=True).prefetch_related(
-                "credits__party", "release_links__release", "genre_links__genre", "videos__links",
-                "distributions__company",
-            ),
-            params,
-        )
-        headers = [
-            "Song", "Version", "Artists", "Featured artists", "ISRC", "Status", "Release date",
-            "Releases", "UPC", "Genres", "Videos", "Video ISRCs", "Video dates", "Video URLs",
-            "Credits and rights", "Companies and shares", "Ownership", "P line", "C line",
-        ]
-        rows = []
-        # Role names as stored (English), built-in or the workspace's own
-        roles = workspace_role_catalog(Workspace.objects.get(slug=slug).id)
-        for track in tracks:
-            releases = [link.release for link in track.release_links.all()]
-            videos = list(track.videos.all())
-            rows.append([
-                track.title,
-                track.version,
-                "; ".join(c.party.display_name for c in track.credits.all() if c.role == MusicCredit.Role.PRIMARY_ARTIST),
-                "; ".join(c.party.display_name for c in track.credits.all() if c.role == MusicCredit.Role.FEATURED_ARTIST),
-                track.isrc,
-                track.status,
-                track.release_date or "",
-                "; ".join(release.title for release in releases),
-                "; ".join(filter(None, (release.upc for release in releases))),
-                "; ".join(link.genre.name for link in track.genre_links.all()),
-                "; ".join(video.title for video in videos),
-                "; ".join(filter(None, (video.isrc_video for video in videos))),
-                "; ".join(str(video.release_date or "") for video in videos),
-                "; ".join(link.url for video in videos for link in video.links.all() if link.kind == MusicLink.Kind.MUSIC_VIDEO),
-                "; ".join(
-                    f'{credit.party.display_name} ({roles.label(credit.role)}: {credit.percentage if credit.percentage is not None else "-"}%, publishing {credit.publishing_share if credit.publishing_share is not None else "-"}%)'
-                    for credit in track.credits.all()
-                ),
-                "; ".join(
-                    f'{distribution.company.name} ({distribution.company.get_kind_display()}: {distribution.percentage if distribution.percentage is not None else "-"}%)'
-                    for distribution in track.distributions.all()
-                ),
-                track.ownership,
-                track.p_line,
-                track.c_line,
-            ])
+        # Columns come from a registry (see export.py): `columns=all`, a list
+        # of keys, or nothing for the original 19 columns.
+        from .export import build_rows, describe_columns, parse_columns, report_response
+
+        workspace = Workspace.objects.get(slug=slug)
+        if request.query_params.get("describe"):
+            return Response(describe_columns(workspace))
+        try:
+            keys, legacy = parse_columns(request.query_params.get("columns"))
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        tracks = _filter_tracks(MusicTrack.objects.filter(workspace=workspace, parent_track__isnull=True), params)
+        headers, rows = build_rows(workspace, tracks, keys, legacy=legacy)
         export_format = request.query_params.get("format", "csv").lower()
-        filename = f'music-catalog-{window or "report"}'
-        if export_format == "xlsx":
-            workbook = Workbook()
-            sheet = workbook.active
-            sheet.title = "Music catalog"
-            sheet.append(headers)
-            for row in rows:
-                sheet.append(row)
-            output = BytesIO()
-            workbook.save(output)
-            response = HttpResponse(
-                output.getvalue(),
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-            response["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
-            return response
-        response = HttpResponse(content_type="text/csv; charset=utf-8")
-        response["Content-Disposition"] = f'attachment; filename="{filename}.csv"'
-        response.write("\ufeff")
-        writer = csv.writer(response)
-        writer.writerow(headers)
-        writer.writerows(rows)
-        return response
+        filename = f'music-catalog-{window or ("selected" if params.get("ids") else "report")}'
+        return report_response(headers, rows, export_format, filename)

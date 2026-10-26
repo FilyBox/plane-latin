@@ -125,6 +125,7 @@ from .music import (
     MusicReleaseEndpoint,
     MusicReportEndpoint,
     MusicTrackBulkDeleteEndpoint,
+    MusicTrackBulkUpdateEndpoint,
     MusicTrackDetailEndpoint,
     MusicTrackEndpoint,
 )

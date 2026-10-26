@@ -25,6 +25,7 @@ from .base import (
     MusicTrackDetailEndpoint,
     MusicTrackEndpoint,
 )
+from .bulk import MusicTrackBulkUpdateEndpoint
 
 __all__ = [
     "InternalMusicImportEndpoint",
@@ -47,6 +48,7 @@ __all__ = [
     "MusicReleaseEndpoint",
     "MusicReportEndpoint",
     "MusicTrackBulkDeleteEndpoint",
+    "MusicTrackBulkUpdateEndpoint",
     "MusicTrackDetailEndpoint",
     "MusicTrackEndpoint",
 ]

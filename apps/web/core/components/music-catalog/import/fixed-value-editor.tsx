@@ -18,6 +18,8 @@ type Props = {
   chosen: string[];
   /** Expected format of typed fields ("2023-05-01"), when there is one */
   formatExample?: string;
+  /** Header text; the import calls it "Valor fijo", other hosts may not */
+  label?: string;
   onPick: (value: string) => void;
   onClose: () => void;
 };
@@ -28,7 +30,15 @@ type Props = {
  * typed text looks like an existing value ("Virgin" vs "VirginAgregadora"),
  * and keep a new value only by choosing so explicitly.
  */
-export function ImportFixedValueEditor({ workspaceSlug, field, chosen, formatExample, onPick, onClose }: Props) {
+export function ImportFixedValueEditor({
+  workspaceSlug,
+  field,
+  chosen,
+  formatExample,
+  label: headerLabel,
+  onPick,
+  onClose,
+}: Props) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [data, setData] = useState<TMusicImportFieldValues>();
@@ -58,8 +68,12 @@ export function ImportFixedValueEditor({ workspaceSlug, field, chosen, formatExa
     };
   }, [field, trimmed, workspaceSlug]);
 
+  // Typing goes to the search box as soon as the picker opens. Deferred a
+  // frame: when the picker opens from a <select> change, the browser hands
+  // focus back to that select after the event, which would otherwise steal it.
   useEffect(() => {
-    inputRef.current?.focus();
+    const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
   }, [data?.kind]);
 
   const isChosen = (value: string) => chosen.some((item) => item.toLowerCase() === value.toLowerCase());
@@ -82,7 +96,7 @@ export function ImportFixedValueEditor({ workspaceSlug, field, chosen, formatExa
   return (
     <div className="mt-2 max-w-md rounded-md border border-subtle bg-layer-1 p-2 shadow-raised-100">
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <p className="text-11 font-medium text-secondary">{t("music_import.columns.fixed_label")}</p>
+        <p className="text-11 font-medium text-secondary">{headerLabel ?? t("music_import.columns.fixed_label")}</p>
         <button
           type="button"
           aria-label={t("music_import.columns.fixed_close")}

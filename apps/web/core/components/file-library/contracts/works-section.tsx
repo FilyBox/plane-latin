@@ -10,7 +10,7 @@
  */
 
 import { useState } from "react";
-import { Check, Loader2, Plus, Sparkles, X } from "lucide-react";
+import { Check, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
 import { Link } from "react-router";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
@@ -49,6 +49,34 @@ type Props = {
 
 const FIELD =
   "w-full rounded-sm border border-subtle bg-transparent px-2 py-1 text-12 text-primary outline-none focus:border-accent-strong";
+
+/** Linked works rendered per step; past SEARCH_THRESHOLD the filter shows */
+const PAGE_SIZE = 20;
+const SEARCH_THRESHOLD = 10;
+const SUGGESTIONS_PAGE = 10;
+
+const normalizeSearch = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+
+/** Title, artists and codes of a link, for the filter box */
+const searchText = (link: TContractWorkLink) =>
+  normalizeSearch(
+    [
+      link.entity?.title,
+      link.entity?.subtitle,
+      link.entity?.isrc,
+      link.entity?.upc,
+      link.suggested?.title,
+      artistsText(link.suggested?.artists),
+      link.suggested?.isrc,
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
 
 function WorkThumb({ link }: { link: TContractWorkLink }) {
   const Icon = ENTITY_ICONS[link.entity_type] ?? ENTITY_ICONS.music_track;
@@ -145,6 +173,9 @@ export function ContractWorksSection({ workspaceSlug, contractId, canEdit, onSee
   };
   const [busyId, setBusyId] = useState<string | null>(null);
   const [creatingId, setCreatingId] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [linkedLimit, setLinkedLimit] = useState(PAGE_SIZE);
+  const [suggestionsLimit, setSuggestionsLimit] = useState(SUGGESTIONS_PAGE);
 
   const { data, error, mutate } = useSWR(contractWorksKey(contractId), () =>
     contractWorksService.getContractWorks(workspaceSlug, contractId)
@@ -157,6 +188,14 @@ export function ContractWorksSection({ workspaceSlug, contractId, canEdit, onSee
   const linked = links.filter((link) => link.status === "LINKED");
   const suggested = links.filter((link) => link.status === "SUGGESTED");
   const linkedKeys = linked.filter((link) => link.entity_id).map((link) => `${link.entity_type}:${link.entity_id}`);
+  // A contract can cover hundreds of works: past a few, a filter box, the
+  // count per kind, and rows rendered a page at a time
+  const isLong = linked.length > SEARCH_THRESHOLD;
+  const needle = normalizeSearch(filter);
+  const matching = needle ? linked.filter((link) => searchText(link).includes(needle)) : linked;
+  const shownLinked = matching.slice(0, linkedLimit);
+  const songCount = linked.filter((link) => link.entity_type === "music_track").length;
+  const shownSuggested = suggested.slice(0, suggestionsLimit);
 
   const afterChange = async () => {
     await mutate();
@@ -395,8 +434,58 @@ export function ContractWorksSection({ workspaceSlug, contractId, canEdit, onSee
       {data && linked.length === 0 && suggested.length === 0 && (
         <p className="px-2 text-12 text-tertiary">{t("file_library.contracts.works.empty")}</p>
       )}
-      {linked.length > 0 && (
-        <ul className="divide-y divide-subtle rounded-md border border-subtle">{linked.map(linkedRow)}</ul>
+      {isLong && (
+        <div className="space-y-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-tertiary" />
+            <input
+              value={filter}
+              onChange={(event) => {
+                setFilter(event.target.value);
+                setLinkedLimit(PAGE_SIZE);
+              }}
+              placeholder={t("file_library.contracts.works.filter_placeholder")}
+              aria-label={t("file_library.contracts.works.filter_placeholder")}
+              className={cn(FIELD, "pl-7")}
+            />
+          </div>
+          <p className="px-1 text-11 text-tertiary">
+            {[
+              t("file_library.contracts.works.songs_count", { count: songCount }),
+              t("file_library.contracts.works.releases_count", { count: linked.length - songCount }),
+              needle ? t("file_library.contracts.works.matching_count", { count: matching.length }) : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </div>
+      )}
+      {isLong && needle && matching.length === 0 && (
+        <p className="px-2 text-12 text-tertiary">{t("file_library.contracts.works.no_match")}</p>
+      )}
+      {shownLinked.length > 0 && (
+        <ul className="divide-y divide-subtle rounded-md border border-subtle">{shownLinked.map(linkedRow)}</ul>
+      )}
+      {matching.length > shownLinked.length && (
+        <button
+          type="button"
+          onClick={() => setLinkedLimit((current) => current + PAGE_SIZE)}
+          className="w-full rounded-md px-2 py-1 text-center text-11 text-accent-primary hover:bg-layer-1-hover"
+        >
+          {t("file_library.contracts.works.show_more", {
+            count: Math.min(PAGE_SIZE, matching.length - shownLinked.length),
+            total: matching.length - shownLinked.length,
+          })}
+        </button>
+      )}
+      {shownLinked.length > PAGE_SIZE && (
+        <button
+          type="button"
+          onClick={() => setLinkedLimit(PAGE_SIZE)}
+          className="w-full rounded-md px-2 py-1 text-center text-11 text-tertiary hover:bg-layer-1-hover"
+        >
+          {t("file_library.contracts.works.show_less")}
+        </button>
       )}
       {suggested.length > 0 && (
         <div className="space-y-1">
@@ -406,8 +495,17 @@ export function ContractWorksSection({ workspaceSlug, contractId, canEdit, onSee
             <span>{suggested.length}</span>
           </p>
           <ul className="divide-y divide-subtle rounded-md border border-dashed border-subtle">
-            {suggested.map(suggestionRow)}
+            {shownSuggested.map(suggestionRow)}
           </ul>
+          {suggested.length > shownSuggested.length && (
+            <button
+              type="button"
+              onClick={() => setSuggestionsLimit(suggested.length)}
+              className="w-full rounded-md px-2 py-1 text-center text-11 text-accent-primary hover:bg-layer-1-hover"
+            >
+              {t("file_library.contracts.works.show_all_suggestions", { count: suggested.length })}
+            </button>
+          )}
         </div>
       )}
       <ContractWorksPickerModal

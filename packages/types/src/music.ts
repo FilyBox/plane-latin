@@ -128,6 +128,8 @@ export type TMusicTrack = {
   metadata: Record<string, unknown>;
   credits: TMusicCredit[];
   genre_details: TMusicGenre[];
+  /** Contracts linked to the song or its releases (list endpoint only) */
+  contract_count?: number;
   release_details: {
     id: string;
     title: string;
@@ -189,6 +191,49 @@ export type TMusicBulkDeleteResult = {
   not_found: number;
 };
 
+/** "Editar en lote": one field change applied to every selected song */
+export type TMusicBulkCompanyField = "aggregator" | "distributor" | "record_label" | "publisher";
+export type TMusicBulkScalarField =
+  | "status"
+  | "kind"
+  | "release_date"
+  | "original_release_date"
+  | "language"
+  | "explicit"
+  | "instrumental"
+  | "p_line"
+  | "c_line"
+  | "ownership"
+  | "us_publishing_obligations"
+  | "recoupment"
+  | "aggregator_percentage"
+  | "distributor_percentage"
+  | "record_label_percentage"
+  | "artist_percentage"
+  | "writer_percentage";
+export type TMusicBulkChange =
+  | { field: TMusicBulkScalarField; op: "set" | "clear"; value?: string | boolean | null }
+  | {
+      field: TMusicBulkCompanyField | "genres" | "release";
+      op: "add" | "remove" | "replace" | "clear";
+      value?: string[];
+    }
+  | {
+      field: "credit";
+      op: "add" | "remove" | "replace" | "clear";
+      /** Names are matched ignoring case and created when missing (add/replace) */
+      value: { role?: string; names?: string[] };
+    };
+
+export type TMusicBulkUpdateResult = {
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  /** Names created by the change, by kind */
+  created?: Partial<Record<"companies" | "genres" | "people" | "releases", string[]>>;
+  errors: { index: number | null; field: string | null; error: string }[];
+};
+
 export type TMusicFilters = {
   search?: string;
   type?: string;
@@ -219,6 +264,38 @@ export type TMusicFilters = {
   ids_only?: string;
   /** with | without | expired */
   contract?: string;
+  /** title | created_at | updated_at | release_date | isrc | status | contract_count, "-" for descending */
+  order_by?: string;
+};
+
+/** Catalog export: groups the export panel lists columns in */
+export type TMusicExportGroup =
+  | "song"
+  | "identifiers"
+  | "release"
+  | "credits"
+  | "companies"
+  | "media"
+  | "rights"
+  | "contracts"
+  | "import"
+  | "tags";
+
+/** One exportable column; `header` is the file's (English) column name */
+export type TMusicExportColumn = {
+  key: string;
+  header: string;
+  group: TMusicExportGroup;
+};
+
+/** GET music/reports/?describe=1 */
+export type TMusicExportDescription = {
+  groups: TMusicExportGroup[];
+  columns: TMusicExportColumn[];
+  /** basic = the original 19 columns, all = every column */
+  presets: { basic: string[]; all: string[] };
+  /** Keys songs keep as extra data from imports ("Extra: <key>" columns) */
+  extra_keys: string[];
 };
 
 export type TMusicCatalogOptions = {
@@ -245,6 +322,8 @@ export type TMusicImportFile = {
   source: "MANUAL" | "ASSISTANT" | string;
   runs: number;
   last_imported_at: string;
+  /** The source file was deleted after importing; its songs stay linked */
+  file_deleted?: boolean;
 };
 
 export type TMusicImportError = {

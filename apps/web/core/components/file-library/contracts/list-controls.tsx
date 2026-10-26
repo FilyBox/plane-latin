@@ -41,14 +41,20 @@ type BulkActionsBarProps = {
   count: number;
   onClear: () => void;
   children: React.ReactNode;
+  /** Replaces the "N seleccionados" text (other lists name their own items) */
+  label?: React.ReactNode;
 };
 
-export function ContractBulkActionsBar({ count, onClear, children }: BulkActionsBarProps) {
+/** The selection strip under the toolbar: count, the actions, clear. Shared by
+ * the contracts list and the music catalog. */
+export function ContractBulkActionsBar({ count, onClear, children, label }: BulkActionsBarProps) {
   const { t } = useTranslation();
   if (count === 0) return null;
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle bg-layer-1 px-3 py-2 sm:px-4">
-      <span className="text-12 font-medium">{t("file_library.contracts.bulk.selected", { count })}</span>
+      <span className="text-12 font-medium" aria-live="polite">
+        {label ?? t("file_library.contracts.bulk.selected", { count })}
+      </span>
       {children}
       <Button variant="tertiary" size="sm" onClick={onClear}>
         <X className="size-3.5" />

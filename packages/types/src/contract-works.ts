@@ -43,6 +43,8 @@ export type TContractWorkEntity = {
   cover_url?: string | null;
   release_date?: string | null;
   isrc?: string | null;
+  /** Releases */
+  upc?: string | null;
 };
 
 /** A link as seen from the contract */
@@ -115,6 +117,16 @@ export type TWorkContractLink = {
 };
 
 export type TWorkContractsResponse = { links: TWorkContractLink[] };
+
+/** "Ligar a contrato" for songs selected in the catalog */
+export type TMusicTracksLinkContractResult = {
+  linked: number;
+  /** Songs the contract already covered */
+  already: number;
+  /** Ids that are not songs of this workspace */
+  skipped: number;
+  contract: TWorkContract;
+};
 
 export type TContractWorksSummary = { linked: number; suggested: number };
 

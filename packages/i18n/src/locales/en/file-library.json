@@ -285,6 +285,30 @@
           "without": "Without contract",
           "expired": "With expired contract",
           "clear": "Remove contract filter"
+        },
+        "link_contract": "Link to contract",
+        "unlink_contract": "Unlink contract",
+        "unlinking": "Unlinking…",
+        "unlink_confirm_title": "Unlink «{title}»?",
+        "unlink_confirm_body": "The contract will no longer list this work. You can link it again at any time.",
+        "contract_unlinked": "Contract unlinked",
+        "filter_placeholder": "Filter by title, artist, ISRC or UPC…",
+        "songs_count": "{count, plural, one {# song} other {# songs}}",
+        "releases_count": "{count, plural, one {# release} other {# releases}}",
+        "matching_count": "{count, plural, one {# match} other {# matches}}",
+        "no_match": "No linked work matches the filter.",
+        "show_more": "Show {count} more ({total} left)",
+        "show_less": "Show less",
+        "show_all_suggestions": "Show all {count} suggestions",
+        "contract_picker": {
+          "placeholder": "Search contracts by title, file or artist…",
+          "title_named": "Link «{title}» to contracts",
+          "confirm_multi": "Link to {count, plural, =0 {contracts} one {# contract} other {# contracts}}",
+          "linked_count": "{count, plural, one {Linked to # contract} other {Linked to # contracts}}",
+          "empty": "There are no contracts yet.",
+          "no_results": "No contracts match the search.",
+          "load_failed": "Couldn't load the contracts.",
+          "more": "{count, plural, one {# more contract: refine the search to find it} other {# more contracts: refine the search to find them}}"
         }
       },
       "reanalyze": {

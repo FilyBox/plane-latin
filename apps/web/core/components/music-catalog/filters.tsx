@@ -17,6 +17,7 @@ import { useTranslation } from "@plane/i18n";
 import { CloseIcon } from "@plane/propel/icons";
 import type { TMusicFilters } from "@plane/types";
 import { Tag } from "@plane/ui";
+import { cn } from "@plane/utils";
 import { FilterHeader, FilterOption, FiltersDropdown } from "@/components/issues/issue-layouts/filters";
 import { MUSIC_FIELD } from "./shared";
 
@@ -208,22 +209,28 @@ function ContractFilterSection({
 type TDropdownProps = {
   filters: TMusicFilters;
   data: TMusicFiltersData;
-  hasActiveFilters: boolean;
+  /** Filters applied (the badge on the trigger) */
+  activeCount: number;
   onSet: (key: keyof TMusicFilters, value: string) => void;
 };
 
-export function MusicFiltersDropdown({ filters, data, hasActiveFilters, onSet }: TDropdownProps) {
+export function MusicFiltersDropdown({ filters, data, activeCount, onSet }: TDropdownProps) {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Same trigger as the contracts list's "Filtros"
   const trigger = (
     <span
-      className={`relative flex items-center gap-1 rounded-sm border px-2 py-1.5 text-12 hover:bg-layer-1-hover ${
-        hasActiveFilters ? "border-accent-strong text-accent-primary" : "border-subtle"
-      }`}
+      className={cn(
+        "flex h-8 shrink-0 items-center gap-1 rounded-sm border border-subtle px-2 text-12 whitespace-nowrap text-secondary hover:bg-layer-1-hover",
+        activeCount > 0 && "border-accent-strong text-accent-primary"
+      )}
     >
       <ListFilter className="size-3.5" />
-      <span className="hidden sm:inline">Filtros</span>
-      {hasActiveFilters && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent-primary" />}
+      <span className="hidden sm:inline">{t("file_library.filters.button")}</span>
+      {activeCount > 0 && (
+        <span className="rounded-full bg-accent-primary px-1 text-10 text-on-color">{activeCount}</span>
+      )}
     </span>
   );
 

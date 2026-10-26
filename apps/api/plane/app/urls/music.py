@@ -21,6 +21,7 @@ from plane.app.views import (
     MusicReleaseEndpoint,
     MusicReportEndpoint,
     MusicTrackBulkDeleteEndpoint,
+    MusicTrackBulkUpdateEndpoint,
     MusicTrackDetailEndpoint,
     MusicTrackEndpoint,
 )
@@ -30,6 +31,7 @@ urlpatterns = [
     path("workspaces/<str:slug>/music/releases/<uuid:release_id>/", MusicReleaseDetailEndpoint.as_view(), name="music-release-detail"),
     path("workspaces/<str:slug>/music/tracks/", MusicTrackEndpoint.as_view(), name="music-tracks"),
     path("workspaces/<str:slug>/music/tracks/bulk-delete/", MusicTrackBulkDeleteEndpoint.as_view(), name="music-tracks-bulk-delete"),
+    path("workspaces/<str:slug>/music/tracks/bulk-update/", MusicTrackBulkUpdateEndpoint.as_view(), name="music-tracks-bulk-update"),
     path("workspaces/<str:slug>/music/tracks/<uuid:track_id>/", MusicTrackDetailEndpoint.as_view(), name="music-track-detail"),
     path("workspaces/<str:slug>/music/parties/", MusicPartyEndpoint.as_view(), name="music-parties"),
     path("workspaces/<str:slug>/music/parties/<uuid:party_id>/", MusicPartyDetailEndpoint.as_view(), name="music-party-detail"),

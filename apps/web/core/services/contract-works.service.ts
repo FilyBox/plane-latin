@@ -10,9 +10,11 @@ import type {
   TContractWorkLink,
   TContractWorkLinkItem,
   TContractWorkLinkUpdate,
+  TContractWorkRightsType,
   TContractWorksApplyPayload,
   TContractWorksApplyResponse,
   TContractWorksResponse,
+  TMusicTracksLinkContractResult,
   TWorkContractsResponse,
 } from "@plane/types";
 import { APIService } from "@/services/api.service";
@@ -77,6 +79,22 @@ export class ContractWorksService extends APIService {
   getTrackContracts(workspaceSlug: string, trackId: string) {
     return this.data<TWorkContractsResponse>(
       this.get(`/api/workspaces/${workspaceSlug}/music/tracks/${trackId}/contracts/`)
+    );
+  }
+
+  /** Links the songs selected in the catalog to one contract */
+  linkTracksToContract(
+    workspaceSlug: string,
+    contractId: string,
+    trackIds: string[],
+    rightsType?: TContractWorkRightsType | null
+  ) {
+    return this.data<TMusicTracksLinkContractResult>(
+      this.post(`/api/workspaces/${workspaceSlug}/music/tracks/link-contract/`, {
+        contract_id: contractId,
+        track_ids: trackIds,
+        rights_type: rightsType ?? null,
+      })
     );
   }
 

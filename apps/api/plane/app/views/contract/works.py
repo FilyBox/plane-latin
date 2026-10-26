@@ -10,6 +10,8 @@ GUEST read); anything that picks or creates catalog items also needs music
 access (module on and workspace admin), as the music endpoints do.
 """
 
+import uuid
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -26,6 +28,7 @@ from plane.utils.contract_works import (
     Source,
     Status,
     clean_work,
+    contract_card,
     contract_links_payload,
     create_catalog_entity,
     entity_contracts_payload,
@@ -405,6 +408,100 @@ class MusicReleaseContractsEndpoint(_EntityContractsEndpoint):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, release_id):
         return self._respond(slug, release_id)
+
+
+MAX_BULK_TRACKS = 10000
+
+
+class MusicTracksLinkContractEndpoint(MusicBaseView):
+    """The catalog's "Ligar a contrato" for selected songs.
+
+    POST {contract_id, track_ids: [...], rights_type?} -> {linked, already, skipped}.
+    Set-based so "select all matching" (thousands of songs) is a few queries:
+    a pending or dismissed suggestion for a song becomes LINKED (a person's
+    decision), a song already linked is counted as `already` (and only gets
+    the rights type when it had none), the rest are created as LINKED.
+    """
+
+    model = ContractWorkLink
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug):
+        if not is_workspace_feature_enabled(WorkspaceFeature.FeatureKey.FILE_LIBRARY, slug=slug):
+            return Response({"error": "Contracts are not enabled for this workspace"}, status=status.HTTP_403_FORBIDDEN)
+        data = request.data if isinstance(request.data, dict) else {}
+        track_ids = data.get("track_ids")
+        if not isinstance(track_ids, list) or not track_ids or len(track_ids) > MAX_BULK_TRACKS:
+            return _bad(f"track_ids must list between 1 and {MAX_BULK_TRACKS} songs")
+        ok, rights = _rights(data.get("rights_type"))
+        if not ok:
+            return _bad("unknown rights_type")
+        try:
+            contract = _contract(slug, data.get("contract_id"))
+        except (ValueError, ValidationError):
+            contract = None
+        if contract is None:
+            return Response({"error": "Contract not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        clean = []
+        for raw in track_ids:
+            try:
+                clean.append(uuid.UUID(str(raw)))
+            except (TypeError, ValueError):
+                continue
+        found = list(
+            MusicTrack.objects.filter(workspace_id=contract.workspace_id, id__in=clean).values_list("id", flat=True)
+        )
+        now = timezone.now()
+        with transaction.atomic():
+            existing = {
+                link.entity_id: link
+                for link in ContractWorkLink.objects.filter(
+                    contract_id=contract.id, entity_type=TRACK, entity_id__in=found
+                ).only("id", "entity_id", "status", "rights_type")
+            }
+            already = [link.id for link in existing.values() if link.status == Status.LINKED]
+            upgrade = [link.id for link in existing.values() if link.status != Status.LINKED]
+            if upgrade:
+                ContractWorkLink.objects.filter(id__in=upgrade).update(
+                    status=Status.LINKED,
+                    decided_by=request.user,
+                    decided_at=now,
+                    updated_at=now,
+                    **({"rights_type": rights} if rights else {}),
+                )
+            if rights and already:
+                ContractWorkLink.objects.filter(id__in=already, rights_type__isnull=True).update(
+                    rights_type=rights, updated_at=now
+                )
+            ContractWorkLink.objects.bulk_create(
+                [
+                    ContractWorkLink(
+                        workspace_id=contract.workspace_id,
+                        contract_id=contract.id,
+                        entity_type=TRACK,
+                        entity_id=track_id,
+                        status=Status.LINKED,
+                        source=Source.MANUAL,
+                        rights_type=rights,
+                        decided_by=request.user,
+                        decided_at=now,
+                        created_by=request.user,
+                    )
+                    for track_id in found
+                    if track_id not in existing
+                ],
+                batch_size=500,
+            )
+        return Response(
+            {
+                "linked": len(found) - len(already),
+                "already": len(already),
+                "skipped": len(track_ids) - len(found),
+                "contract": contract_card(contract, slug, now.date()),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 # ------------------------------------------------------------------------ internal

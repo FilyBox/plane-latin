@@ -5,37 +5,48 @@
  *
  * "Contratos" for a song or release: the contracts that cover it (status,
  * end date, open in place) and the ones the AI thinks cover it, to confirm
- * or dismiss. Renders nothing until the backend has the feature.
+ * or dismiss. From here the work can also be linked to contracts ("Ligar a
+ * contrato"), its rights type changed, or a link removed. Renders nothing
+ * until the backend has the feature.
  */
 
-import { useState } from "react";
-import { Check, FileSignature, Loader2, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, FileSignature, Link2, Loader2, Sparkles, X } from "lucide-react";
 import { observer } from "mobx-react";
 import { Link } from "react-router";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TWorkContractLink } from "@plane/types";
+import { Tooltip } from "@plane/propel/tooltip";
+import type { TContractWorkRightsType, TWorkContractLink } from "@plane/types";
+import { AlertModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
 import { usePeekLinkClick } from "@/components/entity-peek/use-entity-peek";
 import { useCanEditContracts } from "@/components/file-library/contracts/use-can-edit";
 import { formatContractDate } from "@/components/file-library/contracts/utils";
+import { WorksContractPickerModal } from "@/components/file-library/contracts/works-contract-picker-modal";
 import {
   ConfidenceChip,
   EvidenceTip,
+  WorkRightsSelect,
   refreshWorkLinks,
   rightsLabel,
   workContractsKey,
 } from "@/components/file-library/contracts/works-shared";
+import { useWorkspace } from "@/hooks/store/use-workspace";
 import { contractWorksService, isNotFound } from "@/services/contract-works.service";
 
 type Props = {
   workspaceSlug: string;
   kind: "music_track" | "music_release";
   entityId: string;
+  /** The song or release title, for the picker's heading */
+  entityTitle?: string;
   /** The host panel's own section title */
   renderTitle?: (label: string, count: number) => React.ReactNode;
+  /** A dialog of this section is open: the host must not close on Escape */
+  onDialogOpenChange?: (open: boolean) => void;
   className?: string;
 };
 
@@ -49,13 +60,28 @@ export const WorkContractsSection = observer(function WorkContractsSection({
   workspaceSlug,
   kind,
   entityId,
+  entityTitle,
   renderTitle,
+  onDialogOpenChange,
   className,
 }: Props) {
   const { t, currentLocale } = useTranslation();
   const canEdit = useCanEditContracts(workspaceSlug);
+  const { isWorkspaceFeatureEnabled } = useWorkspace();
+  // Contracts live in the file library: without it there is nothing to link
+  const canLink = canEdit && isWorkspaceFeatureEnabled(workspaceSlug, "file_library");
   const openInPlace = usePeekLinkClick();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [unlinking, setUnlinking] = useState<TWorkContractLink | null>(null);
+  const [isUnlinking, setIsUnlinking] = useState(false);
+
+  const dialogOpen = isPickerOpen || unlinking !== null;
+  useEffect(() => {
+    onDialogOpenChange?.(dialogOpen);
+  }, [dialogOpen, onDialogOpenChange]);
+  // Closing the panel with a dialog open must not leave the host suspended
+  useEffect(() => () => onDialogOpenChange?.(false), [onDialogOpenChange]);
 
   const { data, error, mutate } = useSWR(workContractsKey(kind, entityId), () =>
     kind === "music_track"
@@ -69,20 +95,83 @@ export const WorkContractsSection = observer(function WorkContractsSection({
 
   const linked = data.links.filter((link) => link.status === "LINKED");
   const suggested = data.links.filter((link) => link.status === "SUGGESTED");
+  // Contracts that already cover this work directly (a release's link doesn't count)
+  const linkedContractIds = linked.filter((link) => !link.via_release).map((link) => link.contract.id);
   const label = t("file_library.contracts.works.contracts_title");
+
+  const afterChange = async () => {
+    await mutate();
+    void refreshWorkLinks();
+  };
 
   const decide = async (link: TWorkContractLink, status: "LINKED" | "DISMISSED") => {
     setBusyId(link.id);
     try {
       await contractWorksService.updateLink(workspaceSlug, link.id, { status });
-      await mutate();
-      void refreshWorkLinks();
+      await afterChange();
       if (status === "LINKED")
         setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.works.confirmed") });
     } catch {
       setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.works.action_failed") });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const setRights = async (link: TWorkContractLink, rights: TContractWorkRightsType | null) => {
+    // Shown at once; reverted by the refetch if the save fails
+    void mutate(
+      (current) =>
+        current && {
+          links: current.links.map((item) => (item.id === link.id ? { ...item, rights_type: rights } : item)),
+        },
+      { revalidate: false }
+    );
+    setBusyId(link.id);
+    try {
+      await contractWorksService.updateLink(workspaceSlug, link.id, { rights_type: rights });
+      void refreshWorkLinks();
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.works.action_failed") });
+      void mutate();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const linkContracts = async (contractIds: string[], rightsType: TContractWorkRightsType | null) => {
+    const results = await Promise.allSettled(
+      contractIds.map((contractId) =>
+        contractWorksService.linkWorks(workspaceSlug, contractId, [
+          { entity_type: kind, entity_id: entityId, rights_type: rightsType },
+        ])
+      )
+    );
+    const done = results.filter((result) => result.status === "fulfilled").length;
+    await afterChange();
+    if (done > 0)
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: t("file_library.contracts.works.contract_picker.linked_count", { count: done }),
+      });
+    if (done < contractIds.length) {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.works.action_failed") });
+      throw new Error("link failed");
+    }
+  };
+
+  const unlink = async () => {
+    if (!unlinking) return;
+    setIsUnlinking(true);
+    try {
+      await contractWorksService.deleteLink(workspaceSlug, unlinking.id);
+      await afterChange();
+      setToast({ type: TOAST_TYPE.SUCCESS, title: t("file_library.contracts.works.contract_unlinked") });
+      setUnlinking(null);
+    } catch {
+      setToast({ type: TOAST_TYPE.ERROR, title: t("file_library.contracts.works.action_failed") });
+    } finally {
+      setIsUnlinking(false);
     }
   };
 
@@ -105,21 +194,38 @@ export const WorkContractsSection = observer(function WorkContractsSection({
   const viaRelease = (link: TWorkContractLink) =>
     link.via_release ? t("file_library.contracts.works.via_release", { title: link.via_release.title }) : "";
 
+  const linkButton = (variant: "header" | "empty") =>
+    canLink ? (
+      <button
+        type="button"
+        onClick={() => setIsPickerOpen(true)}
+        className={cn(
+          "flex shrink-0 items-center gap-1 rounded-sm text-11 text-accent-primary hover:bg-layer-1-hover",
+          variant === "header" ? "px-1" : "mt-1 px-1 py-0.5"
+        )}
+      >
+        <Link2 className="size-3" />
+        {t("file_library.contracts.works.link_contract")}
+      </button>
+    ) : null;
+
   const linkedRow = (link: TWorkContractLink) => {
     const expired = isExpired(link);
     const endDate = formatContractDate(link.contract.fecha_fin_efectiva, currentLocale);
+    // A release's link is changed from the release, not from each song
+    const editable = canEdit && !link.via_release;
     const detail = [
-      rightsLabel(t, link.rights_type),
+      editable ? "" : rightsLabel(t, link.rights_type),
       endDate ? t("file_library.contracts.works.ends", { date: endDate }) : "",
       viaRelease(link),
     ]
       .filter(Boolean)
       .join(" · ");
     return (
-      <li key={link.id} className="px-2 py-1.5">
+      <li key={link.id} className="group flex items-center gap-1.5 px-2 py-1.5">
         {contractLink(
           link,
-          "flex min-w-0 items-center gap-2.5 rounded-md hover:bg-layer-1-hover",
+          "flex min-w-0 flex-1 items-center gap-2.5 rounded-md hover:bg-layer-1-hover",
           <>
             <span className="grid size-7 shrink-0 place-items-center rounded-md bg-layer-1">
               <FileSignature className="size-3.5 text-secondary" />
@@ -136,6 +242,26 @@ export const WorkContractsSection = observer(function WorkContractsSection({
             >
               {t(expired ? "file_library.contracts.works.expired" : "file_library.contracts.works.active")}
             </span>
+          </>
+        )}
+        {editable && (
+          <>
+            <WorkRightsSelect
+              value={link.rights_type}
+              onChange={(value) => void setRights(link, value)}
+              disabled={busyId === link.id}
+              className="max-w-28 shrink-0"
+            />
+            <Tooltip tooltipContent={t("file_library.contracts.works.unlink_contract")}>
+              <button
+                type="button"
+                onClick={() => setUnlinking(link)}
+                aria-label={t("file_library.contracts.works.unlink_contract")}
+                className="shrink-0 rounded-sm p-1 text-tertiary opacity-0 group-hover:opacity-100 hover:bg-layer-1-hover hover:text-primary focus-visible:opacity-100"
+              >
+                <X className="size-3.5" />
+              </button>
+            </Tooltip>
           </>
         )}
       </li>
@@ -175,16 +301,22 @@ export const WorkContractsSection = observer(function WorkContractsSection({
 
   return (
     <section className={className}>
-      {renderTitle ? (
-        renderTitle(label, linked.length)
-      ) : (
-        <h3 className="mb-2 text-13 font-medium text-primary">
-          {label}
-          <span className="font-normal ml-1.5 text-12 text-tertiary">{linked.length}</span>
-        </h3>
-      )}
+      <div className="flex items-center justify-between gap-2">
+        {renderTitle ? (
+          renderTitle(label, linked.length)
+        ) : (
+          <h3 className="mb-2 text-13 font-medium text-primary">
+            {label}
+            <span className="font-normal ml-1.5 text-12 text-tertiary">{linked.length}</span>
+          </h3>
+        )}
+        {(linked.length > 0 || suggested.length > 0) && linkButton("header")}
+      </div>
       {linked.length === 0 && suggested.length === 0 && (
-        <p className="px-1 py-1 text-12 text-tertiary">{t("file_library.contracts.works.no_contracts")}</p>
+        <div className="px-1 py-1">
+          <p className="text-12 text-tertiary">{t("file_library.contracts.works.no_contracts")}</p>
+          {linkButton("empty")}
+        </div>
       )}
       {linked.length > 0 && (
         <ul className="divide-y divide-subtle rounded-md border border-subtle">{linked.map(linkedRow)}</ul>
@@ -194,6 +326,37 @@ export const WorkContractsSection = observer(function WorkContractsSection({
           {suggested.map(suggestionRow)}
         </ul>
       )}
+      {canLink && (
+        <WorksContractPickerModal
+          workspaceSlug={workspaceSlug}
+          isOpen={isPickerOpen}
+          onClose={() => setIsPickerOpen(false)}
+          multiple
+          linkedContractIds={linkedContractIds}
+          title={
+            entityTitle
+              ? t("file_library.contracts.works.contract_picker.title_named", { title: entityTitle })
+              : t("file_library.contracts.works.link_contract")
+          }
+          confirmLabel={(count) => t("file_library.contracts.works.contract_picker.confirm_multi", { count })}
+          onConfirm={linkContracts}
+        />
+      )}
+      <AlertModalCore
+        isOpen={unlinking !== null}
+        isSubmitting={isUnlinking}
+        handleClose={() => !isUnlinking && setUnlinking(null)}
+        handleSubmit={() => void unlink()}
+        title={t("file_library.contracts.works.unlink_confirm_title", {
+          title: unlinking ? contractTitle(unlinking) : "",
+        })}
+        content={t("file_library.contracts.works.unlink_confirm_body")}
+        primaryButtonText={{
+          default: t("file_library.contracts.works.unlink_contract"),
+          loading: t("file_library.contracts.works.unlinking"),
+        }}
+        secondaryButtonText={t("cancel")}
+      />
     </section>
   );
 });

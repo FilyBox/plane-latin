@@ -307,6 +307,7 @@ export function MusicReleaseModal({
               workspaceSlug={workspaceSlug}
               kind="music_release"
               entityId={release.id}
+              entityTitle={release.title}
               className="sm:col-span-2"
             />
           )}

@@ -1,9 +1,12 @@
 import { API_BASE_URL } from "@plane/constants";
 import type {
   TMusicCatalogOptions,
+  TMusicBulkChange,
   TMusicBulkDeleteResult,
+  TMusicBulkUpdateResult,
   TMusicCompany,
   TMusicCreditRole,
+  TMusicExportDescription,
   TMusicFilters,
   TMusicGenre,
   TMusicImportAiMap,
@@ -108,6 +111,13 @@ export class MusicService extends APIService {
   deleteTracks(workspaceSlug: string, trackIds: string[]) {
     return this.data<TMusicBulkDeleteResult>(
       this.post(`/api/workspaces/${workspaceSlug}/music/tracks/bulk-delete/`, { track_ids: trackIds })
+    );
+  }
+
+  /** "Editar en lote": every change applied to every song, all or nothing */
+  bulkUpdateTracks(workspaceSlug: string, trackIds: string[], changes: TMusicBulkChange[]) {
+    return this.data<TMusicBulkUpdateResult>(
+      this.post(`/api/workspaces/${workspaceSlug}/music/tracks/bulk-update/`, { track_ids: trackIds, changes })
     );
   }
 
@@ -307,6 +317,31 @@ export class MusicService extends APIService {
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `music-catalog-${window}.${format}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** The columns the export panel offers (registry kept by the API). */
+  async getExportColumns(workspaceSlug: string): Promise<TMusicExportDescription> {
+    return this.get(`/api/workspaces/${workspaceSlug}/music/reports/`, { params: { describe: "1" } }).then(
+      (response) => response?.data
+    );
+  }
+
+  /** Downloads the catalog with the chosen columns ("all" or column keys). */
+  async exportCatalog(
+    workspaceSlug: string,
+    options: { format: "csv" | "xlsx"; columns: string[] | "all"; filters: TMusicFilters; fileName: string }
+  ) {
+    const columns = options.columns === "all" ? "all" : options.columns.join(",");
+    const response = await this.get(`/api/workspaces/${workspaceSlug}/music/reports/`, {
+      params: { ...options.filters, columns, format: options.format },
+      responseType: "blob",
+    });
+    const url = URL.createObjectURL(response.data);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${options.fileName}.${options.format}`;
     anchor.click();
     URL.revokeObjectURL(url);
   }

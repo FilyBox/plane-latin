@@ -287,6 +287,8 @@ export function MusicTrackPeekPanel(props: Props) {
   const { isWorkspaceFeatureEnabled } = useWorkspace();
   const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
   const [isCreating, setIsCreating] = useState(false);
+  // The contracts section's picker or confirm is open: Escape belongs to it
+  const [contractsDialogOpen, setContractsDialogOpen] = useState(false);
   const [isAddingCredit, setIsAddingCredit] = useState(false);
   const { mutate: mutateSWR } = useSWRConfig();
   const [newCreditRole, setNewCreditRole] = useState("PRIMARY_ARTIST");
@@ -345,11 +347,11 @@ export function MusicTrackPeekPanel(props: Props) {
   // Escape closes the panel unless a sheet or another panel is stacked on top
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !suspendClose && isTopLayer) onClose();
+      if (event.key === "Escape" && !suspendClose && !contractsDialogOpen && isTopLayer) onClose();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [suspendClose, isTopLayer, onClose]);
+  }, [suspendClose, contractsDialogOpen, isTopLayer, onClose]);
 
   const patch = async (payload: Record<string, unknown>) => {
     // Create mode: nothing persisted yet — accumulate into the local draft
@@ -738,7 +740,13 @@ export function MusicTrackPeekPanel(props: Props) {
   const exportOne = async () => {
     setIsExporting(true);
     try {
-      await musicService.downloadReport(workspaceSlug, "filtered", "xlsx", { ids: track.id });
+      // Everything stored about this one song, in the same format as the export panel's "Todo"
+      await musicService.exportCatalog(workspaceSlug, {
+        format: "xlsx",
+        columns: "all",
+        filters: { ids: track.id },
+        fileName: (track.title || "cancion").replace(/[\\/:*?"<>|]+/g, " ").trim() || "cancion",
+      });
     } catch {
       setToast({ type: TOAST_TYPE.ERROR, title: "No se pudo exportar" });
     } finally {
@@ -1873,6 +1881,8 @@ export function MusicTrackPeekPanel(props: Props) {
               workspaceSlug={workspaceSlug}
               kind="music_track"
               entityId={track.id}
+              entityTitle={track.title}
+              onDialogOpenChange={setContractsDialogOpen}
               className="space-y-1.5"
               renderTitle={(label, count) => <SectionTitle>{count ? `${label} · ${count}` : label}</SectionTitle>}
             />

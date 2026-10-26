@@ -285,6 +285,30 @@
           "without": "Sin contrato",
           "expired": "Con contrato vencido",
           "clear": "Quitar filtro de contrato"
+        },
+        "link_contract": "Ligar a contrato",
+        "unlink_contract": "Desligar contrato",
+        "unlinking": "Desligando…",
+        "unlink_confirm_title": "¿Desligar «{title}»?",
+        "unlink_confirm_body": "El contrato dejará de incluir esta obra. Puede volver a ligarla cuando quiera.",
+        "contract_unlinked": "Contrato desligado",
+        "filter_placeholder": "Filtrar por título, artista, ISRC o UPC…",
+        "songs_count": "{count, plural, one {# canción} other {# canciones}}",
+        "releases_count": "{count, plural, one {# lanzamiento} other {# lanzamientos}}",
+        "matching_count": "{count, plural, one {# coincidencia} other {# coincidencias}}",
+        "no_match": "Ninguna obra ligada coincide con el filtro.",
+        "show_more": "Mostrar {count} más (quedan {total})",
+        "show_less": "Mostrar menos",
+        "show_all_suggestions": "Ver las {count} sugerencias",
+        "contract_picker": {
+          "placeholder": "Buscar contratos por título, archivo o artista…",
+          "title_named": "Ligar «{title}» a contratos",
+          "confirm_multi": "Ligar a {count, plural, =0 {contratos} one {# contrato} other {# contratos}}",
+          "linked_count": "{count, plural, one {Ligada a # contrato} other {Ligada a # contratos}}",
+          "empty": "Aún no hay contratos.",
+          "no_results": "Ningún contrato coincide con la búsqueda.",
+          "load_failed": "No se pudieron cargar los contratos.",
+          "more": "{count, plural, one {# contrato más: afine la búsqueda para encontrarlo} other {# contratos más: afine la búsqueda para encontrarlos}}"
         }
       },
       "reanalyze": {

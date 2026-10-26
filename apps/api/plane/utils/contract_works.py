@@ -653,7 +653,11 @@ def _entities(links, ctx):
     cards = {}
     if track_ids:
         artists = _artists_by_track(track_ids)
-        for track in MusicTrack.objects.filter(workspace_id=ctx.workspace_id, id__in=track_ids):
+        # Only the card columns: a contract can cover thousands of songs
+        tracks = MusicTrack.objects.filter(workspace_id=ctx.workspace_id, id__in=track_ids).only(
+            "id", "title", "version", "cover_url", "release_date", "isrc", "status"
+        )
+        for track in tracks:
             names = list(dict.fromkeys(artists.get(track.id, [])))
             cards[(TRACK.value, str(track.id))] = {
                 "title": track.title,
@@ -668,7 +672,10 @@ def _entities(links, ctx):
             }
     if release_ids:
         artists = _artists_by_release(release_ids)
-        for release in MusicRelease.objects.filter(workspace_id=ctx.workspace_id, id__in=release_ids):
+        releases = MusicRelease.objects.filter(workspace_id=ctx.workspace_id, id__in=release_ids).only(
+            "id", "title", "version", "cover_url", "release_date", "upc", "status"
+        )
+        for release in releases:
             names = list(dict.fromkeys(artists.get(release.id, [])))
             cards[(RELEASE.value, str(release.id))] = {
                 "title": release.title,
@@ -749,7 +756,8 @@ def entity_contracts_payload(workspace_id, slug, entity_type, entity_id):
         )
     else:
         links = links.filter(entity_type=RELEASE, entity_id=entity_id)
-    links = link_order(links.select_related("contract__file_asset"))
+    # The contract's full text is never needed for its card
+    links = link_order(links.select_related("contract__file_asset").defer("contract__extracted_text"))
     rows = []
     for link in links:
         via = None
