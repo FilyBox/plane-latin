@@ -48,8 +48,15 @@ export type TMusicRelease = {
   territories: string[];
   notes: string;
   artist_ids?: string[];
+  /** Write-only: the release's artists with their role (PRIMARY | FEATURED); replaces the list */
+  artist_entries?: { party_id: string; role: string }[];
   artist_details: { id: string; name: string; role: string }[];
   track_count: number;
+  created_at?: string;
+  /** Contracts linked to the release (list endpoint only) */
+  contract_count?: number;
+  /** Extra data kept from imports (read-only in the UI) */
+  metadata?: Record<string, unknown>;
 };
 
 /** Groups credit roles in pickers; never changes what a role means */
@@ -213,6 +220,8 @@ export type TMusicBulkScalarField =
   | "writer_percentage";
 export type TMusicBulkChange =
   | { field: TMusicBulkScalarField; op: "set" | "clear"; value?: string | boolean | null }
+  /** Sets the type of every release the selected songs are in */
+  | { field: "release_type"; op: "set"; value: string }
   | {
       field: TMusicBulkCompanyField | "genres" | "release";
       op: "add" | "remove" | "replace" | "clear";
@@ -389,6 +398,66 @@ export type TMusicImportResult = {
   /** Roles named after the file's tags: created by an applied import, or
    * that would be created (dry run) */
   new_roles?: TMusicImportNewRole[];
+  /** New releases the file gave no type, by the type inferred for them
+   * (title hint, then number of songs); a dry run reports what would be */
+  release_types_inferred?: Partial<Record<"SINGLE" | "EP" | "ALBUM", number>>;
+};
+
+/** "Corregir tipo de lanzamientos": releases still on the default type
+ * (Album) whose title or number of songs says otherwise */
+export type TMusicReleaseTypeChange = {
+  id: string;
+  title: string;
+  tracks: number;
+  from: string;
+  to: string;
+};
+
+export type TMusicReleaseInferTypesResult = {
+  dry_run: boolean;
+  changes: TMusicReleaseTypeChange[];
+  counts: Partial<Record<"SINGLE" | "EP" | "ALBUM", number>>;
+  updated: number;
+};
+
+/** "Agrupar en álbumes" / "Unir con otro lanzamiento": one album to build.
+ * The target is an existing release or a new one; the songs of the merged
+ * releases move into it; listed songs are linked with their numbers. */
+export type TMusicReleaseGroupAlbum = {
+  target:
+    | { release_id: string }
+    | {
+        create: { title: string; artists?: string[]; upc?: string; type?: string; release_date?: string };
+      };
+  merge_release_ids?: string[];
+  tracks?: { track_id: string; disc_number?: number; track_number?: number }[];
+  create_tracks?: { title: string; isrc?: string; artists?: string[]; disc_number?: number; track_number?: number }[];
+  /** Soft-delete merged releases left without songs (default true) */
+  remove_empty_merged?: boolean;
+};
+
+export type TMusicReleaseGroupSummary = {
+  target: { id: string; title: string; created: boolean; path: string };
+  total_tracks: number;
+  tracks_linked: number;
+  tracks_renumbered: number;
+  tracks_already: number;
+  tracks_moved: number;
+  tracks_created: number;
+  tracks_reused: number;
+  metadata_copied: string[];
+  artists_added: number;
+  contract_links_moved: number;
+  contract_links_merged: number;
+  merged_releases: { id: string; title: string; deleted: boolean }[];
+  /** Set when a grouped single became an EP or album */
+  release_type?: string;
+};
+
+export type TMusicReleaseGroupResult = {
+  dry_run: boolean;
+  albums: TMusicReleaseGroupSummary[];
+  totals: { albums: number; tracks: number; merged_releases: number; deleted_releases: number };
 };
 
 export type TMusicImportNewRole = {

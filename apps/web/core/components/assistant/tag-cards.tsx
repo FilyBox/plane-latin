@@ -18,6 +18,7 @@ import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TEntityName } from "@plane/types";
 import { cn } from "@plane/utils";
 import { ENTITY_ICONS, entityGroupKey } from "@/components/references/entity-meta";
+import { MappingKindList, countMappingItems, initialMappingKinds } from "@/components/references/tags/mapping-kinds";
 import { taggingService } from "@/services/references.service";
 import { AssistantLink, useAssistantNavigate } from "./links";
 import { TraceLine } from "./steps";
@@ -224,6 +225,8 @@ export const StartTagMappingCard = makeAssistantToolUI<Record<string, unknown>, 
     const { t } = useTranslation();
     const navigate = useAssistantNavigate();
     const [starting, setStarting] = useState(false);
+    // What the person ticked; until then, what the assistant was asked for.
+    const [picked, setPicked] = useState<TEntityName[] | null>(null);
     const slug = result?.workspace_slug;
     const { data: overview, mutate } = useSWR(
       slug ? ["TAGGING_OVERVIEW", slug] : null,
@@ -239,8 +242,8 @@ export const StartTagMappingCard = makeAssistantToolUI<Record<string, unknown>, 
     }
     if (result.error || !slug) return null;
 
-    const types = (result.types ?? []).filter((name) => overview?.scannable.includes(name));
-    const total = types.reduce((sum, name) => sum + (overview?.counts[name] ?? 0), 0);
+    const types = overview ? (picked ?? initialMappingKinds(overview, result.types)) : [];
+    const total = overview ? countMappingItems(overview, types) : 0;
     const active = overview?.runs.find((run) => ["QUEUED", "RUNNING", "REVIEW"].includes(run.status));
     const review = () => navigate(result.review_path ?? `/${slug}/tags?mapping=1`);
 
@@ -272,7 +275,10 @@ export const StartTagMappingCard = makeAssistantToolUI<Record<string, unknown>, 
         </>
       );
     } else if (active) {
-      const done = Number(active.progress.done ?? 0);
+      // The run counts what it read per kind (done_contract, done_music_track…).
+      const done = Object.entries(active.progress)
+        .filter(([key]) => key.startsWith("done_"))
+        .reduce((sum, [, value]) => sum + Number(value), 0);
       const all = Number(active.progress.total ?? 0);
       const percent = all > 0 ? Math.min(100, Math.round((done / all) * 100)) : 0;
       body = (
@@ -290,18 +296,9 @@ export const StartTagMappingCard = makeAssistantToolUI<Record<string, unknown>, 
     } else {
       body = (
         <>
-          <ul className="mt-2.5 divide-y divide-subtle rounded-md border border-subtle">
-            {types.map((name) => {
-              const Icon = ENTITY_ICONS[name];
-              return (
-                <li key={name} className="flex items-center gap-2 px-2.5 py-1.5 text-12">
-                  {Icon && <Icon className="size-3.5 text-tertiary" aria-hidden />}
-                  <span className="flex-1 text-primary">{t(entityGroupKey(name))}</span>
-                  <span className="text-tertiary tabular-nums">{overview.counts[name] ?? 0}</span>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="mt-2.5">
+            <MappingKindList overview={overview} chosen={types} onChange={setPicked} compact />
+          </div>
           <p className="mt-2 text-11 text-tertiary">{t("assistant.mapping.note")}</p>
           <Button
             variant="primary"

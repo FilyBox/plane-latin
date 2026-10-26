@@ -47,7 +47,7 @@ export function SharedTagChip({ tag, onRemove, linked = true, className }: Props
         "inline-flex h-5 max-w-full items-center gap-1 rounded-sm border border-subtle px-1.5 text-body-xs-regular text-primary",
         className
       )}
-      title={`${t(tagKindKey(tag.kind))} · ${t("references.tags.workspace_tag")}`}
+      title={`${tag.name} — ${t(tagKindKey(tag.kind))} · ${t("references.tags.workspace_tag")}`}
     >
       {linked && workspaceSlug ? (
         <Link

@@ -1292,6 +1292,14 @@
       "count_error": "Con error",
       "new_roles": "{count, plural, one {# rol nuevo creado} other {# roles nuevos creados}}"
     },
+    "inferred": {
+      "line": "Tipo de lanzamiento inferido: {summary}",
+      "line_dry": "Tipo de lanzamiento a inferir: {summary}",
+      "hint": "Lanzamientos nuevos a los que el archivo no da tipo: por el título («Single …», «… EP») o por el número de canciones (1 → single, 2–6 → EP, 7 o más → álbum).",
+      "single": "{count, plural, one {# single} other {# singles}}",
+      "ep": "{count, plural, one {# EP} other {# EP}}",
+      "album": "{count, plural, one {# álbum} other {# álbumes}}"
+    },
     "history": {
       "title": "Archivos de importación",
       "description": "Cada archivo con sus importaciones. Abre las canciones de una importación o vuelve a importarlo.",
@@ -1426,6 +1434,112 @@
     }
   },
   "music_catalog": {
+    "release_panel": {
+      "untitled": "Sin título",
+      "open_release": "Abrir lanzamiento",
+      "cover_add": "Agregar portada",
+      "cover_change": "Cambiar portada",
+      "cover_uploaded": "Portada adjuntada",
+      "upload_failed": "No se pudo subir el archivo",
+      "export": "Exportar las canciones de este lanzamiento (Excel)",
+      "export_failed": "No se pudo exportar",
+      "delete": "Eliminar lanzamiento",
+      "delete_title": "¿Eliminar «{title}»?",
+      "deleted": "Lanzamiento eliminado",
+      "delete_failed": "No se pudo eliminar el lanzamiento",
+      "close": "Cerrar (Esc)",
+      "save_failed": "No se pudo guardar",
+      "invalid_year": "Escribe un año de cuatro dígitos (p. ej. 2024)",
+      "add": "Agregar",
+      "no_artists": "Sin artistas",
+      "artist_search": "Buscar o crear artista…",
+      "remove_artist": "Quitar artista",
+      "sections": {
+        "identifiers": "Identificadores",
+        "details": "Detalles",
+        "artists": "Artistas",
+        "tracks": "Canciones",
+        "rights": "Derechos y textos"
+      },
+      "fields": {
+        "catalog_number": "Catálogo",
+        "type": "Tipo",
+        "status": "Estado",
+        "version": "Versión",
+        "version_placeholder": "Deluxe, remasterizado…",
+        "release_date": "Fecha de lanzamiento",
+        "original_release_date": "Lanzamiento original",
+        "language": "Idioma",
+        "label": "Sello",
+        "copyright_year": "Año de copyright",
+        "territories": "Territorios",
+        "territories_placeholder": "Todo el mundo",
+        "cover_url": "URL de portada",
+        "p_line": "Línea P",
+        "c_line": "Línea C",
+        "notes": "Notas"
+      },
+      "statuses": {
+        "DRAFT": "Borrador",
+        "SCHEDULED": "Programado",
+        "RELEASED": "Publicado",
+        "TAKEN_DOWN": "Retirado"
+      },
+      "types": {
+        "SINGLE": "Sencillo",
+        "EP": "EP",
+        "LP": "LP",
+        "ALBUM": "Álbum",
+        "COMPILATION": "Compilación",
+        "SOUNDTRACK": "Banda sonora"
+      },
+      "artist_roles": {
+        "PRIMARY": "Principal",
+        "FEATURED": "Invitado"
+      },
+      "tracks": {
+        "empty": "Este lanzamiento no tiene canciones",
+        "search_placeholder": "Buscar canción por título o ISRC…",
+        "searching": "Buscando…",
+        "no_matches": "No se encontraron canciones",
+        "open": "Abrir canción",
+        "disc": "Disco",
+        "number": "Número de pista",
+        "disc_heading": "Disco {number}",
+        "move_up": "Subir",
+        "move_down": "Bajar",
+        "remove": "Quitar del lanzamiento"
+      }
+    },
+    "release_types": {
+      "title": "Corregir tipo de lanzamientos",
+      "subtitle": "Lanzamientos que siguen con el tipo por defecto (Álbum) y cuyo título o número de canciones dice otra cosa: 1 canción → single, 2–6 → EP; los títulos «Single …» y «… EP» mandan.",
+      "loading": "Revisando lanzamientos…",
+      "empty": "Todos los lanzamientos ya tienen un tipo acorde. No hay nada que corregir.",
+      "load_failed": "No se pudieron revisar los lanzamientos",
+      "select_all": "Seleccionar todos",
+      "tracks": "{count, plural, one {# canción} other {# canciones}}",
+      "apply": "{count, plural, one {Aplicar a # lanzamiento} other {Aplicar a # lanzamientos}}",
+      "done": "{count, plural, one {# lanzamiento actualizado} other {# lanzamientos actualizados}}",
+      "failed": "No se pudieron actualizar los lanzamientos"
+    },
+    "release_merge": {
+      "action": "Unir con otro…",
+      "action_hint": "Unir otra copia de este álbum en este lanzamiento",
+      "title": "Unir en «{title}»",
+      "subtitle": "Elige las otras copias de este álbum. Sus canciones, los datos que le faltan a este lanzamiento, los vínculos con contratos y las etiquetas pasan aquí; las copias que queden vacías se eliminan.",
+      "search": "Buscar otros lanzamientos por título, artista o UPC",
+      "duplicates": "Mismo título y artista · {count}",
+      "no_duplicates": "No hay otro lanzamiento con este título y artista. Busca para elegir otro.",
+      "others": "Otros lanzamientos",
+      "no_matches": "Ningún lanzamiento coincide.",
+      "songs": "{count, plural, one {# canción} other {# canciones}}",
+      "preview": "{songs, plural, =0 {No se moverá ninguna canción} one {Se moverá # canción a este lanzamiento} other {Se moverán # canciones a este lanzamiento}}; {count, plural, one {el lanzamiento vacío se eliminará.} other {los lanzamientos vacíos se eliminarán.}}",
+      "metadata": "Se completarán: {fields}.",
+      "apply": "{count, plural, one {Unir # lanzamiento} other {Unir # lanzamientos}}",
+      "done": "{count, plural, one {# lanzamiento unido} other {# lanzamientos unidos}} · {songs, plural, one {# canción movida} other {# canciones movidas}}",
+      "failed": "No se pudieron unir los lanzamientos"
+    },
     "action_bar": {
       "selected": "{count, plural, one {# seleccionada} other {# seleccionadas}}",
       "selecting": "Seleccionando…",
@@ -1503,7 +1617,8 @@
         "distributor_percentage": "% distribuidora",
         "record_label_percentage": "% sello",
         "artist_percentage": "% artista",
-        "writer_percentage": "% escritor"
+        "writer_percentage": "% escritor",
+        "release_type": "Tipo de lanzamiento"
       },
       "review": "Revisar cambios",
       "review_title": "{count, plural, one {Estos cambios se aplicarán a # canción:} other {Estos cambios se aplicarán a # canciones:}}",
@@ -1600,7 +1715,8 @@
       "new_song": "Nueva canción",
       "export": "Exportar…",
       "import_files": "Archivos de importación",
-      "resources": "Artistas, compañías y géneros"
+      "resources": "Artistas, compañías y géneros",
+      "fix_release_types": "Corregir tipo de lanzamientos"
     },
     "selection": {
       "export": "Exportar",

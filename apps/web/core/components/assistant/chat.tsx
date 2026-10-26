@@ -31,6 +31,7 @@ import { useUserPermissions } from "@/hooks/store/user";
 import { assistantService } from "@/services/assistant.service";
 import type { TAssistantChat, TAssistantStoredMessage } from "@/services/assistant.service";
 import { TaggingCard, WorkItemCard } from "./action-cards";
+import { AlbumGroupingCard } from "./album-grouping-card";
 import { ActionsView } from "./actions-view";
 import { DeepReviewCard } from "./deep-review-card";
 import { AssistantHelp } from "./help";
@@ -468,6 +469,7 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
       <TaggingCard />
       <WorkItemCard />
       <WorkLinksCard />
+      <AlbumGroupingCard />
       <PageCard />
       <ReportCard />
       <DeepReviewCard />

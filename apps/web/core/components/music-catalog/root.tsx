@@ -1,4 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowUpDown,
@@ -49,13 +51,25 @@ import { MusicExportModal, type TMusicExportScope } from "./export-modal";
 import { MusicAppliedFilters, MusicFiltersDropdown, type TMusicFiltersData } from "./filters";
 import { MusicImportAssetsPanel } from "./import-assets-panel";
 import { formatDate } from "./import/constants";
-import { MusicReleaseModal } from "./release-modal";
+import { MusicReleasePeekPanel } from "./release-peek-panel";
+import { MusicReleaseTypesModal } from "./release-types-modal";
 import { getApiError } from "./shared";
 import { MusicTrackPeekPanel } from "./track-peek-panel";
 import { DEFAULT_TRACK_ORDER, MusicTrackTable } from "./track-table";
 
 type Props = { workspaceSlug: string };
 const PAGE_SIZE = 25;
+// Side panels render into the layout's shared layer (as contracts and the
+// entity-peek host do), so a stacked backdrop dims the whole content area.
+// The layer is looked up after mount; without it they render inline.
+function usePanelLayerNode() {
+  const [layer, setLayer] = useState<HTMLElement | null | undefined>(undefined);
+  useEffect(() => setLayer(document.getElementById("full-screen-portal")), []);
+  return (node: ReactNode) => {
+    if (layer === undefined) return null;
+    return layer ? createPortal(node, layer) : node;
+  };
+}
 const TRACK_SCROLL_ID = "music-track-scroll";
 
 /** Toolbar control, same as the contracts list */
@@ -246,11 +260,8 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
     setPeekTrack(track);
     setPanelParam("track", track.id);
   };
-  const openRelease = (release: TMusicRelease | undefined) => {
-    setEditingRelease(release);
-    setReleaseOpen(true);
-    if (release) setPanelParam("release", release.id);
-  };
+  // The panel follows ?release= (below), once the releases have loaded
+  const openRelease = (releaseId: string) => setPanelParam("release", releaseId);
   useEffect(() => {
     if (!trackParam) {
       setPeekTrack((current) => (current ? undefined : current));
@@ -555,6 +566,8 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
 
   // The export panel: open with the filtered songs or the selected ones
   const [exportScope, setExportScope] = useState<TMusicExportScope | null>(null);
+  const [releaseTypesOpen, setReleaseTypesOpen] = useState(false);
+  const inPanelLayer = usePanelLayerNode();
 
   // ── Toolbar pieces ─────────────────────────────────────────────────────
   const activeQuickViews = QUICK_VIEWS.filter((view) => view.isActive(filters));
@@ -803,6 +816,12 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
               {t("music_catalog.actions.resources")}
             </span>
           </CustomMenu.MenuItem>
+          <CustomMenu.MenuItem onClick={() => setReleaseTypesOpen(true)}>
+            <span className="flex items-center gap-2">
+              <Disc3 className="size-3.5" />
+              {t("music_catalog.actions.fix_release_types")}
+            </span>
+          </CustomMenu.MenuItem>
           <div className="lg:hidden">
             <p className="mt-1 border-t border-subtle px-2 pt-2 pb-1 text-10 font-semibold text-tertiary uppercase">
               {t("music_catalog.quick.label")}
@@ -978,7 +997,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
             options={options}
             openTrackId={peekTrack?.id ?? null}
             onOpen={openTrack}
-            onOpenRelease={(releaseId) => openRelease(releases.find((item) => item.id === releaseId))}
+            onOpenRelease={openRelease}
             selectedIds={selectedTrackIds}
             onToggleSelect={toggleTrackSelection}
             onToggleSelectAll={toggleLoadedSelection}
@@ -992,47 +1011,62 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         )}
       </div>
 
-      {/* kept mounted while it slides out */}
-      <AnimatePresence>
-        {(peekTrack || peekCreateOpen) && (
-          <MusicTrackPeekPanel
-            key="track-peek"
-            workspaceSlug={workspaceSlug}
-            track={peekTrack}
-            options={options}
-            parties={parties}
-            genres={genres}
-            companies={companies}
-            releases={releases}
-            suspendClose={releaseOpen || resourcesOpen || importAssetsOpen}
-            onClose={() => {
-              setPeekTrack(undefined);
-              setPeekCreateOpen(false);
-              setPanelParam("track", null);
-            }}
-            onSaved={() => void mutateTracks()}
-            onCreated={(created) => {
-              setPeekCreateOpen(false);
-              openTrack(created);
-            }}
-            onResourcesChanged={refreshResources}
-          />
-        )}
-      </AnimatePresence>
+      {/* kept mounted while it slides out; drawn in the shared panel layer like
+          every other side panel, so a stacked backdrop dims the whole area */}
+      {inPanelLayer(
+        <AnimatePresence>
+          {(peekTrack || peekCreateOpen) && (
+            <MusicTrackPeekPanel
+              key="track-peek"
+              workspaceSlug={workspaceSlug}
+              track={peekTrack}
+              options={options}
+              parties={parties}
+              genres={genres}
+              companies={companies}
+              releases={releases}
+              suspendClose={releaseOpen || resourcesOpen || importAssetsOpen}
+              onClose={() => {
+                setPeekTrack(undefined);
+                setPeekCreateOpen(false);
+                setPanelParam("track", null);
+              }}
+              onSaved={() => void mutateTracks()}
+              onCreated={(created) => {
+                setPeekCreateOpen(false);
+                openTrack(created);
+              }}
+              onResourcesChanged={refreshResources}
+            />
+          )}
+        </AnimatePresence>
+      )}
 
-      <MusicReleaseModal
-        workspaceSlug={workspaceSlug}
-        isOpen={releaseOpen}
-        release={editingRelease}
-        parties={parties}
-        options={options}
-        onClose={() => {
-          setReleaseOpen(false);
-          setPanelParam("release", null);
-        }}
-        onSaved={refreshAll}
-        onResourcesChanged={refreshResources}
-      />
+      {/* kept mounted while it slides out */}
+      {inPanelLayer(
+        <AnimatePresence>
+          {releaseOpen && editingRelease && (
+            <MusicReleasePeekPanel
+              key="release-peek"
+              workspaceSlug={workspaceSlug}
+              release={editingRelease}
+              parties={parties}
+              options={options}
+              onClose={() => {
+                setReleaseOpen(false);
+                setPanelParam("release", null);
+              }}
+              onSaved={refreshAll}
+              onDeleted={() => {
+                setReleaseOpen(false);
+                setPanelParam("release", null);
+                refreshAll();
+              }}
+              onResourcesChanged={refreshResources}
+            />
+          )}
+        </AnimatePresence>
+      )}
       <MusicEntityManager
         workspaceSlug={workspaceSlug}
         isOpen={resourcesOpen}
@@ -1052,6 +1086,13 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         filteredCount={totalTracks}
         selectedIds={selectedTrackIds}
         onClose={() => setExportScope(null)}
+      />
+      <MusicReleaseTypesModal
+        workspaceSlug={workspaceSlug}
+        isOpen={releaseTypesOpen}
+        options={options}
+        onClose={() => setReleaseTypesOpen(false)}
+        onDone={() => void Promise.all([mutateReleases(), mutateTracks()])}
       />
       <MusicImportAssetsPanel
         workspaceSlug={workspaceSlug}

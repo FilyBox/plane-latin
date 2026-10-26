@@ -1292,6 +1292,14 @@
       "count_error": "With errors",
       "new_roles": "{count, plural, one {# new role created} other {# new roles created}}"
     },
+    "inferred": {
+      "line": "Release type inferred: {summary}",
+      "line_dry": "Release type to infer: {summary}",
+      "hint": "New releases the file gives no type: from the title (\"Single …\", \"… EP\") or the number of songs (1 → single, 2–6 → EP, 7 or more → album).",
+      "single": "{count, plural, one {# single} other {# singles}}",
+      "ep": "{count, plural, one {# EP} other {# EPs}}",
+      "album": "{count, plural, one {# album} other {# albums}}"
+    },
     "history": {
       "title": "Import files",
       "description": "Each file with its imports. Open the songs of an import or import it again.",
@@ -1426,6 +1434,112 @@
     }
   },
   "music_catalog": {
+    "release_panel": {
+      "untitled": "Untitled",
+      "open_release": "Open release",
+      "cover_add": "Add cover",
+      "cover_change": "Change cover",
+      "cover_uploaded": "Cover attached",
+      "upload_failed": "Could not upload the file",
+      "export": "Export this release's songs (Excel)",
+      "export_failed": "Could not export",
+      "delete": "Delete release",
+      "delete_title": "Delete “{title}”?",
+      "deleted": "Release deleted",
+      "delete_failed": "Could not delete the release",
+      "close": "Close (Esc)",
+      "save_failed": "Could not save",
+      "invalid_year": "Enter a four-digit year (e.g. 2024)",
+      "add": "Add",
+      "no_artists": "No artists",
+      "artist_search": "Search or create artist…",
+      "remove_artist": "Remove artist",
+      "sections": {
+        "identifiers": "Identifiers",
+        "details": "Details",
+        "artists": "Artists",
+        "tracks": "Songs",
+        "rights": "Rights and texts"
+      },
+      "fields": {
+        "catalog_number": "Catalog number",
+        "type": "Type",
+        "status": "Status",
+        "version": "Version",
+        "version_placeholder": "Deluxe, remastered…",
+        "release_date": "Release date",
+        "original_release_date": "Original release",
+        "language": "Language",
+        "label": "Label",
+        "copyright_year": "Copyright year",
+        "territories": "Territories",
+        "territories_placeholder": "Worldwide",
+        "cover_url": "Cover URL",
+        "p_line": "P line",
+        "c_line": "C line",
+        "notes": "Notes"
+      },
+      "statuses": {
+        "DRAFT": "Draft",
+        "SCHEDULED": "Scheduled",
+        "RELEASED": "Released",
+        "TAKEN_DOWN": "Taken down"
+      },
+      "types": {
+        "SINGLE": "Single",
+        "EP": "EP",
+        "LP": "LP",
+        "ALBUM": "Album",
+        "COMPILATION": "Compilation",
+        "SOUNDTRACK": "Soundtrack"
+      },
+      "artist_roles": {
+        "PRIMARY": "Primary",
+        "FEATURED": "Featured"
+      },
+      "tracks": {
+        "empty": "No songs in this release",
+        "search_placeholder": "Search a song by title or ISRC…",
+        "searching": "Searching…",
+        "no_matches": "No songs found",
+        "open": "Open song",
+        "disc": "Disc",
+        "number": "Track number",
+        "disc_heading": "Disc {number}",
+        "move_up": "Move up",
+        "move_down": "Move down",
+        "remove": "Remove from release"
+      }
+    },
+    "release_types": {
+      "title": "Fix release types",
+      "subtitle": "Releases still on the default type (Album) whose title or number of songs says otherwise: 1 song → single, 2–6 → EP; \"Single …\" and \"… EP\" titles win.",
+      "loading": "Checking releases…",
+      "empty": "Every release already has a type that fits. Nothing to fix.",
+      "load_failed": "Couldn't check the releases",
+      "select_all": "Select all",
+      "tracks": "{count, plural, one {# song} other {# songs}}",
+      "apply": "{count, plural, one {Apply to # release} other {Apply to # releases}}",
+      "done": "{count, plural, one {# release updated} other {# releases updated}}",
+      "failed": "Couldn't update the releases"
+    },
+    "release_merge": {
+      "action": "Merge with…",
+      "action_hint": "Merge another copy of this album into this release",
+      "title": "Merge into “{title}”",
+      "subtitle": "Pick the other copies of this album. Their songs, the fields this release lacks, contract links and tags move here; the copies left empty are removed.",
+      "search": "Search other releases by title, artist or UPC",
+      "duplicates": "Same title and artist · {count}",
+      "no_duplicates": "No other release with this title and artist. Search to pick another one.",
+      "others": "Other releases",
+      "no_matches": "No releases match.",
+      "songs": "{count, plural, one {# song} other {# songs}}",
+      "preview": "{songs, plural, =0 {No songs will move} one {# song will move to this release} other {# songs will move to this release}}; {count, plural, one {the empty release will be removed.} other {the empty releases will be removed.}}",
+      "metadata": "Fields filled in: {fields}.",
+      "apply": "{count, plural, one {Merge # release} other {Merge # releases}}",
+      "done": "{count, plural, one {# release merged} other {# releases merged}} · {songs, plural, one {# song moved} other {# songs moved}}",
+      "failed": "Couldn't merge the releases"
+    },
     "action_bar": {
       "selected": "{count} selected",
       "selecting": "Selecting…",
@@ -1503,7 +1617,8 @@
         "distributor_percentage": "Distributor %",
         "record_label_percentage": "Record label %",
         "artist_percentage": "Artist %",
-        "writer_percentage": "Writer %"
+        "writer_percentage": "Writer %",
+        "release_type": "Release type"
       },
       "review": "Review changes",
       "review_title": "{count, plural, one {These changes will apply to # song:} other {These changes will apply to # songs:}}",
@@ -1600,7 +1715,8 @@
       "new_song": "New song",
       "export": "Export…",
       "import_files": "Import files",
-      "resources": "Artists, companies and genres"
+      "resources": "Artists, companies and genres",
+      "fix_release_types": "Fix release types"
     },
     "selection": {
       "export": "Export",

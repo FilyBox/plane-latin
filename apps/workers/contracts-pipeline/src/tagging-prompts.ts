@@ -1,9 +1,11 @@
 /**
  * Prompts for the AI mapping of a workspace into shared tags.
  *
- * One agent per kind of item (contracts, files, work items, expenses) says,
- * for each item, what it is (from a closed list) and whose it is (artist or
- * group). A second pass folds spelling variants of the same name together.
+ * One agent per kind of item (contracts, files, work items, expenses and,
+ * when chosen, songs and releases) says, for each item, what it is (from a
+ * closed list), whose it is (artist or group) and which existing workspace
+ * tags (projects, campaigns, catalogs…) it clearly belongs to. A second pass
+ * folds spelling variants of the same name together.
  */
 
 export type TaggingItem = { id: string; title: string; text: string; tags: string[] };
@@ -16,15 +18,29 @@ const KIND_LABEL: Record<string, string> = {
   file: "archivos de una biblioteca (portadas, audios, documentos…)",
   issue: "tareas de proyectos",
   expense: "gastos de la empresa",
+  music_track:
+    "canciones y videos del catálogo musical (cada línea trae título y versión, artistas con su rol, otros créditos, lanzamientos, géneros, ISRC, sello y empresas, idioma, catálogo y notas)",
+  music_release:
+    "lanzamientos del catálogo musical: álbumes, EPs y sencillos (cada línea trae título, tipo, artistas, sello y empresas, año y la lista de canciones)",
 };
 
+const MUSIC_ARTISTS = `
+En canciones y lanzamientos, "artistas" son solo quienes interpretan: los marcados como Primary Artist, Featured Artist, Performer o un instrumento/voz, y los artistas del lanzamiento. Nunca compositores, autores, productores, ingenieros, editoras, sellos ni distribuidoras. Una colaboración son varios artistas: devuélvelos por separado.`;
+
+const isMusic = (entityType: string) => entityType === "music_track" || entityType === "music_release";
+
+/** `topics`: existing tags (projects, campaigns, catalogs…) the model may
+ * pick from; with none, the prompt is the same as before they existed. */
 export const classifyPrompt = (
   entityType: string,
   vocabulary: string[],
   knownNames: string[],
-  items: TaggingItem[]
+  items: TaggingItem[],
+  topics: string[] = []
 ) => `
-Eres el archivista de una disquera y editora musical. Vas a clasificar ${KIND_LABEL[entityType] ?? entityType}.
+Eres el archivista de una disquera y editora musical. Vas a clasificar ${KIND_LABEL[entityType] ?? entityType}.${
+  isMusic(entityType) ? MUSIC_ARTISTS : ""
+}
 Para cada elemento responde:
 - "id": el mismo id que recibiste.
 - "tipo": ${
@@ -33,14 +49,19 @@ Para cada elemento responde:
     : "siempre null."
 }
 - "artistas": artistas, grupos o bandas musicales a los que pertenece el elemento o de los que trata. Usa solo nombres que aparezcan en el título o el texto del elemento; nunca inventes. Si un nombre coincide con uno de los conocidos, aunque cambien mayúsculas, acentos, abreviaturas o "Los" al inicio, devuelve el nombre conocido tal cual. Personas que no son artistas (abogados, testigos, empresas, proveedores) no van aquí. Array vacío si no hay.
-- "confianza": número de 0 a 1 sobre tu clasificación.
+${
+  topics.length > 0
+    ? `- "etiquetas": etiquetas que ya existen en el workspace (proyectos, campañas, catálogos, sellos…) a las que el elemento claramente pertenece. Solo de esta lista, escritas tal cual: ${JSON.stringify(topics)}. Elige una solo si el elemento la respalda: su nombre aparece en el título o el texto (catálogo, lanzamiento, sello, notas, carpeta, proyecto) o es sin duda el tema del elemento. Un parecido vago no basta; nunca inventes. Array vacío si ninguna.
+`
+    : ""
+}- "confianza": número de 0 a 1 sobre tu clasificación.
 - "razon": máximo 12 palabras, en español.
 
 Nombres conocidos: ${JSON.stringify(knownNames)}
 
 Elementos: ${JSON.stringify(items)}
 
-Responde en json: {"items": [{"id": "...", "tipo": null, "artistas": [], "confianza": 0.0, "razon": "..."}]}
+Responde en json: {"items": [{"id": "...", "tipo": null, "artistas": [], ${topics.length > 0 ? '"etiquetas": [], ' : ""}"confianza": 0.0, "razon": "..."}]}
 `;
 
 export const normalizePrompt = (names: string[], catalog: string[]) => `

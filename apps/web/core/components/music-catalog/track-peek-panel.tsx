@@ -24,7 +24,6 @@ import {
   Loader2,
   Music2,
   Pencil,
-  Plus,
   Upload,
   Video,
   X,
@@ -60,6 +59,8 @@ import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 import { StackLayer } from "@/components/panel-stack/stack-layer";
 import { usePanelLayer } from "@/components/panel-stack/use-panel-layer";
 import { WorkContractsSection } from "./work-contracts-section";
+import { useEntityPeek } from "@/components/entity-peek/use-entity-peek";
+import { AddAction, CopyButton, FieldRow, PEEK_ICON_BUTTON, PEEK_PANEL_CLASS, SectionTitle } from "./peek-parts";
 
 type Props = {
   workspaceSlug: string;
@@ -184,86 +185,6 @@ const isHttpUrl = (value: string) => {
   }
 };
 
-function CopyButton({ value, label }: { value: string | null | undefined; label?: string }) {
-  const [copied, setCopied] = useState(false);
-  if (!value) return null;
-  return (
-    <button
-      type="button"
-      title={`Copiar${label ? ` ${label}` : ""}`}
-      onClick={() => {
-        void copyTextToClipboard(value).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
-          return undefined;
-        });
-      }}
-      className="shrink-0 rounded-sm p-1 text-tertiary opacity-0 transition-opacity group-hover/row:opacity-100 hover:bg-layer-1-hover hover:text-primary"
-    >
-      {copied ? <Check className="size-3 text-success-primary" /> : <Copy className="size-3" />}
-    </button>
-  );
-}
-
-/** Label + editable value + copy, the panel's repeating row */
-function FieldRow(props: {
-  label: string;
-  value: string | null;
-  copyValue?: string | null;
-  onSave?: (value: string) => Promise<void>;
-  variant?: "input" | "textarea" | "date" | "select";
-  options?: { value: string; label: string }[];
-  format?: (value: string) => string;
-  mono?: boolean;
-}) {
-  const { label, value, copyValue, onSave, variant, options, format, mono } = props;
-  return (
-    <div className="group/row flex items-start gap-1">
-      <p className="w-32 shrink-0 pt-1.5 text-11 text-tertiary">{label}</p>
-      <div className="min-w-0 flex-1">
-        {onSave ? (
-          <EditableField
-            value={value}
-            onSave={onSave}
-            variant={variant}
-            options={options}
-            format={format}
-            className={mono ? "font-mono text-12" : undefined}
-          />
-        ) : (
-          <p className={cn("px-1.5 py-1 text-13", mono && "font-mono text-12", !value && "text-placeholder")}>
-            {value || "—"}
-          </p>
-        )}
-      </div>
-      <div className="pt-1">
-        <CopyButton value={copyValue ?? value} label={label} />
-      </div>
-    </div>
-  );
-}
-
-function SectionTitle({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between border-b border-subtle pb-1">
-      <h3 className="text-11 font-semibold tracking-wide text-tertiary uppercase">{children}</h3>
-      {action}
-    </div>
-  );
-}
-
-function AddAction({ onClick, isOpen }: { onClick: () => void; isOpen: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1 text-11 text-accent-primary hover:underline"
-    >
-      {isOpen ? <X className="size-3" /> : <Plus className="size-3" />} {isOpen ? "Cancelar" : "Agregar"}
-    </button>
-  );
-}
-
 export function MusicTrackPeekPanel(props: Props) {
   const { t } = useTranslation();
   const {
@@ -326,6 +247,7 @@ export function MusicTrackPeekPanel(props: Props) {
   const [uploading, setUploading] = useState<"audio" | "cover" | null>(null);
   const [preview, setPreview] = useState({ start: 0, end: 0, duration: 0, dirty: false });
   const [isSavingPreview, setIsSavingPreview] = useState(false);
+  const { open: openPeek } = useEntityPeek();
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -790,8 +712,7 @@ export function MusicTrackPeekPanel(props: Props) {
       : [{ value: credit.role, label: creditRoleLabel(roles, credit.role, credit.role_label) }, ...roleOptions];
   const extraData = Object.entries((track.metadata?.extra as Record<string, unknown> | undefined) ?? {});
   const externalIds = Object.entries((track.metadata?.external_ids as Record<string, unknown> | undefined) ?? {});
-  const iconButton =
-    "flex size-7 items-center justify-center rounded-sm border border-subtle text-secondary hover:bg-layer-1-hover";
+  const iconButton = PEEK_ICON_BUTTON;
 
   const availableReleases = releases.filter(
     (release) => !track.release_details.some((linked) => linked.id === release.id)
@@ -838,7 +759,7 @@ export function MusicTrackPeekPanel(props: Props) {
         layer={layer}
         backdrop={layer.depth > 0 ? "dim" : "clear"}
         onBackdropClick={onClose}
-        className="absolute top-0 right-0 bottom-0 flex w-full flex-col overflow-hidden rounded-sm border-l border-subtle bg-surface-1 shadow-raised-200 md:w-xl"
+        className={PEEK_PANEL_CLASS}
       >
         {/* header — the cover IS the icon spot: click to add/replace it */}
         <div className="flex shrink-0 items-start justify-between gap-2 border-b border-subtle px-4 py-3">
@@ -1386,7 +1307,15 @@ export function MusicTrackPeekPanel(props: Props) {
                         </form>
                       ) : (
                         <>
-                          <span>{release.title}</span>
+                          {/* opens the release's own panel on top of this one */}
+                          <button
+                            type="button"
+                            onClick={() => openPeek({ kind: "music_release", id: release.id })}
+                            className="hover:text-accent-primary hover:underline"
+                            title={t("music_catalog.release_panel.open_release")}
+                          >
+                            {release.title}
+                          </button>
                           <button
                             type="button"
                             onClick={() => {

@@ -19,7 +19,16 @@ from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.contract.internal import InternalBaseView
 from plane.db.models import EntityTagLink, FileTag, TaggingRun, Workspace
 from plane.utils.shared_tags import merge_into, tag_payload
-from plane.utils.tagging import SCANNABLE, apply_run, context, count_scannable, inventory, undo_run
+from plane.utils.tagging import (
+    DEFAULT_TYPES,
+    SCANNABLE,
+    apply_run,
+    context,
+    count_scannable,
+    inventory,
+    runnable_types,
+    undo_run,
+)
 from plane.utils.worker_client import WorkerTriggerError, trigger_tagging_run
 
 from .base import ReferenceBaseView, _is_uuid
@@ -69,12 +78,15 @@ class TaggingRunEndpoint(ReferenceBaseView):
             updated_at__lt=stale,
         ).update(status=TaggingRun.Status.FAILED, error="La corrida dejó de responder.")
         runs = TaggingRun.objects.filter(workspace_id=ctx.workspace_id).order_by("-created_at")[:20]
-        types = [value for value in request.query_params.get("types", ",".join(SCANNABLE)).split(",") if value]
+        scannable, _ = runnable_types(ctx, SCANNABLE)
+        requested = [value for value in request.query_params.get("types", ",".join(scannable)).split(",") if value]
         return Response(
             {
                 "runs": [run_payload(run) for run in runs],
-                "scannable": list(SCANNABLE),
-                "counts": count_scannable(ctx.workspace_id, types),
+                "scannable": scannable,
+                # Checked when starting: songs and releases are opt-in.
+                "defaults": [value for value in DEFAULT_TYPES if value in scannable],
+                "counts": count_scannable(ctx.workspace_id, [value for value in requested if value in scannable]),
             },
             status=status.HTTP_200_OK,
         )
@@ -82,16 +94,26 @@ class TaggingRunEndpoint(ReferenceBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         ctx = self.context(slug)
-        types = [value for value in (request.data.get("types") or SCANNABLE) if value in SCANNABLE]
+        requested = request.data.get("types") or DEFAULT_TYPES
+        if not isinstance(requested, (list, tuple)):
+            return Response({"error": "types must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+        # Songs and releases only for who may open the catalog; the rest of
+        # the run goes ahead and says what it left out (scope.skipped).
+        types, skipped = runnable_types(ctx, [str(value) for value in requested])
         if not types:
-            return Response({"error": "Choose at least one kind of item"}, status=status.HTTP_400_BAD_REQUEST)
+            message = (
+                "Songs and releases need the music catalog module and a workspace admin"
+                if skipped
+                else "Choose at least one kind of item"
+            )
+            return Response({"error": message, "skipped": skipped}, status=status.HTTP_400_BAD_REQUEST)
         if TaggingRun.objects.filter(
             workspace_id=ctx.workspace_id, status__in=[TaggingRun.Status.QUEUED, TaggingRun.Status.RUNNING]
         ).exists():
             return Response({"error": "A mapping is already running"}, status=status.HTTP_409_CONFLICT)
         run = TaggingRun.objects.create(
             workspace=Workspace.objects.get(id=ctx.workspace_id),
-            scope={"types": types},
+            scope={"types": types, **({"skipped": skipped} if skipped else {})},
             progress={"done": 0, "total": sum(count_scannable(ctx.workspace_id, types).values())},
             created_by=request.user,
         )
@@ -221,6 +243,9 @@ class InternalTaggingInventoryEndpoint(InternalBaseView):
                 return Response({"error": "run_id must be a UUID"}, status=status.HTTP_400_BAD_REQUEST)
             if run is not None and run.scope.get("ids"):
                 ids = run.scope["ids"]
+            # Only the kinds the run was started for (music needs an admin).
+            if run is not None and run.scope.get("types") and entity_type not in run.scope["types"]:
+                return Response({"total": 0, "results": []}, status=status.HTTP_200_OK)
         return Response(inventory(workspace_id, entity_type, offset, limit, ids=ids), status=status.HTTP_200_OK)
 
 

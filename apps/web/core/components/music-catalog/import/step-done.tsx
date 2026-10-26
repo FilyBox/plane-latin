@@ -10,6 +10,7 @@ import { Link } from "react-router";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { AlertModalCore } from "@plane/ui";
+import { ImportInferredTypes } from "./inferred-types";
 import { ImportLiveCounts } from "./live-counts";
 import type { TImportFlow } from "./use-import-flow";
 
@@ -99,6 +100,8 @@ export function ImportStepDone({ flow, workspaceSlug, onImportAnother, onBackToR
           <span className="text-primary">{applied.new_roles?.map((role) => role.label).join(", ")}</span>
         </p>
       )}
+
+      <ImportInferredTypes inferred={applied.release_types_inferred} />
 
       <section className="space-y-3">
         <p className="text-13 text-secondary">{t("music_import.done.provenance")}</p>

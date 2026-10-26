@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO
 
 from crum import impersonate
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import DatabaseError, connection, models, transaction
 from django.db.models import Count, Exists, F, OuterRef, Q
 from django.http import HttpResponse, StreamingHttpResponse
@@ -62,6 +63,7 @@ from plane.utils.music_credits import (
     tagged_entries,
     workspace_role_catalog,
 )
+from plane.utils.music_release_types import release_type_value, with_track_counts
 from plane.utils.workspace_feature import is_workspace_feature_enabled
 
 from ..base import BaseAPIView
@@ -772,6 +774,11 @@ IMPORT_ALIASES = {
     "release.p_line": ("product p line", "p line"),
     "release.c_line": ("product c line", "c line"),
     "release.version": ("product version", "release version", "album version"),
+    # Not "Product Type": distributors use it for Audio / Video
+    "release.type": (
+        "release type", "tipo de lanzamiento", "tipo lanzamiento", "product format", "release format", "format",
+        "formato", "configuration", "product configuration", "album type", "tipo de album",
+    ),
     "release.status": ("submission status", "product status", "release status", "album status"),
     "release.language": (
         "primary metadata language", "metadata language", "product language", "release language", "album language",
@@ -868,7 +875,10 @@ FIELD_DESCRIPTIONS = {
     "track.writer_percentage": "Writer share %",
     "release.title": "Album / EP / single (product) title",
     "release.version": "Version of the release (product version)",
-    "release.type": "Release type: single, EP, album, compilation",
+    "release.type": (
+        "Release type / format: single, EP, LP, album, compilation, soundtrack (NOT 'Product Type', "
+        "which holds Audio/Video)"
+    ),
     "release.status": "Status of the release (e.g. submission status Released)",
     "release.upc": "UPC/EAN of the release",
     "release.external_id": "The distributor's internal id for the release (Product Id)",
@@ -985,6 +995,8 @@ def _link_platform(url):
 # Typed canonical fields: raw values that fail these parsers are "variables"
 # ("ringtone" in a duration column) the user must resolve via value_overrides
 UNPARSED_CHECKS = {
+    # Synonyms included ("Sencillo", "Banda sonora"); anything else is decided by the user
+    "release.type": release_type_value,
     "track.duration_ms": _duration_ms,
     "track.release_date": _date,
     "track.original_release_date": _date,
@@ -1373,11 +1385,51 @@ def _filter_tracks(queryset, params):
     return queryset.distinct()
 
 
+def _release_artist_entries(workspace, data):
+    """The release's artists from a request, or None when it doesn't set them.
+    `artist_entries` ([{party_id, role}], role PRIMARY or FEATURED) wins over
+    the older `artist_ids` (all primary). Only the workspace's own people."""
+    if "artist_entries" in data:
+        raw = data.get("artist_entries") or []
+        if not isinstance(raw, list):
+            raise ValidationError({"artist_entries": ["Expected a list."]})
+        entries = []
+        for item in raw:
+            role = (item or {}).get("role") or MusicReleaseArtist.Role.PRIMARY
+            if role not in MusicReleaseArtist.Role.values:
+                raise ValidationError({"artist_entries": [f"Unknown artist role: {role}"]})
+            entries.append((str((item or {}).get("party_id") or ""), role))
+    elif "artist_ids" in data:
+        entries = [(str(artist_id), MusicReleaseArtist.Role.PRIMARY) for artist_id in data.get("artist_ids") or []]
+    else:
+        return None
+    try:
+        known = {
+            str(pk)
+            for pk in MusicParty.objects.filter(
+                workspace=workspace, id__in=[party_id for party_id, _ in entries if party_id]
+            ).values_list("id", flat=True)
+        }
+    except DjangoValidationError:
+        raise ValidationError({"artist_entries": ["Invalid artist id."]})
+    unknown = [party_id for party_id, _ in entries if party_id not in known]
+    if unknown:
+        raise ValidationError({"artist_entries": [f"Unknown artist: {', '.join(unknown)}"]})
+    # One link per person and role, in the order given
+    return list(dict.fromkeys(entries))
+
+
+def _sync_release_artists(release, workspace, entries):
+    for party_id, role in entries or []:
+        _restore_or_create(MusicReleaseArtist, workspace, {"release": release, "party_id": party_id, "role": role})
+
+
 class MusicReleaseEndpoint(MusicBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
-        queryset = MusicRelease.objects.filter(workspace__slug=slug).prefetch_related("artist_links__party").annotate(
-            track_count=Count("track_links", distinct=True)
+        # Live songs only: a song taken off the release (or deleted) no longer counts
+        queryset = with_track_counts(
+            MusicRelease.objects.filter(workspace__slug=slug).prefetch_related("artist_links__party")
         )
         queryset = _filter_releases(queryset, request.query_params).annotate(contract_count=release_contract_count())
         return Response(MusicReleaseSerializer(queryset, many=True).data)
@@ -1387,13 +1439,10 @@ class MusicReleaseEndpoint(MusicBaseView):
         workspace = Workspace.objects.get(slug=slug)
         serializer = MusicReleaseSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        release = serializer.save(workspace=workspace)
-        for artist_id in request.data.get("artist_ids", []):
-            _restore_or_create(
-                MusicReleaseArtist,
-                workspace,
-                {"release": release, "party_id": artist_id, "role": MusicReleaseArtist.Role.PRIMARY},
-            )
+        entries = _release_artist_entries(workspace, request.data)
+        with transaction.atomic():
+            release = serializer.save(workspace=workspace)
+            _sync_release_artists(release, workspace, entries)
         return Response(MusicReleaseSerializer(release).data, status=status.HTTP_201_CREATED)
 
 
@@ -1408,15 +1457,12 @@ class MusicReleaseDetailEndpoint(MusicBaseView):
         release = MusicRelease.objects.get(id=release_id, workspace__slug=slug)
         serializer = MusicReleaseSerializer(release, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        if "artist_ids" in request.data:
-            release.artist_links.all().delete()
-            for artist_id in request.data["artist_ids"]:
-                _restore_or_create(
-                    MusicReleaseArtist,
-                    release.workspace,
-                    {"release": release, "party_id": artist_id, "role": MusicReleaseArtist.Role.PRIMARY},
-                )
+        entries = _release_artist_entries(release.workspace, request.data)
+        with transaction.atomic():
+            serializer.save()
+            if entries is not None:
+                release.artist_links.all().delete()
+                _sync_release_artists(release, release.workspace, entries)
         return Response(MusicReleaseSerializer(release).data)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
@@ -2632,6 +2678,9 @@ class MusicImportEndpoint(MusicBaseView):
         self._import_metadata(track, row, mapping, unmapped_columns)
 
         release = self._import_release(workspace, track, row, mapping)
+        # The release this row landed in, for run_import's release-type
+        # inference (it only reads it after a successful row).
+        self._last_import_release = release
         # The release's own artist list ("Product Display Artist") when the
         # file has one; otherwise the song's primary artists also credit it.
         release_artists = _names_in(row, mapping, "release.artists", _split) if release else []
@@ -2785,6 +2834,7 @@ class MusicImportEndpoint(MusicBaseView):
             workspace=workspace, title__iexact=release_title, release_date=release_date
         ).first()
         status_value = _choice_value(_mapped(row, mapping, "release.status"), MusicRelease.Status.choices)
+        type_value = release_type_value(_mapped(row, mapping, "release.type"))
         version = _mapped(row, mapping, "release.version")
         language = _mapped(row, mapping, "release.language")
         if not release:
@@ -2792,9 +2842,7 @@ class MusicImportEndpoint(MusicBaseView):
                 workspace=workspace,
                 title=release_title,
                 version=version,
-                release_type=_choice(
-                    _mapped(row, mapping, "release.type"), MusicRelease.Type.choices, MusicRelease.Type.ALBUM
-                ),
+                release_type=type_value or MusicRelease.Type.ALBUM,
                 status=status_value or MusicRelease.Status.DRAFT,
                 upc=upc,
                 catalog_number=_mapped(row, mapping, "release.catalog_number"),
@@ -2812,6 +2860,11 @@ class MusicImportEndpoint(MusicBaseView):
                     changed = True
             if status_value and release.status == MusicRelease.Status.DRAFT and status_value != release.status:
                 release.status = status_value
+                changed = True
+            # Like the status: the file's type replaces the default (Album),
+            # never a type someone already chose.
+            if type_value and release.release_type == MusicRelease.Type.ALBUM and type_value != release.release_type:
+                release.release_type = type_value
                 changed = True
             stored_ids = (release.metadata or {}).get("external_ids") or {}
             if external_id and not stored_ids.get("product_id"):

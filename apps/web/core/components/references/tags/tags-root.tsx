@@ -5,8 +5,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Search, Sparkles } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { Check, ListChecks, Loader2, Plus, Search, Sparkles } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
@@ -14,6 +14,7 @@ import { cn } from "@plane/utils";
 import { referencesService, taggingService } from "@/services/references.service";
 import { TAG_KINDS, tagKindKey } from "../entity-meta";
 import { TAG_KIND_ICONS } from "../shared-tag-chip";
+import { MAX_COMBINED_TAGS } from "./combine-tags";
 import { TagDetail } from "./tag-detail";
 
 type Props = {
@@ -30,6 +31,27 @@ export function SharedTagsRoot({ workspaceSlug, tagId, onMapWithAI }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
+  // Several tags at once: pick them, then see what carries all of them.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [searchParams] = useSearchParams();
+  const combined = new Set((searchParams.get("with") ?? "").split(",").filter(Boolean));
+  const startSelecting = () => {
+    setSelected(tagId ? [tagId, ...combined].slice(0, MAX_COMBINED_TAGS + 1) : []);
+    setSelecting(true);
+  };
+  const toggle = (id: string) =>
+    setSelected((current) => {
+      if (current.includes(id)) return current.filter((value) => value !== id);
+      // The open tag plus up to MAX_COMBINED_TAGS more.
+      return current.length > MAX_COMBINED_TAGS ? current : [...current, id];
+    });
+  const openSelected = () => {
+    const [first, ...rest] = selected;
+    if (!first) return;
+    setSelecting(false);
+    navigate(`/${workspaceSlug}/tags/${first}${rest.length ? `?with=${rest.join(",")}&mode=all` : ""}`);
+  };
   const { data: tags, isLoading } = useSWR(["SHARED_TAGS_USAGE", workspaceSlug], () =>
     referencesService.getTags(workspaceSlug, { usage: true })
   );
@@ -74,6 +96,16 @@ export function SharedTagsRoot({ workspaceSlug, tagId, onMapWithAI }: Props) {
               className="h-8 w-full rounded-md border border-subtle bg-transparent pr-2 pl-8 text-13 outline-none focus:border-accent-strong"
             />
           </div>
+          <Button
+            variant={selecting ? "primary" : "ghost"}
+            size="base"
+            className="w-full"
+            aria-pressed={selecting}
+            onClick={() => (selecting ? setSelecting(false) : startSelecting())}
+          >
+            <ListChecks className="size-3.5" />
+            {selecting ? t("references.tags.combine.cancel_select") : t("references.tags.combine.select_many")}
+          </Button>
           {onMapWithAI && (
             <Button variant="secondary" size="base" className="w-full" onClick={onMapWithAI}>
               <Sparkles className="size-3.5" />
@@ -102,19 +134,52 @@ export function SharedTagsRoot({ workspaceSlug, tagId, onMapWithAI }: Props) {
                 <ul>
                   {items.map((tag) => (
                     <li key={tag.id}>
-                      <Link
-                        to={`/${workspaceSlug}/tags/${tag.id}`}
-                        aria-current={tag.id === tagId ? "page" : undefined}
-                        className={cn(
-                          "flex items-center gap-2 rounded-md px-2 py-1.5 text-13",
-                          tag.id === tagId
-                            ? "bg-layer-1 font-medium text-primary"
-                            : "text-secondary hover:bg-layer-1-hover"
-                        )}
-                      >
-                        <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                        <span className="text-11 text-tertiary tabular-nums">{tag.usage || ""}</span>
-                      </Link>
+                      {selecting ? (
+                        <label className="relative flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-13 text-secondary hover:bg-layer-1-hover has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-accent-strong">
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(tag.id)}
+                            onChange={() => toggle(tag.id)}
+                            aria-label={t("references.tags.combine.select_tag", { name: tag.name })}
+                            className="sr-only"
+                          />
+                          <span
+                            className={cn(
+                              "grid size-4 shrink-0 place-items-center rounded-sm border",
+                              selected.includes(tag.id)
+                                ? "border-accent-strong bg-accent-primary text-on-color"
+                                : "border-strong"
+                            )}
+                            aria-hidden
+                          >
+                            {selected.includes(tag.id) && <Check className="size-3" />}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                          <span className="text-11 text-tertiary tabular-nums">{tag.usage || ""}</span>
+                        </label>
+                      ) : (
+                        <Link
+                          to={`/${workspaceSlug}/tags/${tag.id}`}
+                          aria-current={tag.id === tagId ? "page" : undefined}
+                          className={cn(
+                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-13",
+                            tag.id === tagId
+                              ? "bg-layer-1 font-medium text-primary"
+                              : combined.has(tag.id)
+                                ? "bg-accent-subtle text-primary"
+                                : "text-secondary hover:bg-layer-1-hover"
+                          )}
+                        >
+                          {combined.has(tag.id) && tag.id !== tagId && (
+                            <Plus
+                              className="size-3 shrink-0 text-accent-primary"
+                              aria-label={t("references.tags.combine.combined")}
+                            />
+                          )}
+                          <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                          <span className="text-11 text-tertiary tabular-nums">{tag.usage || ""}</span>
+                        </Link>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -122,6 +187,16 @@ export function SharedTagsRoot({ workspaceSlug, tagId, onMapWithAI }: Props) {
             );
           })}
         </nav>
+        {selecting && (
+          <div className="space-y-2 border-t border-subtle p-3">
+            <p className="text-12 text-tertiary" aria-live="polite">
+              {t("references.tags.combine.selected", { count: selected.length })}
+            </p>
+            <Button variant="primary" size="base" className="w-full" disabled={!selected.length} onClick={openSelected}>
+              {t("references.tags.combine.view_selected")}
+            </Button>
+          </div>
+        )}
       </aside>
       <main className={cn("min-w-0 flex-1", tagId ? "block" : "hidden lg:block")}>
         {tagId ? (

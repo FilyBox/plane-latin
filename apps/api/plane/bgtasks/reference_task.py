@@ -135,6 +135,9 @@ def shared_tag_export_task(exporter_id: str):
         exporter.save(update_fields=["status"])
         options = exporter.filters or {}
         tag = FileTag.objects.get(id=options["tag_id"], workspace_id=exporter.workspace_id)
+        # Tags combined with it in the view (all of them, or any).
+        extra_ids = [value for value in options.get("with") or [] if value != str(tag.id)]
+        with_tags = list(FileTag.objects.filter(id__in=extra_ids, workspace_id=exporter.workspace_id))
         # Same visibility as the person who asked for it.
         ctx = AccessContext.build(exporter.workspace.slug, exporter.initiated_by)
         groups = entities_for_tag(
@@ -145,6 +148,8 @@ def shared_tag_export_task(exporter_id: str):
             date_from=date.fromisoformat(options["date_from"]) if options.get("date_from") else None,
             date_to=date.fromisoformat(options["date_to"]) if options.get("date_to") else None,
             limit_per_type=5000,
+            with_tags=with_tags,
+            mode="any" if options.get("mode") == "any" else "all",
         )
 
         # Which library files belong to which folder.
@@ -219,7 +224,7 @@ def shared_tag_export_task(exporter_id: str):
                         "Estos archivos no se pudieron leer del almacenamiento:\n" + "\n".join(skipped) + "\n",
                     )
             scratch.seek(0)
-            label = sanitize_filename(tag.name) or "etiqueta"
+            label = sanitize_filename(" + ".join([tag.name, *(extra.name for extra in with_tags)])[:120]) or "etiqueta"
             today = timezone.now().date().isoformat()
             key = f"exports/{exporter.workspace_id}/{uuid.uuid4().hex}-{label}-{today}.zip"
             storage.s3_client.upload_fileobj(

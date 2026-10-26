@@ -233,6 +233,10 @@
         "running": "Preparando los vínculos de obras",
         "done": "Preparó los vínculos de obras"
       },
+      "propose_album_grouping": {
+        "running": "Buscando los álbumes en el catálogo",
+        "done": "Buscó los álbumes en el catálogo"
+      },
       "propose_work_item": {
         "running": "Preparando la tarea",
         "done": "Preparó la tarea"
@@ -326,7 +330,7 @@
     "mapping": {
       "title": "Mapeo con IA",
       "loading": "Revisando qué hay por mapear…",
-      "note": "La IA propone etiquetas y une nombres repetidos con distinta escritura. Nada se aplica hasta que lo revises en Etiquetas, y se puede deshacer. Las canciones ya llegan a su artista por los créditos.",
+      "note": "La IA propone etiquetas y une nombres repetidos con distinta escritura. Nada se aplica hasta que lo revises en Etiquetas, y se puede deshacer. Canciones y lanzamientos son opcionales: márcalos para incluirlos.",
       "start": "Iniciar mapeo ({count})",
       "start_failed": "No se pudo iniciar el mapeo.",
       "running": "Mapeando… {done} de {total}",
@@ -415,6 +419,35 @@
       "applied": "{linked, plural, one {# ligada} other {# ligadas}} · {created, plural, one {# agregada al catálogo} other {# agregadas al catálogo}}",
       "none": "No se encontraron obras en este contrato.",
       "unavailable": "Ligar obras aún no está disponible"
+    },
+    "album_grouping": {
+      "title": "{count, plural, one {Agrupar # álbum} other {Agrupar # álbumes}}",
+      "target": "Lanzamiento donde quedará",
+      "target_existing": "«{title}» · {count, plural, one {# canción} other {# canciones}}",
+      "target_new": "Crear álbum nuevo «{title}»",
+      "suggested": "sugerido",
+      "open_release": "Abrir lanzamiento",
+      "open_song": "Abrir canción",
+      "merge_title": "Lanzamientos a unir (sus canciones pasan a este; se eliminan si quedan vacíos)",
+      "songs": "{count, plural, one {# canción} other {# canciones}}",
+      "match": {
+        "upc": "mismo UPC",
+        "title_artist": "mismo título y artista",
+        "title": "mismo título",
+        "edition": "otra edición",
+        "contained": "solo canciones de este álbum"
+      },
+      "track_match": {
+        "title_artist": "título y artista",
+        "title": "solo título"
+      },
+      "ambiguous": "{count} coincidencias: elige la canción",
+      "skip": "No agregar",
+      "not_found_create": "No está en el catálogo · Crear canción en borrador",
+      "album_summary": "Se {songs, plural, one {agrupará # canción} other {agruparán # canciones}} en «{title}»{merged, plural, =0 {} one { y se unirá # lanzamiento duplicado} other { y se unirán # lanzamientos duplicados}}",
+      "apply": "Aplicar {count, plural, =0 {} one {(# álbum)} other {(# álbumes)}}",
+      "applied": "«{title}»: {songs, plural, one {# canción} other {# canciones}}{merged, plural, =0 {} one { · # lanzamiento unido} other { · # lanzamientos unidos}}",
+      "none": "No se encontraron álbumes en la lista."
     },
     "actions": {
       "tag_title": "Poner «{tag}»",

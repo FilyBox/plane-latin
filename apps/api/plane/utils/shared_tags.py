@@ -386,6 +386,25 @@ def tagged_ids(workspace_id, tag: FileTag, entity_type: str) -> list[str]:
     return list(ids)
 
 
+def combined_ids(workspace_id, tags, entity_type: str, mode: str = "all") -> list[str]:
+    """Ids of `entity_type` carrying every tag in `tags` (mode "all") or at
+    least one of them (mode "any"), with the same meaning of "carrying" as
+    tagged_ids: credits count, so a song credited to an artist and tagged
+    with an album has both. One set operation per tag, no per-item queries."""
+    result: set[str] | None = None
+    for tag in tags:
+        ids = set(tagged_ids(workspace_id, tag, entity_type))
+        if result is None:
+            result = ids
+        elif mode == "any":
+            result |= ids
+        else:
+            result &= ids
+        if not result and mode != "any":
+            break
+    return list(result or ())
+
+
 def _entity_date(definition):
     """The date a type is filtered and sorted by, as a plain date."""
     if definition.date_expression:
@@ -405,10 +424,14 @@ def entities_for_tag(
     date_to=None,
     offset: int = 0,
     limit_per_type: int = 50,
+    with_tags=(),
+    mode: str = "all",
 ) -> dict:
     """Everything carrying a tag, grouped by type, as cards the viewer may
     open. Types the viewer can't open are left out entirely.
 
+    `with_tags` combines more tags with it: things carrying all of them
+    (`mode="all"`) or any of them (`mode="any"`), see combined_ids.
     `query` narrows each type with its own search (song title, ISRC, contract
     title…); `date_from`/`date_to` narrow by each type's own date (release
     date, expense date…), leaving out types that have none. Each group gives
@@ -420,7 +443,7 @@ def entities_for_tag(
             continue
         if not definition.allows(ctx) or (dated and not definition.date_field):
             continue
-        ids = tagged_ids(ctx.workspace_id, tag, name)
+        ids = combined_ids(ctx.workspace_id, [tag, *with_tags], name, mode)
         if not ids:
             continue
         rows = definition.visible(ctx).filter(id__in=ids)
@@ -455,14 +478,17 @@ def entities_for_tag(
     return groups
 
 
-def tag_years(ctx: AccessContext, tag: FileTag, types=None, query: str = "") -> list[int]:
-    """Years that have something under a tag, newest first: the quick picks
-    for the date filter (a band's release years, an artist's contract years)."""
+def tag_years(
+    ctx: AccessContext, tag: FileTag, types=None, query: str = "", with_tags=(), mode: str = "all"
+) -> list[int]:
+    """Years that have something under a tag (or a combination of tags, as
+    in entities_for_tag), newest first: the quick picks for the date filter
+    (a band's release years, an artist's contract years)."""
     years: set[int] = set()
     for name, definition in REGISTRY.items():
         if (types and name not in types) or not definition.date_field or not definition.allows(ctx):
             continue
-        ids = tagged_ids(ctx.workspace_id, tag, name)
+        ids = combined_ids(ctx.workspace_id, [tag, *with_tags], name, mode)
         if not ids:
             continue
         rows = definition.visible(ctx).filter(id__in=ids)

@@ -83,7 +83,27 @@
       "no_matches": "Nada coincide con la búsqueda o las fechas.",
       "see_all": "Ver {count}",
       "load_more": "Cargar más",
-      "showing": "Mostrando {shown} de {count}"
+      "showing": "Mostrando {shown} de {count}",
+      "combine": {
+        "button": "Combinar con…",
+        "search": "Buscar etiqueta para combinar…",
+        "remove": "Quitar {name} de la combinación",
+        "mode_label": "Mostrar lo que lleva",
+        "all": "Todas",
+        "any": "Cualquiera",
+        "all_help": "Elementos que llevan todas estas etiquetas a la vez",
+        "any_help": "Elementos que llevan al menos una de estas etiquetas",
+        "or": " o ",
+        "nothing_all": "Nada lleva todas estas etiquetas a la vez.",
+        "switch_any": "Ver lo que lleva cualquiera",
+        "nothing_left": "No hay más etiquetas para combinar.",
+        "select_many": "Seleccionar varias",
+        "cancel_select": "Cancelar",
+        "selected": "{count} seleccionadas",
+        "view_selected": "Ver elementos con estas etiquetas",
+        "select_tag": "Seleccionar {name}",
+        "combined": "Combinada con la etiqueta abierta"
+      }
     },
     "tag_kinds": {
       "artist": "Artista",
@@ -103,10 +123,10 @@
     "ai": {
       "open": "Mapear con IA",
       "title": "Mapear con IA",
-      "description": "La IA lee contratos, archivos, tareas y gastos, y propone de quién es cada cosa y qué es. Tú revisas antes de aplicar.",
+      "description": "La IA lee contratos, archivos, tareas y gastos (y, si lo eliges, canciones y lanzamientos), y propone de quién es cada cosa, qué es y a cuáles de tus etiquetas pertenece. Tú revisas antes de aplicar.",
       "what": "Qué revisar",
-      "music_note": "La música no hace falta: canciones y lanzamientos ya se relacionan con su artista por los créditos.",
-      "how": "Varios agentes revisan cada tipo al mismo tiempo. Proponen etiquetas de artista y de tipo (portada, contrato editorial, factura…) y detectan nombres repetidos con distinta escritura. Nada se aplica sin tu revisión, y cada mapeo aplicado se puede deshacer.",
+      "music_note": "Canciones y lanzamientos son opcionales: ya llegan a la etiqueta de su artista por los créditos. Inclúyelos para ponerlos también en proyectos, campañas o catálogos. Un catálogo grande tarda más.",
+      "how": "Varios agentes revisan cada tipo al mismo tiempo. Proponen etiquetas de artista y de tipo (portada, contrato editorial, factura…), suman elementos a etiquetas que ya tienes (proyectos, campañas, catálogos) cuando claramente pertenecen, y detectan nombres repetidos con distinta escritura. Nada se aplica sin tu revisión, y cada mapeo aplicado se puede deshacer.",
       "start": "Revisar {count} elementos",
       "start_failed": "No se pudo iniciar el mapeo.",
       "reading": "Leyendo elementos… {done} de {total}",
@@ -137,7 +157,10 @@
       "auto_label": "archivos nuevos",
       "to_review": "Por revisar",
       "assistant_label": "desde el asistente",
-      "merge_summary": "{variants} → {keep}"
+      "merge_summary": "{variants} → {keep}",
+      "skipped": "No se revisaron: {names}. El catálogo musical requiere su módulo activo y ser administrador.",
+      "dropped": "La propuesta era muy grande: se omitieron {count} sugerencias de menor confianza.",
+      "open_item": "Abrir {name}"
     },
     "preview": {
       "details": "Etiquetas y referencias"

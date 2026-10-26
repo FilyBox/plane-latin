@@ -38,6 +38,8 @@ from plane.db.models import (
 )
 from plane.utils.music_credits import ARTIST_CATEGORY, workspace_role_catalog
 
+from plane.utils.music_release_types import release_type_value
+
 from .base import MusicBaseView, _choice_value, _date, _decimal, _party
 
 MAX_TRACKS = 10000
@@ -70,6 +72,8 @@ PERCENT_FIELDS = (
 )
 SCALAR_FIELDS = (*CHOICE_FIELDS, *DATE_FIELDS, *BOOL_FIELDS, *TEXT_FIELDS, *PERCENT_FIELDS)
 RELATION_FIELDS = (*COMPANY_FIELDS, "genres", "release")
+# Fields of the selected songs' RELEASES (every release each song is in)
+RELEASE_FIELDS = ("release_type",)
 RELATION_OPS = ("add", "remove", "replace", "clear")
 SCALAR_OPS = ("set", "clear")
 # Fields that can't be emptied
@@ -155,6 +159,13 @@ def _validate(workspace, changes):
                 if op not in SCALAR_OPS:
                     raise _Invalid(f"op must be one of {', '.join(SCALAR_OPS)}")
                 parsed.append((field, op, _scalar(field, op, value)))
+            elif field in RELEASE_FIELDS:
+                if op != "set":
+                    raise _Invalid("op must be set")
+                choice = release_type_value(value)
+                if choice is None:
+                    raise _Invalid(f"unknown value «{value}»")
+                parsed.append((field, op, choice))
             elif field in RELATION_FIELDS:
                 if op not in RELATION_OPS:
                     raise _Invalid(f"op must be one of {', '.join(RELATION_OPS)}")
@@ -316,10 +327,25 @@ class _Applier:
             MusicTrack.objects.filter(id__in=ids).update(**{field: value}, updated_at=self.now, updated_by=self.user)
             self.touched.update(ids)
 
+    def release_type(self, value):
+        """Sets the type of every release the selected songs are in."""
+        links = MusicReleaseTrack.objects.filter(
+            track_id__in=self.track_ids, release__deleted_at__isnull=True
+        ).exclude(release__release_type=value)
+        release_ids = set(links.values_list("release_id", flat=True))
+        if not release_ids:
+            return
+        self.touched.update(links.values_list("track_id", flat=True))
+        MusicRelease.objects.filter(id__in=release_ids).update(
+            release_type=value, updated_at=self.now, updated_by=self.user
+        )
+
     def apply(self, field, op, value):
         adds = op in ("add", "replace")
         if field in SCALAR_FIELDS:
             self.scalar(field, value)
+        elif field == "release_type":
+            self.release_type(value)
         elif field in COMPANY_FIELDS:
             kind = COMPANY_FIELDS[field]
             companies = [self._company(name, kind, create=adds) for name in value]

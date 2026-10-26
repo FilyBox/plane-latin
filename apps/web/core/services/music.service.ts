@@ -18,6 +18,9 @@ import type {
   TMusicImportAsset,
   TMusicParty,
   TMusicRelease,
+  TMusicReleaseGroupAlbum,
+  TMusicReleaseGroupResult,
+  TMusicReleaseInferTypesResult,
   TMusicTrack,
   TMusicTrackPage,
 } from "@plane/types";
@@ -118,6 +121,23 @@ export class MusicService extends APIService {
   bulkUpdateTracks(workspaceSlug: string, trackIds: string[], changes: TMusicBulkChange[]) {
     return this.data<TMusicBulkUpdateResult>(
       this.post(`/api/workspaces/${workspaceSlug}/music/tracks/bulk-update/`, { track_ids: trackIds, changes })
+    );
+  }
+
+  /** Releases still on the default type (Album) get one from their title or
+   * number of songs: a dry run lists the changes, otherwise they are applied
+   * (to `releaseIds` only, when given). */
+  inferReleaseTypes(workspaceSlug: string, payload: { dry_run: boolean; release_ids?: string[] }) {
+    return this.data<TMusicReleaseInferTypesResult>(
+      this.post(`/api/workspaces/${workspaceSlug}/music/releases/infer-types/`, payload)
+    );
+  }
+
+  /** Groups songs into albums and merges duplicate releases, all or nothing;
+   * a dry run reports what would change and writes nothing. */
+  groupReleases(workspaceSlug: string, albums: TMusicReleaseGroupAlbum[], dryRun = false) {
+    return this.data<TMusicReleaseGroupResult>(
+      this.post(`/api/workspaces/${workspaceSlug}/music/releases/group/`, { albums, dry_run: dryRun })
     );
   }
 

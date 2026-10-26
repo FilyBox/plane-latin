@@ -13,17 +13,21 @@ import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TEntityName, TTaggingRun, TTaggingTagProposal } from "@plane/types";
 import { cn } from "@plane/utils";
+import { isPeekKind } from "@/components/entity-peek/routes";
+import { useEntityPeek } from "@/components/entity-peek/use-entity-peek";
 import { PaymentsSidePanel } from "@/components/payments/side-panel";
 import { taggingService } from "@/services/references.service";
 import { ENTITY_ICONS, entityGroupKey, tagKindKey } from "../entity-meta";
 import { TAG_KIND_ICONS } from "../shared-tag-chip";
+import { MappingKindList, countMappingItems, initialMappingKinds } from "./mapping-kinds";
 
 type Props = { workspaceSlug: string; isOpen: boolean; onClose: () => void };
 
 const itemKey = (entity: string, id: string) => `${entity}:${id}`;
 
-/** Start an AI scan of contracts, files, work items and expenses, follow it,
- * then review what it proposes: nothing is tagged until it is applied. */
+/** Start an AI scan of contracts, files, work items and expenses (songs and
+ * releases when ticked), follow it, then review what it proposes: nothing is
+ * tagged until it is applied. */
 export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
   const { t } = useTranslation();
   const [types, setTypes] = useState<TEntityName[] | null>(null);
@@ -31,9 +35,10 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
   const { data: overview, mutate } = useSWR(isOpen ? ["TAGGING_OVERVIEW", workspaceSlug] : null, () =>
     taggingService.overview(workspaceSlug)
   );
+  const skippedNote = useSkippedNote();
   const active = overview?.runs.find((run) => ["QUEUED", "RUNNING", "REVIEW"].includes(run.status));
   const history = (overview?.runs ?? []).filter((run) => run.id !== active?.id);
-  const chosen = types ?? overview?.scannable ?? [];
+  const chosen = types ?? (overview ? initialMappingKinds(overview) : []);
 
   const start = async () => {
     setStarting(true);
@@ -77,30 +82,10 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-6">
             <section className="space-y-3">
               <h3 className="text-13 font-medium text-primary">{t("references.ai.what")}</h3>
-              <ul className="divide-y divide-subtle rounded-md border border-subtle">
-                {overview.scannable.map((name) => {
-                  const Icon = ENTITY_ICONS[name];
-                  const checked = chosen.includes(name);
-                  return (
-                    <li key={name}>
-                      <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5">
-                        <input
-                          type="checkbox"
-                          className="accent-accent-primary size-4"
-                          checked={checked}
-                          onChange={() =>
-                            setTypes(checked ? chosen.filter((item) => item !== name) : [...chosen, name])
-                          }
-                        />
-                        <Icon className="size-4 text-secondary" aria-hidden />
-                        <span className="flex-1 text-13 text-primary">{t(entityGroupKey(name))}</span>
-                        <span className="text-12 text-tertiary tabular-nums">{overview.counts[name] ?? 0}</span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
-              <p className="text-12 text-tertiary">{t("references.ai.music_note")}</p>
+              <MappingKindList overview={overview} chosen={chosen} onChange={setTypes} />
+              {overview.scannable.some((name) => name === "music_track" || name === "music_release") && (
+                <p className="text-12 text-tertiary">{t("references.ai.music_note")}</p>
+              )}
             </section>
             <section className="rounded-md bg-layer-1 p-3 text-12 text-secondary">
               <p>{t("references.ai.how")}</p>
@@ -113,9 +98,7 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
               onClick={() => void start()}
             >
               <Sparkles className="size-3.5" />
-              {t("references.ai.start", {
-                count: chosen.reduce((sum, name) => sum + (overview.counts[name] ?? 0), 0),
-              })}
+              {t("references.ai.start", { count: countMappingItems(overview, chosen) })}
             </Button>
 
             {history.length > 0 && (
@@ -142,6 +125,7 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
                             : run.status === "COMPLETED" &&
                               ` · ${t("references.ai.applied_count", { count: run.counts.applied_links })}`}
                           {run.error && ` · ${run.error}`}
+                          {run.scope.skipped && run.scope.skipped.length > 0 && ` · ${skippedNote(run)}`}
                         </span>
                       </span>
                       {run.status === "COMPLETED" && (
@@ -161,12 +145,22 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
   );
 }
 
+/** "Not reviewed: Songs, Releases…" for kinds a run had to leave out. */
+function useSkippedNote() {
+  const { t } = useTranslation();
+  return (run: TTaggingRun) =>
+    t("references.ai.skipped", {
+      names: (run.scope.skipped ?? []).map((name) => t(entityGroupKey(name))).join(", "),
+    });
+}
+
 function Progress({ workspaceSlug, run, onUpdate }: { workspaceSlug: string; run: TTaggingRun; onUpdate: () => void }) {
   const { t } = useTranslation();
   const { data } = useSWR(["TAGGING_RUN", workspaceSlug, run.id], () => taggingService.getRun(workspaceSlug, run.id), {
     refreshInterval: 2500,
   });
   const current = data ?? run;
+  const skippedNote = useSkippedNote();
   useEffect(() => {
     if (current.status !== run.status) onUpdate();
   }, [current.status, run.status, onUpdate]);
@@ -193,6 +187,9 @@ function Progress({ workspaceSlug, run, onUpdate }: { workspaceSlug: string; run
       >
         <div className="h-full rounded-full bg-accent-primary transition-[width]" style={{ width: `${percent}%` }} />
       </div>
+      {current.scope.skipped && current.scope.skipped.length > 0 && (
+        <p className="text-12 text-tertiary">{skippedNote(current)}</p>
+      )}
       <p className="text-12 text-tertiary">{t("references.ai.can_close")}</p>
     </div>
   );
@@ -222,6 +219,8 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
   const [rejectedMerges, setRejectedMerges] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const skippedNote = useSkippedNote();
+  const { open: openPeek } = useEntityPeek();
 
   const groups = useMemo(() => {
     const order = ["ARTIST", "GROUP", "PERSON", "TYPE", "CUSTOM"] as const;
@@ -268,6 +267,14 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
         {run.scope.auto && (
           <p className="rounded-md bg-layer-1 p-3 text-12 text-secondary">
             {t("references.ai.auto_review", { count: run.scope.ids?.length ?? 0 })}
+          </p>
+        )}
+        {run.scope.skipped && run.scope.skipped.length > 0 && (
+          <p className="rounded-md bg-layer-1 p-3 text-12 text-secondary">{skippedNote(run)}</p>
+        )}
+        {Number(run.progress.dropped ?? 0) > 0 && (
+          <p className="rounded-md bg-layer-1 p-3 text-12 text-secondary">
+            {t("references.ai.dropped", { count: Number(run.progress.dropped) })}
           </p>
         )}
         {tags.length === 0 && merges.length === 0 && (
@@ -350,11 +357,16 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
                           {tag.items.map((item) => {
                             const key = `${id}|${itemKey(item.entity_name, item.id)}`;
                             const Icon = ENTITY_ICONS[item.entity_name];
+                            const peekKind = isPeekKind(item.entity_name) ? item.entity_name : null;
+                            // A contract, song, release or expense opens over the panel; the
+                            // row's checkbox still decides whether it gets the tag.
+                            const Row = peekKind ? "div" : "label";
                             return (
                               <li key={key}>
-                                <label className="flex cursor-pointer items-center gap-2 py-1 pr-3">
+                                <Row className={cn("flex items-center gap-2 py-1 pr-3", !peekKind && "cursor-pointer")}>
                                   <input
                                     type="checkbox"
+                                    aria-label={item.title || undefined}
                                     className="accent-accent-primary size-3.5"
                                     checked={!rejectedItems.has(key)}
                                     disabled={rejectedTags.has(id)}
@@ -362,7 +374,18 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
                                   />
                                   <Icon className="size-3.5 shrink-0 text-secondary" aria-hidden />
                                   <span className="min-w-0 flex-1">
-                                    <span className="block truncate text-12 text-primary">{item.title || "—"}</span>
+                                    {peekKind ? (
+                                      <button
+                                        type="button"
+                                        title={t("references.ai.open_item", { name: item.title || "—" })}
+                                        onClick={() => openPeek({ kind: peekKind, id: item.id })}
+                                        className="block max-w-full truncate text-left text-12 text-primary hover:underline"
+                                      >
+                                        {item.title || "—"}
+                                      </button>
+                                    ) : (
+                                      <span className="block truncate text-12 text-primary">{item.title || "—"}</span>
+                                    )}
                                     {item.reason && (
                                       <span className="block truncate text-11 text-tertiary">{item.reason}</span>
                                     )}
@@ -370,7 +393,7 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
                                   <span className="shrink-0 text-11 text-tertiary tabular-nums">
                                     {Math.round(item.confidence * 100)}%
                                   </span>
-                                </label>
+                                </Row>
                               </li>
                             );
                           })}

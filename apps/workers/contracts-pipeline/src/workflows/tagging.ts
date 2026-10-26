@@ -2,7 +2,10 @@
  * AI mapping of a workspace into shared tags.
  *
  * One agent per kind of item runs in parallel (contracts, files, work items,
- * expenses), each paging through its items and classifying a batch per step.
+ * expenses and, when chosen, songs and releases), each paging through its
+ * items and classifying a batch per step. Besides what an item is and whose
+ * it is, an agent may pick existing workspace tags (projects, campaigns,
+ * catalogs…) the item clearly belongs to — never new ones.
  * A normalization pass then folds spelling variants of artist names together.
  * The result goes back to Django as proposals: nothing is tagged until a
  * person reviews and applies them.
@@ -13,7 +16,17 @@ import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep, WorkflowStepConfig } f
 import { generateStructuredJson } from "../lib/ai";
 import { internalApi } from "../lib/internal-api";
 import { parseJsonResponse } from "../lib/json-repair";
-import { CLASSIFY_KEYS, NORMALIZE_KEYS, TaggingItem, classifyPrompt, normalizePrompt } from "../tagging-prompts";
+import {
+  TagProposal,
+  fitProposals,
+  fold,
+  maxTokensFor,
+  namesInBatch,
+  pageSizeFor,
+  pickOffered,
+  topicsForBatch,
+} from "../lib/tagging-batch";
+import { CLASSIFY_KEYS, NORMALIZE_KEYS, classifyPrompt, normalizePrompt } from "../tagging-prompts";
 
 export type TaggingParams = {
   run_id: string;
@@ -27,38 +40,25 @@ type Classified = {
   title: string;
   tipo: string | null;
   artistas: string[];
+  /** Existing workspace tags (projects, campaigns…) the item belongs to */
+  etiquetas: string[];
   confianza: number;
   razon: string;
   tags: string[];
 };
 
-type ProposalItem = { entity_name: string; id: string; title: string; confidence: number; reason: string };
-type TagProposal = { name: string; kind: "ARTIST" | "GROUP" | "PERSON" | "TYPE"; items: ProposalItem[] };
+type TagKind = "ARTIST" | "GROUP" | "PERSON" | "TYPE" | "CUSTOM";
 type MergeProposal = { keep: string; variants: string[]; reason: string };
 
-const PAGE_SIZE = 40;
 const MIN_CONFIDENCE = 0.5;
+/** Under Django's request body limit (DATA_UPLOAD_MAX_MEMORY_SIZE, 5 MB). */
+const MAX_PROPOSALS_BYTES = 4_000_000;
 const NORMALIZE_CHUNK = 350;
 const AI_RETRIES: WorkflowStepConfig = { retries: { limit: 2, delay: "10 seconds", backoff: "exponential" } };
 
 /** "A / B", "A - B", "A feat. B"…: several artists, never a spelling of one. */
 const COLLABORATION = /\s[/&x-]\s|\/|\bfeat\b|\bft\b|\s+y\s+/i;
 const isCollaboration = (name: string) => COLLABORATION.test(name);
-
-const fold = (value: string) =>
-  value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-
-/** Known names worth showing the model for this batch: those that occur in
- * it. Keeps the prompt short however large the catalog is. */
-const namesInBatch = (known: string[], items: TaggingItem[], cap = 120) => {
-  const haystack = fold(items.map((item) => `${item.title} ${item.text} ${item.tags.join(" ")}`).join(" | "));
-  return known.filter((name) => name.length > 2 && haystack.includes(fold(name))).slice(0, cap);
-};
 
 export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
   async run(event: WorkflowEvent<TaggingParams>, step: WorkflowStep) {
@@ -78,6 +78,7 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
       // One agent per kind of item, all running at once.
       const scan = async (entityType: string): Promise<Classified[]> => {
         const vocabulary = context.vocabulary[entityType] ?? [];
+        const pageSize = pageSizeFor(entityType);
         const found: Classified[] = [];
         let offset = 0;
         let total = Infinity;
@@ -85,20 +86,22 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
         /* eslint-disable no-await-in-loop -- pages are read in order: each tells how many remain */
         while (offset < total) {
           const batch = await step.do(`inventory ${entityType} ${page}`, async () =>
-            api.taggingInventory(workspaceId, entityType, offset, PAGE_SIZE, runId)
+            api.taggingInventory(workspaceId, entityType, offset, pageSize, runId)
           );
           total = batch.total;
           if (batch.results.length > 0) {
             const classified = await step.do(`classify ${entityType} ${page}`, AI_RETRIES, async () => {
+              const topics = topicsForBatch(context.tags, batch.results, entityType);
               const { text, model } = await generateStructuredJson(this.env, {
                 prompt: classifyPrompt(
                   entityType,
                   vocabulary,
                   namesInBatch(knownArtists, batch.results),
-                  batch.results
+                  batch.results,
+                  topics
                 ),
                 keys: CLASSIFY_KEYS,
-                maxTokens: 4096,
+                maxTokens: maxTokensFor(entityType),
               });
               const parsed = parseJsonResponse<{ items?: Partial<Classified>[] }>(text);
               const byId = new Map(batch.results.map((item) => [item.id, item]));
@@ -116,6 +119,7 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
                       artistas: Array.isArray(row.artistas)
                         ? row.artistas.map((name) => String(name).trim()).filter(Boolean)
                         : [],
+                      etiquetas: pickOffered(row.etiquetas, topics),
                       confianza: Math.max(0, Math.min(1, Number(row.confianza ?? 0))),
                       razon: String(row.razon ?? "").slice(0, 160),
                       tags: source.tags,
@@ -125,7 +129,7 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
             });
             found.push(...classified.items);
           }
-          offset += PAGE_SIZE;
+          offset += pageSize;
           page += 1;
           await step.do(`progress ${entityType} ${page}`, async () => {
             await api.taggingProgress(runId, {
@@ -209,14 +213,14 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
       }
 
       const tagMap = new Map<string, TagProposal>();
-      const propose = (name: string, kind: TagProposal["kind"], item: Classified) => {
+      const propose = (name: string, kind: TagKind, item: Classified) => {
         const existing = existingByFold.get(fold(name));
         const label = existing?.name ?? name;
         // Already carries it: nothing to propose.
         if (item.tags.some((tag) => fold(tag) === fold(label))) return;
         const resolvedKind = (
           existing && (peopleKinds.has(existing.kind) || existing.kind === "TYPE") ? existing.kind : kind
-        ) as TagProposal["kind"];
+        ) as TagKind;
         const key = `${resolvedKind}:${fold(label)}`;
         const entry = tagMap.get(key) ?? { name: label, kind: resolvedKind, items: [] };
         if (
@@ -238,14 +242,21 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
       for (const item of confident) {
         if (item.tipo) propose(item.tipo, "TYPE", item);
         for (const artist of item.artistas) propose(canonicalOf.get(fold(artist)) ?? artist, "ARTIST", item);
+        for (const topic of item.etiquetas) propose(topic, "CUSTOM", item);
       }
-      const tags = [...tagMap.values()].sort((a, b) => b.items.length - a.items.length);
+      // A catalog of thousands of songs can propose a lot: keep the handoff
+      // under Django's body limit (reasons first, then the least confident).
+      const fitted = fitProposals(
+        [...tagMap.values()].sort((a, b) => b.items.length - a.items.length),
+        MAX_PROPOSALS_BYTES
+      );
+      const tags = fitted.tags;
 
       await step.do("save proposals", async () => {
         await api.taggingProgress(runId, {
           status: "REVIEW",
           provider: this.env.AI_PROVIDER || "deepseek",
-          progress: { stage: "review", scanned: scanned.length },
+          progress: { stage: "review", scanned: scanned.length, dropped: fitted.dropped },
           proposals: { tags, merges },
         });
       });

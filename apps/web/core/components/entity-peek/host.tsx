@@ -11,7 +11,7 @@
  * refreshes the row.
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "framer-motion";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
@@ -19,7 +19,7 @@ import useSWR, { useSWRConfig } from "swr";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { useTranslation } from "@plane/i18n";
 import { ContractPeekPanel } from "@/components/file-library/contracts/peek-panel";
-import { MusicReleaseModal } from "@/components/music-catalog/release-modal";
+import { MusicReleasePeekPanel } from "@/components/music-catalog/release-peek-panel";
 import { MusicTrackPeekPanel } from "@/components/music-catalog/track-peek-panel";
 import { ExpenseModal } from "@/components/payments/expense-modal";
 import { financeService } from "@/services/finance.service";
@@ -126,18 +126,26 @@ function TrackPanel({ slug, id, onClose, onOpenInSection }: PanelProps) {
   );
 }
 
+/** The release panel, from the catalog's cached release list (same keys as
+ * the catalog page). Keeps the last copy while it slides out after a delete. */
 function ReleasePanel({ slug, id, onClose, onOpenInSection }: PanelProps) {
   const { data: releases, mutate } = useSWR(["MUSIC_RELEASES", slug], () => musicService.getReleases(slug));
   const { data: options } = useSWR(`MUSIC_OPTIONS_${slug}`, () => musicService.getOptions(slug));
-  const { data: parties = [] } = useSWR(`MUSIC_PARTIES_${slug}`, () => musicService.getParties(slug));
-  const release = useMemo(() => releases?.find((item) => item.id === id), [releases, id]);
+  const { data: parties = [], mutate: mutateParties } = useSWR(`MUSIC_PARTIES_${slug}`, () =>
+    musicService.getParties(slug)
+  );
+  const found = useMemo(() => releases?.find((item) => item.id === id), [releases, id]);
+  const last = useRef(found);
+  if (found) last.current = found;
+  const release = found ?? last.current;
+  const [deleted, setDeleted] = useState(false);
   const refreshTracks = useRefresh("MUSIC_TRACKS");
-  useNotFound(releases !== undefined && !release, onClose);
-  if (!release) return null;
-  return (
-    <MusicReleaseModal
+  useNotFound(!deleted && releases !== undefined && !found, onClose);
+  const portal = typeof document === "undefined" ? null : document.getElementById("full-screen-portal");
+  if (!release || !portal) return null;
+  return createPortal(
+    <MusicReleasePeekPanel
       workspaceSlug={slug}
-      isOpen
       release={release}
       parties={parties}
       options={options}
@@ -146,9 +154,16 @@ function ReleasePanel({ slug, id, onClose, onOpenInSection }: PanelProps) {
         void mutate();
         refreshTracks();
       }}
-      onResourcesChanged={() => void mutate()}
+      onDeleted={() => {
+        setDeleted(true);
+        onClose();
+        void mutate();
+        refreshTracks();
+      }}
+      onResourcesChanged={() => void mutateParties()}
       onOpenInSection={onOpenInSection}
-    />
+    />,
+    portal
   );
 }
 

@@ -83,7 +83,27 @@
       "no_matches": "Nothing matches this search or these dates.",
       "see_all": "See all {count}",
       "load_more": "Load more",
-      "showing": "Showing {shown} of {count}"
+      "showing": "Showing {shown} of {count}",
+      "combine": {
+        "button": "Combine with…",
+        "search": "Find a tag to combine…",
+        "remove": "Remove {name} from the combination",
+        "mode_label": "Show items carrying",
+        "all": "All",
+        "any": "Any",
+        "all_help": "Items that carry all of these tags at once",
+        "any_help": "Items that carry at least one of these tags",
+        "or": " or ",
+        "nothing_all": "Nothing carries all of these tags at once.",
+        "switch_any": "Show items with any of them",
+        "nothing_left": "No other tags to combine.",
+        "select_many": "Select several",
+        "cancel_select": "Cancel",
+        "selected": "{count} selected",
+        "view_selected": "View items with these tags",
+        "select_tag": "Select {name}",
+        "combined": "Combined with the open tag"
+      }
     },
     "tag_kinds": {
       "artist": "Artist",
@@ -103,10 +123,10 @@
     "ai": {
       "open": "Map with AI",
       "title": "Map with AI",
-      "description": "AI reads contracts, files, work items and expenses and proposes whose each thing is and what it is. You review before applying.",
+      "description": "AI reads contracts, files, work items and expenses (and, if you choose, songs and releases) and proposes whose each thing is, what it is and which of your tags it belongs to. You review before applying.",
       "what": "What to review",
-      "music_note": "Music isn't needed: songs and releases are already tied to their artist through credits.",
-      "how": "Several agents review each kind at the same time. They propose artist and type tags (cover art, publishing contract, invoice…) and spot names spelled several ways. Nothing is applied without your review, and every applied mapping can be undone.",
+      "music_note": "Songs and releases are optional: they already reach their artist's tag through credits. Include them to also file them under projects, campaigns or catalogs. A large catalog takes longer.",
+      "how": "Several agents review each kind at the same time. They propose artist and type tags (cover art, publishing contract, invoice…), add things to tags you already have (projects, campaigns, catalogs) when they clearly belong, and spot names spelled several ways. Nothing is applied without your review, and every applied mapping can be undone.",
       "start": "Review {count} items",
       "start_failed": "Couldn't start the mapping.",
       "reading": "Reading items… {done} of {total}",
@@ -137,7 +157,10 @@
       "auto_label": "new files",
       "to_review": "To review",
       "assistant_label": "from the assistant",
-      "merge_summary": "{variants} → {keep}"
+      "merge_summary": "{variants} → {keep}",
+      "skipped": "Not reviewed: {names}. The music catalog needs its module on and a workspace admin.",
+      "dropped": "The proposal was very large: {count} lower-confidence suggestions were left out.",
+      "open_item": "Open {name}"
     },
     "preview": {
       "details": "Tags and references"

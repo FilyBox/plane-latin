@@ -26,8 +26,11 @@ from .base import (
     MusicTrackEndpoint,
 )
 from .bulk import MusicTrackBulkUpdateEndpoint
+from .grouping import InternalMusicAlbumGroupingMatchEndpoint, MusicReleaseGroupEndpoint
+from .release_types import MusicReleaseInferTypesEndpoint
 
 __all__ = [
+    "InternalMusicAlbumGroupingMatchEndpoint",
     "InternalMusicImportEndpoint",
     "InternalMusicTracksEndpoint",
     "InternalWorkspaceAssetsEndpoint",
@@ -46,6 +49,8 @@ __all__ = [
     "MusicPartyEndpoint",
     "MusicReleaseDetailEndpoint",
     "MusicReleaseEndpoint",
+    "MusicReleaseGroupEndpoint",
+    "MusicReleaseInferTypesEndpoint",
     "MusicReportEndpoint",
     "MusicTrackBulkDeleteEndpoint",
     "MusicTrackBulkUpdateEndpoint",

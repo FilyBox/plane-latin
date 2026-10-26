@@ -18,8 +18,14 @@ from django.db import transaction
 from django.db.models import Count
 
 # Module imports
-from plane.db.models import MusicCredit
+from plane.db.models import MusicCredit, MusicRelease
 from plane.utils.music_credits import workspace_role_catalog
+from plane.utils.music_release_types import (
+    apply_inferred_types,
+    count_by_type,
+    plan_inferred_types,
+    release_type_value,
+)
 
 from .base import (
     _apply_constants,
@@ -158,6 +164,11 @@ def run_import(
     # file with repeated ISRCs a no-op instead of flipping data between rows.
     claimed_ids = set()
     rows_by_isrc = {}
+    # Releases this run creates, and whether the file (a column or a fixed
+    # value) gave each one its type: the rest get one inferred at the end.
+    # Releases that existed before the run are never touched by inference.
+    existing_release_ids = set(MusicRelease.all_objects.filter(workspace=workspace).values_list("id", flat=True))
+    new_releases = {}
     last_report = 0.0
 
     def progress(processed):
@@ -214,6 +225,7 @@ def run_import(
             for field, token in _collect_unparsed(effective_row, effective_mapping).items():
                 variants = unparseable.setdefault(field, {}).setdefault(token.lower(), {})
                 variants[token] = variants.get(token, 0) + 1
+        importer._last_import_release = None
         try:
             # Each row in its own savepoint: a failing row must not leave the
             # rest of the spreadsheet's transaction aborted.
@@ -243,6 +255,10 @@ def run_import(
             continue
 
         result[outcome] += 1
+        release = getattr(importer, "_last_import_release", None)
+        if release is not None and release.id not in existing_release_ids:
+            typed = release_type_value(_mapped(effective_row, effective_mapping, "release.type")) is not None
+            new_releases[release.id] = new_releases.get(release.id, False) or typed
         if track is not None:
             claimed_ids.add(track.id)
             touched.append((track.id, outcome, index))
@@ -272,6 +288,15 @@ def run_import(
     # Roles named after the file's tags that its credits use: created now
     # when applying; a dry run reports what would be created.
     result["new_roles"] = _create_planned_roles(workspace, role_catalog, dry_run=dry_run)
+    # New releases the file gave no type: inferred from their title and how
+    # many songs they hold (a dry run reports what would be inferred).
+    untyped = [release_id for release_id, typed in new_releases.items() if not typed]
+    inferred = (
+        plan_inferred_types(MusicRelease.objects.filter(id__in=untyped), include_unchanged=True) if untyped else []
+    )
+    if inferred and not dry_run:
+        apply_inferred_types(inferred)
+    result["release_types_inferred"] = {key: count for key, count in count_by_type(inferred).items() if count}
     if dry_run:
         result["rows"] = outcomes
         result["unparseable"] = _group_unparseable(unparseable)

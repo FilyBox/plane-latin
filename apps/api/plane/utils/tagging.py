@@ -37,9 +37,12 @@ from plane.utils.shared_tags import (
     merge_into,
     remirror_expenses,
 )
+from plane.utils.tagging_music import MUSIC_KINDS, party_tag_names, release_inventory, track_inventory
 
-# What the agents may scan. Music is already tied to artists by its credits.
-SCANNABLE = ("contract", "file", "issue", "expense")
+# What the agents may scan. Songs and releases are opt-in: they already reach
+# their artist's tag through their credits, and a catalog has thousands.
+DEFAULT_TYPES = ("contract", "file", "issue", "expense")
+SCANNABLE = (*DEFAULT_TYPES, *MUSIC_KINDS)
 
 # The closed list each agent picks "what it is" from (None: no type tag).
 TYPE_VOCABULARY = {
@@ -68,7 +71,26 @@ TYPE_VOCABULARY = {
     ],
     "issue": [],
     "expense": [],
+    "music_track": [],
+    "music_release": [],
 }
+
+
+def runnable_types(ctx, types):
+    """Splits requested kinds into those this person may scan and those left
+    out. Songs and releases follow the catalog's own rule (module on,
+    workspace admin), so a run never reads what its starter can't open."""
+    from plane.utils.entities import REGISTRY
+
+    allowed, skipped = [], []
+    for entity_type in dict.fromkeys(types):
+        if entity_type not in SCANNABLE:
+            continue
+        if entity_type in MUSIC_KINDS and not REGISTRY[entity_type].allows(ctx):
+            skipped.append(entity_type)
+        else:
+            allowed.append(entity_type)
+    return allowed, skipped
 
 
 def _clip(text, limit):
@@ -167,12 +189,21 @@ def inventory(workspace_id, entity_type, offset=0, limit=40, ids=None):
             }
             for row in page
         ]
+    elif entity_type in MUSIC_KINDS:
+        reader = track_inventory if entity_type == "music_track" else release_inventory
+        total, items, parties = reader(workspace_id, offset, limit)
     else:
         return {"total": 0, "results": []}
 
     current = get_tags(workspace_id, entity_type, [item["id"] for item in items])
     for item in items:
         item["tags"] = [tag["name"] for tag in current.get(item["id"], [])]
+    if entity_type in MUSIC_KINDS and items:
+        # The artist tags a song or release already reaches through credits.
+        by_party = party_tag_names(workspace_id, set().union(*parties.values()))
+        for item in items:
+            names = [name for party_id in parties.get(item["id"], ()) for name in by_party.get(party_id, [])]
+            item["tags"] = list(dict.fromkeys([*item["tags"], *names]))
     return {"total": total, "results": items}
 
 

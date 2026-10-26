@@ -85,10 +85,28 @@ class InternalAssistantTaggedEndpoint(InternalAssistantView):
         if ctx is None:
             return self.denied()
         params = request.query_params
-        lookup = Q(id=params["tag_id"]) if _is_uuid(params.get("tag_id")) else Q(name__iexact=params.get("tag", ""))
+        # Several tags at once: tag_ids (comma separated) combined by mode
+        # (all, the default, or any), as the tag view's `with`.
+        tag_ids = [value.strip() for value in (params.get("tag_ids") or "").split(",") if value.strip()]
+        if any(not _is_uuid(value) for value in tag_ids):
+            return Response({"error": "tag_ids must be ids"}, status=status.HTTP_400_BAD_REQUEST)
+        if tag_ids and not params.get("tag_id") and not params.get("tag"):
+            first = tag_ids[0]
+        else:
+            first = params.get("tag_id")
+        lookup = Q(id=first) if _is_uuid(first) else Q(name__iexact=params.get("tag", ""))
         tag = FileTag.objects.filter(workspace_id=ctx.workspace_id).filter(lookup).first()
         if tag is None:
             return Response({"error": "Tag not found"}, status=status.HTTP_404_NOT_FOUND)
+        mode = "any" if params.get("mode") == "any" else "all"
+        found = {
+            str(extra.id): extra
+            for extra in FileTag.objects.filter(workspace_id=ctx.workspace_id, id__in=tag_ids).exclude(id=tag.id)
+        }
+        with_tags = [found[value] for value in dict.fromkeys(tag_ids) if value in found]
+        missing = [value for value in tag_ids if value not in found and value != str(tag.id)]
+        if missing:
+            return Response({"error": "Tag not found", "missing": missing}, status=status.HTTP_404_NOT_FOUND)
         try:
             date_from = date.fromisoformat(params["date_from"]) if params.get("date_from") else None
             date_to = date.fromisoformat(params["date_to"]) if params.get("date_to") else None
@@ -97,13 +115,25 @@ class InternalAssistantTaggedEndpoint(InternalAssistantView):
         types = [value for value in params.get("types", "").split(",") if value in REGISTRY] or None
         query = (params.get("q") or "").strip()
         groups = entities_for_tag(
-            ctx, tag, types, query=query, date_from=date_from, date_to=date_to, limit_per_type=MAX_PER_TYPE
+            ctx,
+            tag,
+            types,
+            query=query,
+            date_from=date_from,
+            date_to=date_to,
+            limit_per_type=MAX_PER_TYPE,
+            with_tags=with_tags,
+            mode=mode,
         )
+        link = f"/{ctx.slug}/tags/{tag.id}"
+        if with_tags:
+            link += f"?with={','.join(str(extra.id) for extra in with_tags)}&mode={mode}"
         return Response(
             {
                 "tag": tag_payload(tag),
-                "link": f"/{ctx.slug}/tags/{tag.id}",
-                "years": tag_years(ctx, tag, types, query),
+                **({"with_tags": [tag_payload(extra) for extra in with_tags], "mode": mode} if with_tags else {}),
+                "link": link,
+                "years": tag_years(ctx, tag, types, query, with_tags=with_tags, mode=mode),
                 "groups": {
                     name: {"count": group["count"], "items": [_card(card) for card in group["items"]]}
                     for name, group in groups.items()

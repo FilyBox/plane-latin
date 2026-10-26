@@ -295,6 +295,39 @@ def tag_filters(params) -> dict:
     }
 
 
+MAX_COMBINED_TAGS = 10
+
+
+def combined_tags(workspace_id, params, main_tag_id) -> tuple[list, str]:
+    """The extra tags (`with`: ids, comma separated or a list) and how they
+    combine with the main one (`mode`: all, the default, or any). Raises
+    ValueError on a malformed id or mode. Ids that are not tags of this
+    workspace (deleted, or someone else's) are dropped, so a shared link to
+    a combination still opens; the response lists the ones applied."""
+    raw = params.get("with") or ""
+    values = raw if isinstance(raw, (list, tuple)) else str(raw).split(",")
+    ids = []
+    for value in (str(value).strip() for value in values):
+        if not value:
+            continue
+        if not _is_uuid(value):
+            raise ValueError("with")
+        if value != str(main_tag_id) and value not in ids:
+            ids.append(value)
+    mode = str(params.get("mode") or "all").strip().lower()
+    if mode not in ("all", "any"):
+        raise ValueError("mode")
+    if not ids:
+        return [], mode
+    found = {
+        str(tag.id): tag
+        for tag in FileTag.objects.filter(workspace_id=workspace_id, id__in=ids[:MAX_COMBINED_TAGS]).select_related(
+            "party"
+        )
+    }
+    return [found[value] for value in ids[:MAX_COMBINED_TAGS] if value in found], mode
+
+
 class SharedTagEntitiesEndpoint(ReferenceBaseView):
     """Everything carrying a tag, from every module, grouped by type."""
 
@@ -308,15 +341,19 @@ class SharedTagEntitiesEndpoint(ReferenceBaseView):
             filters = tag_filters(request.query_params)
             offset = max(0, int(request.query_params.get("offset", 0)))
             limit = max(1, min(int(request.query_params.get("limit", 50)), 200))
+            with_tags, mode = combined_tags(ctx.workspace_id, request.query_params, tag.id)
         except ValueError:
             return Response({"error": "Invalid filters"}, status=status.HTTP_400_BAD_REQUEST)
         types = [value for value in request.query_params.get("types", "").split(",") if value] or None
-        groups = entities_for_tag(ctx, tag, types, offset=offset, limit_per_type=limit, **filters)
+        groups = entities_for_tag(
+            ctx, tag, types, offset=offset, limit_per_type=limit, with_tags=with_tags, mode=mode, **filters
+        )
         # Where the tagged things are mentioned, so work items about an artist
         # show up even when only their songs were tagged. Only on the first,
-        # unfiltered page: it describes the tag, not a search within it.
+        # unfiltered page of a single tag: it describes the tag, not a search
+        # or a combination.
         mentioned_in: dict[tuple, dict] = {}
-        if offset == 0 and not types and not any(filters.values()):
+        if offset == 0 and not types and not with_tags and not any(filters.values()):
             for name in groups:
                 for entity_id in tagged_ids(ctx.workspace_id, tag, name)[:50]:
                     for link in backlinks(ctx, name, entity_id):
@@ -324,11 +361,13 @@ class SharedTagEntitiesEndpoint(ReferenceBaseView):
                             mentioned_in.setdefault((link["entity_name"], link["id"]), link)
         payload = {
             "tag": tag_payload(tag),
+            "with_tags": [tag_payload(extra) for extra in with_tags],
+            "mode": mode,
             "groups": groups,
             "mentioned_in": list(mentioned_in.values())[:100],
         }
         if offset == 0:
-            payload["years"] = tag_years(ctx, tag, types, filters["query"])
+            payload["years"] = tag_years(ctx, tag, types, filters["query"], with_tags=with_tags, mode=mode)
         return Response(payload, status=status.HTTP_200_OK)
 
 
@@ -345,6 +384,7 @@ class SharedTagExportEndpoint(ReferenceBaseView):
         types = request.data.get("types") or []
         try:
             filters = tag_filters(request.data)
+            with_tags, mode = combined_tags(ctx.workspace_id, request.data, tag_id)
         except ValueError:
             return Response({"error": "Invalid filters"}, status=status.HTTP_400_BAD_REQUEST)
         exporter = ExporterHistory.objects.create(
@@ -360,6 +400,9 @@ class SharedTagExportEndpoint(ReferenceBaseView):
                 "query": filters["query"],
                 "date_from": filters["date_from"].isoformat() if filters["date_from"] else None,
                 "date_to": filters["date_to"].isoformat() if filters["date_to"] else None,
+                # And the same combination of tags.
+                "with": [str(extra.id) for extra in with_tags],
+                "mode": mode,
                 "origin": request.headers.get("Origin", ""),
             },
         )

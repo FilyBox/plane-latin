@@ -105,6 +105,7 @@ from .assistant import (
 )
 
 from .music import (
+    InternalMusicAlbumGroupingMatchEndpoint,
     InternalMusicImportEndpoint,
     InternalMusicTracksEndpoint,
     InternalWorkspaceAssetsEndpoint,
@@ -123,6 +124,8 @@ from .music import (
     MusicPartyEndpoint,
     MusicReleaseDetailEndpoint,
     MusicReleaseEndpoint,
+    MusicReleaseGroupEndpoint,
+    MusicReleaseInferTypesEndpoint,
     MusicReportEndpoint,
     MusicTrackBulkDeleteEndpoint,
     MusicTrackBulkUpdateEndpoint,

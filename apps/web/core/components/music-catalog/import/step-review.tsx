@@ -12,6 +12,7 @@ import type { TMusicImportResult, TMusicImportRowOutcome } from "@plane/types";
 import { cn } from "@plane/utils";
 import { humanizeRoleKey } from "../credit-roles";
 import { columnsOf, errorLabelKey, fieldLabelKey, MATCH_LABEL_KEY, ROW_OUTCOME_LABEL_KEY, SKIP_ROW } from "./constants";
+import { ImportInferredTypes } from "./inferred-types";
 import { ImportLiveCounts } from "./live-counts";
 import type { TImportFlow, TValueDecision } from "./use-import-flow";
 
@@ -231,6 +232,7 @@ export function ImportStepReview({ flow, onValidate }: Props) {
       {review.empty > 0 && (
         <p className="text-12 text-tertiary">{t("music_import.review.empty_rows", { count: review.empty })}</p>
       )}
+      <ImportInferredTypes inferred={review.release_types_inferred} isDryRun />
 
       {(fixedEntries.length > 0 || creditRoles.length > 0) && (
         <div className="grid gap-4 md:grid-cols-2">

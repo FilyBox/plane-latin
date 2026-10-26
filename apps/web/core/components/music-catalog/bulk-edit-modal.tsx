@@ -44,6 +44,8 @@ const FIELDS: TFieldDef[] = [
   { field: "credit", kind: "credit", importField: "artists" },
   { field: "genres", kind: "names", importField: "genres" },
   { field: "release", kind: "names", importField: "release.title" },
+  // Applies to every release the selected songs are in
+  { field: "release_type", kind: "choice" },
   { field: "status", kind: "choice" },
   { field: "kind", kind: "choice" },
   { field: "release_date", kind: "date" },
@@ -193,7 +195,11 @@ export function MusicBulkEditModal({ workspaceSlug, isOpen, trackIds, options, o
   };
 
   const choiceOptions = (def: TFieldDef) =>
-    (def.field === "status" ? options?.track_statuses : options?.track_kinds) ?? [];
+    (def.field === "status"
+      ? options?.track_statuses
+      : def.field === "release_type"
+        ? options?.release_types
+        : options?.track_kinds) ?? [];
 
   const valueText = (row: TRow) => {
     const { kind } = row.def;

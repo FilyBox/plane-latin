@@ -12,6 +12,7 @@ import type {
   TEntitySearchResponse,
   TReferenceSource,
   TSharedTag,
+  TSharedTagCombination,
   TSharedTagEntities,
   TSharedTagFilters,
   TSharedTagKind,
@@ -139,11 +140,12 @@ export class ReferencesService extends APIService {
   async getTagEntities(
     workspaceSlug: string,
     tagId: string,
-    options: { types?: TEntityName[]; offset?: number; limit?: number } & TSharedTagFilters = {}
+    options: { types?: TEntityName[]; offset?: number; limit?: number } & TSharedTagFilters & TSharedTagCombination = {}
   ): Promise<TSharedTagEntities> {
-    const { types, ...rest } = options;
+    const { types, with: withTags, mode, ...rest } = options;
+    const combined = withTags?.length ? { with: withTags.join(","), mode: mode ?? "all" } : {};
     return this.get(`/api/workspaces/${workspaceSlug}/shared-tags/${tagId}/entities/`, {
-      params: { ...rest, types: types?.join(",") || undefined },
+      params: { ...rest, ...combined, types: types?.join(",") || undefined },
     }).then((response) => response.data);
   }
 
@@ -151,7 +153,7 @@ export class ReferencesService extends APIService {
     workspaceSlug: string,
     tagId: string,
     types?: TEntityName[],
-    filters: TSharedTagFilters = {}
+    filters: TSharedTagFilters & TSharedTagCombination = {}
   ): Promise<{ export_id: string }> {
     return this.post(`/api/workspaces/${workspaceSlug}/shared-tags/${tagId}/export/`, {
       types: types ?? [],

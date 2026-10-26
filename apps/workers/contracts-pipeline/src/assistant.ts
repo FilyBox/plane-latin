@@ -47,6 +47,7 @@ import {
   type WorkPayload,
 } from "./lib/contract-analysis";
 import { estimateTurnCost } from "./lib/pricing";
+import { cleanAlbums, groupingSummary, type GroupingAlbumInput, type GroupingAlbumResult } from "./lib/album-grouping";
 import { internalApi, type ContractWorkLink } from "./lib/internal-api";
 import { repairTruncatedJson } from "./lib/json-repair";
 import { collectEntities, linkMentions } from "./lib/page-links";
@@ -287,7 +288,9 @@ CATÁLOGO MUSICAL
 - query_music_tracks para canciones (artista, año, fechas, ISRC, estado, con video, con enlaces, y por los videos: fechas, ISRC o UPC del video). Cada canción trae sus videos (ISRC, UPC, fecha, URLs) y sus enlaces. Devuelve pocas filas y el total; para listados largos usa export_music_excel o propose_report.
 - export_music_excel cuando pidan un listado descargable, con los mismos filtros.
 - update_music_track para cambiar una canción (fechas, ISRC, agregar un video). Devuelve una propuesta que el usuario aprueba.
-- IMPORTAR un CSV/XLSX: 1) read_import_file con el asset_id (los adjuntos del chat ya lo traen; si no, list_music_files). 2) Decide tú el mapeo leyendo el CONTENIDO de cada columna (column_samples), no solo su nombre. 3) plan_music_import con ese mapeo: valida el archivo sin importar nada. 4) Resume el plan en una o dos frases y dile al usuario que pulse "Revisar e importar": se abre el importador de Música con tu mapeo para revisar valores, duplicados y confirmar. No intentes resolver ahí cada fila.`
+- IMPORTAR un CSV/XLSX: 1) read_import_file con el asset_id (los adjuntos del chat ya lo traen; si no, list_music_files). 2) Decide tú el mapeo leyendo el CONTENIDO de cada columna (column_samples), no solo su nombre. 3) plan_music_import con ese mapeo: valida el archivo sin importar nada. 4) Resume el plan en una o dos frases y dile al usuario que pulse "Revisar e importar": se abre el importador de Música con tu mapeo para revisar valores, duplicados y confirmar. No intentes resolver ahí cada fila.
+- AGRUPAR CANCIONES EN ÁLBUMES: cuando el usuario pida agrupar, armar o acomodar canciones en álbumes a partir de una lista (escrita en el chat o en un archivo adjunto o mencionado: PDF, Word, hoja de cálculo), 1) si es un archivo, léelo con read_file; 2) extrae cada álbum con su lista de canciones tal como aparece: título, artistas, UPC del álbum, ISRC, disco y número de pista solo si vienen; no inventes ni completes datos que no estén; 3) llama propose_album_grouping con todos los álbumes (una sola llamada). La tarjeta muestra para cada álbum el lanzamiento existente o uno nuevo, los duplicados que se unirán y la canción del catálogo de cada pista; el usuario revisa y aplica ahí. Resume en una frase lo que encontró (cuántas canciones coinciden, cuáles faltan o son ambiguas) y nunca digas que ya quedó agrupado.
+- "Junta / une los lanzamientos duplicados de X" (el mismo álbum repetido): propose_album_grouping con ese álbum (título y artistas) y sin canciones, o con las que el usuario nombre; la tarjeta lista los duplicados con su número de canciones para unirlos.`
       : ""
   }${
     caps.works
@@ -305,6 +308,7 @@ OBRAS DE LOS CONTRATOS (canciones y lanzamientos ligados a contratos)
 ETIQUETAS Y REFERENCIAS
 - find_tags para la grafía exacta de una etiqueta (artistas, grupos, tipos) y sus variantes.
 - find_by_tag para todo lo que lleva una etiqueta (contratos, archivos, canciones, lanzamientos, tareas, gastos), con búsqueda y fechas. "Qué lanzamientos tuvo X en 2024": types ["music_release"] con date_from/date_to. Incluye el enlace "link" a la vista de la etiqueta para ver o descargar todo.
+- Varias etiquetas a la vez ("contratos y álbumes del artista X con la etiqueta Y"): find_by_tag con tag_ids [X, Y] y mode "all" (lo que lleva ambas; las canciones y lanzamientos acreditados al artista cuentan como suyos). mode "any" para lo que lleve cualquiera.
 - search_workspace para encontrar cualquier elemento por nombre; get_references para ver qué menciona y dónde lo mencionan.
 - "Etiqueta / ponle la etiqueta X a estos…" o "quítales X": propose_tagging con los elementos exactos (ids de menciones, del contexto o de resultados que ya trajiste; nunca inventes ids). Si la etiqueta no existe, pásala como new_tag. La tarjeta deja desmarcar elementos, se aplica al confirmar y se puede deshacer.`
       : ""
@@ -335,7 +339,8 @@ ${
       ? `
 ORDENAR ETIQUETAS (el usuario es administrador)
 - "Junta / unifica / agrupa 3Ball, 3BallMTY…": find_tags con fragmentos cortos ("3ball") para ver las variantes reales; elige como "keep" la más usada o la mejor escrita y llama propose_tag_merge. La tarjeta muestra qué tiene cada etiqueta y el usuario confirma; se puede deshacer. Si no es obvio qué variantes son el mismo artista (p. ej. "Chesary / Mr. Fer / 3BallMTY" es una colaboración), pregunta con ask_user antes de proponer.
-- "Clasifica / etiqueta todo", "ordena todas las etiquetas", "encuentra duplicados en todo": start_tag_mapping. Prepara un mapeo con IA de contratos, archivos, tareas y gastos que propone etiquetas y fusiona variantes; el usuario lo inicia en la tarjeta y lo revisa en Etiquetas antes de aplicar. La tarjeta muestra el estado real (listo para iniciar, en curso o ya esperando revisión): no supongas cuál es, di solo que revise la tarjeta. Las canciones y lanzamientos no se escanean: ya llegan a la etiqueta de su artista por los créditos del catálogo (dilo si preguntan por canciones).`
+- "Clasifica / etiqueta todo", "ordena todas las etiquetas", "encuentra duplicados en todo": start_tag_mapping. Prepara un mapeo con IA de contratos, archivos, tareas y gastos que propone etiquetas y fusiona variantes; el usuario lo inicia en la tarjeta y lo revisa en Etiquetas antes de aplicar. La tarjeta muestra el estado real (listo para iniciar, en curso o ya esperando revisión): no supongas cuál es, di solo que revise la tarjeta. Las canciones y lanzamientos también pueden entrar al mapeo (la tarjeta deja elegir qué tipos revisar).
+- Las canciones y lanzamientos SÍ se pueden etiquetar directamente, con cualquier etiqueta (no solo la del artista): para "ponle la etiqueta X a estas canciones" usa propose_tagging con sus ids (query_music_tracks si hace falta encontrarlas). Nunca digas que no hace falta o que no se puede; solo aclara, si viene al caso, que además ya se relacionan con su artista por los créditos.`
       : ""
   }`;
 };
@@ -871,6 +876,50 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
     });
   }
 
+  if (caps.music && body.user_id) {
+    const userId = body.user_id;
+    const trackSchema = z.object({
+      title: z.string().max(300).describe("Título tal como aparece en la lista"),
+      isrc: z.string().max(20).optional(),
+      artists: z.array(z.string().max(255)).max(10).optional().describe("Solo si la pista nombra a sus artistas"),
+      disc_number: z.number().int().min(1).max(99).optional(),
+      track_number: z.number().int().min(1).max(999).optional(),
+      duration: z.string().max(20).optional(),
+    });
+    tools.propose_album_grouping = tool({
+      description:
+        "Propone agrupar canciones del catálogo en álbumes a partir de una lista de álbumes con sus canciones (escrita por el usuario o leída de un archivo), o unir lanzamientos duplicados de un álbum. Busca SIN escribir nada: el lanzamiento que ya tiene cada álbum (y sus duplicados con el mismo título y artista), y la canción del catálogo de cada pista (ISRC, título y artista). Devuelve la tarjeta donde el usuario revisa y aplica.",
+      inputSchema: z.object({
+        albums: z
+          .array(
+            z.object({
+              title: z.string().min(1).max(300),
+              artists: z.array(z.string().max(255)).max(10).optional(),
+              upc: z.string().max(32).optional(),
+              type: z.enum(["SINGLE", "EP", "LP", "ALBUM", "COMPILATION", "SOUNDTRACK"]).optional(),
+              release_date: z.string().optional().describe("YYYY-MM-DD, solo si la lista la trae"),
+              tracks: z
+                .array(trackSchema)
+                .max(200)
+                .describe("Las canciones del álbum en su orden; vacío para solo unir duplicados"),
+            })
+          )
+          .min(1)
+          .max(30),
+      }),
+      execute: async ({ albums }) => {
+        const cleaned = cleanAlbums(albums as GroupingAlbumInput[]);
+        if (cleaned.length === 0) return { error: "La lista no trae álbumes ni canciones." };
+        const data = await api.request<{ albums: GroupingAlbumResult[] }>(
+          "POST",
+          `/internal/workspaces/${workspace}/assistant/music/album-grouping/match/`,
+          { user_id: userId, albums: cleaned }
+        );
+        return { summary: groupingSummary(data.albums ?? []), albums: data.albums ?? [], workspace_slug: slug };
+      },
+    });
+  }
+
   if (caps.works && body.user_id) {
     const userId = body.user_id;
     const contractPath = (id: string) => `/${slug}/file-library/contracts/analyzed?peek=${id}`;
@@ -1067,17 +1116,35 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
 
     tools.find_by_tag = tool({
       description:
-        "Todo lo que lleva una etiqueta (por nombre exacto o tag_id), agrupado por tipo con conteos, hasta 30 por tipo, más recientes primero, con búsqueda y rango de fechas.",
+        "Todo lo que lleva una etiqueta (por nombre exacto o tag_id) o una combinación de etiquetas (tag_ids + mode), agrupado por tipo con conteos, hasta 30 por tipo, más recientes primero, con búsqueda y rango de fechas.",
       inputSchema: z.object({
         tag: z.string().optional().describe("Nombre exacto (usa find_tags antes)"),
         tag_id: z.string().optional(),
+        tag_ids: z
+          .array(z.string())
+          .max(11)
+          .optional()
+          .describe("Varias etiquetas a combinar (ids de find_tags); con tag o tag_id se suman a esa"),
+        mode: z
+          .enum(["all", "any"])
+          .optional()
+          .describe("all (por defecto): lo que lleva todas; any: lo que lleva al menos una"),
         types: z.array(z.enum(ENTITY_TYPES)).optional(),
         query: z.string().optional().describe("Buscar dentro de la etiqueta"),
         date_from: z.string().optional(),
         date_to: z.string().optional(),
       }),
-      execute: async ({ tag, tag_id, types, query: q, date_from, date_to }) =>
-        lookup("tagged/", { tag, tag_id, types: types?.join(","), q, date_from, date_to }),
+      execute: async ({ tag, tag_id, tag_ids, mode, types, query: q, date_from, date_to }) =>
+        lookup("tagged/", {
+          tag,
+          tag_id,
+          tag_ids: tag_ids?.length ? tag_ids.join(",") : undefined,
+          mode: tag_ids?.length ? mode : undefined,
+          types: types?.join(","),
+          q,
+          date_from,
+          date_to,
+        }),
     });
 
     tools.search_workspace = tool({
@@ -1206,9 +1273,14 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
 
       tools.start_tag_mapping = tool({
         description:
-          "Prepara un mapeo con IA de todo el workspace: propone etiquetas para contratos, archivos, tareas y gastos y agrupa variantes de un mismo nombre. No arranca solo: el usuario lo inicia en la tarjeta y revisa las propuestas antes de aplicar.",
+          "Prepara un mapeo con IA de todo el workspace: propone etiquetas (artistas, tipos y etiquetas existentes como proyectos o campañas) para contratos, archivos, tareas y gastos, y si se piden también canciones y lanzamientos; agrupa variantes de un mismo nombre. No arranca solo: el usuario elige los tipos y lo inicia en la tarjeta, y revisa las propuestas antes de aplicar.",
         inputSchema: z.object({
-          types: z.array(z.enum(MAPPABLE_TYPES)).optional().describe("Qué revisar; por defecto todo"),
+          types: z
+            .array(z.enum([...MAPPABLE_TYPES, "music_track", "music_release"]))
+            .optional()
+            .describe(
+              "Qué revisar. Por defecto contratos, archivos, tareas y gastos; incluye music_track (canciones) y music_release (lanzamientos) solo si el usuario los pide"
+            ),
         }),
         execute: async ({ types }) => ({
           types: types && types.length > 0 ? types : [...MAPPABLE_TYPES],

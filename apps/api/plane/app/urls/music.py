@@ -1,6 +1,7 @@
 from django.urls import path
 
 from plane.app.views import (
+    InternalMusicAlbumGroupingMatchEndpoint,
     InternalMusicImportEndpoint,
     InternalMusicTracksEndpoint,
     InternalWorkspaceAssetsEndpoint,
@@ -19,6 +20,8 @@ from plane.app.views import (
     MusicPartyEndpoint,
     MusicReleaseDetailEndpoint,
     MusicReleaseEndpoint,
+    MusicReleaseGroupEndpoint,
+    MusicReleaseInferTypesEndpoint,
     MusicReportEndpoint,
     MusicTrackBulkDeleteEndpoint,
     MusicTrackBulkUpdateEndpoint,
@@ -28,6 +31,16 @@ from plane.app.views import (
 
 urlpatterns = [
     path("workspaces/<str:slug>/music/releases/", MusicReleaseEndpoint.as_view(), name="music-releases"),
+    path(
+        "workspaces/<str:slug>/music/releases/infer-types/",
+        MusicReleaseInferTypesEndpoint.as_view(),
+        name="music-releases-infer-types",
+    ),
+    path(
+        "workspaces/<str:slug>/music/releases/group/",
+        MusicReleaseGroupEndpoint.as_view(),
+        name="music-releases-group",
+    ),
     path("workspaces/<str:slug>/music/releases/<uuid:release_id>/", MusicReleaseDetailEndpoint.as_view(), name="music-release-detail"),
     path("workspaces/<str:slug>/music/tracks/", MusicTrackEndpoint.as_view(), name="music-tracks"),
     path("workspaces/<str:slug>/music/tracks/bulk-delete/", MusicTrackBulkDeleteEndpoint.as_view(), name="music-tracks-bulk-delete"),
@@ -70,6 +83,11 @@ urlpatterns = [
         "internal/workspaces/<uuid:workspace_id>/music/import/",
         InternalMusicImportEndpoint.as_view(),
         name="internal-music-import",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/music/album-grouping/match/",
+        InternalMusicAlbumGroupingMatchEndpoint.as_view(),
+        name="internal-music-album-grouping-match",
     ),
     path(
         "internal/workspaces/<uuid:workspace_id>/assets/",

@@ -61,8 +61,14 @@ export type TSharedTag = {
   usage?: number;
 };
 
+/** How extra tags combine with the main one: things carrying all of them, or any. */
+export type TSharedTagMode = "all" | "any";
+
 export type TSharedTagEntities = {
   tag: TSharedTag;
+  /** Tags combined with `tag` (the ones that exist in the workspace). */
+  with_tags?: TSharedTag[];
+  mode?: TSharedTagMode;
   groups: Partial<Record<TEntityName, { count: number; items: TEntityCard[] }>>;
   mentioned_in: TEntityCard[];
   /** Years with something under the tag, newest first (first page only). */
@@ -74,6 +80,12 @@ export type TSharedTagFilters = {
   q?: string;
   date_from?: string;
   date_to?: string;
+};
+
+/** Browsing several tags at once: extra tag ids and how they combine. */
+export type TSharedTagCombination = {
+  with?: string[];
+  mode?: TSharedTagMode;
 };
 
 export type TTaggingRunStatus = "QUEUED" | "RUNNING" | "REVIEW" | "COMPLETED" | "FAILED" | "CANCELLED" | "UNDONE";
@@ -101,6 +113,9 @@ export type TTaggingRun = {
    * a merge confirmed from the assistant's card. */
   scope: {
     types?: TEntityName[];
+    /** Kinds asked for but left out: songs and releases need the music
+     * catalog module and a workspace admin. */
+    skipped?: TEntityName[];
     ids?: string[];
     auto?: boolean;
     source?: "assistant";
@@ -118,5 +133,7 @@ export type TTaggingRun = {
 export type TTaggingOverview = {
   runs: TTaggingRun[];
   scannable: TEntityName[];
+  /** Kinds checked when starting a run; songs and releases are opt-in. */
+  defaults?: TEntityName[];
   counts: Partial<Record<TEntityName, number>>;
 };
