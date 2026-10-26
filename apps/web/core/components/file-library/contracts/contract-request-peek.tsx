@@ -141,16 +141,6 @@ export function ContractRequestPeek({
       : request?.rendered_pdf_asset_id || request?.pdf_asset_id;
 
   useEffect(() => {
-    // Escape closes the confirmation first, not the panel under it.
-    if (confirming) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [confirming, onClose]);
-
-  useEffect(() => {
     let cancelled = false;
     setPdfUrl(null);
     setPreviewFailed(false);
@@ -512,6 +502,8 @@ export function ContractRequestPeek({
   return (
     <>
       <ContractPeekLayout
+        // Escape closes the confirmation first, not the panel under it.
+        suspendClose={Boolean(confirming)}
         title={request?.title ?? t("file_library.contracts.workflow.documents.title")}
         status={
           request ? (

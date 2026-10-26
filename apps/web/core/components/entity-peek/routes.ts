@@ -6,7 +6,8 @@
  * Entity panels that open anywhere. A panel lives in the URL so it can be
  * shared: a module page keeps its own parameter (contracts `?peek=`, music
  * `?track=` / `?release=`, expenses `?expense=`), and any other page uses
- * `?open=<kind>:<id>`, rendered by the global host.
+ * `?open=<kind>:<id>`, rendered by the global host. Panels opened from
+ * inside a panel stack: each adds one more `open` value.
  */
 
 export const PEEK_KINDS = ["contract", "music_track", "music_release", "expense"] as const;
@@ -32,6 +33,26 @@ export function ownParam(pathname: string, kind: TPeekKind): string | null {
   if (kind === "music_release" && MUSIC.test(pathname)) return "release";
   if (kind === "expense" && EXPENSES.test(pathname)) return "expense";
   return null;
+}
+
+/** The page's own panel parameters (`?peek=`, `?track=`…) that are set. */
+export function ownOpenParams(pathname: string, params: URLSearchParams): { kind: TPeekKind; param: string }[] {
+  return PEEK_KINDS.flatMap((kind) => {
+    const param = ownParam(pathname, kind);
+    return param && params.get(param) ? [{ kind, param }] : [];
+  });
+}
+
+/** The `?open=` panels in the URL, bottom first, without repeats. Several
+ * stack: `?peek=<contract>&open=music_track:<id>` is a song over a contract. */
+export function parseOpenList(params: URLSearchParams): TPeekTarget[] {
+  const seen = new Set<string>();
+  return params.getAll(OPEN_PARAM).flatMap((value) => {
+    const target = parseOpen(value);
+    if (!target || seen.has(encodeOpen(target))) return [];
+    seen.add(encodeOpen(target));
+    return [target];
+  });
 }
 
 /** The element in its own section, with its panel open. */

@@ -7,6 +7,7 @@
 import { useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { PeekPanel } from "@/components/core/peek-panel";
+import { usePanelLayer } from "@/components/panel-stack/use-panel-layer";
 // plane imports
 import type { EditorRefApi } from "@plane/editor";
 import type { TNameDescriptionLoader } from "@plane/types";
@@ -84,11 +85,19 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
   const isAnyLocalModalOpen =
     isDeleteIssueModalOpen || isArchiveIssueModalOpen || isDuplicateIssueModalOpen || isEditIssueModalOpen;
 
+  // A contract or song opened from the work item (a mention, a reference)
+  // stacks on top; only the panel on top answers outside clicks and Escape
+  const layer = usePanelLayer(Boolean(issueId) && !embedIssue, {
+    variant: peekMode === "side-peek" ? "side" : "center",
+  });
+  const isTopRef = useRef(layer.isTop);
+  isTopRef.current = layer.isTop;
+
   usePeekOverviewOutsideClickDetector(
     issuePeekOverviewRef,
     () => {
       const isAnyDropbarOpen = editorRef.current?.isAnyDropbarOpen();
-      if (!embedIssue) {
+      if (!embedIssue && isTopRef.current) {
         if (!isAnyModalOpen && !isAnyEpicModalOpen && !isAnyLocalModalOpen && !isAnyDropbarOpen) {
           removeRoutePeekId();
         }
@@ -109,7 +118,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
     }
   };
 
-  useKeypress("Escape", () => !embedIssue && handleKeyDown());
+  useKeypress("Escape", () => !embedIssue && isTopRef.current && handleKeyDown());
 
   const handleRestore = async () => {
     if (!issueOperations.restore) return;
@@ -120,7 +129,12 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
   const content = (
     <div className="w-full text-body-sm-regular">
       {issueId && (
-        <PeekPanel ref={issuePeekOverviewRef} mode={peekMode} embedded={embedIssue}>
+        <PeekPanel
+          ref={issuePeekOverviewRef}
+          mode={peekMode}
+          embedded={embedIssue}
+          layer={embedIssue ? undefined : layer}
+        >
           {isError ? (
             <div className="relative h-screen w-full overflow-hidden">
               <IssuePeekOverviewError removeRoutePeekId={removeRoutePeekId} />

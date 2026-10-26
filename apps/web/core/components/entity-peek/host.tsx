@@ -3,14 +3,17 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  * See the LICENSE file for details.
  *
- * Renders the entity panel named by `?open=<kind>:<id>` over whatever page
+ * Renders the entity panels named by `?open=<kind>:<id>` over whatever page
  * the user is on (opened from the assistant, a page mention, a reference
- * list or a shared link). A page with its own panel for that kind takes the
- * link over instead, so its list highlights and refreshes the row.
+ * list or a shared link). Several `open` values stack, in URL order, over the
+ * page's own panel. When no panel is open yet, a page with its own panel for
+ * that kind takes the link over instead, so its list highlights and
+ * refreshes the row.
  */
 
 import { useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence } from "framer-motion";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import useSWR, { useSWRConfig } from "swr";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
@@ -21,7 +24,8 @@ import { MusicTrackPeekPanel } from "@/components/music-catalog/track-peek-panel
 import { ExpenseModal } from "@/components/payments/expense-modal";
 import { financeService } from "@/services/finance.service";
 import { musicService } from "@/services/music.service";
-import { OPEN_PARAM, ownParam, parseOpen, sectionPath } from "./routes";
+import { PanelLayerRank } from "@/components/panel-stack/use-panel-layer";
+import { OPEN_PARAM, encodeOpen, ownOpenParams, ownParam, parseOpenList, sectionPath } from "./routes";
 import type { TPeekTarget } from "./routes";
 
 type PanelProps = { slug: string; id: string; onClose: () => void; onOpenInSection: () => void };
@@ -184,43 +188,61 @@ export function EntityPeekHost() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const target = parseOpen(searchParams.get(OPEN_PARAM));
-  const own = target ? ownParam(pathname, target.kind) : null;
+  const opened = parseOpenList(searchParams);
+  const pagePanelOpen = ownOpenParams(pathname, searchParams).length > 0;
+  // Only the bottom panel can belong to the page: one opened over another
+  // panel stays in the stack, even when the page has a panel for its kind.
+  const first = opened[0];
+  const handOff = first && !pagePanelOpen ? ownParam(pathname, first.kind) : null;
 
   // On a page with its own panel for this kind (a shared `?open=` link landing
   // on the contracts list, say), hand the link to the page.
   useEffect(() => {
-    if (!target || !own) return;
+    if (!first || !handOff) return;
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
+        const rest = parseOpenList(next).filter((item) => encodeOpen(item) !== encodeOpen(first));
         next.delete(OPEN_PARAM);
-        next.set(own, target.id);
+        next.set(handOff, first.id);
+        rest.forEach((item) => next.append(OPEN_PARAM, encodeOpen(item)));
         return next;
       },
       { replace: true }
     );
-  }, [target?.kind, target?.id, own]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [first?.kind, first?.id, handOff]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!target || own || !workspaceSlug) return null;
+  if (!workspaceSlug) return null;
   const slug = String(workspaceSlug);
-  const close = () =>
+  // Closing one removes only its own entry; the panels under it stay
+  const close = (target: TPeekTarget) =>
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
+        const rest = parseOpenList(next).filter((item) => encodeOpen(item) !== encodeOpen(target));
         next.delete(OPEN_PARAM);
+        rest.forEach((item) => next.append(OPEN_PARAM, encodeOpen(item)));
         return next;
       },
       { replace: true }
     );
-  const Panel = PANELS[target.kind];
+  const stacked = handOff ? opened.slice(1) : opened;
   return (
-    <Panel
-      key={`${target.kind}:${target.id}`}
-      slug={slug}
-      id={target.id}
-      onClose={close}
-      onOpenInSection={() => navigate(sectionPath(slug, target))}
-    />
+    // Keeps a closed panel mounted while it slides out
+    <AnimatePresence>
+      {stacked.map((target, index) => {
+        const Panel = PANELS[target.kind];
+        return (
+          <PanelLayerRank key={encodeOpen(target)} rank={index + 1}>
+            <Panel
+              slug={slug}
+              id={target.id}
+              onClose={() => close(target)}
+              onOpenInSection={() => navigate(sectionPath(slug, target))}
+            />
+          </PanelLayerRank>
+        );
+      })}
+    </AnimatePresence>
   );
 }

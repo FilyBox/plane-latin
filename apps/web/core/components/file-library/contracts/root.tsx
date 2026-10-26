@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { useDropzone } from "react-dropzone";
+import { AnimatePresence } from "framer-motion";
 import {
   ArrowUpDown,
   BookOpen,
@@ -802,20 +803,23 @@ export const ContractsRoot = observer(function ContractsRoot(props: Props) {
         )}
       </div>
 
-      {/* peek panel */}
-      {selectedContractId && (
-        <ContractPeekPanel
-          workspaceSlug={workspaceSlug}
-          contractId={selectedContractId}
-          onClose={() => setSelectedContractId(null)}
-          onMutate={refreshAll}
-          onDeleted={() => {
-            setSelectedIds((previous) => previous.filter((id) => id !== selectedContractId));
-            setSelectedContractId(null);
-            void mutateContracts();
-          }}
-        />
-      )}
+      {/* peek panel (kept mounted while it slides out) */}
+      <AnimatePresence>
+        {selectedContractId && (
+          <ContractPeekPanel
+            key="contract-peek"
+            workspaceSlug={workspaceSlug}
+            contractId={selectedContractId}
+            onClose={() => setSelectedContractId(null)}
+            onMutate={refreshAll}
+            onDeleted={() => {
+              setSelectedIds((previous) => previous.filter((id) => id !== selectedContractId));
+              setSelectedContractId(null);
+              void mutateContracts();
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       <ContractUploadPanel {...uploads} onOpenContract={(id) => setSelectedContractId(id)} />
 

@@ -55,6 +55,8 @@ import { MusicResourcePickerModal } from "./resource-picker-modal";
 import { SearchableSelect } from "./searchable-select";
 import { AskAssistantButton } from "@/components/assistant/ask";
 import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
+import { StackLayer } from "@/components/panel-stack/stack-layer";
+import { usePanelLayer } from "@/components/panel-stack/use-panel-layer";
 import { WorkContractsSection } from "./work-contracts-section";
 
 type Props = {
@@ -331,14 +333,17 @@ export function MusicTrackPeekPanel(props: Props) {
     [track.id, track.tiktok_preview_start_ms, track.tiktok_preview_end_ms, track.duration_ms]
   );
 
-  // Escape closes the panel unless a sheet is stacked on top
+  // Where this panel sits among the open panels (a contract opened from it stacks on top)
+  const layer = usePanelLayer(true);
+  const isTopLayer = layer.isTop;
+  // Escape closes the panel unless a sheet or another panel is stacked on top
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !suspendClose) onClose();
+      if (event.key === "Escape" && !suspendClose && isTopLayer) onClose();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [suspendClose, onClose]);
+  }, [suspendClose, isTopLayer, onClose]);
 
   const patch = async (payload: Record<string, unknown>) => {
     // Create mode: nothing persisted yet — accumulate into the local draft
@@ -771,10 +776,14 @@ export function MusicTrackPeekPanel(props: Props) {
 
   return (
     <>
-      {/* click-outside catcher (below the panel, above the page) — transparent
-          so the underlying catalog stays fully visible, not dimmed */}
-      <div className="absolute inset-0 z-20 bg-transparent" onClick={onClose} aria-hidden />
-      <div className="absolute top-0 right-0 bottom-0 z-21 flex w-full flex-col overflow-hidden border-l border-subtle bg-surface-1 shadow-raised-200 md:w-xl">
+      {/* click-outside catcher — transparent over the catalog so it stays fully
+          visible; dimmed when the song sits on top of another panel */}
+      <StackLayer
+        layer={layer}
+        backdrop={layer.depth > 0 ? "dim" : "clear"}
+        onBackdropClick={onClose}
+        className="absolute top-0 right-0 bottom-0 flex w-full flex-col overflow-hidden rounded-sm border-l border-subtle bg-surface-1 shadow-raised-200 md:w-xl"
+      >
         {/* header — the cover IS the icon spot: click to add/replace it */}
         <div className="flex shrink-0 items-start justify-between gap-2 border-b border-subtle px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -1826,7 +1835,7 @@ export function MusicTrackPeekPanel(props: Props) {
             </div>
           </div>
         )}
-      </div>
+      </StackLayer>
       <MusicResourcePickerModal
         workspaceSlug={workspaceSlug}
         isOpen={Boolean(creditPicker)}

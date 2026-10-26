@@ -43,6 +43,8 @@ import { cn } from "@plane/utils";
 // services
 import { AskAssistantButton } from "@/components/assistant/ask";
 import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
+import { StackLayer } from "@/components/panel-stack/stack-layer";
+import { usePanelLayer } from "@/components/panel-stack/use-panel-layer";
 import { EntityBacklinks } from "@/components/references/references-section";
 import { SharedTagPicker } from "@/components/references/shared-tag-picker";
 import { useWorkspace } from "@/hooks/store/use-workspace";
@@ -251,15 +253,18 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
   }, [isDirty, onClose]);
 
   const anyModalOpen = isRetryModalOpen || isDeleteModalOpen || isDiscardOpen || isRenewOpen || isWorksPickerOpen;
-  // Escape closes (matches the work-item peek behavior), unless a dialog is on top
+  // Where this panel sits among the open panels (a song opened from it stacks on top)
+  const layer = usePanelLayer(true, { variant: peekMode === "side-peek" ? "side" : "center" });
+  const isTopLayer = layer.isTop;
+  // Escape closes (matches the work-item peek behavior), unless a dialog or another panel is on top
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || anyModalOpen) return;
+      if (event.key !== "Escape" || event.defaultPrevented || anyModalOpen || !isTopLayer) return;
       requestClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [anyModalOpen, requestClose]);
+  }, [anyModalOpen, isTopLayer, requestClose]);
 
   // PDF presigned URL
   useEffect(() => {
@@ -927,15 +932,12 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
     </div>
   );
 
-  const panelClassName = cn(
-    "absolute z-[25] flex flex-col overflow-hidden rounded-sm border border-subtle bg-surface-1 transition-all duration-300",
-    {
-      // Wider sheet than the work-item peek so the document + data read comfortably
-      "top-0 right-0 bottom-0 w-full border-0 border-l lg:w-[80%] xl:w-[72%]": peekMode === "side-peek",
-      "top-[8.33%] left-[8.33%] size-5/6 max-lg:top-0 max-lg:left-0 max-lg:size-full": peekMode === "modal",
-      "inset-0 lg:m-4": peekMode === "full-screen",
-    }
-  );
+  const panelClassName = cn("absolute flex flex-col overflow-hidden rounded-sm border border-subtle bg-surface-1", {
+    // Wider sheet than the work-item peek so the document + data read comfortably
+    "top-0 right-0 bottom-0 w-full border-0 border-l lg:w-[80%] xl:w-[72%]": peekMode === "side-peek",
+    "top-[8.33%] left-[8.33%] size-5/6 max-lg:top-0 max-lg:left-0 max-lg:size-full": peekMode === "modal",
+    "inset-0 lg:m-4": peekMode === "full-screen",
+  });
 
   const portalContainer = typeof document !== "undefined" ? document.getElementById("full-screen-portal") : null;
 
@@ -943,251 +945,242 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
     !contract ? statePane : pane === "chat" ? chatPane : pane === "process" ? processPane : infoPane;
 
   const content = (
-    <div className="absolute inset-0 z-[24]">
-      {/* backdrop */}
-      <button
-        type="button"
-        tabIndex={-1}
-        className="absolute inset-0 bg-black/20"
-        onClick={requestClose}
-        aria-label={t("close")}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className={panelClassName}
-        style={{
-          boxShadow:
-            "0px 4px 8px 0px rgba(0, 0, 0, 0.12), 0px 6px 12px 0px rgba(16, 24, 40, 0.12), 0px 1px 16px 0px rgba(16, 24, 40, 0.12)",
-        }}
-      >
-        {/* header: title and status on the left; quick actions, the rest in a menu */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 py-2 sm:px-4">
-          {/* peek mode switcher (desktop) */}
-          <div className="hidden shrink-0 items-center gap-0.5 rounded-md border border-subtle p-0.5 lg:flex">
-            {PEEK_OPTIONS.map((option) => (
-              <Tooltip key={option.key} tooltipContent={t(option.i18nKey)}>
-                <button
-                  type="button"
-                  onClick={() => setPeekMode(option.key)}
-                  aria-label={t(option.i18nKey)}
-                  aria-pressed={peekMode === option.key}
-                  className={cn(
-                    "rounded-sm p-1",
-                    peekMode === option.key ? "bg-layer-1 text-primary" : "text-tertiary hover:bg-layer-1-hover"
-                  )}
-                >
-                  <option.icon className="size-3.5" />
-                </button>
-              </Tooltip>
-            ))}
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2
-              id={titleId}
-              className="truncate text-14 leading-5 font-medium"
-              title={contract?.titulo ?? contract?.file_name ?? ""}
-            >
-              {contract?.titulo ?? contract?.file_name ?? t("file_library.contracts.title")}
-            </h2>
-            {contract && (
-              <div className="flex min-w-0 items-center gap-1.5">
-                <ProcessingBadge contract={contract} activeJob={activeJob} errorMessage={failureMessage} />
-                {contract.file_name && contract.titulo && (
-                  <span className="min-w-0 truncate text-11 text-tertiary" title={contract.file_name}>
-                    {contract.file_name}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            <AskAssistantButton
-              compact
-              className={HEADER_ICON}
-              iconClassName="size-4"
-              mentions={
-                contract
-                  ? [{ type: "contract", id: contract.id, label: contract.titulo || contract.file_name || contract.id }]
-                  : []
-              }
-            />
-            <Tooltip tooltipContent={t("file_library.download")}>
+    <StackLayer
+      layer={layer}
+      backdrop="dim"
+      onBackdropClick={requestClose}
+      dialog={{ labelledBy: titleId, modal: true }}
+      className={panelClassName}
+      style={{
+        boxShadow:
+          "0px 4px 8px 0px rgba(0, 0, 0, 0.12), 0px 6px 12px 0px rgba(16, 24, 40, 0.12), 0px 1px 16px 0px rgba(16, 24, 40, 0.12)",
+      }}
+    >
+      {/* header: title and status on the left; quick actions, the rest in a menu */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-subtle px-3 py-2 sm:px-4">
+        {/* peek mode switcher (desktop) */}
+        <div className="hidden shrink-0 items-center gap-0.5 rounded-md border border-subtle p-0.5 lg:flex">
+          {PEEK_OPTIONS.map((option) => (
+            <Tooltip key={option.key} tooltipContent={t(option.i18nKey)}>
               <button
                 type="button"
-                onClick={() => void handleDownload()}
-                disabled={!contract?.file_asset_id || isDownloading}
-                aria-label={t("file_library.download")}
-                className={HEADER_ICON}
+                onClick={() => setPeekMode(option.key)}
+                aria-label={t(option.i18nKey)}
+                aria-pressed={peekMode === option.key}
+                className={cn(
+                  "rounded-sm p-1",
+                  peekMode === option.key ? "bg-layer-1 text-primary" : "text-tertiary hover:bg-layer-1-hover"
+                )}
               >
-                {isDownloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                <option.icon className="size-3.5" />
               </button>
             </Tooltip>
-            <PeekLinkActions onOpenInSection={onOpenInSection} className={HEADER_ICON} />
-            {canEdit && (
-              <CustomMenu
-                customButton={
-                  <span className={HEADER_ICON} aria-hidden>
-                    <MoreHorizontal className="size-4" />
-                  </span>
-                }
-                customButtonClassName="rounded-sm"
-                placement="bottom-end"
-                ariaLabel={t("file_library.contracts.workflow.common.actions")}
-                closeOnSelect
-              >
-                <CustomMenu.MenuItem
-                  onClick={() => openRetry(failedRetryKey ? { [failedRetryKey]: true } : undefined)}
-                  disabled={isActing || !!activeJob}
-                >
-                  <span className="flex items-start gap-2" title={t("file_library.contracts.retry.hint")}>
-                    <RefreshCcw className="mt-0.5 size-3.5 shrink-0" />
-                    {t("file_library.contracts.retry.button")}
-                  </span>
-                </CustomMenu.MenuItem>
-                <CustomMenu.MenuItem
-                  onClick={() => void handleReanalyze()}
-                  disabled={isActing || !!activeJob || !contract?.text_extracted_at}
-                >
-                  <span className="flex items-start gap-2" title={t("file_library.contracts.reanalyze.hint")}>
-                    <Sparkles className="mt-0.5 size-3.5 shrink-0" />
-                    {t("file_library.contracts.reanalyze.button")}
-                  </span>
-                </CustomMenu.MenuItem>
-                {activeJob && (
-                  <CustomMenu.MenuItem onClick={() => void handleCancelJob()} disabled={isCancelling}>
-                    <span className="flex items-center gap-2">
-                      <Ban className="size-3.5" />
-                      {t("file_library.contracts.process.cancel")}
-                    </span>
-                  </CustomMenu.MenuItem>
-                )}
-                {canRenew && (
-                  <CustomMenu.MenuItem onClick={() => setIsRenewOpen(true)}>
-                    <span className="flex items-center gap-2">
-                      <CalendarSync className="size-3.5" />
-                      {t("file_library.contracts.renew.button")}
-                    </span>
-                  </CustomMenu.MenuItem>
-                )}
-                <CustomMenu.MenuItem onClick={() => setIsDeleteModalOpen(true)} disabled={isActing || !contract}>
-                  <span className="flex items-center gap-2 text-danger-primary">
-                    <Trash2 className="size-3.5" />
-                    {t("file_library.contracts.delete.button")}
-                  </span>
-                </CustomMenu.MenuItem>
-              </CustomMenu>
-            )}
-            <span className="mx-1 h-4 shrink-0 border-l border-subtle" aria-hidden />
-            <Tooltip tooltipContent={t("close")}>
-              <button type="button" onClick={requestClose} aria-label={t("close")} className={HEADER_ICON}>
-                <X className="size-4" />
-              </button>
-            </Tooltip>
-          </div>
+          ))}
         </div>
-
-        {/* re-analysis proposal: compact, per-field */}
-        {contract?.proposed_changes && contract.proposed_changes.length > 0 && (
-          <ProposalDiff
-            changes={contract.proposed_changes}
-            onApply={(fields) => handleConfirmProposed(true, fields)}
-            onDiscard={() => handleConfirmProposed(false)}
-            isActing={isActing}
-            readOnly={!canEdit}
-          />
-        )}
-
-        {/* ── Mobile: single-focus views behind top-level tabs ─────────── */}
-        <div className="flex min-h-0 flex-1 flex-col lg:hidden">
-          {tabList(
-            ["document", "info", "process", "chat"],
-            "m",
-            "flex shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-3 pt-2"
-          )}
-          <div role="tabpanel" id={`${tabsId}-m-panel`} className="flex min-h-0 flex-1 flex-col">
-            {tab === "document" ? (
-              <div className="min-h-0 flex-1">{isDesktop ? null : pdfViewer(null)}</div>
-            ) : (
-              body(paneTab)
-            )}
-          </div>
-          {saveBar}
-        </div>
-
-        {/* ── Desktop: document beside the tabbed pane ─────────────────── */}
-        <div className="hidden min-h-0 flex-1 lg:flex">
-          {expanded !== "side" && (
-            <div
-              className={cn("min-h-0 border-r border-subtle", expanded === "document" ? "w-full border-r-0" : "w-1/2")}
-            >
-              {isDesktop ? pdfViewer(expandButton("document")) : null}
-            </div>
-          )}
-          {expanded !== "document" && (
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {tabList(
-                ["info", "process", "chat"],
-                "d",
-                "flex shrink-0 items-center gap-1 border-b border-subtle px-3 pt-2",
-                <span className="ml-auto pb-1">{expandButton("side")}</span>
+        <div className="min-w-0 flex-1">
+          <h2
+            id={titleId}
+            className="truncate text-14 leading-5 font-medium"
+            title={contract?.titulo ?? contract?.file_name ?? ""}
+          >
+            {contract?.titulo ?? contract?.file_name ?? t("file_library.contracts.title")}
+          </h2>
+          {contract && (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <ProcessingBadge contract={contract} activeJob={activeJob} errorMessage={failureMessage} />
+              {contract.file_name && contract.titulo && (
+                <span className="min-w-0 truncate text-11 text-tertiary" title={contract.file_name}>
+                  {contract.file_name}
+                </span>
               )}
-              <div role="tabpanel" id={`${tabsId}-d-panel`} className="flex min-h-0 flex-1 flex-col">
-                {body(paneTab)}
-              </div>
-              {saveBar}
             </div>
           )}
-          {expanded === "document" && saveBar && <div className="absolute right-0 bottom-0 left-0">{saveBar}</div>}
         </div>
-
-        <RetryOptionsModal
-          isOpen={isRetryModalOpen}
-          onClose={() => setIsRetryModalOpen(false)}
-          onConfirm={handleRetry}
-          initialSelection={retryPreset}
-          hasText={!!contract?.text_extracted_at}
-        />
-        <AlertModalCore
-          isOpen={isDeleteModalOpen}
-          handleClose={() => !isActing && setIsDeleteModalOpen(false)}
-          isSubmitting={isActing}
-          primaryButtonText={{ default: t("common.delete"), loading: t("common.deleting") }}
-          secondaryButtonText={t("common.cancel")}
-          title={t("file_library.contracts.delete.title", { count: 1 })}
-          content={t("file_library.contracts.delete.description", { count: 1 })}
-          handleSubmit={() => void handleDelete()}
-        />
-        <AlertModalCore
-          variant="primary"
-          isOpen={isDiscardOpen}
-          handleClose={() => setIsDiscardOpen(false)}
-          isSubmitting={false}
-          primaryButtonText={{
-            default: t("file_library.contracts.peek.discard_confirm"),
-            loading: t("file_library.contracts.peek.discard_confirm"),
-          }}
-          secondaryButtonText={t("file_library.contracts.peek.keep_editing")}
-          title={t("file_library.contracts.peek.discard_title")}
-          content={t("file_library.contracts.peek.discard_description")}
-          handleSubmit={() => {
-            setIsDiscardOpen(false);
-            setDraft({});
-            onClose();
-          }}
-        />
-        {contract?.source_template_id && (
-          <ContractRenewDialog
-            workspaceSlug={workspaceSlug}
-            templateId={contract.source_template_id}
-            isOpen={isRenewOpen}
-            onClose={() => setIsRenewOpen(false)}
-            initialTitle={contract.titulo ?? undefined}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <AskAssistantButton
+            compact
+            className={HEADER_ICON}
+            iconClassName="size-4"
+            mentions={
+              contract
+                ? [{ type: "contract", id: contract.id, label: contract.titulo || contract.file_name || contract.id }]
+                : []
+            }
           />
-        )}
+          <Tooltip tooltipContent={t("file_library.download")}>
+            <button
+              type="button"
+              onClick={() => void handleDownload()}
+              disabled={!contract?.file_asset_id || isDownloading}
+              aria-label={t("file_library.download")}
+              className={HEADER_ICON}
+            >
+              {isDownloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+            </button>
+          </Tooltip>
+          <PeekLinkActions onOpenInSection={onOpenInSection} className={HEADER_ICON} />
+          {canEdit && (
+            <CustomMenu
+              customButton={
+                <span className={HEADER_ICON} aria-hidden>
+                  <MoreHorizontal className="size-4" />
+                </span>
+              }
+              customButtonClassName="rounded-sm"
+              placement="bottom-end"
+              ariaLabel={t("file_library.contracts.workflow.common.actions")}
+              closeOnSelect
+            >
+              <CustomMenu.MenuItem
+                onClick={() => openRetry(failedRetryKey ? { [failedRetryKey]: true } : undefined)}
+                disabled={isActing || !!activeJob}
+              >
+                <span className="flex items-start gap-2" title={t("file_library.contracts.retry.hint")}>
+                  <RefreshCcw className="mt-0.5 size-3.5 shrink-0" />
+                  {t("file_library.contracts.retry.button")}
+                </span>
+              </CustomMenu.MenuItem>
+              <CustomMenu.MenuItem
+                onClick={() => void handleReanalyze()}
+                disabled={isActing || !!activeJob || !contract?.text_extracted_at}
+              >
+                <span className="flex items-start gap-2" title={t("file_library.contracts.reanalyze.hint")}>
+                  <Sparkles className="mt-0.5 size-3.5 shrink-0" />
+                  {t("file_library.contracts.reanalyze.button")}
+                </span>
+              </CustomMenu.MenuItem>
+              {activeJob && (
+                <CustomMenu.MenuItem onClick={() => void handleCancelJob()} disabled={isCancelling}>
+                  <span className="flex items-center gap-2">
+                    <Ban className="size-3.5" />
+                    {t("file_library.contracts.process.cancel")}
+                  </span>
+                </CustomMenu.MenuItem>
+              )}
+              {canRenew && (
+                <CustomMenu.MenuItem onClick={() => setIsRenewOpen(true)}>
+                  <span className="flex items-center gap-2">
+                    <CalendarSync className="size-3.5" />
+                    {t("file_library.contracts.renew.button")}
+                  </span>
+                </CustomMenu.MenuItem>
+              )}
+              <CustomMenu.MenuItem onClick={() => setIsDeleteModalOpen(true)} disabled={isActing || !contract}>
+                <span className="flex items-center gap-2 text-danger-primary">
+                  <Trash2 className="size-3.5" />
+                  {t("file_library.contracts.delete.button")}
+                </span>
+              </CustomMenu.MenuItem>
+            </CustomMenu>
+          )}
+          <span className="mx-1 h-4 shrink-0 border-l border-subtle" aria-hidden />
+          <Tooltip tooltipContent={t("close")}>
+            <button type="button" onClick={requestClose} aria-label={t("close")} className={HEADER_ICON}>
+              <X className="size-4" />
+            </button>
+          </Tooltip>
+        </div>
       </div>
-    </div>
+
+      {/* re-analysis proposal: compact, per-field */}
+      {contract?.proposed_changes && contract.proposed_changes.length > 0 && (
+        <ProposalDiff
+          changes={contract.proposed_changes}
+          onApply={(fields) => handleConfirmProposed(true, fields)}
+          onDiscard={() => handleConfirmProposed(false)}
+          isActing={isActing}
+          readOnly={!canEdit}
+        />
+      )}
+
+      {/* ── Mobile: single-focus views behind top-level tabs ─────────── */}
+      <div className="flex min-h-0 flex-1 flex-col lg:hidden">
+        {tabList(
+          ["document", "info", "process", "chat"],
+          "m",
+          "flex shrink-0 items-center gap-1 overflow-x-auto border-b border-subtle px-3 pt-2"
+        )}
+        <div role="tabpanel" id={`${tabsId}-m-panel`} className="flex min-h-0 flex-1 flex-col">
+          {tab === "document" ? (
+            <div className="min-h-0 flex-1">{isDesktop ? null : pdfViewer(null)}</div>
+          ) : (
+            body(paneTab)
+          )}
+        </div>
+        {saveBar}
+      </div>
+
+      {/* ── Desktop: document beside the tabbed pane ─────────────────── */}
+      <div className="hidden min-h-0 flex-1 lg:flex">
+        {expanded !== "side" && (
+          <div
+            className={cn("min-h-0 border-r border-subtle", expanded === "document" ? "w-full border-r-0" : "w-1/2")}
+          >
+            {isDesktop ? pdfViewer(expandButton("document")) : null}
+          </div>
+        )}
+        {expanded !== "document" && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {tabList(
+              ["info", "process", "chat"],
+              "d",
+              "flex shrink-0 items-center gap-1 border-b border-subtle px-3 pt-2",
+              <span className="ml-auto pb-1">{expandButton("side")}</span>
+            )}
+            <div role="tabpanel" id={`${tabsId}-d-panel`} className="flex min-h-0 flex-1 flex-col">
+              {body(paneTab)}
+            </div>
+            {saveBar}
+          </div>
+        )}
+        {expanded === "document" && saveBar && <div className="absolute right-0 bottom-0 left-0">{saveBar}</div>}
+      </div>
+
+      <RetryOptionsModal
+        isOpen={isRetryModalOpen}
+        onClose={() => setIsRetryModalOpen(false)}
+        onConfirm={handleRetry}
+        initialSelection={retryPreset}
+        hasText={!!contract?.text_extracted_at}
+      />
+      <AlertModalCore
+        isOpen={isDeleteModalOpen}
+        handleClose={() => !isActing && setIsDeleteModalOpen(false)}
+        isSubmitting={isActing}
+        primaryButtonText={{ default: t("common.delete"), loading: t("common.deleting") }}
+        secondaryButtonText={t("common.cancel")}
+        title={t("file_library.contracts.delete.title", { count: 1 })}
+        content={t("file_library.contracts.delete.description", { count: 1 })}
+        handleSubmit={() => void handleDelete()}
+      />
+      <AlertModalCore
+        variant="primary"
+        isOpen={isDiscardOpen}
+        handleClose={() => setIsDiscardOpen(false)}
+        isSubmitting={false}
+        primaryButtonText={{
+          default: t("file_library.contracts.peek.discard_confirm"),
+          loading: t("file_library.contracts.peek.discard_confirm"),
+        }}
+        secondaryButtonText={t("file_library.contracts.peek.keep_editing")}
+        title={t("file_library.contracts.peek.discard_title")}
+        content={t("file_library.contracts.peek.discard_description")}
+        handleSubmit={() => {
+          setIsDiscardOpen(false);
+          setDraft({});
+          onClose();
+        }}
+      />
+      {contract?.source_template_id && (
+        <ContractRenewDialog
+          workspaceSlug={workspaceSlug}
+          templateId={contract.source_template_id}
+          isOpen={isRenewOpen}
+          onClose={() => setIsRenewOpen(false)}
+          initialTitle={contract.titulo ?? undefined}
+        />
+      )}
+    </StackLayer>
   );
 
   return portalContainer ? createPortal(content, portalContainer) : content;

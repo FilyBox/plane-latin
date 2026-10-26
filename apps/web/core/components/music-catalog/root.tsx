@@ -14,6 +14,7 @@ import {
   Users,
   Video,
 } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
@@ -834,29 +835,33 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
         )}
       </div>
 
-      {(peekTrack || peekCreateOpen) && (
-        <MusicTrackPeekPanel
-          workspaceSlug={workspaceSlug}
-          track={peekTrack}
-          options={options}
-          parties={parties}
-          genres={genres}
-          companies={companies}
-          releases={releases}
-          suspendClose={releaseOpen || resourcesOpen || importAssetsOpen}
-          onClose={() => {
-            setPeekTrack(undefined);
-            setPeekCreateOpen(false);
-            setPanelParam("track", null);
-          }}
-          onSaved={() => void mutateTracks()}
-          onCreated={(created) => {
-            setPeekCreateOpen(false);
-            openTrack(created);
-          }}
-          onResourcesChanged={refreshResources}
-        />
-      )}
+      {/* kept mounted while it slides out */}
+      <AnimatePresence>
+        {(peekTrack || peekCreateOpen) && (
+          <MusicTrackPeekPanel
+            key="track-peek"
+            workspaceSlug={workspaceSlug}
+            track={peekTrack}
+            options={options}
+            parties={parties}
+            genres={genres}
+            companies={companies}
+            releases={releases}
+            suspendClose={releaseOpen || resourcesOpen || importAssetsOpen}
+            onClose={() => {
+              setPeekTrack(undefined);
+              setPeekCreateOpen(false);
+              setPanelParam("track", null);
+            }}
+            onSaved={() => void mutateTracks()}
+            onCreated={(created) => {
+              setPeekCreateOpen(false);
+              openTrack(created);
+            }}
+            onResourcesChanged={refreshResources}
+          />
+        )}
+      </AnimatePresence>
 
       <MusicReleaseModal
         workspaceSlug={workspaceSlug}

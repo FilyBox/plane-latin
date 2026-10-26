@@ -7,26 +7,36 @@
 import { useCallback } from "react";
 import type { MouseEvent } from "react";
 import { useLocation, useSearchParams } from "react-router";
-import { OPEN_PARAM, encodeOpen, isPeekKind, ownParam, parsePeekHref } from "./routes";
+import { OPEN_PARAM, encodeOpen, isPeekKind, ownOpenParams, ownParam, parseOpenList, parsePeekHref } from "./routes";
 import type { TPeekTarget } from "./routes";
 
-/** Opens an entity's panel where the user is, through the URL: the page's own
- * parameter when it has a panel for that kind, else the global `?open=`.
+/** Opens an entity's panel where the user is, through the URL. With no panel
+ * open: the page's own parameter when it has a panel for that kind, else the
+ * global `?open=`. From inside an open panel, the new one stacks on top (one
+ * more `open` value); one already in the stack comes back to the top instead.
  * Opening pushes a history entry, so Back closes it. */
 export function useEntityPeek() {
   const { pathname } = useLocation();
-  const [, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const open = useCallback(
     (target: TPeekTarget) => {
+      const next = new URLSearchParams(searchParams);
       const own = ownParam(pathname, target.kind);
-      setSearchParams((current) => {
-        const next = new URLSearchParams(current);
-        if (own) next.set(own, target.id);
-        else next.set(OPEN_PARAM, encodeOpen(target));
-        return next;
-      });
+      const opened = parseOpenList(next);
+      const pagePanels = ownOpenParams(pathname, next);
+      const encoded = encodeOpen(target);
+      const index = opened.findIndex((item) => encodeOpen(item) === encoded);
+      const setOpened = (list: TPeekTarget[]) => {
+        next.delete(OPEN_PARAM);
+        list.forEach((item) => next.append(OPEN_PARAM, encodeOpen(item)));
+      };
+      if (own && next.get(own) === target.id) setOpened([]);
+      else if (index >= 0) setOpened(opened.slice(0, index + 1));
+      else if (own && pagePanels.length === 0 && opened.length === 0) next.set(own, target.id);
+      else setOpened([...opened, target]);
+      if (next.toString() !== searchParams.toString()) setSearchParams(next);
     },
-    [pathname, setSearchParams]
+    [pathname, searchParams, setSearchParams]
   );
   return { open };
 }
