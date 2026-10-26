@@ -98,7 +98,7 @@ export function useOpenMention() {
   );
 }
 
-function MentionChip({ type, label, id }: { type: TMentionType; label: string; id: string }) {
+export function MentionChip({ type, label, id }: { type: TMentionType; label: string; id: string }) {
   const openMention = useOpenMention();
   const Icon = iconFor(type);
   const open = () => openMention(type, id);
@@ -112,6 +112,24 @@ function MentionChip({ type, label, id }: { type: TMentionType; label: string; i
       <span className="truncate">{label}</span>
     </button>
   );
+}
+
+// Assistant answers carry the same directives (tables, lists, prose). Markdown
+// would print them raw, so they travel as in-page links the renderer swaps
+// for chips; a fragment href survives react-markdown's URL sanitizing.
+const MENTION_HREF = "#mention:";
+
+export const mentionsToLinks = (text: string) =>
+  text.replace(
+    DIRECTIVE_RE,
+    (_match, type: string, label: string, id: string) => `[${label}](${MENTION_HREF}${type}:${id})`
+  );
+
+/** The mention behind a link written by `mentionsToLinks`, if it is one. */
+export function mentionFromHref(href: string | undefined): { type: TMentionType; id: string } | null {
+  if (!href?.startsWith(MENTION_HREF)) return null;
+  const [type, id] = href.slice(MENTION_HREF.length).split(":");
+  return type && id ? { type: type as TMentionType, id } : null;
 }
 
 // The note an attachment adds for the agent ("[Archivo adjunto] … asset_id=…"):

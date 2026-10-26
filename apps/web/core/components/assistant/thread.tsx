@@ -26,8 +26,15 @@ import { AttachMenu, ComposerAttachmentsRow, MessageAttachmentsRow } from "./att
 import { GenerationLoader } from "./elements/generation-loader";
 import { AssistantLink } from "./links";
 import { useComposerMentions } from "./mention-composer";
-import { MentionText } from "./mentions";
+import { MentionChip, MentionText, mentionFromHref, mentionsToLinks } from "./mentions";
 import { FallbackStep, groupThought, ReasoningStep, ThinkingBlock, useIsMessageRunning } from "./steps";
+
+const textOf = (children: ReactNode): string =>
+  typeof children === "string" || typeof children === "number"
+    ? String(children)
+    : Array.isArray(children)
+      ? children.map(textOf).join("")
+      : "";
 
 const MARKDOWN_COMPONENTS = {
   // react-markdown emits a bare <table>; without its own scroll box a wide
@@ -37,13 +44,18 @@ const MARKDOWN_COMPONENTS = {
       <table {...props} className={cn("w-max min-w-full border-collapse text-12", className)} />
     </div>
   ),
-  a: ({ node: _node, ...props }: ComponentProps<"a"> & { node?: unknown }) => <AssistantLink {...props} />,
+  a: ({ node: _node, ...props }: ComponentProps<"a"> & { node?: unknown }) => {
+    const mention = mentionFromHref(props.href);
+    if (mention) return <MentionChip type={mention.type} id={mention.id} label={textOf(props.children)} />;
+    return <AssistantLink {...props} />;
+  },
 };
 
 function MarkdownText() {
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
+      preprocess={mentionsToLinks}
       components={MARKDOWN_COMPONENTS}
       className="min-w-0 text-13 leading-relaxed break-words text-primary *:first:mt-0 *:last:mb-0 [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_blockquote]:text-secondary [&_code]:rounded-sm [&_code]:bg-layer-2 [&_code]:px-1 [&_code]:text-12 [&_h1]:mt-3 [&_h1]:text-14 [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:text-13 [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:text-13 [&_h3]:font-medium [&_hr]:my-3 [&_hr]:border-subtle [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-layer-2 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_td]:border-t [&_td]:border-subtle [&_td]:px-2 [&_td]:py-1 [&_td]:align-top [&_th]:bg-layer-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium [&_th]:whitespace-nowrap [&_ul]:list-disc [&_ul]:pl-5"
     />
