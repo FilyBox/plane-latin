@@ -64,6 +64,8 @@ class MusicReleaseSerializer(BaseSerializer):
     artist_ids = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
     artist_details = serializers.SerializerMethodField()
     track_count = serializers.IntegerField(read_only=True, default=0)
+    # Linked contracts; annotated by the list only
+    contract_count = serializers.IntegerField(read_only=True, default=0)
 
     def get_artist_details(self, obj):
         return [
@@ -109,6 +111,8 @@ class MusicTrackSerializer(BaseSerializer):
     distributions = MusicDistributionSerializer(many=True, read_only=True)
     video_details = serializers.SerializerMethodField()
     import_sources = serializers.SerializerMethodField()
+    # Linked contracts (own + via releases); annotated by the list only
+    contract_count = serializers.IntegerField(read_only=True, default=0)
 
     def to_internal_value(self, data):
         # HTML forms commonly represent optional numeric inputs as an empty

@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the contract analysis: page markers, evidence, output
- * validation, long-document parts, merging and usage. Only `zod` is imported
- * so the file runs under node --test.
+ * validation, long-document parts, merging, usage and the works a contract
+ * names. Only `zod` is imported so the file runs under node --test.
  */
 
 import { z } from "zod";
@@ -494,4 +494,319 @@ export function unpackVector(packed: string): number[] {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   // 8 significant digits keep float32 precision without long JSON numbers
   return Array.from(new Float32Array(bytes.buffer), (value) => Number(value.toPrecision(8)));
+}
+
+// ---------------------------------------------------------------- works
+
+/** What the works prompt must return: {"obras": [...]}. Items are checked one
+ * by one in normalizeWorks, so one bad item doesn't fail the whole answer. */
+export const WORKS_SCHEMA = z.object({ obras: z.union([z.array(z.unknown()), z.null()]) }).passthrough();
+
+const scalar = z.union([z.string(), z.number().transform(String), z.null()]).optional();
+const WORK_ITEM = z
+  .object({
+    titulo: scalar,
+    artistas: z
+      .union([z.array(z.union([z.string(), z.number().transform(String)])), z.string().transform((v) => [v]), z.null()])
+      .optional(),
+    isrc: scalar,
+    upc: scalar,
+    tipo: scalar,
+    cita: scalar,
+    pagina: z.union([z.number(), z.string(), z.null()]).optional(),
+  })
+  .passthrough();
+
+export type ExtractedWork = {
+  titulo: string;
+  artistas?: string[];
+  isrc?: string;
+  upc?: string;
+  tipo?: "cancion" | "album";
+  cita?: string;
+  pagina: number | null;
+};
+
+export const MAX_WORKS = 200;
+
+export const RIGHTS_TYPES = [
+  "DISTRIBUCION",
+  "EDICION",
+  "MASTER",
+  "LICENCIA",
+  "SINCRONIZACION",
+  "REPRESENTACION",
+  "OTRO",
+] as const;
+
+/** Letters and digits only: how a title is looked up in OCR text. */
+const squash = (value: string) => fold(value.replace(MARKER, " ")).replace(/[^a-z0-9]/g, "");
+const clean = (value: unknown, max: number) =>
+  typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
+
+const ISRC = /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/;
+
+function kindOf(value: string, hasUpc: boolean, hasIsrc: boolean): ExtractedWork["tipo"] {
+  const folded = fold(value);
+  if (/\b(album|ep|lp|disco|lanzamiento|release)\b/.test(folded)) return "album";
+  if (folded) return "cancion";
+  if (hasUpc && !hasIsrc) return "album";
+  return undefined;
+}
+
+const workKey = (work: ExtractedWork) => work.isrc || work.upc || `${squash(work.titulo)}|${work.tipo ?? ""}`;
+
+/** Drops repeated works (same ISRC/UPC, or same title and kind), keeping the first. */
+export function dedupeWorks(works: readonly ExtractedWork[], cap = MAX_WORKS): ExtractedWork[] {
+  const seen = new Set<string>();
+  const out: ExtractedWork[] = [];
+  for (const work of works) {
+    const key = workKey(work);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(work);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+/**
+ * Cleans the model's works and keeps only those grounded in the text: the
+ * title, the ISRC or the quote must appear in it. Pages are re-checked
+ * against the markers like the other evidence.
+ */
+export function normalizeWorks(raw: unknown, fullText: string): ExtractedWork[] {
+  if (!Array.isArray(raw)) return [];
+  const squashedText = squash(fullText);
+  const pagesInText = maxPage(fullText);
+  const works: ExtractedWork[] = [];
+  for (const item of raw) {
+    const parsed = WORK_ITEM.safeParse(item);
+    if (!parsed.success) continue;
+    const data = parsed.data;
+    const titulo = clean(data.titulo, 200).replace(/^["'“”«»]+|["'“”«»]+$/g, "");
+    if (!titulo) continue;
+
+    const isrcRaw = clean(data.isrc, 40)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    const isrc = ISRC.test(isrcRaw) ? isrcRaw : undefined;
+    const upcRaw = clean(data.upc, 40).replace(/\D/g, "");
+    const upc = upcRaw.length >= 12 && upcRaw.length <= 14 ? upcRaw : undefined;
+    const cita = clean(data.cita, 300) || undefined;
+
+    const titleKey = squash(titulo);
+    const grounded =
+      (titleKey.length >= 3 && squashedText.includes(titleKey)) ||
+      (isrc !== undefined && squashedText.includes(isrc.toLowerCase())) ||
+      (cita !== undefined && squash(cita).length >= 8 && squashedText.includes(squash(cita)));
+    if (!grounded) continue;
+
+    let pagina: number | null = cita && pagesInText > 0 ? locateQuote(fullText, cita) : null;
+    if (pagina === null && pagesInText > 0) {
+      const claimed = Number(data.pagina);
+      if (Number.isInteger(claimed) && claimed >= 1 && claimed <= pagesInText) pagina = claimed;
+    }
+
+    const artistas = [...new Set((data.artistas ?? []).map((name) => clean(name, 120)).filter(Boolean))].slice(0, 10);
+    const work: ExtractedWork = { titulo, pagina };
+    if (artistas.length > 0) work.artistas = artistas;
+    if (isrc) work.isrc = isrc;
+    if (upc) work.upc = upc;
+    const tipo = kindOf(clean(data.tipo, 40), Boolean(upc), Boolean(isrc));
+    if (tipo) work.tipo = tipo;
+    if (cita) work.cita = cita;
+    works.push(work);
+  }
+  return dedupeWorks(works);
+}
+
+/** Works merged over the parts of a long text (the overlap repeats some). */
+export const mergeWorks = (parts: readonly (readonly ExtractedWork[])[]) => dedupeWorks(parts.flat());
+
+/** One work as Django's works/suggest and match endpoints read it. */
+export type WorkPayload = {
+  title: string;
+  artists?: string[];
+  isrc?: string;
+  upc?: string;
+  kind?: "track" | "release";
+  cita?: string;
+  pagina?: number | null;
+};
+
+export const toWorkPayload = (works: readonly ExtractedWork[]): WorkPayload[] =>
+  works.map((work) => {
+    const out: WorkPayload = { title: work.titulo };
+    if (work.artistas?.length) out.artists = work.artistas;
+    if (work.isrc) out.isrc = work.isrc;
+    if (work.upc) out.upc = work.upc;
+    if (work.tipo) out.kind = work.tipo === "album" ? "release" : "track";
+    if (work.cita) out.cita = work.cita;
+    if (work.pagina !== null) out.pagina = work.pagina;
+    return out;
+  });
+
+// ------------------------------------------------------------- text focus
+
+/** Words that usually open a list of works (annexes, repertoire, codes). */
+const STRONG_HINTS = /anexo|repertorio|fonograma|isrc|upc|listado de (obras|canciones|temas)/gi;
+const WEAK_HINTS = /\bobras?\b|canci[oó]n|grabaci[oó]n|m[aá]ster|[aá]lbum|sencillo|composici[oó]n|cat[aá]logo/gi;
+
+export const WORKS_FOCUS = { head: 20_000, before: 400, after: 6_000 } as const;
+
+type Range = [number, number];
+
+function windows(source: string, pattern: RegExp): Range[] {
+  const out: Range[] = [];
+  for (const match of source.matchAll(pattern)) {
+    const at = match.index ?? 0;
+    const start = Math.max(0, at - WORKS_FOCUS.before);
+    const end = Math.min(source.length, at + WORKS_FOCUS.after);
+    const last = out[out.length - 1];
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else out.push([start, end]);
+  }
+  return out;
+}
+
+function lastMarkerBefore(source: string, index: number): string | null {
+  const at = source.lastIndexOf("[[p. ", index);
+  if (at < 0) return null;
+  const end = source.indexOf("]]", at);
+  return end > at ? source.slice(at, end + 2) : null;
+}
+
+/**
+ * The part of a text worth reading for works: all of it when it fits the
+ * budget; otherwise the opening plus the windows around annex/list words
+ * (strong hints first), in text order, each opened with its page marker.
+ */
+export function worksFocus(source: string, budget: number): { text: string; excerpted: boolean } {
+  if (source.length <= budget) return { text: source, excerpted: false };
+  const picked: Range[] = [];
+  let used = 0;
+  const take = ([start, end]: Range) => {
+    // Only the part not already picked counts against the budget
+    for (const [s, e] of picked) {
+      if (start >= s && start < e) start = e;
+      if (end > s && end <= e) end = s;
+    }
+    if (end <= start || used >= budget) return;
+    const stop = Math.min(end, start + (budget - used));
+    picked.push([start, stop]);
+    used += stop - start;
+  };
+  take([0, Math.min(WORKS_FOCUS.head, source.length)]);
+  for (const range of windows(source, STRONG_HINTS)) take(range);
+  for (const range of windows(source, WEAK_HINTS)) take(range);
+
+  picked.sort((a, b) => a[0] - b[0]);
+  const merged: Range[] = [];
+  for (const range of picked) {
+    const last = merged[merged.length - 1];
+    if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+    else merged.push([...range]);
+  }
+  const pieces = merged.map(([start, end]) => {
+    const piece = source.slice(start, end);
+    const marker = start > 0 ? lastMarkerBefore(source, start) : null;
+    return marker && !piece.trimStart().startsWith("[[p.") ? `${marker}\n${piece}` : piece;
+  });
+  return { text: pieces.join("\n[…]\n"), excerpted: true };
+}
+
+// ------------------------------------------------------------ match split
+
+/** A work as the assistant proposes it for linking. */
+export type ProposedWork = {
+  title: string;
+  artists?: string[];
+  isrc?: string;
+  upc?: string;
+  kind?: "track" | "release";
+  rights_type?: (typeof RIGHTS_TYPES)[number];
+  evidence?: { quote?: string; page?: number | null };
+};
+
+export type WorkMatch = {
+  work: ProposedWork;
+  entity_type: "music_track" | "music_release";
+  entity_id: string;
+  title: string;
+  artists?: string;
+  path: string;
+  confidence?: number;
+  /** LINKED / SUGGESTED / DISMISSED when the pair already has a link */
+  link_status?: string;
+};
+
+type Row = Record<string, unknown>;
+const asRow = (value: unknown): Row | null =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as Row) : null;
+const str = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
+const listText = (value: unknown) =>
+  Array.isArray(value) ? value.map(String).filter(Boolean).join(", ") || undefined : str(value);
+
+/**
+ * Splits Django's match answer into matched and unmatched works. Tolerant of
+ * the answer's shape: {results|matches: [{index?, work?, match|candidate|
+ * best|candidates[0]?, ...}]}, the candidate flat or under `entity`.
+ */
+export function splitMatches(
+  works: readonly ProposedWork[],
+  response: unknown,
+  slug: string
+): { matched: WorkMatch[]; unmatched: { work: ProposedWork }[] } {
+  const body = asRow(response) ?? {};
+  // Django answers {matched: [{index, entity_type, entity_id, …}], unmatched}; older shapes kept
+  const rows = (
+    Array.isArray(body.matched)
+      ? body.matched
+      : Array.isArray(body.results)
+        ? body.results
+        : Array.isArray(body.matches)
+          ? body.matches
+          : []
+  ) as unknown[];
+  const matched: WorkMatch[] = [];
+  const done = new Set<number>();
+  rows.forEach((value, position) => {
+    const row = asRow(value);
+    if (!row) return;
+    const index = typeof row.index === "number" ? row.index : position;
+    const work = works[index];
+    if (!work || done.has(index)) return;
+    const candidates = Array.isArray(row.candidates) ? row.candidates : [];
+    const candidate =
+      asRow(row.match) ??
+      asRow(row.candidate) ??
+      asRow(row.best) ??
+      asRow(candidates[0]) ??
+      (row.entity_id ? row : null);
+    const entityId = str(candidate?.entity_id);
+    if (!candidate || !entityId) return;
+    const entity = asRow(candidate.entity) ?? {};
+    const entityType = candidate.entity_type === "music_release" ? "music_release" : "music_track";
+    const confidence = Number(candidate.confidence);
+    const status = str(candidate.link_status) ?? str(row.link_status) ?? str(row.existing_status);
+    const result: WorkMatch = {
+      work,
+      entity_type: entityType,
+      entity_id: entityId,
+      title: str(candidate.title) ?? str(entity.title) ?? work.title,
+      path:
+        str(candidate.path) ??
+        str(entity.path) ??
+        `/${slug}/music?${entityType === "music_release" ? "release" : "track"}=${entityId}`,
+    };
+    const artists = listText(candidate.artists) ?? str(candidate.subtitle) ?? str(entity.subtitle);
+    if (artists) result.artists = artists;
+    if (Number.isFinite(confidence) && candidate.confidence !== null) result.confidence = confidence;
+    if (status) result.link_status = status;
+    matched.push(result);
+    done.add(index);
+  });
+  const unmatched = works.flatMap((work, index) => (done.has(index) ? [] : [{ work }]));
+  return { matched, unmatched };
 }

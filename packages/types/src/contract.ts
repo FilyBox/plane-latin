@@ -98,6 +98,8 @@ export type TContractDetail = TContract & {
   source_request_id?: string | null;
   source_template_id?: string | null;
   content_hash?: string | null;
+  /** Linked and AI-suggested catalog works */
+  works_summary?: { linked: number; suggested: number };
 };
 
 /** List response when `per_page` is sent */
@@ -252,6 +254,8 @@ export type TContractRetryOptions = {
   tags?: boolean;
   /** Re-runs only the type/editorial classification */
   classify?: boolean;
+  /** Looks for catalog works named in the contract */
+  works?: boolean;
 };
 
 export type TContractChatMode = "GENERAL" | "CONTRACT";

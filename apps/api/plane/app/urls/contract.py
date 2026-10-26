@@ -18,6 +18,18 @@ from plane.app.views.contract.template_drafts import (
     ContractTemplateVariantDraftPublishEndpoint,
     ContractTemplateVariantDraftReleaseEndpoint,
 )
+from plane.app.views.contract.works import (
+    ContractWorkLinkCreateInCatalogEndpoint,
+    ContractWorkLinkDetailEndpoint,
+    ContractWorksApplyEndpoint,
+    ContractWorksEndpoint,
+    InternalAssistantContractWorksEndpoint,
+    InternalAssistantContractWorksMatchEndpoint,
+    InternalAssistantTrackContractsEndpoint,
+    InternalContractWorksSuggestEndpoint,
+    MusicReleaseContractsEndpoint,
+    MusicTrackContractsEndpoint,
+)
 from plane.app.views.contract.workflow import (
     ContractSignatureRequestCancelAndDuplicateEndpoint,
     ContractSignatureRequestCancelEndpoint,
@@ -295,7 +307,58 @@ urlpatterns = [
         ContractReanalyzeConfirmEndpoint.as_view(),
         name="contract-reanalyze-confirm",
     ),
+    # Songs/releases a contract covers
+    path(
+        "workspaces/<str:slug>/contracts/<uuid:contract_id>/works/",
+        ContractWorksEndpoint.as_view(),
+        name="contract-works",
+    ),
+    path(
+        "workspaces/<str:slug>/contracts/<uuid:contract_id>/works/apply/",
+        ContractWorksApplyEndpoint.as_view(),
+        name="contract-works-apply",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-work-links/<uuid:link_id>/",
+        ContractWorkLinkDetailEndpoint.as_view(),
+        name="contract-work-link-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-work-links/<uuid:link_id>/create-in-catalog/",
+        ContractWorkLinkCreateInCatalogEndpoint.as_view(),
+        name="contract-work-link-create-in-catalog",
+    ),
+    path(
+        "workspaces/<str:slug>/music/tracks/<uuid:track_id>/contracts/",
+        MusicTrackContractsEndpoint.as_view(),
+        name="music-track-contracts",
+    ),
+    path(
+        "workspaces/<str:slug>/music/releases/<uuid:release_id>/contracts/",
+        MusicReleaseContractsEndpoint.as_view(),
+        name="music-release-contracts",
+    ),
     # Internal (Cloudflare Worker)
+    path(
+        "internal/workspaces/<uuid:workspace_id>/contracts/<uuid:contract_id>/works/suggest/",
+        InternalContractWorksSuggestEndpoint.as_view(),
+        name="internal-contract-works-suggest",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/contracts/<uuid:contract_id>/works/",
+        InternalAssistantContractWorksEndpoint.as_view(),
+        name="internal-assistant-contract-works",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/contract-works/match/",
+        InternalAssistantContractWorksMatchEndpoint.as_view(),
+        name="internal-assistant-contract-works-match",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/music/tracks/<uuid:track_id>/contracts/",
+        InternalAssistantTrackContractsEndpoint.as_view(),
+        name="internal-assistant-track-contracts",
+    ),
     path(
         "internal/assets/<uuid:asset_id>/presigned-url/",
         InternalAssetPresignedUrlEndpoint.as_view(),

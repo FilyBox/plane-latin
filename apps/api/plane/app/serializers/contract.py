@@ -57,6 +57,8 @@ class ContractSerializer(BaseSerializer):
     file_name = serializers.SerializerMethodField()
     has_proposal = serializers.SerializerMethodField()
     days_to_expiry = serializers.SerializerMethodField()
+    # Pending AI work suggestions; annotated by the list only
+    works_suggested = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Contract
@@ -70,6 +72,7 @@ class ContractSerializer(BaseSerializer):
             "proposed_data",
             "has_proposal",
             "days_to_expiry",
+            "works_suggested",
             "ai_model_used",
             "processed_at",
             "text_extracted_at",
@@ -95,6 +98,7 @@ class ContractSerializer(BaseSerializer):
 class ContractDetailSerializer(ContractSerializer):
     proposed_changes = serializers.SerializerMethodField()
     source_template_id = serializers.SerializerMethodField()
+    works_summary = serializers.SerializerMethodField()
 
     class Meta(ContractSerializer.Meta):
         fields = [
@@ -104,8 +108,14 @@ class ContractDetailSerializer(ContractSerializer):
             "source_request_id",
             "source_template_id",
             "content_hash",
+            "works_summary",
         ]
         read_only_fields = fields
+
+    def get_works_summary(self, obj):
+        from plane.utils.contract_works import works_summary
+
+        return works_summary(obj.id)
 
     def get_proposed_changes(self, obj):
         from plane.utils.contract_extraction import proposed_changes

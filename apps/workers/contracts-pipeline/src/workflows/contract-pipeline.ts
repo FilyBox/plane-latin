@@ -21,8 +21,11 @@ import {
   PRIMARY_SCHEMA,
   SECONDARY_EVIDENCE_KEYS,
   SECONDARY_SCHEMA,
+  WORKS_SCHEMA,
   finalizeExtracted,
   mergePartResults,
+  mergeWorks,
+  normalizeWorks,
   packVector,
   partRanges,
   relevantTags,
@@ -30,12 +33,15 @@ import {
   summarizeUsage,
   textFingerprint,
   toBool,
+  toWorkPayload,
   unpackVector,
   withEvidence,
+  worksFocus,
+  type ExtractedWork,
   type UsageCall,
   type ValidatedRun,
 } from "../lib/contract-analysis";
-import { internalApi, type JobProgress, type JobStage } from "../lib/internal-api";
+import { InternalApiError, internalApi, type JobProgress, type JobStage } from "../lib/internal-api";
 import { repairTruncatedJson } from "../lib/json-repair";
 import { deepseekCallCost } from "../lib/pricing";
 import {
@@ -51,6 +57,7 @@ import {
   contractPrefix,
   primaryPrompt,
   secondaryPrompt,
+  worksPrompt,
 } from "../prompts";
 
 export type PipelineParams = {
@@ -67,13 +74,15 @@ export type PipelineParams = {
     /** Only the editorial classification, over the stored text — the backfill
      * for contracts analyzed before the field existed. */
     classify?: boolean;
+    /** Only the works extraction, over the stored text; posts suggestions. */
+    works?: boolean;
   };
   /** FileAsset id of the contract PDF */
   asset_id?: string;
 };
 
 type TextInfo = { length: number; hash: string };
-type PromptKind = "primary" | "secondary" | "artists";
+type PromptKind = "primary" | "secondary" | "artists" | "works";
 
 // Rate limits (429) are common on bulk runs: a long exponential chain
 // (20s → ~5 min) lets many pipelines space themselves out.
@@ -95,7 +104,11 @@ const TEXTRACT_RETRIES: WorkflowStepConfig = {
  * under the 1 MiB step result and Django's request-body limit. */
 const EMBED_BATCH = 40;
 
-const MAX_TOKENS: Record<PromptKind, number> = { primary: 6_000, secondary: 3_000, artists: 2_500 };
+const MAX_TOKENS: Record<PromptKind, number> = { primary: 6_000, secondary: 3_000, artists: 2_500, works: 4_000 };
+
+/** Characters the works-only retry reads per part: the opening plus the
+ * windows around annexes and lists (see worksFocus). */
+const WORKS_FOCUS_CHARS = 120_000;
 
 /** Maps AWS errors: throttling stays retryable, everything else aborts the step chain. */
 const rethrowTextract = (error: unknown): never => {
@@ -194,6 +207,20 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
         if (!assetId) return "contrato.pdf";
         const { name: fileName } = await api.getPresignedUrl(assetId);
         return fileName ?? "contrato.pdf";
+      });
+
+    /** Posts works as AI suggestions. A 4xx (e.g. an older Django without the
+     * endpoint) stops the retries. */
+    const suggestWorks = (name: string, works: ExtractedWork[]) =>
+      step.do(name, API_RETRIES, async () => {
+        try {
+          return await api.suggestContractWorks(event.payload.workspace_id, contractId, toWorkPayload(works));
+        } catch (error) {
+          if (error instanceof InternalApiError && error.status >= 400 && error.status < 500 && error.status !== 429) {
+            throw new NonRetryableError(error.message);
+          }
+          throw error;
+        }
       });
 
     try {
@@ -411,21 +438,28 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
                 index: index + 1,
                 total: ranges.length,
               });
+              type Data = Record<string, unknown>;
               const spec = {
                 primary: {
                   prompt: () => primaryPrompt(prefix, PRIMARY_EVIDENCE_KEYS),
                   schema: PRIMARY_SCHEMA,
-                  keys: PRIMARY_EVIDENCE_KEYS,
+                  finish: (data: Data) => withEvidence(data, full, PRIMARY_EVIDENCE_KEYS),
                 },
                 secondary: {
                   prompt: () => secondaryPrompt(prefix, SECONDARY_EVIDENCE_KEYS),
                   schema: SECONDARY_SCHEMA,
-                  keys: SECONDARY_EVIDENCE_KEYS,
+                  finish: (data: Data) => withEvidence(data, full, SECONDARY_EVIDENCE_KEYS),
                 },
                 artists: {
                   prompt: () => artistsPrompt(prefix, relevantTags(existingTags, full), ARTISTS_EVIDENCE_KEYS),
                   schema: ARTISTS_SCHEMA,
-                  keys: ARTISTS_EVIDENCE_KEYS,
+                  finish: (data: Data) => withEvidence(data, full, ARTISTS_EVIDENCE_KEYS),
+                },
+                // Each work carries its own quote, checked against the text
+                works: {
+                  prompt: () => worksPrompt(prefix),
+                  schema: WORKS_SCHEMA,
+                  finish: (data: Data) => ({ obras: normalizeWorks(data.obras, full) }),
                 },
               }[kind];
               const prompt = spec.prompt();
@@ -449,7 +483,7 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
                 console.warn(JSON.stringify({ message: "model output repaired", job: jobId, prompt: kind }));
               }
               return {
-                data: JSON.stringify(withEvidence(result.data, full, spec.keys)),
+                data: JSON.stringify(spec.finish(result.data)),
                 model: result.outputs[result.outputs.length - 1].model,
                 usage: usageOf(kind, result.outputs, {
                   part: ranges.length > 1 ? index + 1 : undefined,
@@ -460,20 +494,30 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
             }
           );
 
-        const answers: Record<PromptKind, Record<string, unknown>[]> = { primary: [], secondary: [], artists: [] };
+        const answers: Record<PromptKind, Record<string, unknown>[]> = {
+          primary: [],
+          secondary: [],
+          artists: [],
+          works: [],
+        };
         let primaryModel = "";
         for (let index = 0; index < ranges.length; index++) {
-          // Primary first writes the prefix to DeepSeek's cache; the other two
+          // Primary first writes the prefix to DeepSeek's cache; the others
           // then read it. Parts run one after another for the same reason.
           // eslint-disable-next-line no-await-in-loop
           const primary = await analyze("primary", index);
           // eslint-disable-next-line no-await-in-loop
-          const [secondary, artists] = await Promise.all([analyze("secondary", index), analyze("artists", index)]);
+          const [secondary, artists, worksAnswer] = await Promise.all([
+            analyze("secondary", index),
+            analyze("artists", index),
+            analyze("works", index),
+          ]);
           primaryModel ||= primary.model;
           for (const [kind, result] of [
             ["primary", primary],
             ["secondary", secondary],
             ["artists", artists],
+            ["works", worksAnswer],
           ] as const) {
             answers[kind].push(JSON.parse(result.data) as Record<string, unknown>);
             calls.push(result.usage);
@@ -490,6 +534,83 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
           ]);
           await api.saveExtractedData(contractId, merged, isReanalysis ? "proposed" : "apply", primaryModel);
         });
+
+        // Suggestions are saved directly, also on REANALYZE (they are not part
+        // of the proposal). A failure here doesn't fail the analysis.
+        const works = mergeWorks(answers.works.map((answer) => (answer.obras ?? []) as ExtractedWork[]));
+        if (works.length > 0) {
+          try {
+            await suggestWorks("suggest works", works);
+          } catch (error) {
+            console.warn(
+              JSON.stringify({ message: "works suggestions failed", job: jobId, error: String(error).slice(0, 200) })
+            );
+          }
+        }
+      }
+
+      // ── Works only (retry) ────────────────────────────────────────────
+      // Reads the opening plus the annex/list windows of each part; a full
+      // analysis already extracts works.
+      const worksOnly = mode === "RETRY_PARTIAL" && Boolean(retryOptions?.works) && !retryOptions?.ai_analysis;
+      if (worksOnly) {
+        stage = "analyzing";
+        const fileName = await fileNameStep("resolve file name for works");
+        const ranges = partRanges(textInfo.length);
+        const found: ExtractedWork[][] = [];
+        for (let index = 0; index < ranges.length; index++) {
+          // Parts run in order, like the full analysis.
+          // eslint-disable-next-line no-await-in-loop
+          const part = await step.do(
+            ranges.length > 1 ? `extract works ${index + 1}/${ranges.length}` : "extract works",
+            AI_RETRIES,
+            async () => {
+              await bestEffort(
+                report("analyzing", 60 + Math.round((25 * index) / ranges.length), {
+                  detail_data: { parts_done: index, parts_total: ranges.length },
+                })
+              );
+              const full = await loadText(textInfo);
+              const [start, end] = ranges[index];
+              const focus = worksFocus(full.slice(start, end), WORKS_FOCUS_CHARS);
+              const prompt = worksPrompt(
+                contractPrefix(fileName, focus.text, { index: index + 1, total: ranges.length }),
+                { excerpted: focus.excerpted }
+              );
+              try {
+                const result = await runValidated(
+                  (attempt) =>
+                    generateAnalysisJson(this.env, {
+                      system: ANALYSIS_SYSTEM,
+                      prompt,
+                      maxTokens: attempt === 1 ? MAX_TOKENS.works : MAX_TOKENS.works * 2,
+                    }),
+                  WORKS_SCHEMA,
+                  repairTruncatedJson
+                );
+                return {
+                  works: normalizeWorks(result.data.obras, full),
+                  usage: usageOf("works", result.outputs, {
+                    part: ranges.length > 1 ? index + 1 : undefined,
+                    attempts: result.attempts,
+                    repaired: result.repaired,
+                  }),
+                };
+              } catch (error) {
+                return rethrowProvider(error);
+              }
+            }
+          );
+          found.push(part.works);
+          calls.push(part.usage);
+        }
+
+        stage = "saving";
+        const works = mergeWorks(found);
+        await step.do("report works found", API_RETRIES, async () => {
+          await report("saving", 90, { detail_data: { works_found: works.length } });
+        });
+        if (works.length > 0) await suggestWorks("suggest works only", works);
       }
 
       // ── Classification only (backfill) ───────────────────────────────

@@ -1,5 +1,5 @@
 /**
- * Extraction prompts (primary, secondary, artists, editorial classification)
+ * Extraction prompts (primary, secondary, artists, works, editorial classification)
  * plus the per-contract NL-query analysis and synthesis.
  * All prompts mention "json" explicitly (DeepSeek JSON-mode requirement).
  *
@@ -103,6 +103,20 @@ REGLA IMPORTANTE: si un artista del contrato corresponde a una etiqueta existent
     : ""
 }${evidenceRules(evidenceKeys)}
 Responde con un único objeto json (no un array).`
+  );
+
+/** Works (songs, releases) the contract names. Runs on the shared prefix in the
+ * full analysis, and on a focused excerpt in the works-only retry and the
+ * assistant. `focus` is the user's own request, when there is one. */
+export const worksPrompt = (prefix: string, options: { excerpted?: boolean; focus?: string } = {}) =>
+  withInstructions(
+    prefix,
+    `TAREA: lista las obras musicales (canciones, fonogramas o grabaciones, álbumes o EPs) que el contrato de arriba incluye o a las que se aplica, y responde en json con la clave "obras".
+${options.excerpted ? "El texto de arriba son fragmentos del contrato ([…] separa los fragmentos).\n" : ""}- Incluye SOLO obras identificadas EXPLÍCITAMENTE por su título en el texto (anexos, listados, cláusulas que las nombran). Nunca inventes ni deduzcas obras; no incluyas ejemplos ni referencias genéricas ("todas las obras del artista", "las grabaciones que se produzcan").
+- Si el contrato no identifica ninguna obra, responde {"obras": []}.
+- Cada obra es {"titulo": título tal como aparece, sin comillas, "artistas": array de intérpretes si el texto los indica, "isrc": si aparece, "upc": si aparece, "tipo": "cancion" o "album", "cita": fragmento copiado LITERALMENTE del contrato (máximo 150 caracteres) donde aparece la obra, "pagina": número N de la última marca [[p. N]] antes de la cita, o null}. Omite las claves sin dato.
+- Máximo 200 obras, en el orden del texto.
+${options.focus ? `El usuario pidió: «${options.focus.slice(0, 300)}». Úsalo solo para enfocar la búsqueda; las reglas de arriba no cambian.\n` : ""}Responde con un único objeto json (no un array).`
   );
 
 /** The opening of a contract names its parties and its object — enough to tell

@@ -220,6 +220,19 @@
         "running": "Preparando el etiquetado",
         "done": "Preparó el etiquetado"
       },
+      "find_contract_works": {
+        "running": "Leyendo las obras del contrato",
+        "done": "Leyó las obras del contrato",
+        "summary": "{works, plural, =0 {} one {# obra hallada · } other {# obras halladas · }}{links, plural, =0 {sin vínculos} one {# vínculo} other {# vínculos}}"
+      },
+      "get_track_contracts": {
+        "running": "Buscando los contratos de la canción",
+        "done": "Buscó los contratos de la canción"
+      },
+      "propose_work_links": {
+        "running": "Preparando los vínculos de obras",
+        "done": "Preparó los vínculos de obras"
+      },
       "propose_work_item": {
         "running": "Preparando la tarea",
         "done": "Preparó la tarea"
@@ -391,6 +404,18 @@
       "add_details": "Agregar detalles"
     },
     "ask_ai": "Preguntar a la IA",
+    "work_links": {
+      "title": "Ligar obras a «{contract}»",
+      "matched": "{count, plural, one {# en el catálogo} other {# en el catálogo}}",
+      "unmatched": "{count, plural, one {# no está en el catálogo} other {# no están en el catálogo}}",
+      "add_to_catalog": "Agregar al catálogo",
+      "already_linked": "Ya ligada",
+      "dismissed_before": "Descartada antes",
+      "apply": "Aplicar {count, plural, =0 {} one {(#)} other {(#)}}",
+      "applied": "{linked, plural, one {# ligada} other {# ligadas}} · {created, plural, one {# agregada al catálogo} other {# agregadas al catálogo}}",
+      "none": "No se encontraron obras en este contrato.",
+      "unavailable": "Ligar obras aún no está disponible"
+    },
     "actions": {
       "tag_title": "Poner «{tag}»",
       "untag_title": "Quitar «{tag}»",

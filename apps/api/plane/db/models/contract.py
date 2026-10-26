@@ -520,3 +520,71 @@ class WopiDocumentLock(BaseModel):
 
     class Meta:
         db_table = "wopi_document_locks"
+
+
+class ContractWorkLink(BaseModel):
+    """A song or release a contract covers.
+
+    `entity_id` null means a work the AI read in the contract that is not in
+    the catalog yet (`suggested` holds what it read). AI suggestions stay
+    SUGGESTED until someone confirms (LINKED) or dismisses them; a dismissed
+    pair is never suggested again.
+    """
+
+    class EntityType(models.TextChoices):
+        MUSIC_TRACK = "music_track", "Track"
+        MUSIC_RELEASE = "music_release", "Release"
+
+    class Status(models.TextChoices):
+        SUGGESTED = "SUGGESTED", "Suggested"
+        LINKED = "LINKED", "Linked"
+        DISMISSED = "DISMISSED", "Dismissed"
+
+    class Source(models.TextChoices):
+        MANUAL = "MANUAL", "Manual"
+        AI = "AI", "AI analysis"
+        ASSISTANT = "ASSISTANT", "Assistant"
+
+    class RightsType(models.TextChoices):
+        DISTRIBUCION = "DISTRIBUCION", "Distribución"
+        EDICION = "EDICION", "Edición"
+        MASTER = "MASTER", "Master"
+        LICENCIA = "LICENCIA", "Licencia"
+        SINCRONIZACION = "SINCRONIZACION", "Sincronización"
+        REPRESENTACION = "REPRESENTACION", "Representación"
+        OTRO = "OTRO", "Otro"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="contract_work_links")
+    contract = models.ForeignKey("db.Contract", on_delete=models.CASCADE, related_name="work_links")
+    entity_type = models.CharField(max_length=30, choices=EntityType.choices, default=EntityType.MUSIC_TRACK)
+    entity_id = models.UUIDField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SUGGESTED)
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.MANUAL)
+    rights_type = models.CharField(max_length=30, choices=RightsType.choices, null=True, blank=True)
+    # {title, artists, isrc, upc, version, key}; key is the normalized title used to dedupe
+    suggested = models.JSONField(default=dict, blank=True)
+    # {quote, page}
+    evidence = models.JSONField(default=dict, blank=True)
+    confidence = models.FloatField(null=True, blank=True)
+    decided_by = models.ForeignKey("db.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Contract Work Link"
+        verbose_name_plural = "Contract Work Links"
+        db_table = "contract_work_links"
+        ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["contract", "entity_type", "entity_id"],
+                condition=models.Q(entity_id__isnull=False, deleted_at__isnull=True),
+                name="unique_contract_work_link_when_not_deleted",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["entity_type", "entity_id"], name="contract_work_entity_idx"),
+            models.Index(fields=["workspace", "status"], name="contract_work_ws_status_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.contract_id} -> {self.entity_type}:{self.entity_id}"

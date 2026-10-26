@@ -229,7 +229,63 @@
         "classify": "Clasificación (tipo, editorial)",
         "classify_hint": "Revisa solo el tipo de contrato",
         "full_description_reuse": "Indexado, análisis con IA y miniatura. Se reutiliza el texto ya extraído.",
-        "job_active": "Este contrato ya se está procesando"
+        "job_active": "Este contrato ya se está procesando",
+        "works": "Obras del catálogo",
+        "works_hint": "Busca las canciones y lanzamientos que nombra el contrato y sugiere ligarlos"
+      },
+      "works": {
+        "title": "Obras incluidas",
+        "add": "Agregar obras",
+        "empty": "Aún no hay canciones ni lanzamientos ligados.",
+        "load_failed": "No se pudieron cargar las obras.",
+        "suggestions_title": "Sugerencias de la IA",
+        "not_in_catalog": "No está en el catálogo",
+        "confirm": "Confirmar",
+        "dismiss": "Descartar",
+        "add_to_catalog": "Agregar al catálogo y ligar",
+        "create_hint": "Crea una canción en borrador en el catálogo y la liga a este contrato.",
+        "create_and_link": "Crear y ligar",
+        "created_in_catalog": "Canción agregada al catálogo y ligada",
+        "action_failed": "No se pudo guardar el cambio",
+        "remove": "Quitar vínculo",
+        "removed": "Vínculo quitado",
+        "confirmed": "Vínculo confirmado",
+        "linked_count": "{count, plural, one {# obra ligada} other {# obras ligadas}}",
+        "confidence_hint": "Qué tan segura está la IA de esta coincidencia",
+        "fields": {
+          "title": "Título",
+          "artists": "Artistas"
+        },
+        "rights": {
+          "label": "Tipo de derechos",
+          "none": "Derechos: sin definir",
+          "distribucion": "Distribución",
+          "edicion": "Edición",
+          "master": "Master",
+          "licencia": "Licencia",
+          "sincronizacion": "Sincronización",
+          "representacion": "Representación",
+          "otro": "Otro"
+        },
+        "picker": {
+          "placeholder": "Buscar canciones y lanzamientos…",
+          "linked": "Ligada",
+          "confirm": "Ligar {count, plural, =0 {obras} one {# obra} other {# obras}}"
+        },
+        "contracts_title": "Contratos",
+        "via_release": "por el lanzamiento {title}",
+        "ends": "Vence {date}",
+        "expired": "Vencido",
+        "active": "Vigente",
+        "ai_suggests": "La IA sugiere que está en",
+        "no_contracts": "Aún no hay contratos que la cubran.",
+        "filter": {
+          "title": "Contrato",
+          "with": "Con contrato",
+          "without": "Sin contrato",
+          "expired": "Con contrato vencido",
+          "clear": "Quitar filtro de contrato"
+        }
       },
       "reanalyze": {
         "button": "Reanalizar",

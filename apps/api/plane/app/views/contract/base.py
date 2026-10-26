@@ -38,8 +38,19 @@ from plane.utils.tabular_export import spreadsheet_response
 from ..file_library.base import FileLibraryBaseView
 
 # "classify" re-runs only the cheap editorial classification over the stored
-# text; it backfills contracts analyzed before the field existed.
-RETRY_OPTION_KEYS = ["extract_text", "generate_embeddings", "ai_analysis", "extract_thumbnail", "tags", "classify"]
+# text; it backfills contracts analyzed before the field existed. "works"
+# re-reads only the songs/releases the contract lists and saves suggestions.
+RETRY_OPTION_KEYS = [
+    "extract_text",
+    "generate_embeddings",
+    "ai_analysis",
+    "extract_thumbnail",
+    "tags",
+    "classify",
+    "works",
+]
+# Background stages that leave the contract's own status alone
+QUIET_RETRY_KEYS = {"classify", "works"}
 ACTIVE_JOB_STATUSES = [ContractProcessingJob.Status.QUEUED, ContractProcessingJob.Status.RUNNING]
 # Fields the list never needs; the text alone can be megabytes per contract
 LIST_DEFERRED_FIELDS = ("extracted_text", "evidence", "expiry_alerts")
@@ -59,11 +70,11 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def is_classify_only(retry_options):
-    """A classification-only run is a background backfill: it must not flip the
-    contract to PROCESSING (it would jump between views) nor to ERROR if the
-    model call fails — the contract itself is fine either way."""
-    return bool(retry_options.get("classify")) and not any(
-        retry_options.get(key) for key in RETRY_OPTION_KEYS if key != "classify"
+    """A classification-only (or works-only) run is a background backfill: it
+    must not flip the contract to PROCESSING (it would jump between views) nor
+    to ERROR if the model call fails — the contract itself is fine either way."""
+    return any(retry_options.get(key) for key in QUIET_RETRY_KEYS) and not any(
+        retry_options.get(key) for key in RETRY_OPTION_KEYS if key not in QUIET_RETRY_KEYS
     )
 
 
@@ -290,7 +301,13 @@ class ContractsEndpoint(FileLibraryBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug):
-        contracts = filter_contracts(request.query_params, slug).defer(*LIST_DEFERRED_FIELDS)
+        from plane.utils.contract_works import pending_suggestions_count
+
+        contracts = (
+            filter_contracts(request.query_params, slug)
+            .defer(*LIST_DEFERRED_FIELDS)
+            .annotate(works_suggested=pending_suggestions_count())
+        )
         context = {"today": timezone.now().date()}
 
         # Opt-in pagination; without per_page the plain array stays as before

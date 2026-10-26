@@ -4,6 +4,8 @@
  * through these endpoints, authenticated with the shared secret.
  */
 
+import type { WorkPayload } from "./contract-analysis";
+
 export class InternalApiError extends Error {
   readonly status: number;
 
@@ -53,6 +55,39 @@ export type JobProgress = {
   detail_data?: Record<string, number | boolean | string>;
   error?: { message: string; stage: string };
   usage?: { calls: unknown[]; total_cost_usd: number };
+};
+
+/** A contract ⇄ song/release link (GET .../assistant/contracts/{id}/works/). */
+export type ContractWorkLink = {
+  id: string;
+  status: "LINKED" | "SUGGESTED" | "DISMISSED";
+  source?: string;
+  rights_type?: string | null;
+  entity_type: "music_track" | "music_release";
+  entity_id: string | null;
+  entity?: { title?: string; subtitle?: string; path?: string; isrc?: string | null } | null;
+  suggested?: { title?: string; artists?: string[] | string; isrc?: string; upc?: string } | null;
+  evidence?: { quote?: string; page?: number | null } | null;
+  confidence?: number | null;
+};
+
+/** A song's contract link (GET .../assistant/music/tracks/{id}/contracts/). */
+export type TrackContractLink = {
+  id: string;
+  status: "LINKED" | "SUGGESTED" | "DISMISSED";
+  rights_type?: string | null;
+  contract: {
+    id: string;
+    titulo?: string | null;
+    file_name?: string | null;
+    estatus_contrato?: string | null;
+    fecha_fin_efectiva?: string | null;
+    days_to_expiry?: number | null;
+    path?: string;
+  };
+  evidence?: { quote?: string; page?: number | null } | null;
+  confidence?: number | null;
+  via_release?: { id: string; title?: string } | null;
 };
 
 type InternalApiEnv = Pick<Env, "PLANE_INTERNAL_API_URL" | "PLANE_INTERNAL_API_SECRET">;
@@ -186,6 +221,31 @@ export function internalApi(env: Env) {
         limit,
         ...(contractId ? { contract_id: contractId } : {}),
       }),
+    // Saves the analysis' works as SUGGESTED links (never touches LINKED/DISMISSED)
+    suggestContractWorks: (workspaceId: string, contractId: string, works: WorkPayload[]) =>
+      request<{ linked: number; suggested: number; unmatched: number }>(
+        "POST",
+        `/internal/workspaces/${workspaceId}/contracts/${contractId}/works/suggest/`,
+        { works, source: "AI" }
+      ),
+    // The assistant's reads run as the asking user
+    contractWorks: (workspaceId: string, contractId: string, userId: string) =>
+      request<{ links: ContractWorkLink[] }>(
+        "GET",
+        `/internal/workspaces/${workspaceId}/assistant/contracts/${contractId}/works/?user_id=${encodeURIComponent(userId)}`
+      ),
+    // Match candidates only: nothing is written
+    matchContractWorks: (workspaceId: string, contractId: string, userId: string, works: WorkPayload[]) =>
+      request<unknown>("POST", `/internal/workspaces/${workspaceId}/assistant/contract-works/match/`, {
+        user_id: userId,
+        contract_id: contractId,
+        works,
+      }),
+    trackContracts: (workspaceId: string, trackId: string, userId: string) =>
+      request<{ links: TrackContractLink[] }>(
+        "GET",
+        `/internal/workspaces/${workspaceId}/assistant/music/tracks/${trackId}/contracts/?user_id=${encodeURIComponent(userId)}`
+      ),
     // Generic escape hatch for one-off internal endpoints (assistant tools)
     request,
   };

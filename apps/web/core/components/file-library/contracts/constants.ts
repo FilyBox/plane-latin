@@ -4,7 +4,13 @@
  * See the LICENSE file for details.
  */
 
-import type { TContractProcessingStatus, TContractStatus, TContractType, TYesNoUnspecified } from "@plane/types";
+import type {
+  TContractProcessingStatus,
+  TContractStatus,
+  TContractType,
+  TContractWorkRightsType,
+  TYesNoUnspecified,
+} from "@plane/types";
 
 // i18n keys live under file_library.contracts.*
 
@@ -53,7 +59,8 @@ export type TRetryOptionKey =
   | "ai_analysis"
   | "classify"
   | "extract_thumbnail"
-  | "tags";
+  | "tags"
+  | "works";
 
 export const RETRY_OPTIONS: {
   key: TRetryOptionKey;
@@ -77,6 +84,11 @@ export const RETRY_OPTIONS: {
     key: "tags",
     i18nKey: "file_library.contracts.retry.tags",
     hintKey: "file_library.contracts.retry.tags_hint",
+  },
+  {
+    key: "works",
+    i18nKey: "file_library.contracts.retry.works",
+    hintKey: "file_library.contracts.retry.works_hint",
   },
 ];
 
@@ -149,6 +161,17 @@ export const CONTRACT_FIELD_OPTIONS: Record<string, { value: string; i18nKey: st
 };
 
 export const DATE_FIELD_KEYS = new Set(["fecha_inicio", "fecha_fin", "fecha_fin_efectiva"]);
+
+/** Rights a contract grants over a linked work */
+export const WORK_RIGHTS_OPTIONS: { value: TContractWorkRightsType; i18nKey: string }[] = [
+  { value: "DISTRIBUCION", i18nKey: "file_library.contracts.works.rights.distribucion" },
+  { value: "EDICION", i18nKey: "file_library.contracts.works.rights.edicion" },
+  { value: "MASTER", i18nKey: "file_library.contracts.works.rights.master" },
+  { value: "LICENCIA", i18nKey: "file_library.contracts.works.rights.licencia" },
+  { value: "SINCRONIZACION", i18nKey: "file_library.contracts.works.rights.sincronizacion" },
+  { value: "REPRESENTACION", i18nKey: "file_library.contracts.works.rights.representacion" },
+  { value: "OTRO", i18nKey: "file_library.contracts.works.rights.otro" },
+];
 
 /** "Por vencer" quick filter choices (days) */
 export const EXPIRING_WINDOWS = [30, 60, 90] as const;

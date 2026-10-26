@@ -495,6 +495,38 @@ export function buildTraceToolUIs(slug: string) {
         </div>
       ),
     }),
+    traceTool("find_contract_works", {
+      icon: ListMusic,
+      input: (args) => text(args?.question),
+      // Saved links first; a re-read also lists the works found in the text
+      output: (result, t) =>
+        t("assistant.steps.find_contract_works.summary", {
+          works: ((result.works as unknown[]) ?? []).length,
+          links: ((result.links as unknown[]) ?? []).length,
+        }),
+    }),
+    traceTool("get_track_contracts", {
+      icon: FileSearch,
+      output: (result, t) => t("assistant.steps.results", { count: ((result.links as unknown[]) ?? []).length }),
+      body: (result) => (
+        <ResultRows
+          rows={(
+            (result.links as {
+              id: string;
+              contract?: { id: string; titulo?: string | null; file_name?: string | null };
+            }[]) ?? []
+          )
+            .filter((link) => link.contract)
+            .slice(0, 10)
+            .map((link) => ({
+              key: link.id,
+              title: link.contract!.titulo || link.contract!.file_name || link.contract!.id.slice(0, 8),
+              path: contractPath(slug, link.contract!.id),
+              entity: "contract",
+            }))}
+        />
+      ),
+    }),
     traceTool("get_contract_details", {
       icon: Layers,
       output: (result, t) => t("assistant.steps.documents", { count: ((result.results as unknown[]) ?? []).length }),

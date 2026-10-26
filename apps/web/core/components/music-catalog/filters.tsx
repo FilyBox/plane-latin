@@ -13,6 +13,7 @@
 
 import { useState } from "react";
 import { ListFilter, Search, X } from "lucide-react";
+import { useTranslation } from "@plane/i18n";
 import { CloseIcon } from "@plane/propel/icons";
 import type { TMusicFilters } from "@plane/types";
 import { Tag } from "@plane/ui";
@@ -159,6 +160,51 @@ const YEARS: TMusicFilterOption[] = Array.from({ length: new Date().getFullYear(
   return { value: year, label: year };
 });
 
+/** Contract coverage, one at a time (`contract=` on the list endpoints) */
+const CONTRACT_FILTER_OPTIONS = [
+  { value: "with", i18nKey: "file_library.contracts.works.filter.with" },
+  { value: "without", i18nKey: "file_library.contracts.works.filter.without" },
+  { value: "expired", i18nKey: "file_library.contracts.works.filter.expired" },
+] as const;
+
+function ContractFilterSection({
+  value,
+  searchQuery,
+  onSet,
+}: {
+  value?: string;
+  searchQuery: string;
+  onSet: (key: keyof TMusicFilters, value: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [isPreviewEnabled, setIsPreviewEnabled] = useState(true);
+  const query = searchQuery.trim().toLowerCase();
+  const title = t("file_library.contracts.works.filter.title");
+  const options = CONTRACT_FILTER_OPTIONS.filter(
+    (option) => !query || t(option.i18nKey).toLowerCase().includes(query) || title.toLowerCase().includes(query)
+  );
+  if (options.length === 0) return null;
+  return (
+    <div className="py-1">
+      <FilterHeader
+        title={`${title}${value ? " (1)" : ""}`}
+        isPreviewEnabled={isPreviewEnabled}
+        handleIsPreviewEnabled={() => setIsPreviewEnabled((current) => !current)}
+      />
+      {isPreviewEnabled &&
+        options.map((option) => (
+          <FilterOption
+            key={option.value}
+            isChecked={value === option.value}
+            onClick={() => onSet("contract", value === option.value ? "" : option.value)}
+            title={t(option.i18nKey)}
+            multiple={false}
+          />
+        ))}
+    </div>
+  );
+}
+
 type TDropdownProps = {
   filters: TMusicFilters;
   data: TMusicFiltersData;
@@ -217,6 +263,7 @@ export function MusicFiltersDropdown({ filters, data, hasActiveFilters, onSet }:
               }
             />
           ))}
+          <ContractFilterSection value={filters.contract} searchQuery={searchQuery} onSet={onSet} />
           <FilterSection
             title="Año de lanzamiento"
             options={YEARS}
@@ -371,6 +418,8 @@ type TAppliedProps = {
 
 /** Chip row mirroring the work-items applied filters, with quick edit per group */
 export function MusicAppliedFilters({ filters, data, onSet, onClearAll }: TAppliedProps) {
+  const { t } = useTranslation();
+  const contractOption = CONTRACT_FILTER_OPTIONS.find((option) => option.value === filters.contract);
   const listEntries = LIST_FILTERS.map(({ key, label, list }) => ({
     key,
     label,
@@ -383,7 +432,8 @@ export function MusicAppliedFilters({ filters, data, onSet, onClearAll }: TAppli
   );
   const yearSelected = parseFilterList(filters.year);
 
-  if (listEntries.length === 0 && scalarEntries.length === 0 && yearSelected.length === 0) return null;
+  if (listEntries.length === 0 && scalarEntries.length === 0 && yearSelected.length === 0 && !contractOption)
+    return null;
 
   return (
     <div className="flex flex-wrap items-stretch gap-2">
@@ -405,6 +455,22 @@ export function MusicAppliedFilters({ filters, data, onSet, onClearAll }: TAppli
           onChange={(values) => onSet("year", joinFilterList(values))}
           onClear={() => onSet("year", "")}
         />
+      )}
+      {contractOption && (
+        <Tag>
+          <span className="text-11 text-tertiary">{t("file_library.contracts.works.filter.title")}</span>
+          <div className="flex items-center gap-1 rounded-sm bg-layer-1 p-1 text-11">
+            {t(contractOption.i18nKey)}
+            <button
+              type="button"
+              className="text-tertiary hover:text-primary"
+              onClick={() => onSet("contract", "")}
+              aria-label={t("file_library.contracts.works.filter.clear")}
+            >
+              <CloseIcon height={10} width={10} strokeWidth={2} />
+            </button>
+          </div>
+        </Tag>
       )}
       {scalarEntries.map(([key, label]) => (
         <Tag key={String(key)}>

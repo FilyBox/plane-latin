@@ -188,6 +188,8 @@ export type TMusicFilters = {
   /** All runs of one source file (asset id) */
   import_file?: string;
   ids_only?: string;
+  /** with | without | expired */
+  contract?: string;
 };
 
 export type TMusicCatalogOptions = {

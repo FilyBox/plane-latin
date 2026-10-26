@@ -55,6 +55,7 @@ import { MusicResourcePickerModal } from "./resource-picker-modal";
 import { SearchableSelect } from "./searchable-select";
 import { AskAssistantButton } from "@/components/assistant/ask";
 import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
+import { WorkContractsSection } from "./work-contracts-section";
 
 type Props = {
   workspaceSlug: string;
@@ -1773,6 +1774,16 @@ export function MusicTrackPeekPanel(props: Props) {
                 renderTitle={(label, count) => <SectionTitle>{`${label} · ${count}`}</SectionTitle>}
               />
             </>
+          )}
+
+          {!isCreate && (
+            <WorkContractsSection
+              workspaceSlug={workspaceSlug}
+              kind="music_track"
+              entityId={track.id}
+              className="space-y-1.5"
+              renderTitle={(label, count) => <SectionTitle>{count ? `${label} · ${count}` : label}</SectionTitle>}
+            />
           )}
 
           <section className="space-y-1">

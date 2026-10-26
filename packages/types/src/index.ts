@@ -24,6 +24,7 @@ export * from "./estimate";
 export * from "./favorite";
 export * from "./file";
 export * from "./contract";
+export * from "./contract-works";
 export * from "./file-library";
 export * from "./finance";
 export * from "./payroll";

@@ -11,6 +11,7 @@ import { useWorkspace } from "@/hooks/store/use-workspace";
 import { musicService } from "@/services/music.service";
 import { BudgetPeekPanel } from "../payments/budget-peek-panel";
 import { MusicResourcePickerModal } from "./resource-picker-modal";
+import { WorkContractsSection } from "./work-contracts-section";
 import { getApiError, MUSIC_FIELD, MUSIC_LABEL } from "./shared";
 
 type Props = {
@@ -300,6 +301,14 @@ export function MusicReleaseModal({
               </div>
               <EntityBacklinks workspaceSlug={workspaceSlug} entityName="music_release" entityId={release.id} />
             </div>
+          )}
+          {release && (
+            <WorkContractsSection
+              workspaceSlug={workspaceSlug}
+              kind="music_release"
+              entityId={release.id}
+              className="sm:col-span-2"
+            />
           )}
           <div className="sm:col-span-2">
             <label htmlFor="release-notes" className={MUSIC_LABEL}>

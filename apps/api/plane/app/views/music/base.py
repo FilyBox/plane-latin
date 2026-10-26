@@ -42,6 +42,7 @@ from plane.db.models import (
     Workspace,
     WorkspaceFeature,
 )
+from plane.utils.contract_works import filter_by_contract, release_contract_count, track_contract_count
 from plane.utils.exception_logger import log_exception
 from plane.utils.workspace_feature import is_workspace_feature_enabled
 
@@ -821,6 +822,8 @@ def _filter_releases(queryset, params):
         queryset = queryset.filter(release_date__lte=params["to"])
     if params.get("upc"):
         queryset = queryset.filter(upc__iexact=params["upc"])
+    if params.get("contract"):
+        queryset = filter_by_contract(queryset, params["contract"], "release")
     return queryset.distinct()
 
 
@@ -902,6 +905,9 @@ def _filter_tracks(queryset, params):
     if params.get("import_file"):
         # Any run of those source files (re-imports of the same upload included)
         queryset = queryset.filter(import_links__import_run__file_asset_id__in=_values("import_file"))
+    # with | without | expired: covered by a linked contract (a song also by its releases')
+    if params.get("contract"):
+        queryset = filter_by_contract(queryset, params["contract"], "track")
     return queryset.distinct()
 
 
@@ -911,7 +917,8 @@ class MusicReleaseEndpoint(MusicBaseView):
         queryset = MusicRelease.objects.filter(workspace__slug=slug).prefetch_related("artist_links__party").annotate(
             track_count=Count("track_links", distinct=True)
         )
-        return Response(MusicReleaseSerializer(_filter_releases(queryset, request.query_params), many=True).data)
+        queryset = _filter_releases(queryset, request.query_params).annotate(contract_count=release_contract_count())
+        return Response(MusicReleaseSerializer(queryset, many=True).data)
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
@@ -971,6 +978,8 @@ class MusicTrackEndpoint(MusicBaseView):
         # active filters without serializing thousands of full tracks.
         if request.query_params.get("ids_only") == "true":
             return Response({"ids": [str(pk) for pk in queryset.values_list("id", flat=True)]})
+
+        queryset = queryset.annotate(contract_count=track_contract_count())
 
         # Keep the original array response for existing consumers that do not request a page.
         if "page" not in request.query_params:

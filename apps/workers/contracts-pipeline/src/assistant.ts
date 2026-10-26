@@ -35,10 +35,22 @@ import {
   publicStreamError,
   resilient,
 } from "./contracts-agent";
-import { listChatModels } from "./lib/ai";
+import { generateAnalysisJson, listChatModels } from "./lib/ai";
+import {
+  RIGHTS_TYPES,
+  WORKS_SCHEMA,
+  normalizeWorks,
+  runValidated,
+  splitMatches,
+  worksFocus,
+  type ProposedWork,
+  type WorkPayload,
+} from "./lib/contract-analysis";
 import { estimateTurnCost } from "./lib/pricing";
-import { internalApi } from "./lib/internal-api";
+import { internalApi, type ContractWorkLink } from "./lib/internal-api";
+import { repairTruncatedJson } from "./lib/json-repair";
 import { collectEntities, linkMentions } from "./lib/page-links";
+import { ANALYSIS_SYSTEM, contractPrefix, worksPrompt } from "./prompts";
 
 export type AssistantPageContext = {
   page?: string;
@@ -98,6 +110,8 @@ type Caps = {
   tagAdmin: boolean;
   memoryAdmin: boolean;
   deepReview: boolean;
+  /** Contract ⇄ catalog works: needs contracts, music and a known user */
+  works: boolean;
 };
 
 const MEMORY_KINDS = ["FACT", "RULE", "GLOSSARY", "OWNER", "CONTEXT"] as const;
@@ -173,6 +187,8 @@ const LIMITS = {
   historyChars: 3_000,
   /** Items listed per summarized result (~90 characters each) */
   historyItems: 60,
+  /** Contract text find_contract_works reads (opening + annex/list windows) */
+  worksChars: 60_000,
 } as const;
 
 const itemLine = (item: { entity_name: string; id: string; title?: string; path?: string }) =>
@@ -221,7 +237,8 @@ IDIOMA: responde en el idioma del último mensaje del usuario (por defecto espa�
 
 CÓMO TRABAJAS
 - Primero busca, luego responde. Nunca des datos del workspace sin consultarlos con las herramientas (salvo lo que diga la memoria del workspace).
-- Los mensajes del usuario pueden traer menciones con el formato :tipo[Nombre]{name=id} (tag, contract, file, music_track, music_release, music_artist, issue, page, budget, expense). Son elementos exactos: usa ese id con la herramienta adecuada (una etiqueta → find_by_tag con tag_id; un contrato → get_contract_details) y nómbralos por su Nombre, nunca muestres el formato.
+- Los mensajes del usuario pueden traer menciones con el formato :tipo[Nombre]{name=id} (tag, contract, file, music_track, music_release, music_artist, issue, page, budget, expense). Son elementos exactos: usa ese id con la herramienta adecuada (una etiqueta → find_by_tag con tag_id; un contrato → get_contract_details).
+- En tus respuestas, un contrato, canción, lanzamiento, archivo o tarea concreto puede ir como mención :tipo[Nombre]{name=id} con el id real que devolvió una herramienta (en contratos, su contract_id): el chat la muestra como ficha clicable. Nunca inventes enlaces Markdown a rutas o nombres de archivo.
 - Empieza por consultas pequeñas y filtradas (5–20 resultados). Si hay más, di el total y ofrece acotar o descargar.
 - Para "cuántos…" o "cómo se reparten…" usa las herramientas de conteo: nunca cuentes trayendo filas.
 - Si algo es ambiguo y la respuesta cambia según la opción (dos canciones con el mismo título, qué archivo importar), usa ask_user con opciones concretas en vez de adivinar.
@@ -271,6 +288,16 @@ CATÁLOGO MUSICAL
 - export_music_excel cuando pidan un listado descargable, con los mismos filtros.
 - update_music_track para cambiar una canción (fechas, ISRC, agregar un video). Devuelve una propuesta que el usuario aprueba.
 - IMPORTAR un CSV/XLSX: 1) read_import_file con el asset_id (los adjuntos del chat ya lo traen; si no, list_music_files). 2) Decide tú el mapeo leyendo el CONTENIDO de cada columna (column_samples), no solo su nombre. 3) plan_music_import con ese mapeo: valida el archivo sin importar nada. 4) Resume el plan en una o dos frases y dile al usuario que pulse "Revisar e importar": se abre el importador de Música con tu mapeo para revisar valores, duplicados y confirmar. No intentes resolver ahí cada fila.`
+      : ""
+  }${
+    caps.works
+      ? `
+OBRAS DE LOS CONTRATOS (canciones y lanzamientos ligados a contratos)
+- Cuando el usuario pida EXPLÍCITAMENTE ligar o revisar las canciones de un contrato ("liga las canciones del contrato X", "¿qué canciones cubre este contrato?", "agrega al catálogo las obras del contrato"), aunque sea un chat nuevo: 1) ubica el contrato (mención, contexto o find_contracts); 2) find_contract_works con su contract_id: trae las obras que el contrato nombra (con cita y página) y los vínculos que ya tiene; 3) si hace falta precisar una canción del catálogo, query_music_tracks; 4) propose_work_links con las obras a ligar (título, artistas, ISRC/UPC si aparecen, kind, rights_type solo si el contrato lo deja claro, y la cita como evidence).
+- La tarjeta de propose_work_links muestra cuáles existen en el catálogo y cuáles no; el usuario marca, elige el tipo de derechos y aplica (las que no existen se agregan al catálogo y se ligan). Nunca digas que ya quedaron ligadas o agregadas: dile que revise y aplique en la tarjeta.
+- Solo obras que el contrato nombra explícitamente. Si find_contract_works no encuentra ninguna, dilo y no propongas nada. No vuelvas a proponer las que ya están ligadas.
+- "¿Qué canciones cubre este contrato?" sin pedir ligar: responde con find_contract_works (vínculos y obras halladas) y ofrece proponer los vínculos.
+- "¿Qué contrato cubre esta canción?": get_track_contracts con el id de la canción (mención, contexto o query_music_tracks). Distingue los vínculos confirmados (LINKED), las sugerencias de la IA (SUGGESTED) y los que llegan por su lanzamiento (via_release); di si el contrato está vigente o vencido. Si no hay vínculos, dilo y ofrece buscar la canción en los contratos con scan_contracts.`
       : ""
   }${
     caps.references
@@ -844,6 +871,186 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
     });
   }
 
+  if (caps.works && body.user_id) {
+    const userId = body.user_id;
+    const contractPath = (id: string) => `/${slug}/file-library/contracts/analyzed?peek=${id}`;
+    const contractRef = async (contractId: string) => {
+      const { results } = await api.request<{
+        results: { contract_id: string; titulo?: string | null; file_name?: string | null }[];
+      }>("POST", `/internal/workspaces/${workspace}/contracts/details/`, { contract_ids: [contractId] });
+      const row = results.find((item) => item.contract_id === contractId);
+      if (!row) return null;
+      return compact({
+        contract_id: row.contract_id,
+        title: row.titulo || row.file_name || "Contrato",
+        file_name: row.file_name,
+        path: contractPath(row.contract_id),
+      });
+    };
+    // A catalog item carries id + entity_name, so pages can turn it into a chip.
+    const linkRow = (link: ContractWorkLink) => {
+      const suggestedArtists = link.suggested?.artists;
+      return compact({
+        link_id: link.id,
+        status: link.status,
+        source: link.source,
+        rights_type: link.rights_type,
+        entity_name: link.entity_id ? link.entity_type : undefined,
+        id: link.entity_id ?? undefined,
+        in_catalog: Boolean(link.entity_id),
+        title: link.entity?.title ?? link.suggested?.title,
+        artists:
+          link.entity?.subtitle ?? (Array.isArray(suggestedArtists) ? suggestedArtists.join(", ") : suggestedArtists),
+        isrc: link.entity?.isrc ?? link.suggested?.isrc,
+        path: link.entity?.path,
+        quote: link.evidence?.quote?.slice(0, 200),
+        page: link.evidence?.page,
+        confidence: link.confidence,
+      });
+    };
+
+    tools.find_contract_works = tool({
+      description:
+        "Obras (canciones, álbumes) que un contrato nombra explícitamente, con su cita y página, más los vínculos que ya tiene con el catálogo (ligados y sugeridos por la IA). Lee el texto del contrato (anexos y listados) cuando aún no tiene vínculos, o si pasas question o reextract.",
+      inputSchema: z.object({
+        contract_id: z.string(),
+        question: z.string().max(300).optional().describe("Qué obras busca el usuario, si lo precisó"),
+        reextract: z.boolean().optional().describe("true = vuelve a leer el texto aunque ya haya vínculos"),
+      }),
+      execute: async ({ contract_id: contractId, question, reextract }) => {
+        const [contract, current] = await Promise.all([
+          contractRef(contractId),
+          api.contractWorks(workspace, contractId, userId),
+        ]);
+        if (!contract) return { error: "No encontré ese contrato en el workspace." };
+        const links = (current.links ?? []).filter((link) => link.status !== "DISMISSED");
+        if (!reextract && !question && links.length > 0) {
+          return { contract, links: links.map(linkRow), note: "Vínculos ya guardados; reextract:true relee el texto." };
+        }
+        // Read only after the details call confirmed the contract is in this workspace
+        const { extracted_text: text } = await api.getContractText(contractId);
+        if (!text?.trim()) {
+          return compact({
+            contract,
+            links: links.map(linkRow),
+            note: "El contrato no tiene texto extraído; no se pudieron buscar obras en él.",
+          });
+        }
+        const focus = worksFocus(text, LIMITS.worksChars);
+        const prompt = worksPrompt(contractPrefix(contract.file_name || contract.title || "contrato.pdf", focus.text), {
+          excerpted: focus.excerpted,
+          focus: question,
+        });
+        const result = await runValidated(
+          (attempt) =>
+            generateAnalysisJson(env, { system: ANALYSIS_SYSTEM, prompt, maxTokens: attempt === 1 ? 4_000 : 8_000 }),
+          WORKS_SCHEMA,
+          repairTruncatedJson
+        );
+        const last = result.outputs[result.outputs.length - 1];
+        console.log(
+          JSON.stringify({
+            message: "assistant works extraction",
+            model: last.model,
+            usage: result.outputs.map((output) => output.usage),
+          })
+        );
+        const works = normalizeWorks(result.data.obras, text);
+        return compact({
+          contract,
+          links: links.map(linkRow),
+          works,
+          excerpted: focus.excerpted || undefined,
+          note: works.length === 0 ? "El texto no nombra obras explícitamente." : undefined,
+        });
+      },
+    });
+
+    tools.propose_work_links = tool({
+      description:
+        "Propone ligar obras a un contrato. Busca cada obra en el catálogo (ISRC/UPC, título y artistas) SIN escribir nada y devuelve la tarjeta de confirmación: el usuario marca, elige el tipo de derechos y aplica; las que no existen se pueden agregar al catálogo y ligar.",
+      inputSchema: z.object({
+        contract_id: z.string(),
+        works: z
+          .array(
+            z.object({
+              title: z.string().min(1).max(200),
+              artists: z.array(z.string()).max(10).optional(),
+              isrc: z.string().optional(),
+              upc: z.string().optional(),
+              kind: z.enum(["track", "release"]).optional().describe("track = canción, release = álbum o EP"),
+              rights_type: z.enum(RIGHTS_TYPES).optional().describe("Solo si el contrato lo deja claro"),
+              evidence: z
+                .object({ quote: z.string().max(300).optional(), page: z.number().int().nullable().optional() })
+                .optional()
+                .describe("Cita del contrato donde aparece la obra"),
+            })
+          )
+          .min(1)
+          .max(100),
+      }),
+      execute: async ({ contract_id: contractId, works }) => {
+        const proposed: ProposedWork[] = works.map((work) => compact(work) as ProposedWork);
+        const payload: WorkPayload[] = proposed.map(
+          (work) =>
+            compact({
+              title: work.title,
+              artists: work.artists?.length ? work.artists : undefined,
+              isrc: work.isrc,
+              upc: work.upc,
+              kind: work.kind,
+              cita: work.evidence?.quote,
+              pagina: work.evidence?.page ?? undefined,
+            }) as WorkPayload
+        );
+        const [contract, response] = await Promise.all([
+          contractRef(contractId),
+          api.matchContractWorks(workspace, contractId, userId, payload),
+        ]);
+        if (!contract) return { error: "No encontré ese contrato en el workspace." };
+        const { matched, unmatched } = splitMatches(proposed, response, slug);
+        return { contract, matched, unmatched, workspace_slug: slug };
+      },
+    });
+
+    tools.get_track_contracts = tool({
+      description:
+        "Contratos que cubren una canción: vínculos confirmados (LINKED), sugerencias de la IA (SUGGESTED) y los que llegan por su lanzamiento (via_release), con estatus y fin efectivo.",
+      inputSchema: z.object({
+        track_id: z.string().describe("id de la canción (mención, contexto o query_music_tracks)"),
+      }),
+      execute: async ({ track_id: trackId }) => {
+        const { links } = await api.trackContracts(workspace, trackId, userId);
+        const rows = (links ?? [])
+          .filter((link) => link.status !== "DISMISSED")
+          .map((link) =>
+            compact({
+              contract_id: link.contract.id,
+              title: link.contract.titulo || link.contract.file_name || "Contrato",
+              file_name: link.contract.file_name,
+              status: link.status,
+              rights_type: link.rights_type,
+              estatus_contrato: link.contract.estatus_contrato,
+              fecha_fin_efectiva: link.contract.fecha_fin_efectiva,
+              days_to_expiry: link.contract.days_to_expiry,
+              via_release: link.via_release?.title || undefined,
+              quote: link.evidence?.quote?.slice(0, 200),
+              page: link.evidence?.page,
+              confidence: link.confidence,
+              path: link.contract.path || contractPath(link.contract.id),
+            })
+          );
+        return {
+          track_id: trackId,
+          total: rows.length,
+          linked: rows.filter((row) => row.status === "LINKED").length,
+          suggested: rows.filter((row) => row.status === "SUGGESTED").length,
+          contracts: rows,
+        };
+      },
+    });
+  }
+
   if (caps.references) {
     const lookup = <T>(path: string, params: Record<string, unknown> = {}) =>
       api.request<T>(
@@ -1037,7 +1244,9 @@ function compactHistory(messages: UIMessage[]): UIMessage[] {
         const kept: Record<string, unknown> = { note: "resultado anterior resumido" };
         if (output && typeof output === "object") {
           for (const key of SUMMARY_KEYS) {
-            if (key in output) kept[key] = (output as Record<string, unknown>)[key];
+            const value = (output as Record<string, unknown>)[key];
+            // Lists (e.g. propose_work_links' "matched") stay out; their items are kept below
+            if (key in output && !Array.isArray(value)) kept[key] = value;
           }
         }
         // Keep who was in it (kind, id, name), so a follow-up ("make a page with
@@ -1059,6 +1268,7 @@ export async function handleAssistantChat(env: Env, body: AssistantChatRequest):
     tagAdmin: body.capabilities?.references === true && body.capabilities?.tag_admin === true && Boolean(body.user_id),
     memoryAdmin: body.capabilities?.memory_admin === true,
     deepReview: body.capabilities?.deep_review === true && Boolean(body.user_id),
+    works: body.capabilities?.contracts === true && body.capabilities?.music === true && Boolean(body.user_id),
   };
   const tools = resilient(buildTools(env, body, caps));
   const { model, id } = pickModel(env, body.model);

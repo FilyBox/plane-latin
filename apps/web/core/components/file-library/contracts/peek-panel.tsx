@@ -28,7 +28,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import useSWR from "swr";
+import useSWR, { mutate as mutateGlobal } from "swr";
 // plane imports
 import { PDFViewer } from "@plane/extend-ui";
 import type { PDFViewerHandle } from "@plane/extend-ui";
@@ -65,6 +65,8 @@ import { ProposalDiff } from "./proposal-diff";
 import { RetryOptionsModal } from "./retry-options-modal";
 import { useCanEditContracts } from "./use-can-edit";
 import { formatContractDateTime, isJobActive, stageLabel } from "./utils";
+import { ContractWorksSection } from "./works-section";
+import { contractWorksKey } from "./works-shared";
 
 type Props = {
   workspaceSlug: string;
@@ -192,6 +194,7 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDiscardOpen, setIsDiscardOpen] = useState(false);
   const [isRenewOpen, setIsRenewOpen] = useState(false);
+  const [isWorksPickerOpen, setIsWorksPickerOpen] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState(false);
   const [pdfAttempt, setPdfAttempt] = useState(0);
@@ -232,6 +235,8 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
     previousActiveJobId.current = activeJobId;
     if (previous && previous !== activeJobId) {
       void mutateContract();
+      // A finished run may have saved new work suggestions
+      void mutateGlobal(contractWorksKey(contractId));
       onMutate();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,7 +250,7 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
     else onClose();
   }, [isDirty, onClose]);
 
-  const anyModalOpen = isRetryModalOpen || isDeleteModalOpen || isDiscardOpen || isRenewOpen;
+  const anyModalOpen = isRetryModalOpen || isDeleteModalOpen || isDiscardOpen || isRenewOpen || isWorksPickerOpen;
   // Escape closes (matches the work-item peek behavior), unless a dialog is on top
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -774,6 +779,17 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
             <SharedTagPicker workspaceSlug={workspaceSlug} entityName="contract" entityId={contract.id} />
           </div>
           <EntityBacklinks workspaceSlug={workspaceSlug} entityName="contract" entityId={contract.id} />
+        </div>
+      )}
+      {contract && (
+        <div className="border-t border-subtle pt-3">
+          <ContractWorksSection
+            workspaceSlug={workspaceSlug}
+            contractId={contract.id}
+            canEdit={canEdit}
+            onSeeEvidence={(evidence) => jumpToEvidence({ quote: evidence.quote ?? "", page: evidence.page ?? null })}
+            onPickerOpenChange={setIsWorksPickerOpen}
+          />
         </div>
       )}
       {contract?.ai_model_used && (

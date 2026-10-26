@@ -70,6 +70,7 @@ from .contract import (
     ContractTemplateRevision,
     ContractTemplateVariant,
     ContractWebhookEvent,
+    ContractWorkLink,
     WopiDocumentLock,
 )
 from .importer import Importer

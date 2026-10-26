@@ -48,6 +48,7 @@ import { MergeTagsCard, StartTagMappingCard } from "./tag-cards";
 import { useAssistantPageContext } from "./page-context";
 import type { TAssistantPageContext, TContextItem } from "./page-context";
 import { buildTraceToolUIs } from "./steps";
+import { WorkLinksCard } from "./work-links-card";
 import { AssistantThread } from "./thread";
 import { AssistantUsageMeter, turnFromMessage } from "./usage";
 import type { TAssistantTurn } from "./usage";
@@ -466,6 +467,7 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
       <ProposeMemoryCard />
       <TaggingCard />
       <WorkItemCard />
+      <WorkLinksCard />
       <PageCard />
       <ReportCard />
       <DeepReviewCard />

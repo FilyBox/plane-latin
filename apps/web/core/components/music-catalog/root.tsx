@@ -122,7 +122,7 @@ const TrackCardSkeleton = () => (
 
 // One-shot filters. The open song (?track=) and release (?release=) stay in
 // the URL instead, so the page can be shared with that panel open.
-const DEEP_LINK_KEYS = ["import_run", "import_file", "import_files", "artist"];
+const DEEP_LINK_KEYS = ["import_run", "import_file", "import_files", "artist", "contract"];
 
 export function MusicCatalogRoot({ workspaceSlug }: Props) {
   const { t, currentLocale } = useTranslation();
@@ -141,6 +141,8 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
     ...(searchParams.get("artist") ? { artist: searchParams.get("artist")! } : {}),
     ...(searchParams.get("import_run") ? { import_run: searchParams.get("import_run")! } : {}),
     ...(searchParams.get("import_file") ? { import_file: searchParams.get("import_file")! } : {}),
+    // ?contract=with|without|expired: songs by contract coverage
+    ...(searchParams.get("contract") ? { contract: searchParams.get("contract")! } : {}),
   }));
   const [page, setPage] = useState(1);
   const [editingRelease, setEditingRelease] = useState<TMusicRelease>();

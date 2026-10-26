@@ -229,7 +229,63 @@
         "classify": "Classification (type, editorial)",
         "classify_hint": "Re-checks only the contract type",
         "full_description_reuse": "Indexing, AI analysis and thumbnail. The text already extracted is reused.",
-        "job_active": "This contract is already being processed"
+        "job_active": "This contract is already being processed",
+        "works": "Catalog works",
+        "works_hint": "Looks for the songs and releases named in the contract and suggests links"
+      },
+      "works": {
+        "title": "Included works",
+        "add": "Add works",
+        "empty": "No songs or releases linked yet.",
+        "load_failed": "Couldn't load the works.",
+        "suggestions_title": "AI suggestions",
+        "not_in_catalog": "Not in the catalog",
+        "confirm": "Confirm",
+        "dismiss": "Dismiss",
+        "add_to_catalog": "Add to catalog and link",
+        "create_hint": "Creates a draft song in the catalog and links it to this contract.",
+        "create_and_link": "Create and link",
+        "created_in_catalog": "Song added to the catalog and linked",
+        "action_failed": "Couldn't save the change",
+        "remove": "Remove link",
+        "removed": "Link removed",
+        "confirmed": "Link confirmed",
+        "linked_count": "{count, plural, one {# work linked} other {# works linked}}",
+        "confidence_hint": "How sure the AI is about this match",
+        "fields": {
+          "title": "Title",
+          "artists": "Artists"
+        },
+        "rights": {
+          "label": "Rights type",
+          "none": "Rights: not set",
+          "distribucion": "Distribution",
+          "edicion": "Publishing",
+          "master": "Master",
+          "licencia": "License",
+          "sincronizacion": "Synchronization",
+          "representacion": "Representation",
+          "otro": "Other"
+        },
+        "picker": {
+          "placeholder": "Search songs and releases…",
+          "linked": "Linked",
+          "confirm": "Link {count, plural, =0 {works} one {# work} other {# works}}"
+        },
+        "contracts_title": "Contracts",
+        "via_release": "through the release {title}",
+        "ends": "Ends {date}",
+        "expired": "Expired",
+        "active": "Active",
+        "ai_suggests": "The AI suggests it's in",
+        "no_contracts": "No contracts cover it yet.",
+        "filter": {
+          "title": "Contract",
+          "with": "With contract",
+          "without": "Without contract",
+          "expired": "With expired contract",
+          "clear": "Remove contract filter"
+        }
       },
       "reanalyze": {
         "button": "Re-analyze",

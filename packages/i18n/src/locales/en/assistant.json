@@ -220,6 +220,19 @@
         "running": "Preparing the tagging",
         "done": "Prepared the tagging"
       },
+      "find_contract_works": {
+        "running": "Reading the contract's works",
+        "done": "Read the contract's works",
+        "summary": "{works, plural, =0 {} one {# work found · } other {# works found · }}{links, plural, =0 {no links} one {# link} other {# links}}"
+      },
+      "get_track_contracts": {
+        "running": "Looking for the song's contracts",
+        "done": "Looked for the song's contracts"
+      },
+      "propose_work_links": {
+        "running": "Preparing the work links",
+        "done": "Prepared the work links"
+      },
       "propose_work_item": {
         "running": "Preparing the work item",
         "done": "Prepared the work item"
@@ -391,6 +404,18 @@
       "add_details": "Add details"
     },
     "ask_ai": "Ask AI",
+    "work_links": {
+      "title": "Link works to “{contract}”",
+      "matched": "{count, plural, one {# in the catalog} other {# in the catalog}}",
+      "unmatched": "{count, plural, one {# not in the catalog} other {# not in the catalog}}",
+      "add_to_catalog": "Add to catalog",
+      "already_linked": "Already linked",
+      "dismissed_before": "Dismissed before",
+      "apply": "Apply {count, plural, =0 {} one {(#)} other {(#)}}",
+      "applied": "{linked, plural, one {# linked} other {# linked}} · {created, plural, one {# added to the catalog} other {# added to the catalog}}",
+      "none": "No works found in this contract.",
+      "unavailable": "Linking works isn't available yet"
+    },
     "actions": {
       "tag_title": "Add “{tag}”",
       "untag_title": "Remove “{tag}”",
