@@ -78,6 +78,10 @@ type Props = {
   emptyState: ReactNode;
   /** "N de M" + load more, below the rows */
   footer?: ReactNode;
+  /** Above the rows (e.g. "load previous" after jumping to a page) */
+  header?: ReactNode;
+  /** Id of the scroll box, so the page can scroll it back to the top */
+  scrollId?: string;
 };
 
 export function MusicTrackTable(props: Props) {
@@ -94,6 +98,8 @@ export function MusicTrackTable(props: Props) {
     onOrderChange,
     emptyState,
     footer,
+    header,
+    scrollId,
   } = props;
   const { t, currentLocale } = useTranslation();
 
@@ -206,7 +212,8 @@ export function MusicTrackTable(props: Props) {
   };
 
   return (
-    <div className="h-full overflow-auto">
+    <div id={scrollId} className="h-full overflow-auto">
+      {header}
       {/* desktop table */}
       <table className="hidden w-full min-w-[900px] border-collapse text-left md:table">
         <thead className="sticky top-0 z-[1] bg-surface-1">

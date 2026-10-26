@@ -56,6 +56,7 @@ import { DEFAULT_TRACK_ORDER, MusicTrackTable } from "./track-table";
 
 type Props = { workspaceSlug: string };
 const PAGE_SIZE = 25;
+const TRACK_SCROLL_ID = "music-track-scroll";
 
 /** Toolbar control, same as the contracts list */
 const TOOLBAR_BUTTON =
@@ -307,18 +308,25 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
     musicService.getReleases(workspaceSlug)
   );
 
-  // ── Paginated list: pages of 25 that grow with "Cargar más" (as in contracts) ──
+  // ── Paginated list: pages of 25 that grow with "Cargar más" (as in contracts).
+  // A jump ("Ir a la página N") starts the window at that page; scrolling keeps
+  // loading after it and "Cargar anteriores" extends it upwards.
   const listQuery = useMemo(() => ({ ...exportQuery, order_by: order }), [exportQuery, order]);
   const baseKey = JSON.stringify(listQuery);
-  const [pageState, setPageState] = useState<{ base: string; count: number }>({ base: "", count: 1 });
+  const [pageState, setPageState] = useState<{ base: string; start: number; count: number }>({
+    base: "",
+    start: 1,
+    count: 1,
+  });
+  const startPage = pageState.base === baseKey ? pageState.start : 1;
   const pageCount = pageState.base === baseKey ? pageState.count : 1;
-  const pagesRef = useRef<{ base: string; pages: TTrackPage[] } | null>(null);
+  const pagesRef = useRef<{ base: string; byPage: Map<number, TTrackPage> } | null>(null);
   const {
-    data: pages,
+    data: listData,
     isLoading,
     mutate: mutateTracks,
-  } = useSWR<TTrackPage[]>(
-    ["MUSIC_TRACKS", workspaceSlug, baseKey, pageCount],
+  } = useSWR<{ start: number; pages: TTrackPage[] }>(
+    ["MUSIC_TRACKS", workspaceSlug, baseKey, startPage, pageCount],
     async () => {
       const fetchPage = async (page: number): Promise<TTrackPage> => {
         const response = await musicService.getTracks(workspaceSlug, {
@@ -330,36 +338,88 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
           ? { results: response, total: response.length }
           : { results: response.results, total: response.total };
       };
-      const previous = pagesRef.current?.base === baseKey ? pagesRef.current.pages : [];
-      let loaded: TTrackPage[];
-      // Growing by one page: fetch just that page
-      if (previous.length === pageCount - 1 && previous.length > 0) {
-        loaded = [...previous, await fetchPage(pageCount)];
-      } else {
-        // Fresh load or revalidation: re-read every page shown
-        loaded = [];
-        for (let page = 1; page <= pageCount; page += 1) {
-          // Pages are read in order so a short one ends the list
-          // eslint-disable-next-line no-await-in-loop
-          const next = await fetchPage(page);
-          loaded.push(next);
-          if (page * PAGE_SIZE >= next.total) break;
-        }
+      const cache = pagesRef.current?.base === baseKey ? pagesRef.current.byPage : new Map<number, TTrackPage>();
+      const wanted = Array.from({ length: pageCount }, (_, index) => startPage + index);
+      // Growing or jumping: fetch only the pages not loaded yet. Revalidation
+      // (nothing missing): re-read every page shown.
+      const missing = wanted.filter((page) => !cache.has(page));
+      const fresh = new Map<number, TTrackPage>();
+      for (const page of missing.length > 0 ? missing : wanted) {
+        // Pages are read in order so a short one ends the list
+        // eslint-disable-next-line no-await-in-loop
+        const next = await fetchPage(page);
+        fresh.set(page, next);
+        if (page * PAGE_SIZE >= next.total) break;
       }
-      pagesRef.current = { base: baseKey, pages: loaded };
-      return loaded;
+      const merged = new Map([...cache, ...fresh]);
+      pagesRef.current = { base: baseKey, byPage: merged };
+      const loaded: TTrackPage[] = [];
+      for (const page of wanted) {
+        const entry = merged.get(page);
+        if (!entry) break;
+        loaded.push(entry);
+      }
+      // The first page of the rows shown, so counters never describe stale rows
+      return { start: startPage, pages: loaded };
     },
     { keepPreviousData: true }
   );
+  const pages = listData?.pages;
+  // While a jump loads, the previous rows stay (dimmed) and counters follow them
+  const shownStart = listData?.start ?? startPage;
+  const [jumpTarget, setJumpTarget] = useState<number | null>(null);
+  const isJumping = jumpTarget !== null && listData?.start !== jumpTarget;
   const tracks = useMemo(() => {
     const seen = new Set<string>();
     return (pages ?? []).flatMap((page) => page.results).filter((row) => !seen.has(row.id) && !!seen.add(row.id));
   }, [pages]);
   const totalTracks = pages?.[pages.length - 1]?.total ?? tracks.length;
-  const hasMore = tracks.length < totalTracks;
+  const totalPages = Math.max(1, Math.ceil(totalTracks / PAGE_SIZE));
+  const firstShown = tracks.length > 0 ? (shownStart - 1) * PAGE_SIZE + 1 : 0;
+  const lastShown = tracks.length > 0 ? firstShown + tracks.length - 1 : 0;
+  const hasMore = lastShown < totalTracks;
+  const isPageLoading = pages?.length !== pageCount;
   const loadMore = useCallback(() => {
-    if (hasMore && pages?.length === pageCount) setPageState({ base: baseKey, count: pageCount + 1 });
-  }, [baseKey, hasMore, pageCount, pages?.length]);
+    if (hasMore && !isPageLoading) setPageState({ base: baseKey, start: startPage, count: pageCount + 1 });
+  }, [baseKey, hasMore, isPageLoading, pageCount, startPage]);
+  const loadPrevious = () => {
+    if (startPage > 1 && !isPageLoading) setPageState({ base: baseKey, start: startPage - 1, count: pageCount + 1 });
+  };
+  const jumpToPage = (page: number) => {
+    const target = Math.min(Math.max(1, Math.round(page)), totalPages);
+    if (target === shownStart && pageCount === 1) return;
+    setJumpTarget(target);
+    setPageState({ base: baseKey, start: target, count: 1 });
+  };
+  // The page the user is looking at (top of the scroll box), for the jump box
+  const [visiblePage, setVisiblePage] = useState(1);
+  useEffect(() => {
+    const box = document.getElementById(TRACK_SCROLL_ID);
+    if (!box) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const ratio = box.scrollHeight > 0 ? box.scrollTop / box.scrollHeight : 0;
+        const row = Math.floor(ratio * tracks.length);
+        setVisiblePage(shownStart + Math.floor(row / PAGE_SIZE));
+      });
+    };
+    update();
+    box.addEventListener("scroll", update, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      box.removeEventListener("scroll", update);
+    };
+  }, [shownStart, tracks.length]);
+  // A jump has landed: show its first row
+  useEffect(() => {
+    if (jumpTarget === null || listData?.start !== jumpTarget) return;
+    document.getElementById(TRACK_SCROLL_ID)?.scrollTo({ top: 0 });
+    setJumpTarget(null);
+  }, [jumpTarget, listData?.start]);
+  const [pageDraft, setPageDraft] = useState<string | null>(null);
+
   // Auto-load near the end of the list
   const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
   const viewportRoot = useRef<HTMLDivElement | null>(null);
@@ -593,18 +653,81 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
     tracks.length > 0 ? (
       <div className="flex flex-col items-center gap-1.5 px-4 py-4 text-11 text-tertiary">
         <span aria-live="polite">
-          {t("file_library.contracts.list.showing", { shown: tracks.length, total: totalTracks })}
+          {shownStart > 1
+            ? t("music_catalog.list.range", { from: firstShown, to: lastShown, total: totalTracks })
+            : t("file_library.contracts.list.showing", { shown: tracks.length, total: totalTracks })}
         </span>
         {hasMore && (
           <>
             <div ref={setSentinel} aria-hidden className="h-px w-full" />
-            <Button variant="secondary" size="sm" onClick={loadMore} disabled={pages?.length !== pageCount}>
-              {pages?.length !== pageCount ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            <Button variant="secondary" size="sm" onClick={loadMore} disabled={isPageLoading}>
+              {isPageLoading ? <Loader2 className="size-3.5 animate-spin" /> : null}
               {t("file_library.contracts.list.load_more")}
             </Button>
           </>
         )}
       </div>
+    ) : null;
+
+  // After a jump the list starts mid-way: offer the earlier songs and the start
+  const listHeader =
+    shownStart > 1 && tracks.length > 0 ? (
+      <div className="flex items-center justify-center gap-3 border-b border-subtle px-4 py-2 text-11 text-tertiary">
+        <span>{t("music_catalog.list.showing_from", { from: firstShown })}</span>
+        <button
+          type="button"
+          onClick={loadPrevious}
+          disabled={isPageLoading}
+          className="font-medium text-accent-primary hover:underline disabled:opacity-50"
+        >
+          {t("music_catalog.list.load_previous")}
+        </button>
+        <button type="button" onClick={() => jumpToPage(1)} className="font-medium text-secondary hover:underline">
+          {t("music_catalog.list.back_to_start")}
+        </button>
+      </div>
+    ) : null;
+
+  // "Página [N] de M": type a page and press Enter (or leave the box)
+  const commitPageDraft = () => {
+    if (pageDraft === null) return;
+    const page = Number(pageDraft);
+    setPageDraft(null);
+    if (Number.isFinite(page) && page >= 1) jumpToPage(page);
+  };
+  const pageJump =
+    totalPages > 1 ? (
+      <label
+        className="hidden items-center gap-1.5 text-12 text-tertiary md:flex"
+        title={t("music_catalog.list.jump_hint")}
+      >
+        {t("music_catalog.list.page")}
+        <input
+          type="number"
+          min={1}
+          max={totalPages}
+          inputMode="numeric"
+          aria-label={t("music_catalog.list.jump_label")}
+          value={pageDraft ?? String(isJumping && jumpTarget !== null ? jumpTarget : Math.min(visiblePage, totalPages))}
+          onFocus={(event) => {
+            setPageDraft(String(Math.min(visiblePage, totalPages)));
+            event.currentTarget.select();
+          }}
+          onChange={(event) => setPageDraft(event.target.value)}
+          onBlur={commitPageDraft}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") {
+              setPageDraft(null);
+              event.currentTarget.blur();
+            }
+          }}
+          className="h-8 w-14 [appearance:textfield] rounded-sm border border-subtle bg-surface-1 px-2 text-center text-12 text-primary tabular-nums [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        <span className="whitespace-nowrap tabular-nums">
+          {t("music_catalog.list.of_pages", { total: totalPages })}
+        </span>
+      </label>
     ) : null;
 
   return (
@@ -649,6 +772,7 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
             ))}
           </select>
         </label>
+        {pageJump}
         {/* Secondary actions: export, import files, resources, and (small screens) quick views + order */}
         <CustomMenu
           placement="bottom-end"
@@ -831,7 +955,18 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
       </ContractBulkActionsBar>
 
       {/* table (desktop) / cards (mobile) */}
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
+        {isJumping && (
+          <div
+            role="status"
+            className="absolute inset-0 z-[2] flex items-start justify-center bg-surface-1/60 pt-24 backdrop-blur-[1px]"
+          >
+            <span className="flex items-center gap-2 rounded-md border border-subtle bg-surface-1 px-3 py-2 text-12 text-secondary shadow-raised-100">
+              <Loader2 className="size-3.5 animate-spin" />
+              {t("music_catalog.list.loading_page", { page: jumpTarget ?? startPage })}
+            </span>
+          </div>
+        )}
         {isLoading && !pages ? (
           <div className="flex h-full items-center justify-center" role="status">
             <Loader2 className="size-6 animate-spin text-tertiary" />
@@ -851,6 +986,8 @@ export function MusicCatalogRoot({ workspaceSlug }: Props) {
             onOrderChange={setOrder}
             emptyState={emptyState}
             footer={footer}
+            header={listHeader}
+            scrollId={TRACK_SCROLL_ID}
           />
         )}
       </div>
