@@ -5,24 +5,31 @@
  */
 
 import { useMemo, useState } from "react";
-import { AlertCircle, ChevronDown, Search, WandSparkles, X } from "lucide-react";
+import { AlertCircle, ChevronDown, Pin, Search, WandSparkles, X } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { cn } from "@plane/utils";
 import { SearchableSelect } from "../searchable-select";
 import { columnsOf, ESSENTIAL_FIELDS, fieldLabelKey, REQUIRED_FIELD } from "./constants";
+import { ImportFixedValueEditor } from "./fixed-value-editor";
 import type { TImportFlow } from "./use-import-flow";
 
 type Props = {
   flow: TImportFlow;
   importFields: string[];
+  workspaceSlug: string;
 };
 
-export function ImportStepColumns({ flow, importFields }: Props) {
+const valuesOf = (value: string | string[] | undefined): string[] =>
+  !value ? [] : Array.isArray(value) ? value.filter(Boolean) : [value];
+
+export function ImportStepColumns({ flow, importFields, workspaceSlug }: Props) {
   const { t } = useTranslation();
-  const { preview, mapping } = flow;
+  const { preview, mapping, constants } = flow;
   const [query, setQuery] = useState("");
   const [showMore, setShowMore] = useState(false);
+  // The field whose fixed-value picker is open
+  const [editingFixed, setEditingFixed] = useState<string>();
   const multiFields = useMemo(() => new Set(preview?.multi_fields ?? []), [preview?.multi_fields]);
   const samples = useMemo(() => preview?.column_samples ?? {}, [preview?.column_samples]);
   const dates = preview?.date_interpretations ?? {};
@@ -48,7 +55,9 @@ export function ImportStepColumns({ flow, importFields }: Props) {
   );
 
   const label = (field: string) => t(fieldLabelKey(field));
-  const assigned = importFields.filter((field) => columnsOf(mapping[field]).length > 0);
+  const assigned = importFields.filter(
+    (field) => columnsOf(mapping[field]).length > 0 || valuesOf(constants[field]).length > 0
+  );
   const essentials = ESSENTIAL_FIELDS.filter((field) => importFields.includes(field) && !assigned.includes(field));
   const more = importFields.filter((field) => !assigned.includes(field) && !ESSENTIAL_FIELDS.includes(field));
   const usedColumns = new Set(Object.values(mapping).flatMap((value) => columnsOf(value)));
@@ -71,6 +80,11 @@ export function ImportStepColumns({ flow, importFields }: Props) {
     const isRequired = field === REQUIRED_FIELD;
     const example = sampleText(selected);
     const dateReading = selected[0] ? dates[selected[0]] : undefined;
+    const fixed = valuesOf(constants[field]);
+    const fixedText = (value: string) =>
+      field === "track.explicit"
+        ? t(value === "true" ? "music_import.columns.fixed_true" : "music_import.columns.fixed_false")
+        : value;
     return (
       <li
         key={field}
@@ -141,6 +155,59 @@ export function ImportStepColumns({ flow, importFields }: Props) {
                 date: dateReading.year_only ? dateReading.parsed.slice(0, 4) : dateReading.parsed,
               })}
             </p>
+          )}
+          {/* Fixed value: the same value for the whole file (or for its empty cells) */}
+          <div className="mt-1.5 flex max-w-sm flex-wrap items-center gap-1.5 empty:hidden">
+            {fixed.map((value) => (
+              <span
+                key={value}
+                className="border-accent-primary/40 flex max-w-full items-center gap-1 rounded-md border bg-accent-primary/5 py-0.5 pr-1 pl-2 text-12"
+              >
+                <Pin className="size-3 shrink-0 text-accent-primary" aria-hidden />
+                <span className="truncate">{fixedText(value)}</span>
+                <button
+                  type="button"
+                  aria-label={t("music_import.columns.fixed_remove", { value })}
+                  onClick={() => flow.setConstant(field, isMulti ? fixed.filter((item) => item !== value) : undefined)}
+                  className="rounded-sm p-0.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+            {editingFixed !== field && (isMulti || fixed.length === 0) && (
+              <button
+                type="button"
+                onClick={() => setEditingFixed(field)}
+                className="flex items-center gap-1 rounded-sm px-1 py-0.5 text-11 text-secondary hover:bg-layer-1-hover hover:text-primary"
+              >
+                <Pin className="size-3" aria-hidden />
+                {t("music_import.columns.fixed_add")}
+              </button>
+            )}
+          </div>
+          {fixed.length > 0 && (
+            <p className="mt-0.5 text-11 text-tertiary">
+              {t(selected.length > 0 ? "music_import.columns.fixed_blank_only" : "music_import.columns.fixed_all_rows")}
+            </p>
+          )}
+          {editingFixed === field && (
+            <ImportFixedValueEditor
+              workspaceSlug={workspaceSlug}
+              field={field}
+              chosen={fixed}
+              formatExample={preview?.format_examples?.[field]}
+              onPick={(value) => {
+                if (isMulti) {
+                  if (!fixed.some((item) => item.toLowerCase() === value.toLowerCase()))
+                    flow.setConstant(field, [...fixed, value]);
+                } else {
+                  flow.setConstant(field, value);
+                  setEditingFixed(undefined);
+                }
+              }}
+              onClose={() => setEditingFixed(undefined)}
+            />
           )}
         </div>
       </li>

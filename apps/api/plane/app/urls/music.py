@@ -12,6 +12,7 @@ from plane.app.views import (
     MusicImportAIMapEndpoint,
     MusicImportAssetEndpoint,
     MusicImportEndpoint,
+    MusicImportFieldValuesEndpoint,
     MusicImportPreviewEndpoint,
     MusicPartyDetailEndpoint,
     MusicPartyEndpoint,
@@ -44,6 +45,11 @@ urlpatterns = [
     ),
     path("workspaces/<str:slug>/music/import/preview/", MusicImportPreviewEndpoint.as_view(), name="music-import-preview"),
     path("workspaces/<str:slug>/music/import/ai-map/", MusicImportAIMapEndpoint.as_view(), name="music-import-ai-map"),
+    path(
+        "workspaces/<str:slug>/music/import/field-values/",
+        MusicImportFieldValuesEndpoint.as_view(),
+        name="music-import-field-values",
+    ),
     path("workspaces/<str:slug>/music/reports/", MusicReportEndpoint.as_view(), name="music-report"),
     path(
         "workspaces/<str:slug>/music/reports/releases.csv",

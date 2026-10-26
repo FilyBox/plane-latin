@@ -243,7 +243,7 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
 
         from django.db import transaction
 
-        from .base import SUMMARY_KEYS, _record_import_run
+        from .base import SUMMARY_KEYS, _clean_constants, _clean_role_map, _record_import_run
         from .importer import AMBIGUOUS_STRATEGIES, BLANK_CELL_MODES, run_import
 
         ambiguous_strategy = request.data.get("ambiguous_strategy", "create")
@@ -252,6 +252,9 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
         blank_cells = request.data.get("blank_cells", "keep")
         if blank_cells not in BLANK_CELL_MODES:
             blank_cells = "keep"
+        # Optional: fixed values per field and tag -> role decisions
+        constants = _clean_constants(request.data.get("constants") or {})
+        role_map = _clean_role_map(request.data.get("role_map") or {})
         workspace = asset.workspace
         with transaction.atomic():
             result, touched = None, []
@@ -271,6 +274,8 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
                 ambiguous_strategy=ambiguous_strategy,
                 blank_cells=blank_cells,
                 dry_run=dry_run,
+                constants=constants,
+                role_map=role_map,
             ):
                 if event[0] == "result":
                     _, result, touched = event
@@ -294,6 +299,8 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
                         "ambiguous_strategy": ambiguous_strategy,
                         "blank_cells": blank_cells,
                         "value_overrides": value_overrides,
+                        "constants": constants,
+                        "role_map": role_map,
                     },
                     summary={key: result.get(key, 0) for key in SUMMARY_KEYS},
                     touched=touched,

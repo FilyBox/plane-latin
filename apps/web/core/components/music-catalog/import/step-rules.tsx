@@ -4,15 +4,29 @@
  * See the LICENSE file for details.
  */
 
+import { useMemo } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TMusicCatalogOptions, TMusicCompany, TMusicGenre, TMusicParty, TMusicRelease } from "@plane/types";
 import { cn } from "@plane/utils";
 import { musicService } from "@/services/music.service";
+import { creditRoleOptions } from "../credit-roles";
 import { SearchableSelect } from "../searchable-select";
 import { getApiError } from "../shared";
+import { columnsOf, ROLE_SKIP, TAGGED_CREDIT_FIELDS } from "./constants";
 import type { TImportDefaults, TImportFlow, TImportRules } from "./use-import-flow";
+
+/** "Add to every row" companies: one picker per kind, with plain names */
+const COMPANY_PICKERS: { kind: TMusicCompany["kind"]; label: string }[] = [
+  { kind: "AGGREGATOR", label: "music_import.rules.defaults_aggregators" },
+  { kind: "DISTRIBUTOR", label: "music_import.rules.defaults_distributors" },
+  { kind: "RECORD_LABEL", label: "music_import.rules.defaults_labels" },
+  { kind: "PUBLISHER", label: "music_import.rules.defaults_publishers" },
+];
+const PICKER_KINDS = new Set<string>(COMPANY_PICKERS.map((picker) => picker.kind));
+
+type TDetectedTag = { tag: string; label: string; count: number; suggested: string; known: boolean };
 
 type Props = {
   flow: TImportFlow;
@@ -86,7 +100,7 @@ export function ImportStepRules({
   onResourcesChanged,
 }: Props) {
   const { t } = useTranslation();
-  const { rules, defaults, preview } = flow;
+  const { rules, defaults, preview, mapping, roleMap } = flow;
   const setRule = <K extends keyof TImportRules>(key: K, value: TImportRules[K]) =>
     flow.setRules((current) => ({ ...current, [key]: value }));
   const setDefault = <K extends keyof TImportDefaults>(key: K, value: TImportDefaults[K]) =>
@@ -113,13 +127,18 @@ export function ImportStepRules({
 
   /** New shared resources are created on the spot from each list's
    * "Create «name»" option — no extra modal. */
-  const create = async (type: "party" | "company" | "genre" | "release", name: string) => {
+  const create = async (
+    type: "party" | "company" | "genre" | "release",
+    name: string,
+    companyKind: TMusicCompany["kind"] = "AGGREGATOR"
+  ) => {
     try {
       if (type === "party") {
         const saved = await musicService.saveParty(workspaceSlug, { display_name: name, kind: "ARTIST" });
         setDefault("credits", [...defaults.credits, { party_id: saved.id, role: "PRIMARY_ARTIST" }]);
       } else if (type === "company") {
-        const saved = await musicService.saveCompany(workspaceSlug, { name, kind: "AGGREGATOR" });
+        // Created with the kind of the picker it was typed in
+        const saved = await musicService.saveCompany(workspaceSlug, { name, kind: companyKind });
         setDefault("companyIds", [...defaults.companyIds, saved.id]);
       } else if (type === "release") {
         const saved = await musicService.saveRelease(workspaceSlug, {
@@ -138,10 +157,40 @@ export function ImportStepRules({
     }
   };
 
-  const chipList = (
+  const chips = (
     key: "companyIds" | "genreIds" | "releaseIds",
+    ids: string[],
+    list: { value: string; label: string }[]
+  ) => (
+    <div className="mt-2 flex flex-wrap gap-1.5 empty:hidden">
+      {ids.map((id) => (
+        <span
+          key={id}
+          className="flex items-center gap-1 rounded-md border border-subtle bg-layer-1 py-0.5 pr-1 pl-2 text-12"
+        >
+          {list.find((option) => option.value === id)?.label ?? id}
+          <button
+            type="button"
+            aria-label={t("music_import.rules.remove")}
+            onClick={() =>
+              setDefault(
+                key,
+                defaults[key].filter((item) => item !== id)
+              )
+            }
+            className="rounded-sm p-0.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+          >
+            <X className="size-3" />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+
+  const chipList = (
+    key: "genreIds" | "releaseIds",
     label: string,
-    type: "company" | "genre" | "release",
+    type: "genre" | "release",
     list: { value: string; label: string }[]
   ) => {
     const selected = defaults[key];
@@ -156,32 +205,67 @@ export function ImportStepRules({
           onCreate={(name) => void create(type, name)}
           placeholder={t("music_import.rules.defaults_search")}
         />
-        <div className="mt-2 flex flex-wrap gap-1.5 empty:hidden">
-          {selected.map((id) => (
-            <span
-              key={id}
-              className="flex items-center gap-1 rounded-md border border-subtle bg-layer-1 py-0.5 pr-1 pl-2 text-12"
-            >
-              {list.find((option) => option.value === id)?.label ?? id}
-              <button
-                type="button"
-                aria-label={t("music_import.rules.remove")}
-                onClick={() =>
-                  setDefault(
-                    key,
-                    selected.filter((item) => item !== id)
-                  )
-                }
-                className="rounded-sm p-0.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
-        </div>
+        {chips(key, selected, list)}
       </div>
     );
   };
+
+  // Companies: one picker per kind, listing only that kind. A saved run's
+  // companies land in their kind's picker; any other kind is listed apart.
+  const companyKindOf = (id: string) => companies.find((company) => company.id === id)?.kind;
+  const companyOptions = companies.map((company) => ({ value: company.id, label: company.name }));
+  const otherCompanyIds = defaults.companyIds.filter((id) => !PICKER_KINDS.has(companyKindOf(id) ?? ""));
+  const companyPicker = (kind: TMusicCompany["kind"], label: string) => {
+    const selected = defaults.companyIds.filter((id) => companyKindOf(id) === kind);
+    return (
+      <div key={kind}>
+        <p className="text-12 font-medium text-secondary">{t(label)}</p>
+        <SearchableSelect
+          className="mt-1.5"
+          options={companies
+            .filter((company) => company.kind === kind && !selected.includes(company.id))
+            .map((company) => ({ value: company.id, label: company.name }))}
+          value=""
+          onSelect={(id) => id && setDefault("companyIds", [...defaults.companyIds, id])}
+          onCreate={(name) => void create("company", name, kind)}
+          placeholder={t("music_import.rules.defaults_search")}
+        />
+        {chips("companyIds", selected, companyOptions)}
+      </div>
+    );
+  };
+
+  // Roles detected in the columns assigned to contributors/performers: what
+  // each tag imports as (the user's change, or the suggested role).
+  const roleChoices = creditRoleOptions(t, options?.credit_roles);
+  const taggedColumnsKey = JSON.stringify(TAGGED_CREDIT_FIELDS.map((field) => columnsOf(mapping[field])));
+  const taggedColumns = useMemo(
+    () => TAGGED_CREDIT_FIELDS.flatMap((field) => columnsOf(mapping[field]).map((column) => ({ field, column }))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [taggedColumnsKey]
+  );
+  const columnRoleTags = preview?.column_role_tags;
+  const detectedTags = useMemo(() => {
+    const byTag = new Map<string, TDetectedTag>();
+    for (const { field, column } of taggedColumns) {
+      for (const entry of columnRoleTags?.[column] ?? []) {
+        const current = byTag.get(entry.tag);
+        if (current) {
+          current.count += entry.count;
+          continue;
+        }
+        byTag.set(entry.tag, {
+          tag: entry.tag,
+          label: entry.label,
+          count: entry.count,
+          suggested: entry.role ?? (field === "performers" ? "PERFORMER" : "OTHER"),
+          known: entry.role !== null || !entry.tag,
+        });
+      }
+    }
+    return [...byTag.values()].sort((a, b) => b.count - a.count);
+  }, [columnRoleTags, taggedColumns]);
+  const changedTags = detectedTags.filter((entry) => roleMap[entry.tag] !== undefined).length;
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -351,7 +435,7 @@ export function ImportStepRules({
                   </span>
                   <SearchableSelect
                     className="w-44"
-                    options={(options?.credit_roles ?? []).map(([value, roleLabel]) => ({ value, label: roleLabel }))}
+                    options={roleChoices}
                     value={credit.role}
                     onSelect={(role) =>
                       setDefault(
@@ -378,11 +462,12 @@ export function ImportStepRules({
               ))}
             </div>
           </div>
-          {chipList(
-            "companyIds",
-            t("music_import.rules.defaults_companies"),
-            "company",
-            companies.map((item) => ({ value: item.id, label: item.name }))
+          {COMPANY_PICKERS.map((picker) => companyPicker(picker.kind, picker.label))}
+          {otherCompanyIds.length > 0 && (
+            <div>
+              <p className="text-12 font-medium text-secondary">{t("music_import.rules.defaults_other_companies")}</p>
+              {chips("companyIds", otherCompanyIds, companyOptions)}
+            </div>
           )}
           {chipList(
             "genreIds",
@@ -398,6 +483,83 @@ export function ImportStepRules({
           )}
         </div>
       </section>
+
+      {detectedTags.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div className="max-w-2xl">
+              <h3 className="text-14 font-medium text-primary">{t("music_import.rules.roles_title")}</h3>
+              <p className="mt-0.5 text-12 text-secondary">
+                {t("music_import.rules.roles_description", {
+                  columns: [...new Set(taggedColumns.map((item) => `“${item.column}”`))].join(", "),
+                })}
+              </p>
+            </div>
+            {changedTags > 0 && (
+              <button
+                type="button"
+                onClick={() => flow.setRoleMap({})}
+                className="text-12 text-secondary underline-offset-2 hover:text-primary hover:underline"
+              >
+                {t("music_import.rules.roles_reset")} · {t("music_import.rules.roles_changed", { count: changedTags })}
+              </button>
+            )}
+          </div>
+          <div className="max-w-2xl overflow-hidden rounded-lg border border-subtle">
+            <table className="w-full text-12">
+              <thead className="bg-layer-1 text-left text-11 text-tertiary">
+                <tr>
+                  <th className="px-3 py-1.5 font-medium">{t("music_import.rules.roles_tag")}</th>
+                  <th className="px-3 py-1.5 text-right font-medium">{t("music_import.rules.roles_count")}</th>
+                  <th className="px-3 py-1.5 font-medium">{t("music_import.rules.roles_role")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-subtle">
+                {detectedTags.map((entry) => {
+                  const value = roleMap[entry.tag] ?? entry.suggested;
+                  return (
+                    <tr key={entry.tag} className={cn(roleMap[entry.tag] !== undefined && "bg-accent-primary/5")}>
+                      <td className="px-3 py-1.5">
+                        <span className="text-primary">
+                          {entry.tag ? entry.label : t("music_import.rules.roles_untagged")}
+                        </span>
+                        {!entry.known && (
+                          <span className="ml-2 text-11 text-tertiary">{t("music_import.rules.roles_unknown")}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5 text-right text-secondary tabular-nums">{entry.count}</td>
+                      <td className="px-3 py-1">
+                        <select
+                          aria-label={t("music_import.rules.roles_role")}
+                          value={value}
+                          onChange={(event) =>
+                            flow.setTagRole(
+                              entry.tag,
+                              event.target.value === entry.suggested ? undefined : event.target.value
+                            )
+                          }
+                          className={cn(
+                            "focus:border-accent-primary h-7 w-full max-w-56 rounded-md border border-subtle bg-layer-1 px-2 text-12 outline-none",
+                            value === ROLE_SKIP ? "text-tertiary" : "text-primary"
+                          )}
+                        >
+                          {roleChoices.map((choice) => (
+                            <option key={choice.value} value={choice.value}>
+                              {choice.label}
+                            </option>
+                          ))}
+                          <option value={ROLE_SKIP}>{t("music_import.rules.roles_skip")}</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="max-w-2xl text-11 text-tertiary">{t("music_import.rules.roles_detail_hint")}</p>
+        </section>
+      )}
 
       {!!preview?.artist_examples.length &&
         preview.artist_examples.some(

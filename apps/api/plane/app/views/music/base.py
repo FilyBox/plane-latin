@@ -44,6 +44,17 @@ from plane.db.models import (
 )
 from plane.utils.contract_works import filter_by_contract, release_contract_count, track_contract_count
 from plane.utils.exception_logger import log_exception
+from plane.utils.music_credits import (
+    SKIP_ROLE,
+    TAGGED_CREDIT_FIELDS,
+    default_role,
+    merge_details,
+    normalize_tag,
+    resolve_role,
+    similar_names,
+    tag_counts,
+    tagged_entries,
+)
 from plane.utils.workspace_feature import is_workspace_feature_enabled
 
 from ..base import BaseAPIView
@@ -148,17 +159,129 @@ def _names_for(value, field):
         return _split(text)
     wanted = ROLE_TAG_FIELDS.get(field)
     names = []
-    for part in ARTIST_SEPARATOR.split(text):
-        tag = ROLE_TAG.search(part)
-        name = ROLE_TAG.sub("", part).strip(" .")
-        if not name:
-            continue
-        role = re.sub(r"[^a-z]", "", tag.group(0).lower()) if tag else ""
-        if tag and wanted is not None and role not in wanted:
+    # Split at the tags only: "Hermanos Vargas y Ríos <Composer>" is one name.
+    for name, tag in tagged_entries(text):
+        if tag and wanted is not None and normalize_tag(tag) not in wanted:
             continue
         if name.lower() not in (existing.lower() for existing in names):
             names.append(name)
     return names
+
+
+# Fixed values ("constants") travel as synthetic columns of the row, so they
+# go through exactly the same parsing and validation as a real cell.
+CONSTANT_PREFIX = "__constant__"
+
+
+def _apply_constants(row, mapping, constants):
+    """A fixed value per field for the whole file. With no column mapped the
+    field takes it on every row; with a column mapped it only fills the rows
+    whose cell is blank (a default)."""
+    if not constants:
+        return row, mapping
+    next_row, next_mapping = row, mapping
+    for field, value in constants.items():
+        if field not in IMPORT_FIELDS:
+            continue
+        values = [
+            str(item).strip() for item in (value if isinstance(value, list) else [value])
+            if item is not None and str(item).strip()
+        ]
+        if not values:
+            continue
+        if any(str(row.get(column) or "").strip() for column in _columns_for(mapping, field)):
+            continue
+        if next_row is row:
+            next_row, next_mapping = dict(row), dict(mapping)
+        multi = field in MULTI_COLUMN_FIELDS
+        columns = []
+        for index, item in enumerate(values if multi else values[:1]):
+            column = f"{CONSTANT_PREFIX}{field}#{index}"
+            next_row[column] = item
+            columns.append(column)
+        next_mapping[field] = columns if multi else columns[0]
+    return next_row, next_mapping
+
+
+def _mapped_cells(row, mapping, key):
+    """(column, text) for every non-empty cell mapped to the field."""
+    for column in _columns_for(mapping, key):
+        raw = row.get(column)
+        text = str(raw).strip() if raw is not None else ""
+        if text:
+            yield column, text
+
+
+def _names_in(row, mapping, key, parse):
+    """Names across the field's cells. A fixed value is one name as typed
+    (or picked) — never split on "y", "&" or commas."""
+    names = []
+    for column, text in _mapped_cells(row, mapping, key):
+        found = [text] if column.startswith(CONSTANT_PREFIX) else parse(text)
+        for name in found:
+            if name.lower() not in (existing.lower() for existing in names):
+                names.append(name)
+    return names
+
+
+def _tagged_in(row, mapping, key):
+    """(name, tag | None) across the field's cells; a fixed value without
+    tags is a single untagged name."""
+    entries = []
+    for column, text in _mapped_cells(row, mapping, key):
+        if column.startswith(CONSTANT_PREFIX) and not ROLE_TAG.search(text):
+            entries.append((text, None))
+        else:
+            entries.extend(tagged_entries(text))
+    return entries
+
+
+def _clean_role_map(value):
+    """{normalized tag: role | SKIP_ROLE} keeping only valid entries."""
+    if not isinstance(value, dict):
+        return {}
+    valid = set(MusicCredit.Role.values)
+    return {
+        normalize_tag(tag): role
+        for tag, role in value.items()
+        if isinstance(role, str) and (role == SKIP_ROLE or role in valid)
+    }
+
+
+def _clean_constants(value):
+    """{field: value | [values]} for known import fields only."""
+    if not isinstance(value, dict):
+        return {}
+    cleaned = {}
+    for field, item in value.items():
+        if field not in IMPORT_FIELDS:
+            continue
+        if isinstance(item, list):
+            items = [str(entry).strip() for entry in item if entry is not None and str(entry).strip()]
+            if items:
+                cleaned[field] = items
+        elif item is not None and str(item).strip():
+            cleaned[field] = str(item).strip()
+    return cleaned
+
+
+def _column_role_tags(headers, rows):
+    """Per column holding tagged names ("Ana <Tuba>"): every tag with how often
+    it appears and the role it means by default (None when unknown)."""
+    result = {}
+    for header in headers:
+        values = [row.get(header) for row in rows if isinstance(row.get(header), str) and row.get(header).strip()]
+        if not any(ROLE_TAG.search(value) for value in values):
+            continue
+        counts = tag_counts(values)
+        result[header] = sorted(
+            (
+                {"tag": key, "label": entry["tag"], "count": entry["count"], "role": default_role(entry["tag"])}
+                for key, entry in counts.items()
+            ),
+            key=lambda item: (-item["count"], item["tag"]),
+        )
+    return result
 
 
 def _restore_or_create(model, workspace, lookup, values=None):
@@ -540,7 +663,18 @@ IMPORT_ALIASES = {
     ),
     "genres": ("genre", "genero", "track genre", "product genre"),
     "writers": ("writer", "writers", "escritor", "escritores", "songwriter", "songwriters"),
-    "record_label": ("label", "label name", "licencia", "statement"),
+    "record_label": ("label", "label name", "licencia", "statement", "sello", "disquera"),
+    "contributors": (
+        "non performing contributors", "nonperforming contributors", "contributors", "credits", "creditos",
+        "colaboradores", "other contributors",
+    ),
+    "performers": ("performing contributors", "performers", "musicians", "musicos", "interpretes"),
+    "publishers": (
+        "publishers collection societies", "publishers", "publisher", "publisher s", "editoras", "editora",
+        "editorial", "publishing",
+    ),
+    "aggregator": ("agregadora", "agregador"),
+    "distributor": ("distribuidora", "distribuidor"),
     "track.video_url": ("video url", "video link", "link video", "url video", "youtube", "music video url"),
     "track.video_release_date": ("video release date", "fecha video", "fecha lanzamiento video"),
     "track.streaming_url": (
@@ -558,6 +692,8 @@ IMPORT_FIELDS = [
     "release.catalog_number", "release.release_date", "release.p_line", "release.c_line", "artists",
     "featured_artists", "writers", "authors", "composers", "producers", "recording_engineers", "mixers",
     "mastering_engineers", "legal_representatives", "genres", "record_label", "aggregator", "distributor",
+    # Tagged credits with any role ("Ana <Tuba>", "Luis <MixingEngineer>") and publishers
+    "contributors", "performers", "publishers",
     # Content-detected columns: a column of URLs maps here even when its
     # header says nothing useful (the assistant decides by LOOKING at values)
     "track.video_url", "track.video_release_date", "track.streaming_url",
@@ -657,7 +793,22 @@ MULTI_COLUMN_FIELDS = [
     "artists", "featured_artists", "writers", "authors", "composers", "producers", "recording_engineers",
     "mixers", "mastering_engineers", "legal_representatives", "genres", "record_label",
     "aggregator", "distributor", "track.video_url", "track.streaming_url",
+    "contributors", "performers", "publishers",
 ]
+
+# Company fields and the kind of company each one creates/links
+COMPANY_FIELD_KINDS = {
+    "record_label": MusicCompany.Kind.RECORD_LABEL,
+    "aggregator": MusicCompany.Kind.AGGREGATOR,
+    "distributor": MusicCompany.Kind.DISTRIBUTOR,
+    "publishers": MusicCompany.Kind.PUBLISHER,
+}
+
+# Fields whose values are people/artists (MusicParty)
+PARTY_FIELDS = (
+    "artists", "featured_artists", "writers", "authors", "composers", "producers", "recording_engineers",
+    "mixers", "mastering_engineers", "legal_representatives", "contributors", "performers",
+)
 
 # Example of the expected format per typed field, shown when the user decides
 # to replace an unparseable "variable" token
@@ -790,8 +941,33 @@ def _infer_mapping(headers, fields):
 
 
 def _party(workspace, name, kind=MusicParty.Kind.ARTIST):
-    party = MusicParty.objects.filter(workspace=workspace, kind=kind, display_name__iexact=name).first()
+    """Same name and kind first; otherwise the same name of another kind (the
+    writer who is also the artist, a group created by hand) before creating
+    a near-identical second record."""
+    name = str(name)[:255]
+    parties = MusicParty.objects.filter(workspace=workspace, display_name__iexact=name)
+    party = parties.filter(kind=kind).first() or parties.order_by("created_at").first()
     return party or MusicParty.objects.create(workspace=workspace, kind=kind, display_name=name)
+
+
+def _save_credit(workspace, track, party, role, detail="", replace=False):
+    """Adds (or revives) one credit. (track, party, role) is unique, so extra
+    details for the same person and role are merged into `role_detail`; in
+    replace mode the file's detail, when it has one, replaces the stored one."""
+    credit = MusicCredit.all_objects.filter(track=track, party=party, role=role).order_by("-created_at").first()
+    if credit is None:
+        return MusicCredit.objects.create(
+            workspace=workspace, track=track, party=party, role=role, role_detail=detail[:120]
+        )
+    restored = credit.deleted_at is not None
+    current = "" if restored else credit.role_detail
+    next_detail = detail[:120] if replace and detail else merge_details(current, detail)
+    if restored or next_detail != credit.role_detail:
+        credit.deleted_at = None
+        credit.workspace = workspace
+        credit.role_detail = next_detail
+        credit.save()
+    return credit
 
 
 def _genre(workspace, name):
@@ -1049,6 +1225,12 @@ class MusicTrackEndpoint(MusicBaseView):
                         "publishing_share": credit.get("publishing_share") or None,
                         "territory": credit.get("territory", ""),
                         "notes": credit.get("notes", ""),
+                        # Clients that don't send it keep the revived detail
+                        **(
+                            {"role_detail": str(credit.get("role_detail") or "").strip()[:120]}
+                            if "role_detail" in credit
+                            else {}
+                        ),
                     },
                 )
         if "link_entries" in data:
@@ -1488,6 +1670,9 @@ class MusicImportPreviewEndpoint(MusicBaseView):
                 "mapping": inferred,
                 "column_samples": _column_samples(headers, rows),
                 "multi_fields": MULTI_COLUMN_FIELDS,
+                # Tags found per column ("Ana <Tuba>") with their default role,
+                # for the role map of contributors/performers columns
+                "column_role_tags": _column_role_tags(headers, rows),
                 "format_examples": FIELD_FORMAT_EXAMPLES,
                 "field_limits": FIELD_LENGTH_LIMITS,
                 "artist_examples": [
@@ -1539,6 +1724,113 @@ class MusicImportAIMapEndpoint(MusicBaseView):
                 continue
             mapping[field] = columns if field in MULTI_COLUMN_FIELDS and len(columns) > 1 else columns[0]
         return Response({"mapping": mapping, "model": data.get("model")}, status=status.HTTP_200_OK)
+
+
+FIELD_VALUE_LIMIT = 20
+# Candidates compared for "looks like the same thing" (most used first)
+SIMILAR_CANDIDATE_LIMIT = 3000
+# Plain text fields where suggesting existing values makes no sense
+NO_SUGGESTION_FIELDS = ("track.lyrics", "track.video_url", "track.streaming_url", "track.isrc", "track.isrc_video")
+
+
+def _field_value_source(slug, field):
+    """(kind, queryset of {"value", "count"} rows) for an import field's
+    existing values — or (kind, None) when there is nothing to suggest."""
+    if field in COMPANY_FIELD_KINDS:
+        return "company", (
+            MusicCompany.objects.filter(workspace__slug=slug, kind=COMPANY_FIELD_KINDS[field])
+            .annotate(count=Count("distributions", filter=Q(distributions__deleted_at__isnull=True), distinct=True))
+            .values("count", value=models.F("name"))
+        )
+    if field in PARTY_FIELDS:
+        return "party", (
+            MusicParty.objects.filter(workspace__slug=slug, disabled=False)
+            .annotate(count=Count("track_credits", filter=Q(track_credits__deleted_at__isnull=True), distinct=True))
+            .values("count", value=models.F("display_name"))
+        )
+    if field == "genres":
+        return "genre", (
+            MusicGenre.objects.filter(workspace__slug=slug)
+            .annotate(count=Count("track_links", filter=Q(track_links__deleted_at__isnull=True), distinct=True))
+            .values("count", value=models.F("name"))
+        )
+    if field == "release.title":
+        return "release", (
+            MusicRelease.objects.filter(workspace__slug=slug)
+            .values(value=models.F("title"))
+            .annotate(count=Count("id"))
+        )
+    prefix, _, attr = field.partition(".")
+    model = {"track": MusicTrack, "release": MusicRelease}.get(prefix)
+    if model is None or not attr or field in NO_SUGGESTION_FIELDS:
+        return "text", None
+    try:
+        model_field = model._meta.get_field(attr)
+    except Exception:
+        return "text", None
+    kind = (
+        "date" if isinstance(model_field, models.DateField)
+        else "number" if isinstance(model_field, (models.DecimalField, models.IntegerField))
+        else "text"
+    )
+    if field == "track.duration_ms":
+        return "number", None
+    queryset = model.objects.filter(workspace__slug=slug).exclude(**{f"{attr}__isnull": True})
+    if model is MusicTrack:
+        queryset = queryset.filter(parent_track__isnull=True)
+    if kind == "text":
+        queryset = queryset.exclude(**{attr: ""})
+    return kind, queryset.values(value=models.F(attr)).annotate(count=Count("id"))
+
+
+class MusicImportFieldValuesEndpoint(MusicBaseView):
+    """Existing values of an import field, for its "fixed value": companies of
+    the field's kind, people, genres, releases, distinct values of text
+    fields, or the choices of a choice field — each with how often it is used.
+    `similar` lists existing values that look like the typed one ("Virgin" vs
+    "VirginAgregadora") so the user can reuse it instead of creating a twin."""
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def get(self, request, slug):
+        field = request.query_params.get("field", "")
+        query = request.query_params.get("q", "").strip()
+        if field not in IMPORT_FIELDS:
+            return Response({"field": ["Unknown import field"]}, status=status.HTTP_400_BAD_REQUEST)
+        if field in CHOICE_FIELDS or field == "track.explicit":
+            choices = CHOICE_FIELDS.get(field) or [("true", "Yes"), ("false", "No")]
+            return Response(
+                {
+                    "field": field,
+                    "kind": "choice",
+                    "choices": [[value, label] for value, label in choices],
+                    "values": [],
+                    "exact": None,
+                    "similar": [],
+                }
+            )
+        kind, source = _field_value_source(slug, field)
+        if source is None:
+            return Response({"field": field, "kind": kind, "values": [], "exact": None, "similar": []})
+
+        def serialize(entry):
+            value = entry["value"]
+            return {
+                "value": value.isoformat() if isinstance(value, (date, datetime)) else str(value),
+                "count": entry["count"],
+            }
+
+        listed = source.filter(value__icontains=query) if query else source
+        values = [serialize(entry) for entry in listed.order_by("-count", "value")[:FIELD_VALUE_LIMIT]]
+
+        exact, similar = None, []
+        if query and kind in ("company", "party", "genre", "release", "text"):
+            candidates = [serialize(entry) for entry in source.order_by("-count", "value")[:SIMILAR_CANDIDATE_LIMIT]]
+            exact = next((entry for entry in candidates if entry["value"].strip().lower() == query.lower()), None)
+            similar = [
+                {**entry, "score": round(score, 2)}
+                for score, _name, entry in similar_names(query, [(entry["value"], entry) for entry in candidates])
+            ]
+        return Response({"field": field, "kind": kind, "values": values, "exact": exact, "similar": similar})
 
 
 def _sse(event, payload):
@@ -1609,7 +1901,14 @@ class MusicImportEndpoint(MusicBaseView):
             _, rows, _, header_row = _read_table(upload, request.data.get("sheet"))
         except (json.JSONDecodeError, csv.Error, ValueError) as exc:
             return Response({"error": f"Invalid spreadsheet: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
-        if not mapping.get("track.title"):
+        try:
+            # Fixed values per field and the user's tag -> role decisions;
+            # absent in older payloads (they behave as before).
+            constants = _clean_constants(json.loads(request.data.get("constants") or "{}"))
+            role_map = _clean_role_map(json.loads(request.data.get("role_map") or "{}"))
+        except json.JSONDecodeError:
+            return Response({"constants": ["Must be valid JSON"]}, status=status.HTTP_400_BAD_REQUEST)
+        if not mapping.get("track.title") and not constants.get("track.title"):
             return Response({"mapping": ["track.title must be mapped"]}, status=status.HTTP_400_BAD_REQUEST)
 
         workspace = Workspace.objects.get(slug=slug)
@@ -1673,6 +1972,8 @@ class MusicImportEndpoint(MusicBaseView):
                     ambiguous_strategy=ambiguous_strategy,
                     blank_cells=blank_cells,
                     dry_run=dry_run,
+                    constants=constants,
+                    role_map=role_map,
                 ):
                     if event[0] == "result":
                         _, result, touched = event
@@ -1702,6 +2003,8 @@ class MusicImportEndpoint(MusicBaseView):
                             "row_overrides": row_overrides,
                             "invalid_row_strategy": invalid_row_strategy,
                             "defaults": defaults,
+                            "constants": constants,
+                            "role_map": role_map,
                         },
                         summary={key: result.get(key, 0) for key in SUMMARY_KEYS},
                         touched=touched,
@@ -1834,7 +2137,7 @@ class MusicImportEndpoint(MusicBaseView):
 
     def _import_row(
         self, workspace, row, mapping, strategy, defaults=None, dedupe_by="auto", relations_mode="merge",
-        exclude_ids=None, ambiguous_strategy="create", blank_cells="keep",
+        exclude_ids=None, ambiguous_strategy="create", blank_cells="keep", role_map=None,
     ):
         """Imports one spreadsheet row. Returns (outcome, track, match):
         outcome is created | updated | unchanged | skipped, and `match`
@@ -1956,42 +2259,66 @@ class MusicImportEndpoint(MusicBaseView):
         # coming from any mapped column are removed. Empty cells and unmapped
         # fields never touch existing relations in either mode.
         replace_relations = relations_mode == "replace"
+        # Every credit the row brings, collected first: the same person and
+        # role may come from several fields (a "Mixing" column and a generic
+        # contributors column) and several tags ("<Tuba>", "<Chorus>") — one
+        # credit each, with the details merged.
+        wanted = {}
+
+        def want(party, role, detail=""):
+            entry = wanted.setdefault((party.id, role), (party, []))
+            if detail:
+                entry[1].append(detail)
+
         for field, (kind, role) in role_fields.items():
-            produced_parties = set()
-            for value in _mapped_many(row, mapping, field):
-                for name in _names_for(value, field):
-                    party = _party(workspace, name, kind)
-                    produced_parties.add(party.id)
-                    _restore_or_create(MusicCredit, workspace, {"track": track, "party": party, "role": role})
-                    if release and role == MusicCredit.Role.PRIMARY_ARTIST:
-                        _restore_or_create(
-                            MusicReleaseArtist,
-                            workspace,
-                            {"release": release, "party": party, "role": MusicReleaseArtist.Role.PRIMARY},
-                        )
-            if replace_relations and produced_parties:
-                _prune(track.credits.filter(role=role).exclude(party_id__in=produced_parties))
+            for name in _names_in(row, mapping, field, lambda text, field=field: _names_for(text, field)):
+                want(_party(workspace, name, kind), role)
+        artist_roles = (MusicCredit.Role.PRIMARY_ARTIST, MusicCredit.Role.FEATURED_ARTIST)
+        valid_roles = set(MusicCredit.Role.values)
+        for field in TAGGED_CREDIT_FIELDS:
+            for name, tag in _tagged_in(row, mapping, field):
+                role, detail = resolve_role(tag, field, role_map)
+                if role == SKIP_ROLE or role not in valid_roles:
+                    continue
+                kind = MusicParty.Kind.ARTIST if role in artist_roles else MusicParty.Kind.PERSON
+                want(_party(workspace, name, kind), role, detail)
+        produced_credits = {}
+        for (party_id, role), (party, details) in wanted.items():
+            _save_credit(workspace, track, party, role, merge_details(*details), replace=replace_relations)
+            produced_credits.setdefault(role, set()).add(party_id)
+            if release and role == MusicCredit.Role.PRIMARY_ARTIST:
+                _restore_or_create(
+                    MusicReleaseArtist,
+                    workspace,
+                    {"release": release, "party": party, "role": MusicReleaseArtist.Role.PRIMARY},
+                )
+        if replace_relations:
+            for role, party_ids in produced_credits.items():
+                _prune(track.credits.filter(role=role).exclude(party_id__in=party_ids))
         produced_genres = set()
-        for value in _mapped_many(row, mapping, "genres"):
-            for name in _split(value):
-                genre = _genre(workspace, name)
-                produced_genres.add(genre.id)
-                _restore_or_create(MusicTrackGenre, workspace, {"track": track, "genre": genre})
+        for name in _names_in(row, mapping, "genres", _split):
+            genre = _genre(workspace, name[:120])
+            produced_genres.add(genre.id)
+            _restore_or_create(MusicTrackGenre, workspace, {"track": track, "genre": genre})
         if replace_relations and produced_genres:
             _prune(track.genre_links.exclude(genre_id__in=produced_genres))
-        company_fields = {
-            "record_label": MusicCompany.Kind.RECORD_LABEL,
-            "aggregator": MusicCompany.Kind.AGGREGATOR,
-            "distributor": MusicCompany.Kind.DISTRIBUTOR,
-        }
-        for field, kind in company_fields.items():
+        for field, kind in COMPANY_FIELD_KINDS.items():
             produced_companies = set()
-            for value in _mapped_many(row, mapping, field):
-                for name in _split(value):
-                    company = MusicCompany.objects.filter(workspace=workspace, kind=kind, name__iexact=name).first()
-                    company = company or MusicCompany.objects.create(workspace=workspace, kind=kind, name=name)
-                    produced_companies.add(company.id)
-                    MusicDistribution.objects.get_or_create(workspace=workspace, track=track, company=company)
+            for name, tag in _tagged_in(row, mapping, field):
+                name = name[:255]
+                company = MusicCompany.objects.filter(workspace=workspace, kind=kind, name__iexact=name).first()
+                if company is None:
+                    # Publishers come tagged with their collection society
+                    # ("Top Music <ASCAP>"); kept as a note on a new publisher.
+                    society = tag if tag and normalize_tag(tag) not in ("tbd", "na", "none", "unknown") else ""
+                    company = MusicCompany.objects.create(
+                        workspace=workspace,
+                        kind=kind,
+                        name=name,
+                        notes=f"PRO: {society}" if society and kind == MusicCompany.Kind.PUBLISHER else "",
+                    )
+                produced_companies.add(company.id)
+                MusicDistribution.objects.get_or_create(workspace=workspace, track=track, company=company)
             if replace_relations and produced_companies:
                 _prune(track.distributions.filter(company__kind=kind).exclude(company_id__in=produced_companies))
         self._import_links(workspace, track, row, mapping, values, replace_relations)

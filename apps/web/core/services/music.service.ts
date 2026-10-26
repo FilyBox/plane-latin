@@ -5,6 +5,8 @@ import type {
   TMusicCompany,
   TMusicFilters,
   TMusicGenre,
+  TMusicImportConstants,
+  TMusicImportFieldValues,
   TMusicImportResult,
   TMusicImportPreview,
   TMusicImportProgress,
@@ -32,6 +34,10 @@ export type TMusicImportRequest = {
   invalidRowStrategy: "abort" | "skip";
   rowOverrides: Record<string, Record<string, string>>;
   valueOverrides: Record<string, Record<string, string>>;
+  /** Fixed value per field for the whole file */
+  constants: TMusicImportConstants;
+  /** Normalized tag → role | "__SKIP__" for contributors/performers columns */
+  roleMap: Record<string, string>;
 };
 
 export class MusicService extends APIService {
@@ -178,6 +184,8 @@ export class MusicService extends APIService {
     data.append("invalid_row_strategy", request.invalidRowStrategy);
     data.append("row_overrides", JSON.stringify(request.rowOverrides));
     data.append("value_overrides", JSON.stringify(request.valueOverrides));
+    data.append("constants", JSON.stringify(request.constants));
+    data.append("role_map", JSON.stringify(request.roleMap));
     data.append("stream", "true");
     if (request.sheet) data.append("sheet", request.sheet);
 
@@ -229,6 +237,13 @@ export class MusicService extends APIService {
       this.post(`/api/workspaces/${workspaceSlug}/music/import/ai-map/`, data, {
         headers: { "Content-Type": "multipart/form-data" },
       })
+    );
+  }
+
+  /** Existing values of an import field (+ look-alikes of `q`) for its fixed value */
+  getImportFieldValues(workspaceSlug: string, field: string, q = "", signal?: AbortSignal) {
+    return this.data<TMusicImportFieldValues>(
+      this.get(`/api/workspaces/${workspaceSlug}/music/import/field-values/`, { params: { field, q }, signal })
     );
   }
 

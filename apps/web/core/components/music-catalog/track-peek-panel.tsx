@@ -53,6 +53,7 @@ import { AudioPreviewRange } from "./audio-preview-range";
 import { EditableField } from "./editable-field";
 import { MusicResourcePickerModal } from "./resource-picker-modal";
 import { SearchableSelect } from "./searchable-select";
+import { creditRoleOptions } from "./credit-roles";
 import { AskAssistantButton } from "@/components/assistant/ask";
 import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 import { StackLayer } from "@/components/panel-stack/stack-layer";
@@ -286,6 +287,7 @@ export function MusicTrackPeekPanel(props: Props) {
   const [isAddingCredit, setIsAddingCredit] = useState(false);
   const [newCreditRole, setNewCreditRole] = useState("PRIMARY_ARTIST");
   const [newCreditPercentage, setNewCreditPercentage] = useState("");
+  const [newCreditDetail, setNewCreditDetail] = useState("");
   const [creditPicker, setCreditPicker] = useState<{ creditId: string }>();
   const [editingGenreId, setEditingGenreId] = useState<string | null>(null);
   const [genreDraft, setGenreDraft] = useState("");
@@ -452,6 +454,7 @@ export function MusicTrackPeekPanel(props: Props) {
     track.credits.map((credit) => ({
       party_id: credit.party.id,
       role: credit.role,
+      role_detail: credit.role_detail ?? "",
       percentage: credit.percentage,
       publishing_share: credit.publishing_share,
       territory: credit.territory,
@@ -462,11 +465,17 @@ export function MusicTrackPeekPanel(props: Props) {
     await patch({
       credit_entries: [
         ...creditEntries(),
-        { party_id: partyId, role: newCreditRole, percentage: newCreditPercentage || null },
+        {
+          party_id: partyId,
+          role: newCreditRole,
+          role_detail: newCreditDetail.trim(),
+          percentage: newCreditPercentage || null,
+        },
       ],
     });
     setIsAddingCredit(false);
     setNewCreditPercentage("");
+    setNewCreditDetail("");
   };
 
   const createParty = async (name: string) => {
@@ -482,6 +491,7 @@ export function MusicTrackPeekPanel(props: Props) {
         .map((credit) => ({
           party_id: credit.party.id,
           role: credit.role,
+          role_detail: credit.role_detail ?? "",
           percentage: credit.percentage,
           publishing_share: credit.publishing_share,
           territory: credit.territory,
@@ -557,7 +567,13 @@ export function MusicTrackPeekPanel(props: Props) {
   // Editing one credit re-sends the full mapped set (_sync_relations replaces)
   const updateCredit = async (
     creditId: string,
-    changes: Partial<{ party_id: string; role: string; percentage: string; publishing_share: string }>
+    changes: Partial<{
+      party_id: string;
+      role: string;
+      role_detail: string;
+      percentage: string;
+      publishing_share: string;
+    }>
   ) =>
     patch({
       credit_entries: track.credits.map((credit) =>
@@ -565,6 +581,7 @@ export function MusicTrackPeekPanel(props: Props) {
           ? {
               party_id: changes.party_id ?? credit.party.id,
               role: changes.role ?? credit.role,
+              role_detail: (changes.role_detail ?? credit.role_detail ?? "").trim(),
               percentage: (changes.percentage ?? credit.percentage) || null,
               publishing_share: (changes.publishing_share ?? credit.publishing_share) || null,
               territory: credit.territory,
@@ -573,6 +590,7 @@ export function MusicTrackPeekPanel(props: Props) {
           : {
               party_id: credit.party.id,
               role: credit.role,
+              role_detail: credit.role_detail ?? "",
               percentage: credit.percentage,
               publishing_share: credit.publishing_share,
               territory: credit.territory,
@@ -733,7 +751,7 @@ export function MusicTrackPeekPanel(props: Props) {
 
   const statusOptions = (options?.track_statuses ?? []).map(([value, label]) => ({ value, label }));
   const kindOptions = (options?.track_kinds ?? []).map(([value, label]) => ({ value, label }));
-  const roleOptions = (options?.credit_roles ?? []).map(([value, label]) => ({ value, label }));
+  const roleOptions = creditRoleOptions(t, options?.credit_roles);
   const iconButton =
     "flex size-7 items-center justify-center rounded-sm border border-subtle text-secondary hover:bg-layer-1-hover";
 
@@ -1076,14 +1094,36 @@ export function MusicTrackPeekPanel(props: Props) {
                       key={credit.id}
                       className="group/row flex items-center gap-1.5 rounded-sm px-1.5 py-1 hover:bg-layer-1-hover"
                     >
-                      <button
-                        type="button"
-                        onClick={() => setCreditPicker({ creditId: credit.id })}
-                        className="min-w-0 flex-1 truncate text-left text-12 font-medium hover:text-accent-primary hover:underline"
-                        title="Edit or replace this person"
-                      >
-                        {credit.party.display_name}
-                      </button>
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => setCreditPicker({ creditId: credit.id })}
+                          className="block max-w-full truncate text-left text-12 font-medium hover:text-accent-primary hover:underline"
+                          title="Edit or replace this person"
+                        >
+                          {credit.party.display_name}
+                        </button>
+                        {/* role detail ("Tuba", "AssistantMixingEngineer"): editable inline */}
+                        <input
+                          key={`${credit.id}-${credit.role_detail ?? ""}`}
+                          defaultValue={credit.role_detail ?? ""}
+                          onBlur={(event) => {
+                            if (event.target.value.trim() !== (credit.role_detail ?? ""))
+                              void updateCredit(credit.id, { role_detail: event.target.value });
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") event.currentTarget.blur();
+                          }}
+                          maxLength={120}
+                          placeholder={t("music_catalog.credits.detail_placeholder")}
+                          aria-label={t("music_catalog.credits.detail_label")}
+                          title={t("music_catalog.credits.detail_label")}
+                          className={cn(
+                            "block w-full truncate rounded-sm border border-transparent bg-transparent px-0.5 text-10 text-tertiary outline-none placeholder:text-placeholder hover:border-subtle focus:border-subtle",
+                            !credit.role_detail && "opacity-0 group-hover/row:opacity-100 focus:opacity-100"
+                          )}
+                        />
+                      </div>
                       {/* role editable inline */}
                       <select
                         value={credit.role}
@@ -1148,6 +1188,14 @@ export function MusicTrackPeekPanel(props: Props) {
                       onChange={(event) => setNewCreditPercentage(event.target.value)}
                       placeholder="Derechos %"
                       className="w-28 rounded-sm border border-subtle bg-transparent px-1.5 py-1 text-12"
+                    />
+                    <input
+                      value={newCreditDetail}
+                      onChange={(event) => setNewCreditDetail(event.target.value)}
+                      maxLength={120}
+                      placeholder={t("music_catalog.credits.detail_placeholder")}
+                      aria-label={t("music_catalog.credits.detail_label")}
+                      className="min-w-32 flex-1 rounded-sm border border-subtle bg-transparent px-1.5 py-1 text-12"
                     />
                     <p className="w-full text-10 text-tertiary">
                       El porcentaje es opcional y queda registrado al agregar el crédito.

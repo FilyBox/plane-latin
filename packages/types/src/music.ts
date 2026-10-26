@@ -55,6 +55,9 @@ export type TMusicRelease = {
 export type TMusicCredit = {
   id: string;
   role: string;
+  /** The role as the source named it when more specific ("Tuba",
+   * "AssistantMixingEngineer"); several are joined with ", " */
+  role_detail?: string;
   percentage: string | null;
   publishing_share: string | null;
   territory: string;
@@ -271,6 +274,8 @@ export type TMusicImportResult = {
   unparseable?: Record<string, { value: string; count: number; variants?: string[] }[]>;
   /** Set when the import was applied (provenance run id) */
   import_run_id?: string;
+  /** Dry-run only: credits the checked songs end up with, per role */
+  credit_roles?: Record<string, number>;
 };
 
 /** Live progress of a validation or an import */
@@ -325,6 +330,36 @@ export type TMusicImportRunRules = {
     genre_ids?: string[];
     releases?: { id: string }[];
   };
+  /** Fixed value per field for the whole file (fills blank cells when the
+   * field also has a column) */
+  constants?: TMusicImportConstants;
+  /** Normalized tag → credit role (or "__SKIP__") for tagged credit columns */
+  role_map?: Record<string, string>;
+};
+
+export type TMusicImportConstants = Record<string, string | string[]>;
+
+/** One tag found in a column of tagged names ("Ana <Tuba>") */
+export type TMusicImportRoleTag = {
+  /** Normalized tag (lowercase letters); "" for names without a tag */
+  tag: string;
+  /** Most common spelling in the file */
+  label: string;
+  count: number;
+  /** Default role, or null when the tag is unknown */
+  role: string | null;
+};
+
+/** Existing values of an import field, for its fixed value */
+export type TMusicImportFieldValues = {
+  field: string;
+  kind: "company" | "party" | "genre" | "release" | "choice" | "text" | "date" | "number";
+  choices?: TMusicChoice[];
+  values: { value: string; count: number }[];
+  /** An existing value equal to the query (ignoring case) */
+  exact: { value: string; count: number } | null;
+  /** Existing values that look like the query ("VirginAgregadora" for "Virgin") */
+  similar: { value: string; count: number; score: number }[];
 };
 
 export type TMusicImportAsset = {
@@ -358,6 +393,8 @@ export type TMusicImportPreview = {
   /** Per column: fill count + up to 10 examples scanned over the whole file */
   column_samples?: Record<string, { non_empty: number; total: number; examples: string[] }>;
   multi_fields?: string[];
+  /** Per column of tagged names: tags found and their default role */
+  column_role_tags?: Record<string, TMusicImportRoleTag[]>;
   /** Expected-format example per typed field (shown when replacing variables) */
   format_examples?: Record<string, string>;
   /** Max characters of plain text fields; longer values must be decided on */

@@ -1022,7 +1022,28 @@
       "ai_applied": "{count, plural, one {AI assigned # field} other {AI assigned # fields}}. Check them before continuing.",
       "ai_empty": "AI found no columns to assign.",
       "ai_failed": "Couldn't map with AI",
-      "no_results": "No field matches “{query}”."
+      "no_results": "No field matches “{query}”.",
+      "fixed_add": "Fixed value",
+      "fixed_label": "Fixed value",
+      "fixed_all_rows": "Same value on every row.",
+      "fixed_blank_only": "Fills only the rows where the column is empty.",
+      "fixed_remove": "Remove fixed value {value}",
+      "fixed_search": "Type a value or search existing ones…",
+      "fixed_existing": "Already in the catalog",
+      "fixed_uses": "{count, plural, one {# use} other {# uses}}",
+      "fixed_similar_title": "This looks like something that already exists",
+      "fixed_similar_hint": "Use the existing one so you don't end up with two versions of the same thing.",
+      "fixed_use": "Use “{value}”",
+      "fixed_create": "Create “{value}” as new",
+      "fixed_exact": "“{value}” already exists and will be reused.",
+      "fixed_no_values": "No values yet. Type one.",
+      "fixed_loading": "Searching…",
+      "fixed_choose": "Choose a value",
+      "fixed_true": "Yes",
+      "fixed_false": "No",
+      "fixed_format": "Format: {example}",
+      "fixed_close": "Close",
+      "fixed_count": "{count, plural, one {# fixed value} other {# fixed values}}"
     },
     "rules": {
       "title": "Import rules",
@@ -1063,7 +1084,7 @@
       "summary_action_skip": "will be left as they are",
       "summary_action_error": "will be marked as errors",
       "defaults_title": "Add to every row",
-      "defaults_description": "Optional. Search each list or type a new name to create it right here.",
+      "defaults_description": "Optional. Link existing records (or create them here) to every song. To give a field a fixed value, use “Fixed value” in Columns.",
       "defaults_people": "Artists and collaborators",
       "defaults_companies": "Aggregators and distributors",
       "defaults_genres": "Genres",
@@ -1081,7 +1102,23 @@
       "blank_cells_keep": "Keep the current value",
       "blank_cells_keep_hint": "An empty cell doesn't change what the song already has.",
       "blank_cells_clear": "Clear the current value",
-      "blank_cells_clear_hint": "The song ends up exactly like the file: anything empty is cleared (type and status go back to their defaults)."
+      "blank_cells_clear_hint": "The song ends up exactly like the file: anything empty is cleared (type and status go back to their defaults).",
+      "defaults_aggregators": "Aggregator",
+      "defaults_distributors": "Distributor",
+      "defaults_labels": "Record label",
+      "defaults_publishers": "Publisher",
+      "defaults_other_companies": "Other companies",
+      "roles_title": "Detected roles",
+      "roles_description": "Credits in {columns} come tagged with a role (“Name <Role>”). Check what each tag means, change it or leave it out. Applies to this file.",
+      "roles_tag": "Tag in the file",
+      "roles_count": "Mentions",
+      "roles_role": "Imports as",
+      "roles_skip": "Don't import",
+      "roles_untagged": "No tag",
+      "roles_unknown": "Unknown tag",
+      "roles_detail_hint": "When the tag says more than the role (e.g. “AssistantMixingEngineer” or “Tuba”) it is kept as the credit's detail.",
+      "roles_reset": "Restore suggested roles",
+      "roles_changed": "{count, plural, one {# change} other {# changes}}"
     },
     "review": {
       "title": "Review",
@@ -1157,7 +1194,10 @@
       "blocked_errors": "{count, plural, one {Fix the row with an error or choose to import without it.} other {Fix the # rows with errors or choose to import without them.}}",
       "max_length": "at most {max} characters",
       "error_too_long": "The value is longer than the field allows",
-      "values_all_decided": "All decided. Review again to apply it."
+      "values_all_decided": "All decided. Review again to apply it.",
+      "fixed_title": "Fixed values",
+      "fixed_blank_only": "only empty cells",
+      "credits_title": "Credits of these songs, by role"
     },
     "done": {
       "title": "Import finished",
@@ -1260,12 +1300,44 @@
       "distributor": "Distributor",
       "track_video_url": "Video link",
       "track_video_release_date": "Video date",
-      "track_streaming_url": "Streaming link"
+      "track_streaming_url": "Streaming link",
+      "contributors": "Contributors (any role)",
+      "performers": "Performers / musicians",
+      "publishers": "Publishers"
     },
     "select": {
       "search": "Search…",
       "no_matches": "No matches",
       "create": "Create “{name}”"
+    },
+    "roles": {
+      "PRIMARY_ARTIST": "Primary artist",
+      "FEATURED_ARTIST": "Featured artist",
+      "PERFORMER": "Performer",
+      "AUTHOR": "Lyricist",
+      "COMPOSER": "Composer",
+      "WRITER": "Writer",
+      "PUBLISHER": "Publisher",
+      "PRODUCER": "Producer",
+      "AUDIO_PRODUCER": "Audio producer",
+      "RECORDING_ENGINEER": "Recording engineer",
+      "MIXER": "Mixing engineer",
+      "MASTERING_ENGINEER": "Mastering engineer",
+      "LEGAL_REPRESENTATIVE": "Legal representative",
+      "LABEL_MANAGER": "Label manager",
+      "EXECUTIVE_PRODUCER": "Executive producer",
+      "CO_PRODUCER": "Co-producer",
+      "VOCAL_PRODUCER": "Vocal producer",
+      "ASSISTANT_PRODUCER": "Assistant producer",
+      "A_AND_R": "A&R",
+      "MUSICAL_DIRECTOR": "Musical director",
+      "ARRANGER": "Arranger",
+      "ASSISTANT_ENGINEER": "Assistant engineer",
+      "SOUND_ENGINEER": "Sound engineer",
+      "SOUND_EDITOR": "Sound editor",
+      "VIDEO_PRODUCER": "Video producer",
+      "VIDEO_DIRECTOR": "Video director",
+      "OTHER": "Other"
     }
   },
   "music_catalog": {
@@ -1282,6 +1354,10 @@
       "of_pages": "of {count}",
       "previous": "Previous page",
       "next": "Next page"
+    },
+    "credits": {
+      "detail_placeholder": "Detail (e.g. Tuba)",
+      "detail_label": "Role detail"
     }
   }
 }

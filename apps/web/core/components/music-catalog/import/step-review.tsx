@@ -10,7 +10,8 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import type { TMusicImportResult, TMusicImportRowOutcome } from "@plane/types";
 import { cn } from "@plane/utils";
-import { errorLabelKey, fieldLabelKey, MATCH_LABEL_KEY, ROW_OUTCOME_LABEL_KEY, SKIP_ROW } from "./constants";
+import { creditRoleLabel } from "../credit-roles";
+import { columnsOf, errorLabelKey, fieldLabelKey, MATCH_LABEL_KEY, ROW_OUTCOME_LABEL_KEY, SKIP_ROW } from "./constants";
 import { ImportLiveCounts } from "./live-counts";
 import type { TImportFlow, TValueDecision } from "./use-import-flow";
 
@@ -146,6 +147,11 @@ export function ImportStepReview({ flow, onValidate }: Props) {
     );
   }
 
+  const fixedEntries = Object.entries(flow.constants).map(
+    ([field, value]) => [field, Array.isArray(value) ? value : [value]] as const
+  );
+  const creditRoles = Object.entries(review.credit_roles ?? {}).sort((a, b) => b[1] - a[1]);
+
   const hasPending =
     valueEntries.length > 0 ||
     review.errors.length > 0 ||
@@ -221,6 +227,39 @@ export function ImportStepReview({ flow, onValidate }: Props) {
       </div>
       {review.empty > 0 && (
         <p className="text-12 text-tertiary">{t("music_import.review.empty_rows", { count: review.empty })}</p>
+      )}
+
+      {(fixedEntries.length > 0 || creditRoles.length > 0) && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {fixedEntries.length > 0 && (
+            <div className="rounded-lg border border-subtle px-4 py-3">
+              <h4 className="text-13 font-medium text-primary">{t("music_import.review.fixed_title")}</h4>
+              <ul className="mt-2 space-y-1 text-12">
+                {fixedEntries.map(([field, values]) => (
+                  <li key={field} className="flex flex-wrap gap-x-2">
+                    <span className="text-secondary">{t(fieldLabelKey(field))}:</span>
+                    <span className="text-primary">{values.join(", ")}</span>
+                    {columnsOf(flow.mapping[field]).length > 0 && (
+                      <span className="text-tertiary">({t("music_import.review.fixed_blank_only")})</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {creditRoles.length > 0 && (
+            <div className="rounded-lg border border-subtle px-4 py-3">
+              <h4 className="text-13 font-medium text-primary">{t("music_import.review.credits_title")}</h4>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {creditRoles.map(([role, count]) => (
+                  <span key={role} className="rounded-md bg-layer-1 px-2 py-0.5 text-12 text-secondary">
+                    {creditRoleLabel(t, role)} <span className="text-primary tabular-nums">{count}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="space-y-4">

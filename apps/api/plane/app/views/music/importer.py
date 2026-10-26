@@ -15,12 +15,17 @@ import time
 
 # Django imports
 from django.db import transaction
+from django.db.models import Count
 
 # Module imports
+from plane.db.models import MusicCredit
+
 from .base import (
+    _apply_constants,
     _apply_overrides,
     _apply_row_overrides,
     _collect_unparsed,
+    _columns_for,
     _import_error_detail,
     _mapped,
     _mapped_many,
@@ -50,6 +55,10 @@ def _is_empty_row(row):
 # song with a missing title: it is filler, and is ignored like a blank row.
 SONG_IDENTITY_SINGLE = ("track.title", "track.isrc", "track.upc", "release.title", "release.upc")
 SONG_IDENTITY_MULTI = ("artists",)
+
+
+def _identity_mapped(mapping):
+    return any(_columns_for(mapping, key) for key in SONG_IDENTITY_SINGLE + SONG_IDENTITY_MULTI)
 
 
 def _has_song_data(row, mapping):
@@ -95,10 +104,16 @@ def run_import(
     ambiguous_strategy="create",
     blank_cells="keep",
     dry_run=False,
+    constants=None,
+    role_map=None,
 ):
     """Imports `rows`, yielding ("progress", payload) events and finally
     ("result", result, touched). `touched` lists (track_id, outcome, row) for
-    the provenance links of an applied import."""
+    the provenance links of an applied import.
+
+    `constants` ({field: value}) give a field a fixed value for the whole
+    file (or fill its blank cells); `role_map` ({tag: role}) decides what
+    each tag of a contributors/performers column means."""
     row_overrides = row_overrides or {}
     value_overrides = value_overrides or {}
     total = len(rows)
@@ -153,8 +168,20 @@ def run_import(
             result["empty"] += 1
             continue
         effective_row, effective_mapping = _apply_row_overrides(row, mapping, row_overrides.get(str(index), {}))
+        file_row, file_mapping = effective_row, effective_mapping
+        # Fixed values join before value decisions and parsing, exactly like
+        # a cell would.
+        effective_row, effective_mapping = _apply_constants(effective_row, effective_mapping, constants)
         effective_row, skip_row = _apply_overrides(effective_row, effective_mapping, value_overrides)
-        if not _has_song_data(effective_row, effective_mapping):
+        # Whether a row is about a song is judged on the FILE's cells: a fixed
+        # artist must not turn a trailing filler line into a song.
+        if file_mapping is effective_mapping:
+            has_data = _has_song_data(effective_row, effective_mapping)
+        else:
+            has_data = _has_song_data(_apply_overrides(file_row, file_mapping, value_overrides)[0], file_mapping) or (
+                not _identity_mapped(file_mapping) and _has_song_data(effective_row, effective_mapping)
+            )
+        if not has_data:
             result["empty"] += 1
             continue
         title = _mapped(effective_row, effective_mapping, "track.title")
@@ -185,6 +212,7 @@ def run_import(
                     exclude_ids=None if dedupe_within_file else claimed_ids,
                     ambiguous_strategy=ambiguous_strategy,
                     blank_cells=blank_cells,
+                    role_map=role_map,
                 )
         except Exception as exc:
             detail = _import_error_detail(index, exc, effective_row, effective_mapping)
@@ -225,5 +253,18 @@ def run_import(
     if dry_run:
         result["rows"] = outcomes
         result["unparseable"] = _group_unparseable(unparseable)
+        # Credits the checked songs would end up with, per role — read before
+        # the caller rolls the validation back.
+        track_ids = list({track_id for track_id, _outcome, _row in touched})
+        result["credit_roles"] = (
+            {
+                entry["role"]: entry["count"]
+                for entry in MusicCredit.objects.filter(track_id__in=track_ids)
+                .values("role")
+                .annotate(count=Count("id"))
+            }
+            if track_ids
+            else {}
+        )
     yield progress(total)
     yield "result", result, touched

@@ -15,6 +15,12 @@ export const SKIP_ROW = "__SKIP_ROW__";
 
 export const REQUIRED_FIELD = "track.title";
 
+/** Role-map sentinel: names with that tag are not imported */
+export const ROLE_SKIP = "__SKIP__";
+
+/** Credit fields whose cells carry tagged names with any role ("Ana <Tuba>") */
+export const TAGGED_CREDIT_FIELDS = ["contributors", "performers"];
+
 /** Shown even when unassigned: what most catalog files carry. Everything
  * else waits behind "More fields" so the step isn't a wall of 48 selects. */
 export const ESSENTIAL_FIELDS = [
@@ -28,6 +34,8 @@ export const ESSENTIAL_FIELDS = [
   "featured_artists",
   "genres",
   "record_label",
+  "aggregator",
+  "contributors",
   "release.upc",
 ];
 

@@ -1022,7 +1022,28 @@
       "ai_applied": "{count, plural, one {La IA asignó # campo} other {La IA asignó # campos}}. Revísalos antes de continuar.",
       "ai_empty": "La IA no encontró columnas para asignar.",
       "ai_failed": "No se pudo mapear con IA",
-      "no_results": "Ningún campo coincide con «{query}»."
+      "no_results": "Ningún campo coincide con «{query}».",
+      "fixed_add": "Valor fijo",
+      "fixed_label": "Valor fijo",
+      "fixed_all_rows": "El mismo valor en todas las filas.",
+      "fixed_blank_only": "Solo llena las filas donde la columna está vacía.",
+      "fixed_remove": "Quitar valor fijo {value}",
+      "fixed_search": "Escribe un valor o busca uno existente…",
+      "fixed_existing": "Ya en el catálogo",
+      "fixed_uses": "{count, plural, one {# uso} other {# usos}}",
+      "fixed_similar_title": "Parece algo que ya existe",
+      "fixed_similar_hint": "Usa el existente para no terminar con dos versiones de lo mismo.",
+      "fixed_use": "Usar «{value}»",
+      "fixed_create": "Crear «{value}» nuevo",
+      "fixed_exact": "«{value}» ya existe y se reutilizará.",
+      "fixed_no_values": "Aún no hay valores. Escribe uno.",
+      "fixed_loading": "Buscando…",
+      "fixed_choose": "Elige un valor",
+      "fixed_true": "Sí",
+      "fixed_false": "No",
+      "fixed_format": "Formato: {example}",
+      "fixed_close": "Cerrar",
+      "fixed_count": "{count, plural, one {# valor fijo} other {# valores fijos}}"
     },
     "rules": {
       "title": "Reglas de importación",
@@ -1063,7 +1084,7 @@
       "summary_action_skip": "se dejarán como están",
       "summary_action_error": "se marcarán como error",
       "defaults_title": "Agregar a todas las filas",
-      "defaults_description": "Opcional. Busca en cada lista o escribe un nombre nuevo para crearlo aquí mismo.",
+      "defaults_description": "Opcional. Vincula registros existentes (o créalos aquí) a todas las canciones. Para darle a un campo un valor fijo, usa «Valor fijo» en Columnas.",
       "defaults_people": "Artistas y colaboradores",
       "defaults_companies": "Agregadoras y distribuidoras",
       "defaults_genres": "Géneros",
@@ -1081,7 +1102,23 @@
       "blank_cells_keep": "Conservar el valor actual",
       "blank_cells_keep_hint": "Una celda vacía no cambia lo que la canción ya tiene.",
       "blank_cells_clear": "Borrar el valor actual",
-      "blank_cells_clear_hint": "La canción queda igual que el archivo: lo que venga vacío se borra (tipo y estado vuelven a su valor por defecto)."
+      "blank_cells_clear_hint": "La canción queda igual que el archivo: lo que venga vacío se borra (tipo y estado vuelven a su valor por defecto).",
+      "defaults_aggregators": "Agregadora",
+      "defaults_distributors": "Distribuidora",
+      "defaults_labels": "Sello",
+      "defaults_publishers": "Editora",
+      "defaults_other_companies": "Otras compañías",
+      "roles_title": "Roles detectados",
+      "roles_description": "Los créditos de {columns} vienen etiquetados con un rol («Nombre <Rol>»). Revisa qué significa cada etiqueta, cámbiala o déjala fuera. Aplica a este archivo.",
+      "roles_tag": "Etiqueta en el archivo",
+      "roles_count": "Menciones",
+      "roles_role": "Se importa como",
+      "roles_skip": "No importar",
+      "roles_untagged": "Sin etiqueta",
+      "roles_unknown": "Etiqueta desconocida",
+      "roles_detail_hint": "Cuando la etiqueta dice más que el rol (p. ej. «AssistantMixingEngineer» o «Tuba») se guarda como detalle del crédito.",
+      "roles_reset": "Restaurar roles sugeridos",
+      "roles_changed": "{count, plural, one {# cambio} other {# cambios}}"
     },
     "review": {
       "title": "Revisión",
@@ -1157,7 +1194,10 @@
       "blocked_errors": "{count, plural, one {Corrige la fila con error o elige importar sin ella.} other {Corrige las # filas con error o elige importar sin ellas.}}",
       "max_length": "máximo {max} caracteres",
       "error_too_long": "El valor es más largo de lo que admite el campo",
-      "values_all_decided": "Todo decidido. Revisa de nuevo para aplicarlo."
+      "values_all_decided": "Todo decidido. Revisa de nuevo para aplicarlo.",
+      "fixed_title": "Valores fijos",
+      "fixed_blank_only": "solo celdas vacías",
+      "credits_title": "Créditos de estas canciones, por rol"
     },
     "done": {
       "title": "Importación terminada",
@@ -1260,12 +1300,44 @@
       "distributor": "Distribuidora",
       "track_video_url": "Enlace del video",
       "track_video_release_date": "Fecha del video",
-      "track_streaming_url": "Enlace de streaming"
+      "track_streaming_url": "Enlace de streaming",
+      "contributors": "Colaboradores (cualquier rol)",
+      "performers": "Intérpretes / músicos",
+      "publishers": "Editoras"
     },
     "select": {
       "search": "Buscar…",
       "no_matches": "Sin coincidencias",
       "create": "Crear «{name}»"
+    },
+    "roles": {
+      "PRIMARY_ARTIST": "Artista principal",
+      "FEATURED_ARTIST": "Artista invitado",
+      "PERFORMER": "Intérprete / músico",
+      "AUTHOR": "Letrista",
+      "COMPOSER": "Compositor",
+      "WRITER": "Autor",
+      "PUBLISHER": "Editora",
+      "PRODUCER": "Productor",
+      "AUDIO_PRODUCER": "Productor de audio",
+      "RECORDING_ENGINEER": "Ingeniero de grabación",
+      "MIXER": "Ingeniero de mezcla",
+      "MASTERING_ENGINEER": "Ingeniero de masterización",
+      "LEGAL_REPRESENTATIVE": "Representante legal",
+      "LABEL_MANAGER": "Label manager",
+      "EXECUTIVE_PRODUCER": "Productor ejecutivo",
+      "CO_PRODUCER": "Coproductor",
+      "VOCAL_PRODUCER": "Productor vocal",
+      "ASSISTANT_PRODUCER": "Productor asistente",
+      "A_AND_R": "A&R",
+      "MUSICAL_DIRECTOR": "Director musical",
+      "ARRANGER": "Arreglista",
+      "ASSISTANT_ENGINEER": "Ingeniero asistente",
+      "SOUND_ENGINEER": "Ingeniero de sonido",
+      "SOUND_EDITOR": "Editor de sonido",
+      "VIDEO_PRODUCER": "Productor de video",
+      "VIDEO_DIRECTOR": "Director de video",
+      "OTHER": "Otro"
     }
   },
   "music_catalog": {
@@ -1282,6 +1354,10 @@
       "of_pages": "de {count}",
       "previous": "Página anterior",
       "next": "Página siguiente"
+    },
+    "credits": {
+      "detail_placeholder": "Detalle (p. ej. Tuba)",
+      "detail_label": "Detalle del rol"
     }
   }
 }

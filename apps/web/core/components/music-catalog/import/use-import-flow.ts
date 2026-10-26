@@ -7,7 +7,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TMusicImportAsset, TMusicImportPreview, TMusicImportProgress, TMusicImportResult } from "@plane/types";
+import type {
+  TMusicImportAsset,
+  TMusicImportConstants,
+  TMusicImportPreview,
+  TMusicImportProgress,
+  TMusicImportResult,
+} from "@plane/types";
 import { fileLibraryService } from "@/services/file-library.service";
 import { musicService } from "@/services/music.service";
 import { getApiError } from "../shared";
@@ -66,6 +72,12 @@ export function useImportFlow(workspaceSlug: string) {
   const [rules, setRules] = useState<TImportRules>(DEFAULT_RULES);
   const [defaults, setDefaults] = useState<TImportDefaults>(EMPTY_DEFAULTS);
   const [valueOverrides, setValueOverrides] = useState<Record<string, Record<string, string>>>({});
+  // A fixed value per field for the whole file; fills blank cells when the
+  // field also has a column.
+  const [constants, setConstants] = useState<TMusicImportConstants>({});
+  // What each tag of a contributors/performers column imports as (only the
+  // user's changes; the backend's table covers the rest).
+  const [roleMap, setRoleMap] = useState<Record<string, string>>({});
   const [rowOverrides, setRowOverrides] = useState<Record<string, Record<string, string>>>({});
   const [invalidRowStrategy, setInvalidRowStrategy] = useState<"abort" | "skip">("abort");
   const [review, setReview] = useState<TMusicImportResult>();
@@ -93,7 +105,7 @@ export function useImportFlow(workspaceSlug: string) {
 
   useEffect(() => discardUnusedUpload, [discardUnusedUpload]);
   const sourceName = file?.name ?? assetName;
-  const missingTitle = columnsOf(mapping[REQUIRED_FIELD]).length === 0;
+  const missingTitle = columnsOf(mapping[REQUIRED_FIELD]).length === 0 && !constants[REQUIRED_FIELD];
 
   /** Everything a review depends on. When it drifts the review is stale and
    * importing asks for another check first. */
@@ -105,9 +117,11 @@ export function useImportFlow(workspaceSlug: string) {
         defaults,
         valueOverrides,
         rowOverrides,
+        constants,
+        roleMap,
         sheet: preview?.selected_sheet,
       }),
-    [mapping, rules, defaults, valueOverrides, rowOverrides, preview?.selected_sheet]
+    [mapping, rules, defaults, valueOverrides, rowOverrides, constants, roleMap, preview?.selected_sheet]
   );
   const isReviewCurrent = Boolean(review) && reviewKey === configKey;
 
@@ -123,6 +137,8 @@ export function useImportFlow(workspaceSlug: string) {
     setDefaults(EMPTY_DEFAULTS);
     setValueOverrides({});
     setRowOverrides({});
+    setConstants({});
+    setRoleMap({});
     setInvalidRowStrategy("abort");
     setReview(undefined);
     setReviewKey(undefined);
@@ -201,6 +217,8 @@ export function useImportFlow(workspaceSlug: string) {
       });
       setValueOverrides(ruleSet.value_overrides ?? {});
       setRowOverrides(ruleSet.row_overrides ?? {});
+      setConstants(ruleSet.constants ?? {});
+      setRoleMap(ruleSet.role_map ?? {});
       setInvalidRowStrategy(ruleSet.invalid_row_strategy ?? "abort");
       const saved = ruleSet.defaults ?? {};
       setDefaults({
@@ -226,6 +244,27 @@ export function useImportFlow(workspaceSlug: string) {
       const next = { ...current };
       if (columns.length === 0) delete next[field];
       else next[field] = multi ? columns : columns[0];
+      return next;
+    });
+  }, []);
+
+  /** Sets (or clears, with an empty value) a field's fixed value. */
+  const setConstant = useCallback((field: string, value: string | string[] | undefined) => {
+    setConstants((current) => {
+      const next = { ...current };
+      const empty = value === undefined || (Array.isArray(value) ? value.length === 0 : !value.trim());
+      if (empty) delete next[field];
+      else next[field] = value;
+      return next;
+    });
+  }, []);
+
+  /** What a tag imports as; undefined goes back to the suggested role. */
+  const setTagRole = useCallback((tag: string, role: string | undefined) => {
+    setRoleMap((current) => {
+      const next = { ...current };
+      if (role === undefined) delete next[tag];
+      else next[tag] = role;
       return next;
     });
   }, []);
@@ -322,6 +361,8 @@ export function useImportFlow(workspaceSlug: string) {
             invalidRowStrategy,
             rowOverrides,
             valueOverrides,
+            constants,
+            roleMap,
           },
           setProgress,
           controller.signal
@@ -350,6 +391,8 @@ export function useImportFlow(workspaceSlug: string) {
     },
     [
       configKey,
+      constants,
+      roleMap,
       defaults,
       invalidRowStrategy,
       mapping,
@@ -395,6 +438,8 @@ export function useImportFlow(workspaceSlug: string) {
     mapping,
     missingTitle,
     setFieldColumns,
+    constants,
+    setConstant,
     aiMap,
     isAiMapping,
     // rules
@@ -402,6 +447,9 @@ export function useImportFlow(workspaceSlug: string) {
     setRules,
     defaults,
     setDefaults,
+    roleMap,
+    setTagRole,
+    setRoleMap,
     // review
     review,
     isReviewCurrent,

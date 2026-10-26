@@ -297,11 +297,29 @@ class MusicCredit(BaseModel):
         MASTERING_ENGINEER = "MASTERING_ENGINEER", "Mastering engineer"
         LEGAL_REPRESENTATIVE = "LEGAL_REPRESENTATIVE", "Legal representative"
         LABEL_MANAGER = "LABEL_MANAGER", "Label manager"
+        EXECUTIVE_PRODUCER = "EXECUTIVE_PRODUCER", "Executive producer"
+        CO_PRODUCER = "CO_PRODUCER", "Co-producer"
+        VOCAL_PRODUCER = "VOCAL_PRODUCER", "Vocal producer"
+        ASSISTANT_PRODUCER = "ASSISTANT_PRODUCER", "Assistant producer"
+        A_AND_R = "A_AND_R", "A&R"
+        MUSICAL_DIRECTOR = "MUSICAL_DIRECTOR", "Musical director"
+        ARRANGER = "ARRANGER", "Arranger"
+        ASSISTANT_ENGINEER = "ASSISTANT_ENGINEER", "Assistant engineer"
+        SOUND_ENGINEER = "SOUND_ENGINEER", "Sound engineer"
+        SOUND_EDITOR = "SOUND_EDITOR", "Sound editor"
+        VIDEO_PRODUCER = "VIDEO_PRODUCER", "Video producer"
+        VIDEO_DIRECTOR = "VIDEO_DIRECTOR", "Video director"
+        OTHER = "OTHER", "Other"
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="music_credits")
     track = models.ForeignKey("db.MusicTrack", on_delete=models.CASCADE, related_name="credits")
     party = models.ForeignKey("db.MusicParty", on_delete=models.CASCADE, related_name="track_credits")
     role = models.CharField(max_length=40, choices=Role.choices)
+    # The role as the source named it when it is more specific than `role`
+    # ("Tuba" for a PERFORMER, "AssistantMixingEngineer" for an
+    # ASSISTANT_ENGINEER); several details for one person+role are joined
+    # with ", " because (track, party, role) is unique.
+    role_detail = models.CharField(max_length=120, blank=True, default="")
     percentage = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
     publishing_share = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
     territory = models.CharField(max_length=120, blank=True)
