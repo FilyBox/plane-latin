@@ -20,10 +20,13 @@ import {
   TagProposal,
   fitProposals,
   fold,
+  isSoftModelFailure,
   maxTokensFor,
   namesInBatch,
   pageSizeFor,
   pickOffered,
+  salvageItems,
+  splitInto,
   topicsForBatch,
 } from "../lib/tagging-batch";
 import { CLASSIFY_KEYS, NORMALIZE_KEYS, classifyPrompt, normalizePrompt } from "../tagging-prompts";
@@ -80,6 +83,7 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
         const vocabulary = context.vocabulary[entityType] ?? [];
         const pageSize = pageSizeFor(entityType);
         const found: Classified[] = [];
+        let unanswered = 0;
         let offset = 0;
         let total = Infinity;
         let page = 0;
@@ -92,48 +96,74 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
           if (batch.results.length > 0) {
             const classified = await step.do(`classify ${entityType} ${page}`, AI_RETRIES, async () => {
               const topics = topicsForBatch(context.tags, batch.results, entityType);
-              const { text, model } = await generateStructuredJson(this.env, {
-                prompt: classifyPrompt(
-                  entityType,
-                  vocabulary,
-                  namesInBatch(knownArtists, batch.results),
-                  batch.results,
-                  topics
-                ),
-                keys: CLASSIFY_KEYS,
-                maxTokens: maxTokensFor(entityType),
-              });
-              const parsed = parseJsonResponse<{ items?: Partial<Classified>[] }>(text);
               const byId = new Map(batch.results.map((item) => [item.id, item]));
+              const answered = new Map<string, Partial<Classified>>();
+              let model = "";
+              // A cut-off or empty answer is not an outage: keep the rows that
+              // came back complete and ask again only for the missing ones, in
+              // halves and then quarters. Outages (HTTP errors) still throw so
+              // the step retries.
+              let pending = batch.results;
+              for (let round = 0; round < 3 && pending.length > 0; round += 1) {
+                for (const chunk of splitInto(pending, 2 ** round)) {
+                  try {
+                    // eslint-disable-next-line no-await-in-loop -- one call at a time keeps the provider under its rate limit
+                    const result = await generateStructuredJson(this.env, {
+                      prompt: classifyPrompt(
+                        entityType,
+                        vocabulary,
+                        namesInBatch(knownArtists, chunk),
+                        chunk,
+                        topicsForBatch(context.tags, chunk, entityType)
+                      ),
+                      keys: CLASSIFY_KEYS,
+                      maxTokens: maxTokensFor(entityType),
+                    });
+                    model = result.model;
+                    for (const row of salvageItems(result.text)) {
+                      const id = String((row as Partial<Classified>).id ?? "");
+                      if (id && byId.has(id)) answered.set(id, row as Partial<Classified>);
+                    }
+                  } catch (error) {
+                    if (!isSoftModelFailure(error)) throw error;
+                  }
+                }
+                pending = pending.filter((item) => !answered.has(item.id));
+              }
               return {
                 model,
-                items: (parsed.items ?? [])
-                  .filter((row) => row.id && byId.has(String(row.id)))
-                  .map((row) => {
-                    const source = byId.get(String(row.id))!;
-                    return {
-                      entity_name: entityType,
-                      id: source.id,
-                      title: source.title,
-                      tipo: row.tipo && vocabulary.includes(String(row.tipo)) ? String(row.tipo) : null,
-                      artistas: Array.isArray(row.artistas)
-                        ? row.artistas.map((name) => String(name).trim()).filter(Boolean)
-                        : [],
-                      etiquetas: pickOffered(row.etiquetas, topics),
-                      confianza: Math.max(0, Math.min(1, Number(row.confianza ?? 0))),
-                      razon: String(row.razon ?? "").slice(0, 160),
-                      tags: source.tags,
-                    } satisfies Classified;
-                  }),
+                // Items the model never answered: skipped, counted in the run
+                unanswered: pending.length,
+                items: [...answered.entries()].map(([id, row]) => {
+                  const source = byId.get(id)!;
+                  return {
+                    entity_name: entityType,
+                    id: source.id,
+                    title: source.title,
+                    tipo: row.tipo && vocabulary.includes(String(row.tipo)) ? String(row.tipo) : null,
+                    artistas: Array.isArray(row.artistas)
+                      ? row.artistas.map((name) => String(name).trim()).filter(Boolean)
+                      : [],
+                    etiquetas: pickOffered(row.etiquetas, topics),
+                    confianza: Math.max(0, Math.min(1, Number(row.confianza ?? 0))),
+                    razon: String(row.razon ?? "").slice(0, 160),
+                    tags: source.tags,
+                  } satisfies Classified;
+                }),
               };
             });
+            unanswered += classified.unanswered;
             found.push(...classified.items);
           }
           offset += pageSize;
           page += 1;
           await step.do(`progress ${entityType} ${page}`, async () => {
             await api.taggingProgress(runId, {
-              progress: { [`done_${entityType}`]: Math.min(offset, total), stage: "classify" },
+              progress: {
+                [`done_${entityType}`]: Math.min(offset, total),
+                [`unanswered_${entityType}`]: unanswered,
+                stage: "classify",
+              },
             });
           });
         }
@@ -141,7 +171,21 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
         return found;
       };
 
-      const scanned = (await Promise.all(types.map((entityType) => scan(entityType)))).flat();
+      // A kind that keeps failing (e.g. the provider down for its pages)
+      // doesn't sink the others: its error is recorded and the run goes on.
+      const failedKinds: Record<string, string> = {};
+      const scanSafely = async (entityType: string): Promise<Classified[]> => {
+        try {
+          return await scan(entityType);
+        } catch (error) {
+          failedKinds[entityType] = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+          return [];
+        }
+      };
+      const scanned = (await Promise.all(types.map((entityType) => scanSafely(entityType)))).flat();
+      if (Object.keys(failedKinds).length === types.length) {
+        throw new Error(Object.values(failedKinds)[0] ?? "Every kind failed");
+      }
       const confident = scanned.filter((item) => item.confianza >= MIN_CONFIDENCE);
 
       // ── Fold spelling variants of the same artist together ──────────────
@@ -158,15 +202,22 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
         // eslint-disable-next-line no-await-in-loop -- one chunk at a time keeps the AI provider under its rate limit
         const result = await step.do(`normalize ${chunk}`, AI_RETRIES, async () => {
           await api.taggingProgress(runId, { progress: { stage: "normalize" } });
-          const { text } = await generateStructuredJson(this.env, {
-            prompt: normalizePrompt(
-              names,
-              context.artists.filter((name) => names.some((n) => fold(n) === fold(name)))
-            ),
-            keys: NORMALIZE_KEYS,
-            maxTokens: 4096,
-          });
-          const parsed = parseJsonResponse<{ grupos?: { canonico?: string; variantes?: string[] }[] }>(text);
+          let parsed: { grupos?: { canonico?: string; variantes?: string[] }[] };
+          try {
+            const { text } = await generateStructuredJson(this.env, {
+              prompt: normalizePrompt(
+                names,
+                context.artists.filter((name) => names.some((n) => fold(n) === fold(name)))
+              ),
+              keys: NORMALIZE_KEYS,
+              maxTokens: 8192,
+            });
+            parsed = parseJsonResponse<{ grupos?: { canonico?: string; variantes?: string[] }[] }>(text);
+          } catch (error) {
+            // An unusable answer only costs this chunk's spelling merges
+            if (!isSoftModelFailure(error)) throw error;
+            parsed = { grupos: [] };
+          }
           return (parsed.grupos ?? [])
             .filter((group) => group.canonico && Array.isArray(group.variantes) && group.variantes.length >= 1)
             .map((group) => ({
@@ -256,7 +307,12 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
         await api.taggingProgress(runId, {
           status: "REVIEW",
           provider: this.env.AI_PROVIDER || "deepseek",
-          progress: { stage: "review", scanned: scanned.length, dropped: fitted.dropped },
+          progress: {
+            stage: "review",
+            scanned: scanned.length,
+            dropped: fitted.dropped,
+            failed_kinds: Object.keys(failedKinds).join(","),
+          },
           proposals: { tags, merges },
         });
       });

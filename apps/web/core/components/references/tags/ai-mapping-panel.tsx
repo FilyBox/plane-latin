@@ -146,6 +146,18 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
 }
 
 /** "Not reviewed: Songs, Releases…" for kinds a run had to leave out. */
+/** Items the model never answered, after retrying them in smaller batches */
+const unansweredCount = (run: TTaggingRun) =>
+  Object.entries(run.progress)
+    .filter(([key]) => key.startsWith("unanswered_"))
+    .reduce((sum, [, value]) => sum + (Number(value) || 0), 0);
+
+/** Kinds whose pages kept failing; the rest of the run went on */
+const failedKinds = (run: TTaggingRun) =>
+  String(run.progress.failed_kinds ?? "")
+    .split(",")
+    .filter(Boolean) as TEntityName[];
+
 function useSkippedNote() {
   const { t } = useTranslation();
   return (run: TTaggingRun) =>
@@ -275,6 +287,20 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
         {Number(run.progress.dropped ?? 0) > 0 && (
           <p className="rounded-md bg-layer-1 p-3 text-12 text-secondary">
             {t("references.ai.dropped", { count: Number(run.progress.dropped) })}
+          </p>
+        )}
+        {unansweredCount(run) > 0 && (
+          <p className="rounded-md bg-layer-1 p-3 text-12 text-secondary">
+            {t("references.ai.unanswered", { count: unansweredCount(run) })}
+          </p>
+        )}
+        {failedKinds(run).length > 0 && (
+          <p className="rounded-md bg-warning-subtle p-3 text-12 text-secondary">
+            {t("references.ai.failed_kinds", {
+              names: failedKinds(run)
+                .map((name) => t(entityGroupKey(name)))
+                .join(", "),
+            })}
           </p>
         )}
         {tags.length === 0 && merges.length === 0 && (

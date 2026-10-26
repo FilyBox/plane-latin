@@ -160,6 +160,8 @@
       "merge_summary": "{variants} → {keep}",
       "skipped": "Not reviewed: {names}. The music catalog needs its module on and a workspace admin.",
       "dropped": "The proposal was very large: {count} lower-confidence suggestions were left out.",
+      "unanswered": "The AI couldn't answer for {count, plural, one {# item} other {# items}}, even in smaller batches: they were left unreviewed. Start another mapping to try again.",
+      "failed_kinds": "These couldn't be reviewed: {names}. The rest of the mapping finished; start it again to retry.",
       "open_item": "Open {name}"
     },
     "preview": {

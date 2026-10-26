@@ -3,9 +3,12 @@ import { describe, it } from "node:test";
 
 import {
   fitProposals,
+  isSoftModelFailure,
   maxTokensFor,
   pageSizeFor,
   pickOffered,
+  salvageItems,
+  splitInto,
   topicsForBatch,
   type TagProposal,
 } from "../src/lib/tagging-batch.ts";
@@ -22,11 +25,42 @@ const tags = [
 ];
 
 describe("tag mapping batches", () => {
-  it("reads songs and releases in bigger pages", () => {
-    assert.equal(pageSizeFor("music_track"), 75);
-    assert.equal(pageSizeFor("music_release"), 75);
-    assert.equal(pageSizeFor("contract"), 40);
-    assert.ok(maxTokensFor("music_track") > maxTokensFor("contract"));
+  it("reads songs and releases in bigger pages, with room for every answer row", () => {
+    assert.equal(pageSizeFor("music_track"), 40);
+    assert.equal(pageSizeFor("music_release"), 40);
+    assert.equal(pageSizeFor("contract"), 20);
+    assert.equal(maxTokensFor("contract"), 8192);
+  });
+
+  it("keeps the complete rows of an answer cut off mid-row", () => {
+    const cut =
+      '{"items": [{"id": "a", "artistas": ["X"], "confianza": 0.9, "razon": "ok"}, ' +
+      '{"id": "b", "artistas": [], "confianza": 0.7, "razon": "con } y ] dentro"}, {"id": "c", "confianza":}]}';
+    assert.deepEqual(
+      salvageItems(cut).map((row) => row.id),
+      ["a", "b"]
+    );
+    assert.deepEqual(
+      salvageItems('{"items": [{"id": "z"}]}').map((row) => row.id),
+      ["z"]
+    );
+    assert.deepEqual(salvageItems(""), []);
+    assert.deepEqual(salvageItems('{"items": [{"id": "a", "razon": "sin cerrar'), []);
+  });
+
+  it("splits a batch into halves and quarters", () => {
+    assert.deepEqual(splitInto([1, 2, 3, 4, 5], 2), [
+      [1, 2, 3],
+      [4, 5],
+    ]);
+    assert.equal(splitInto([1, 2, 3, 4, 5], 4).length, 3);
+    assert.deepEqual(splitInto([1], 4), [[1]]);
+  });
+
+  it("tells an unusable answer from an outage", () => {
+    assert.ok(isSoftModelFailure(new Error("DeepSeek returned an empty response")));
+    assert.ok(isSoftModelFailure(new SyntaxError('Unexpected token \'}\', ..."onfianza":}]}" is not valid JSON')));
+    assert.ok(!isSoftModelFailure(new Error("DeepSeek -> 503: overloaded")));
   });
 
   it("offers existing topic tags named in the batch, never people or types", () => {

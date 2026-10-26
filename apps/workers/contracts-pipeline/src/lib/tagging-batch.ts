@@ -13,10 +13,81 @@ export const MUSIC_KINDS = new Set(["music_track", "music_release"]);
 /** Items per page, and per model call. A song or release is one short line,
  * so a call takes more of them; documents carry longer summaries. Django
  * serves at most 100 per page. */
-export const pageSizeFor = (entityType: string) => (MUSIC_KINDS.has(entityType) ? 75 : 40);
+export const pageSizeFor = (entityType: string) => (MUSIC_KINDS.has(entityType) ? 40 : 20);
 
-/** Room for one answer row per item (id, artists, tags, a short reason). */
-export const maxTokensFor = (entityType: string) => (MUSIC_KINDS.has(entityType) ? 8192 : 4096);
+/** Room for one answer row per item (id, artists, tags, a short reason) with
+ * margin: an answer that hits the limit comes back cut off, or empty in
+ * DeepSeek's JSON mode. */
+export const maxTokensFor = (_entityType: string) => 8192;
+
+/** Splits a batch the model couldn't answer into `parts` smaller ones. */
+export const splitInto = <T>(items: T[], parts: number): T[][] => {
+  const size = Math.max(1, Math.ceil(items.length / Math.max(1, parts)));
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+};
+
+/** The complete rows of a `{"items": [...]}` answer, even when it was cut off
+ * mid-row (`..."confianza":}`): every `{...}` inside the array that parses on
+ * its own is kept, the broken tail is dropped. */
+export const salvageItems = (text: string): Record<string, unknown>[] => {
+  if (!text) return [];
+  try {
+    const whole = JSON.parse(text) as { items?: unknown };
+    if (Array.isArray(whole.items))
+      return whole.items.filter((row) => row && typeof row === "object") as Record<string, unknown>[];
+  } catch {
+    // cut off: walk the array below
+  }
+  const start = text.indexOf("[", Math.max(0, text.indexOf('"items"')));
+  if (start < 0) return [];
+  const rows: Record<string, unknown>[] = [];
+  let depth = 0;
+  let rowStart = -1;
+  let inString = false;
+  let escape = false;
+  for (let index = start + 1; index < text.length; index++) {
+    const ch = text[index];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\" && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") {
+      if (depth === 0) rowStart = index;
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0 && rowStart >= 0) {
+        try {
+          const row = JSON.parse(text.slice(rowStart, index + 1)) as unknown;
+          if (row && typeof row === "object") rows.push(row as Record<string, unknown>);
+        } catch {
+          // a malformed row: skip it, keep the rest
+        }
+        rowStart = -1;
+      }
+      if (depth < 0) break;
+    } else if (ch === "]" && depth === 0) break;
+  }
+  return rows;
+};
+
+/** Answers the model may give back that are worth retrying on a smaller
+ * batch, not an outage: empty content or JSON it couldn't finish. */
+export const isSoftModelFailure = (error: unknown) =>
+  /empty response|did not return content|JSON|Unexpected token|Unterminated|Expected/i.test(
+    error instanceof Error ? error.message : String(error)
+  );
 
 export const fold = (value: string) =>
   value

@@ -160,6 +160,8 @@
       "merge_summary": "{variants} → {keep}",
       "skipped": "No se revisaron: {names}. El catálogo musical requiere su módulo activo y ser administrador.",
       "dropped": "La propuesta era muy grande: se omitieron {count} sugerencias de menor confianza.",
+      "unanswered": "La IA no pudo responder para {count, plural, one {# elemento} other {# elementos}} ni dividiéndolos en lotes más pequeños: quedaron sin revisar. Puedes lanzar otro mapeo para intentarlo de nuevo.",
+      "failed_kinds": "No se pudieron revisar: {names}. El resto del mapeo sí se completó; vuelve a lanzarlo para intentarlo de nuevo.",
       "open_item": "Abrir {name}"
     },
     "preview": {
