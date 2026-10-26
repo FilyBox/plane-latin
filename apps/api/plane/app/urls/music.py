@@ -6,6 +6,7 @@ from plane.app.views import (
     InternalWorkspaceAssetsEndpoint,
     MusicCatalogOptionsEndpoint,
     MusicCompanyDetailEndpoint,
+    MusicCreditRoleEndpoint,
     MusicCompanyEndpoint,
     MusicGenreDetailEndpoint,
     MusicGenreEndpoint,
@@ -36,6 +37,7 @@ urlpatterns = [
     path("workspaces/<str:slug>/music/genres/<uuid:genre_id>/", MusicGenreDetailEndpoint.as_view(), name="music-genre-detail"),
     path("workspaces/<str:slug>/music/companies/", MusicCompanyEndpoint.as_view(), name="music-companies"),
     path("workspaces/<str:slug>/music/companies/<uuid:company_id>/", MusicCompanyDetailEndpoint.as_view(), name="music-company-detail"),
+    path("workspaces/<str:slug>/music/credit-roles/", MusicCreditRoleEndpoint.as_view(), name="music-credit-roles"),
     path("workspaces/<str:slug>/music/options/", MusicCatalogOptionsEndpoint.as_view(), name="music-options"),
     path("workspaces/<str:slug>/music/import/", MusicImportEndpoint.as_view(), name="music-import"),
     path(

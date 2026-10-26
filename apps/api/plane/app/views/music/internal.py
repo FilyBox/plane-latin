@@ -18,6 +18,7 @@ from plane.app.permissions.internal import WorkerServicePermission
 from plane.app.views.base import BaseAPIView
 from plane.db.models import FileAsset, MusicCredit, MusicLink, MusicTrack
 from plane.settings.storage import S3Storage
+from plane.utils.music_credits import workspace_role_catalog
 
 from .base import IMPORT_FIELDS, MusicImportEndpoint, _filter_tracks, _infer_mapping, _read_table
 
@@ -30,8 +31,19 @@ class InternalMusicBaseView(BaseAPIView):
     throttle_classes = []
 
 
-def _compact_track(track):
-    """Small row the model can reason over without blowing the context."""
+# Roles already listed by name in the compact row
+_LISTED_ROLES = {
+    MusicCredit.Role.PRIMARY_ARTIST,
+    MusicCredit.Role.FEATURED_ARTIST,
+    MusicCredit.Role.WRITER,
+    MusicCredit.Role.AUTHOR,
+    MusicCredit.Role.COMPOSER,
+}
+
+
+def _compact_track(track, roles=None):
+    """Small row the model can reason over without blowing the context.
+    `roles` (a RoleCatalog) names the other credits' roles as stored."""
     credits = list(track.credits.all())
     videos = list(track.videos.all())
     return {
@@ -51,6 +63,12 @@ def _compact_track(track):
             for c in credits
             if c.role in (MusicCredit.Role.WRITER, MusicCredit.Role.AUTHOR, MusicCredit.Role.COMPOSER)
         ],
+        # Everyone else credited, with the role as the catalog names it
+        "other_credits": [
+            {"name": c.party.display_name, "role": roles.label(c.role) if roles else c.role}
+            for c in credits
+            if c.role not in _LISTED_ROLES
+        ][:30],
         "releases": [
             {"title": link.release.title, "upc": link.release.upc or None}
             for link in track.release_links.all()
@@ -95,7 +113,8 @@ class InternalMusicTracksEndpoint(InternalMusicBaseView):
             limit = 50
 
         total = queryset.count()
-        results = [_compact_track(track) for track in queryset[:limit]]
+        roles = workspace_role_catalog(workspace_id)
+        results = [_compact_track(track, roles) for track in queryset[:limit]]
         return Response({"total": total, "returned": len(results), "results": results})
 
 
@@ -240,6 +259,7 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
         row_overrides = request.data.get("row_overrides") or {}
         invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
         dry_run = bool(request.data.get("dry_run", True))
+        keep_unmapped = bool(request.data.get("keep_unmapped", False))
 
         from django.db import transaction
 
@@ -276,6 +296,7 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
                 dry_run=dry_run,
                 constants=constants,
                 role_map=role_map,
+                keep_unmapped=keep_unmapped,
             ):
                 if event[0] == "result":
                     _, result, touched = event
@@ -301,6 +322,7 @@ class InternalMusicImportEndpoint(InternalMusicBaseView):
                         "value_overrides": value_overrides,
                         "constants": constants,
                         "role_map": role_map,
+                        "keep_unmapped": keep_unmapped,
                     },
                     summary={key: result.get(key, 0) for key in SUMMARY_KEYS},
                     touched=touched,

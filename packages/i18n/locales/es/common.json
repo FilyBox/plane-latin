@@ -1019,8 +1019,6 @@
       "no_unused": "Todas las columnas del archivo están asignadas.",
       "title_missing": "Falta la columna del título",
       "title_missing_hint": "Elige la columna que contiene el nombre de cada canción para continuar.",
-      "ai_applied": "{count, plural, one {La IA asignó # campo} other {La IA asignó # campos}}. Revísalos antes de continuar.",
-      "ai_empty": "La IA no encontró columnas para asignar.",
       "ai_failed": "No se pudo mapear con IA",
       "no_results": "Ningún campo coincide con «{query}».",
       "fixed_add": "Valor fijo",
@@ -1043,7 +1041,18 @@
       "fixed_false": "No",
       "fixed_format": "Formato: {example}",
       "fixed_close": "Cerrar",
-      "fixed_count": "{count, plural, one {# valor fijo} other {# valores fijos}}"
+      "fixed_count": "{count, plural, one {# valor fijo} other {# valores fijos}}",
+      "in_rules": "+ {count} en Reglas",
+      "in_rules_hint": "Se agregan a todas las filas desde Reglas → Agregar a todas las filas",
+      "source_auto": "Auto",
+      "source_auto_hint": "Detectado por el sistema por el nombre de la columna (o la última importación de este archivo)",
+      "source_manual": "Manual",
+      "source_manual_hint": "Lo elegiste tú. La IA no lo cambia sin preguntarte",
+      "source_ai": "IA",
+      "source_ai_hint": "Aplicado desde una sugerencia de la IA",
+      "source_fixed": "Fijo",
+      "source_fixed_hint": "Toma un valor fijo para todo el archivo",
+      "ai_revert": "Volver a «{columns}»"
     },
     "rules": {
       "title": "Reglas de importación",
@@ -1109,16 +1118,27 @@
       "defaults_publishers": "Editora",
       "defaults_other_companies": "Otras compañías",
       "roles_title": "Roles detectados",
-      "roles_description": "Los créditos de {columns} vienen etiquetados con un rol («Nombre <Rol>»). Revisa qué significa cada etiqueta, cámbiala o déjala fuera. Aplica a este archivo.",
+      "roles_description": "Los créditos de {columns} vienen etiquetados con un rol («Nombre <Rol>»). Cada etiqueta se importa como su propio rol, con el nombre que trae el archivo; cámbialo o déjalo fuera. Aplica a este archivo.",
       "roles_tag": "Etiqueta en el archivo",
       "roles_count": "Menciones",
       "roles_role": "Se importa como",
       "roles_skip": "No importar",
       "roles_untagged": "Sin etiqueta",
       "roles_unknown": "Etiqueta desconocida",
-      "roles_detail_hint": "Cuando la etiqueta dice más que el rol (p. ej. «AssistantMixingEngineer» o «Tuba») se guarda como detalle del crédito.",
+      "roles_detail_hint": "Los nombres de los roles se guardan como los escribe el archivo (sin traducir), así tus exportaciones siguen coincidiendo. Si envías una etiqueta a otro rol, la etiqueta original queda como detalle del crédito.",
       "roles_reset": "Restaurar roles sugeridos",
-      "roles_changed": "{count, plural, one {# cambio} other {# cambios}}"
+      "roles_changed": "{count, plural, one {# cambio} other {# cambios}}",
+      "identifier_external_id": "ID del distribuidor (Track Id)",
+      "identifier_external_id_hint": "El ID de la canción que asigna el distribuidor",
+      "fixed_from_columns": "Valor fijo definido en Columnas",
+      "fixed_blank_only": "solo celdas vacías",
+      "fixed_remove": "Quitar el valor fijo «{value}»",
+      "roles_new": "nuevo rol",
+      "roles_group_new": "Roles nuevos de este archivo",
+      "roles_new_summary": "{count, plural, one {Se creará # rol nuevo} other {Se crearán # roles nuevos}} al importar, con el nombre que trae el archivo.",
+      "unmapped_title": "Columnas sin asignar",
+      "keep_unmapped": "Guardar también las columnas sin asignar como datos extra",
+      "keep_unmapped_hint": "{count, plural, =0 {Todas las columnas con datos tienen campo.} one {# columna con datos no tiene campo: sus valores se guardan en cada canción, en «Datos extra».} other {# columnas con datos no tienen campo: sus valores se guardan en cada canción, en «Datos extra».}}"
     },
     "review": {
       "title": "Revisión",
@@ -1197,7 +1217,10 @@
       "values_all_decided": "Todo decidido. Revisa de nuevo para aplicarlo.",
       "fixed_title": "Valores fijos",
       "fixed_blank_only": "solo celdas vacías",
-      "credits_title": "Créditos de estas canciones, por rol"
+      "credits_title": "Créditos de estas canciones, por rol",
+      "match_by_external_id": "por ID del distribuidor",
+      "new_roles": "{count, plural, one {# rol nuevo} other {# roles nuevos}}",
+      "new_roles_hint": "Se crean al importar, con el nombre del archivo."
     },
     "done": {
       "title": "Importación terminada",
@@ -1219,7 +1242,8 @@
       "count_skipped": "Ya existían, sin tocar",
       "count_omitted": "Omitidas",
       "count_empty": "Ignoradas sin datos",
-      "count_error": "Con error"
+      "count_error": "Con error",
+      "new_roles": "{count, plural, one {# rol nuevo creado} other {# roles nuevos creados}}"
     },
     "history": {
       "title": "Archivos de importación",
@@ -1282,8 +1306,8 @@
       "release_upc": "UPC del lanzamiento",
       "release_catalog_number": "Número de catálogo",
       "release_release_date": "Fecha del lanzamiento",
-      "release_p_line": "Línea ℗",
-      "release_c_line": "Línea ©",
+      "release_p_line": "Línea ℗ del lanzamiento",
+      "release_c_line": "Línea © del lanzamiento",
       "artists": "Artistas principales",
       "featured_artists": "Artistas invitados",
       "writers": "Autores",
@@ -1303,41 +1327,55 @@
       "track_streaming_url": "Enlace de streaming",
       "contributors": "Colaboradores (cualquier rol)",
       "performers": "Intérpretes / músicos",
-      "publishers": "Editoras"
+      "publishers": "Editoras",
+      "track_external_id": "ID de la canción (distribuidor)",
+      "track_tiktok_preview_start_ms": "Inicio del preview",
+      "track_p_line": "Línea ℗ de la canción",
+      "track_c_line": "Línea © de la canción",
+      "release_version": "Versión del lanzamiento",
+      "release_status": "Estado del lanzamiento",
+      "release_external_id": "ID del lanzamiento (distribuidor)",
+      "release_language": "Idioma del lanzamiento",
+      "release_artists": "Artistas del lanzamiento",
+      "release_track_number": "Número de pista",
+      "release_disc_number": "Número de disco"
     },
     "select": {
       "search": "Buscar…",
       "no_matches": "Sin coincidencias",
       "create": "Crear «{name}»"
     },
-    "roles": {
-      "PRIMARY_ARTIST": "Artista principal",
-      "FEATURED_ARTIST": "Artista invitado",
-      "PERFORMER": "Intérprete / músico",
-      "AUTHOR": "Letrista",
-      "COMPOSER": "Compositor",
-      "WRITER": "Autor",
-      "PUBLISHER": "Editora",
-      "PRODUCER": "Productor",
-      "AUDIO_PRODUCER": "Productor de audio",
-      "RECORDING_ENGINEER": "Ingeniero de grabación",
-      "MIXER": "Ingeniero de mezcla",
-      "MASTERING_ENGINEER": "Ingeniero de masterización",
-      "LEGAL_REPRESENTATIVE": "Representante legal",
-      "LABEL_MANAGER": "Label manager",
-      "EXECUTIVE_PRODUCER": "Productor ejecutivo",
-      "CO_PRODUCER": "Coproductor",
-      "VOCAL_PRODUCER": "Productor vocal",
-      "ASSISTANT_PRODUCER": "Productor asistente",
-      "A_AND_R": "A&R",
-      "MUSICAL_DIRECTOR": "Director musical",
-      "ARRANGER": "Arreglista",
-      "ASSISTANT_ENGINEER": "Ingeniero asistente",
-      "SOUND_ENGINEER": "Ingeniero de sonido",
-      "SOUND_EDITOR": "Editor de sonido",
-      "VIDEO_PRODUCER": "Productor de video",
-      "VIDEO_DIRECTOR": "Director de video",
-      "OTHER": "Otro"
+    "role_categories": {
+      "ARTIST": "Artistas",
+      "WRITER": "Autoría",
+      "PUBLISHER": "Edición",
+      "PRODUCER": "Producción",
+      "ENGINEER": "Ingeniería",
+      "PERFORMER": "Intérpretes y músicos",
+      "VIDEO": "Video",
+      "MANAGEMENT": "Gestión",
+      "OTHER": "Otros"
+    },
+    "ai": {
+      "running": "Analizando {count} columnas con IA…",
+      "running_hint": "Puedes seguir editando: los campos que cambies ahora no se sobrescriben.",
+      "elapsed": "{seconds} s",
+      "cancel": "Cancelar",
+      "proposes": "{count, plural, one {La IA propone # cambio} other {La IA propone # cambios}}",
+      "nothing": "La IA no tiene nada que agregar: tu mapeo ya cubre lo que encontró.",
+      "section_new": "Campos nuevos",
+      "section_changes": "Cambios a lo que ya tenías",
+      "section_changes_hint": "Sin marcar: aplícalos solo si te convencen.",
+      "locked": "lo elegiste tú",
+      "confidence": "Qué tan segura está la IA",
+      "matches": "{count, plural, one {# campo coincide} other {# campos coinciden}}",
+      "unassigned": "{count, plural, one {# columna que la IA dejó sin asignar} other {# columnas que la IA dejó sin asignar}}",
+      "apply": "Aplicar seleccionados ({count})",
+      "discard": "Descartar",
+      "applied": "{count, plural, one {# campo asignado con IA} other {# campos asignados con IA}}",
+      "undo": "Deshacer mapeo con IA",
+      "toast": "IA: {fields, plural, one {# campo nuevo} other {# campos nuevos}} · {changes, plural, one {# cambio propuesto} other {# cambios propuestos}}",
+      "review": "Revisar"
     }
   },
   "music_catalog": {
@@ -1357,7 +1395,12 @@
     },
     "credits": {
       "detail_placeholder": "Detalle (p. ej. Tuba)",
-      "detail_label": "Detalle del rol"
+      "detail_label": "Detalle del rol",
+      "role_placeholder": "Rol…",
+      "role_create_failed": "No se pudo crear el rol",
+      "extra_title": "Datos extra",
+      "extra_hint": "Columnas del archivo importado sin un campo propio.",
+      "external_id": "ID del distribuidor"
     }
   }
 }

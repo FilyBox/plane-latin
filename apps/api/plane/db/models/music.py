@@ -112,7 +112,8 @@ class MusicRelease(BaseModel):
     p_line = models.CharField(max_length=500, blank=True)
     c_line = models.CharField(max_length=500, blank=True)
     label_name = models.CharField(max_length=255, blank=True)
-    language = models.CharField(max_length=20, blank=True)
+    # Wide enough for names like "Spanish (Latin America)", not just codes
+    language = models.CharField(max_length=100, blank=True)
     cover_url = models.TextField(blank=True)
     territories = models.JSONField(default=list, blank=True)
     notes = models.TextField(blank=True)
@@ -161,7 +162,7 @@ class MusicTrack(BaseModel):
     catalog = models.CharField(max_length=120, blank=True)
     duration_ms = models.PositiveIntegerField(null=True, blank=True)
     country_of_recording = models.CharField(max_length=2, blank=True)
-    language = models.CharField(max_length=20, blank=True)
+    language = models.CharField(max_length=100, blank=True)
     recording_date = models.DateField(null=True, blank=True)
     original_release_date = models.DateField(null=True, blank=True)
     release_date = models.DateField(null=True, blank=True, db_index=True)
@@ -171,6 +172,7 @@ class MusicTrack(BaseModel):
     us_publishing_obligations = models.TextField(blank=True)
     recoupment = models.TextField(blank=True)
     p_line = models.CharField(max_length=500, blank=True)
+    c_line = models.CharField(max_length=500, blank=True)
     digital_format = models.CharField(max_length=120, blank=True)
     tiktok_preview_start_ms = models.PositiveIntegerField(null=True, blank=True)
     tiktok_preview_end_ms = models.PositiveIntegerField(null=True, blank=True)
@@ -287,6 +289,7 @@ class MusicCredit(BaseModel):
         FEATURED_ARTIST = "FEATURED_ARTIST", "Featured artist"
         PERFORMER = "PERFORMER", "Performer"
         AUTHOR = "AUTHOR", "Author"
+        LYRICIST = "LYRICIST", "Lyricist"
         COMPOSER = "COMPOSER", "Composer"
         WRITER = "WRITER", "Writer"
         PUBLISHER = "PUBLISHER", "Publisher"
@@ -314,11 +317,14 @@ class MusicCredit(BaseModel):
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="music_credits")
     track = models.ForeignKey("db.MusicTrack", on_delete=models.CASCADE, related_name="credits")
     party = models.ForeignKey("db.MusicParty", on_delete=models.CASCADE, related_name="track_credits")
-    role = models.CharField(max_length=40, choices=Role.choices)
-    # The role as the source named it when it is more specific than `role`
-    # ("Tuba" for a PERFORMER, "AssistantMixingEngineer" for an
-    # ASSISTANT_ENGINEER); several details for one person+role are joined
-    # with ", " because (track, party, role) is unique.
+    # A role KEY: a built-in one (`Role`, labels in plane.utils.music_credits)
+    # or a workspace's own MusicCreditRole.key ("LEAD_VOCALS"). No `choices`:
+    # roles follow the files, and serializers/imports validate the key.
+    role = models.CharField(max_length=40)
+    # The tag the source used when the credit was imported under a different
+    # role than its own (a "<LeadVocals>" credit sent to PERFORMER); several
+    # details for one person+role are joined with ", " because
+    # (track, party, role) is unique.
     role_detail = models.CharField(max_length=120, blank=True, default="")
     percentage = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
     publishing_share = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
@@ -329,6 +335,41 @@ class MusicCredit(BaseModel):
         db_table = "music_credits"
         ordering = ("role", "party__display_name")
         constraints = [models.UniqueConstraint(fields=["track", "party", "role"], name="unique_music_track_credit")]
+
+
+class MusicCreditRole(BaseModel):
+    """A credit role a workspace uses beyond the built-in ones, named as its
+    files name it ("Lead Vocals", "Bajo Quinto", "Assistant Mixing Engineer").
+    Credits store its `key`; `category` only groups roles in pickers."""
+
+    class Category(models.TextChoices):
+        ARTIST = "ARTIST", "Artist"
+        WRITER = "WRITER", "Writer"
+        PUBLISHER = "PUBLISHER", "Publisher"
+        PRODUCER = "PRODUCER", "Producer"
+        ENGINEER = "ENGINEER", "Engineer"
+        PERFORMER = "PERFORMER", "Performer"
+        VIDEO = "VIDEO", "Video"
+        MANAGEMENT = "MANAGEMENT", "Management"
+        OTHER = "OTHER", "Other"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="music_credit_roles")
+    key = models.CharField(max_length=40)
+    label = models.CharField(max_length=120)
+    category = models.CharField(max_length=20, choices=Category.choices, default=Category.OTHER)
+    # Raw tags imported as this role ("LeadVocals"), so later files match it
+    source_tags = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = "music_credit_roles"
+        ordering = ("label",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "key"],
+                condition=Q(deleted_at__isnull=True),
+                name="unique_music_credit_role_per_workspace",
+            )
+        ]
 
 
 class MusicDistribution(BaseModel):

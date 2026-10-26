@@ -5,12 +5,15 @@
  */
 
 import { useMemo, useState } from "react";
-import { AlertCircle, ChevronDown, Pin, Search, WandSparkles, X } from "lucide-react";
+import { AlertCircle, ChevronDown, Pin, RotateCcw, Search, WandSparkles, X } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
+import { setToast, TOAST_TYPE } from "@plane/propel/toast";
+import type { TMusicCompany } from "@plane/types";
 import { cn } from "@plane/utils";
 import { SearchableSelect } from "../searchable-select";
 import { columnsOf, ESSENTIAL_FIELDS, fieldLabelKey, REQUIRED_FIELD } from "./constants";
+import { AI_PANEL_ID, ImportAiPanel } from "./ai-map-panel";
 import { ImportFixedValueEditor } from "./fixed-value-editor";
 import type { TImportFlow } from "./use-import-flow";
 
@@ -18,14 +21,57 @@ type Props = {
   flow: TImportFlow;
   importFields: string[];
   workspaceSlug: string;
+  /** To tell which field each company added in Rules belongs to */
+  companies?: TMusicCompany[];
+};
+
+/** The field a credit added in Rules → "Add to every row" feeds, by role */
+const DEFAULT_ROLE_FIELDS: Record<string, string> = {
+  PRIMARY_ARTIST: "artists",
+  FEATURED_ARTIST: "featured_artists",
+  WRITER: "writers",
+  AUTHOR: "authors",
+  COMPOSER: "composers",
+  PRODUCER: "producers",
+  RECORDING_ENGINEER: "recording_engineers",
+  MIXER: "mixers",
+  MASTERING_ENGINEER: "mastering_engineers",
+  LEGAL_REPRESENTATIVE: "legal_representatives",
+};
+/** Provenance chip of a field row: label and tooltip keys */
+const SOURCE_CHIPS = {
+  auto: ["music_import.columns.source_auto", "music_import.columns.source_auto_hint"],
+  manual: ["music_import.columns.source_manual", "music_import.columns.source_manual_hint"],
+  ai: ["music_import.columns.source_ai", "music_import.columns.source_ai_hint"],
+  fixed: ["music_import.columns.source_fixed", "music_import.columns.source_fixed_hint"],
+} as const;
+
+const COMPANY_KIND_FIELDS: Record<string, string> = {
+  AGGREGATOR: "aggregator",
+  DISTRIBUTOR: "distributor",
+  RECORD_LABEL: "record_label",
+  PUBLISHER: "publishers",
 };
 
 const valuesOf = (value: string | string[] | undefined): string[] =>
   !value ? [] : Array.isArray(value) ? value.filter(Boolean) : [value];
 
-export function ImportStepColumns({ flow, importFields, workspaceSlug }: Props) {
+export function ImportStepColumns({ flow, importFields, workspaceSlug, companies = [] }: Props) {
   const { t } = useTranslation();
-  const { preview, mapping, constants } = flow;
+  const { preview, mapping, constants, defaults } = flow;
+  // What Rules → "Add to every row" adds per field, shown on the field's row
+  const inRules = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const add = (field: string | undefined) => {
+      if (field) counts[field] = (counts[field] ?? 0) + 1;
+    };
+    for (const credit of defaults.credits) add(DEFAULT_ROLE_FIELDS[credit.role] ?? "contributors");
+    for (const id of defaults.companyIds)
+      add(COMPANY_KIND_FIELDS[companies.find((company) => company.id === id)?.kind ?? ""]);
+    if (defaults.genreIds.length) counts.genres = defaults.genreIds.length;
+    if (defaults.releaseIds.length) counts["release.title"] = defaults.releaseIds.length;
+    return counts;
+  }, [companies, defaults]);
   const [query, setQuery] = useState("");
   const [showMore, setShowMore] = useState(false);
   // The field whose fixed-value picker is open
@@ -81,6 +127,9 @@ export function ImportStepColumns({ flow, importFields, workspaceSlug }: Props) 
     const example = sampleText(selected);
     const dateReading = selected[0] ? dates[selected[0]] : undefined;
     const fixed = valuesOf(constants[field]);
+    const source = selected.length > 0 ? flow.fieldSources[field] : fixed.length > 0 ? "fixed" : undefined;
+    // What an AI suggestion replaced, to go back to it in one click
+    const replaced = source === "ai" ? flow.aiHistory?.[field] : undefined;
     const fixedText = (value: string) =>
       field === "track.explicit"
         ? t(value === "true" ? "music_import.columns.fixed_true" : "music_import.columns.fixed_false")
@@ -98,6 +147,22 @@ export function ImportStepColumns({ flow, importFields, workspaceSlug }: Props) 
             {label(field)}
             {isRequired && (
               <span className="ml-1.5 text-11 text-warning-primary">{t("music_import.columns.required")}</span>
+            )}
+            {source && (
+              <span
+                className={cn(
+                  "ml-1.5 rounded-sm px-1 py-px text-10",
+                  source === "ai" ? "bg-accent-primary/10 text-accent-primary" : "bg-layer-1 text-tertiary"
+                )}
+                title={t(SOURCE_CHIPS[source][1])}
+              >
+                {t(SOURCE_CHIPS[source][0])}
+              </span>
+            )}
+            {inRules[field] > 0 && (
+              <span className="ml-1.5 text-11 text-secondary" title={t("music_import.columns.in_rules_hint")}>
+                {t("music_import.columns.in_rules", { count: inRules[field] })}
+              </span>
             )}
           </p>
           {isMulti && <p className="text-11 text-tertiary">{t("music_import.columns.multi_hint")}</p>}
@@ -143,6 +208,18 @@ export function ImportStepColumns({ flow, importFields, workspaceSlug }: Props) 
               onSelect={(column) => flow.setFieldColumns(field, column ? [column] : [], false)}
               placeholder={t("music_import.columns.pick_column")}
             />
+          )}
+          {replaced && replaced.columns.length > 0 && (
+            <button
+              type="button"
+              onClick={() => flow.revertAiField(field)}
+              className="mt-1 flex max-w-sm items-center gap-1 text-11 text-secondary hover:text-primary"
+            >
+              <RotateCcw className="size-3 shrink-0" aria-hidden />
+              <span className="truncate">
+                {t("music_import.columns.ai_revert", { columns: replaced.columns.join(", ") })}
+              </span>
+            </button>
           )}
           {example && (
             <p className="mt-1 truncate text-11 text-tertiary" title={example}>
@@ -227,6 +304,29 @@ export function ImportStepColumns({ flow, importFields, workspaceSlug }: Props) 
     );
   };
 
+  /** Asks the AI; its proposal opens as a reviewable panel above the fields. */
+  const runAiMap = async () => {
+    const summary = await flow.aiMap();
+    if (!summary) return;
+    if (summary.fields + summary.changes === 0) {
+      setToast({ type: TOAST_TYPE.INFO, title: t("music_import.ai.nothing") });
+      return;
+    }
+    setToast({
+      type: TOAST_TYPE.SUCCESS,
+      title: t("music_import.ai.toast", { fields: summary.fields, changes: summary.changes }),
+      actionItems: (
+        <button
+          type="button"
+          onClick={() => document.getElementById(AI_PANEL_ID)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="text-12 font-medium text-accent-primary hover:underline"
+        >
+          {t("music_import.ai.review")}
+        </button>
+      ),
+    });
+  };
+
   const searching = normalized.length > 0;
   const anyMatch = importFields.some(matches);
 
@@ -242,7 +342,7 @@ export function ImportStepColumns({ flow, importFields, workspaceSlug }: Props) 
             <span className="text-12 text-tertiary">
               {t("music_import.columns.assigned", { count: assigned.length })}
             </span>
-            <Button variant="secondary" size="sm" loading={flow.isAiMapping} onClick={() => void flow.aiMap()}>
+            <Button variant="secondary" size="sm" disabled={flow.isAiMapping} onClick={() => void runAiMap()}>
               <WandSparkles className="size-3.5" />
               {t("music_import.actions.ai_map")}
             </Button>
@@ -258,6 +358,8 @@ export function ImportStepColumns({ flow, importFields, workspaceSlug }: Props) 
             </label>
           </div>
         </header>
+
+        <ImportAiPanel flow={flow} />
 
         {flow.missingTitle && (
           <div className="flex gap-2.5 rounded-md border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-12">

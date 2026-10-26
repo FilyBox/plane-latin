@@ -11,6 +11,7 @@ import {
   Upload,
   Video,
 } from "lucide-react";
+import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type {
@@ -25,6 +26,7 @@ import { fileLibraryService } from "@/services/file-library.service";
 import { musicService } from "@/services/music.service";
 import { BudgetPeekPanel } from "../payments/budget-peek-panel";
 import { AudioPreviewRange } from "./audio-preview-range";
+import { creditRoleLabel, creditRolesOf, groupCreditRoles, roleCategoryLabel } from "./credit-roles";
 import { MusicResourcePickerModal, type MusicResourceType } from "./resource-picker-modal";
 import { getApiError, MUSIC_FIELD, MUSIC_LABEL } from "./shared";
 
@@ -154,6 +156,9 @@ export function MusicTrackModal({
   onSaved,
   onResourcesChanged,
 }: Props) {
+  const { t } = useTranslation();
+  // Built-in + workspace roles, named as stored
+  const roles = creditRolesOf(options);
   const [form, setForm] = useState(EMPTY);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -521,10 +526,17 @@ export function MusicTrackModal({
                     )
                   }
                 >
-                  {options?.credit_roles.map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
+                  {!roles.some((role) => role.key === credit.role) && credit.role && (
+                    <option value={credit.role}>{creditRoleLabel(roles, credit.role)}</option>
+                  )}
+                  {groupCreditRoles(roles).map((group) => (
+                    <optgroup key={group.category} label={roleCategoryLabel(t, group.category)}>
+                      {group.roles.map((role) => (
+                        <option key={role.key} value={role.key}>
+                          {role.label}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
                 <input

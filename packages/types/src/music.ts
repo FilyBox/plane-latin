@@ -52,11 +52,36 @@ export type TMusicRelease = {
   track_count: number;
 };
 
+/** Groups credit roles in pickers; never changes what a role means */
+export type TMusicCreditRoleCategory =
+  | "ARTIST"
+  | "WRITER"
+  | "PUBLISHER"
+  | "PRODUCER"
+  | "ENGINEER"
+  | "PERFORMER"
+  | "VIDEO"
+  | "MANAGEMENT"
+  | "OTHER";
+
+/** A credit role: built-in or the workspace's own, named as its files name
+ * it ("Lead Vocals", "Bajo Quinto"). Labels are shown as stored, untranslated. */
+export type TMusicCreditRole = {
+  key: string;
+  label: string;
+  category: TMusicCreditRoleCategory | string;
+  builtin: boolean;
+};
+
 export type TMusicCredit = {
   id: string;
+  /** Role key (built-in or workspace role) */
   role: string;
-  /** The role as the source named it when more specific ("Tuba",
-   * "AssistantMixingEngineer"); several are joined with ", " */
+  /** The role's name as stored (English for distributor roles) */
+  role_label?: string;
+  role_category?: TMusicCreditRoleCategory | string;
+  /** The tag the source used when the credit was imported under another
+   * role ("LeadVocals" sent to Performer); several are joined with ", " */
   role_detail?: string;
   percentage: string | null;
   publishing_share: string | null;
@@ -88,6 +113,7 @@ export type TMusicTrack = {
   us_publishing_obligations: string;
   recoupment: string;
   p_line: string;
+  c_line: string;
   digital_format: string;
   lyrics: string;
   audio_url: string;
@@ -200,7 +226,10 @@ export type TMusicCatalogOptions = {
   release_statuses: TMusicChoice[];
   track_kinds: TMusicChoice[];
   track_statuses: TMusicChoice[];
+  /** [key, label] of every role, built-in + the workspace's own */
   credit_roles: TMusicChoice[];
+  credit_role_details?: TMusicCreditRole[];
+  credit_role_categories?: TMusicChoice[];
   party_kinds: TMusicChoice[];
   company_kinds: TMusicChoice[];
   import_fields: string[];
@@ -231,7 +260,7 @@ export type TMusicImportError = {
 /** The existing song a file row was matched to. by === "ambiguous": only the
  * title matched, so the row is a possible duplicate awaiting a decision. */
 export type TMusicImportMatch = {
-  by: "isrc" | "title" | "title_artist" | "title_date" | "catalog" | "upc" | "ambiguous";
+  by: "isrc" | "title" | "title_artist" | "title_date" | "catalog" | "upc" | "external_id" | "ambiguous";
   track_id: string;
   title: string;
   isrc: string;
@@ -274,8 +303,23 @@ export type TMusicImportResult = {
   unparseable?: Record<string, { value: string; count: number; variants?: string[] }[]>;
   /** Set when the import was applied (provenance run id) */
   import_run_id?: string;
-  /** Dry-run only: credits the checked songs end up with, per role */
+  /** Dry-run only: credits the checked songs end up with, per role key */
   credit_roles?: Record<string, number>;
+  /** Dry-run only: label of every role key in credit_roles */
+  role_labels?: Record<string, string>;
+  /** Roles named after the file's tags: created by an applied import, or
+   * that would be created (dry run) */
+  new_roles?: TMusicImportNewRole[];
+};
+
+export type TMusicImportNewRole = {
+  key: string;
+  label: string;
+  category: TMusicCreditRoleCategory | string;
+  /** Tag spellings that bring it */
+  tags: string[];
+  /** Credits with this role */
+  count: number;
 };
 
 /** Live progress of a validation or an import */
@@ -333,11 +377,33 @@ export type TMusicImportRunRules = {
   /** Fixed value per field for the whole file (fills blank cells when the
    * field also has a column) */
   constants?: TMusicImportConstants;
-  /** Normalized tag → credit role (or "__SKIP__") for tagged credit columns */
+  /** Normalized tag → credit role key (or "__SKIP__") for tagged credit columns */
   role_map?: Record<string, string>;
+  /** Save columns no field took as each song's extra data */
+  keep_unmapped?: boolean;
 };
 
 export type TMusicImportConstants = Record<string, string | string[]>;
+
+/** One field the AI mapper proposes */
+export type TMusicImportAiSuggestion = {
+  columns: string[];
+  /** 0..1, or null (older worker / no estimate) */
+  confidence: number | null;
+  /** Short reason in the user's language; "" when none */
+  reason: string;
+  /** Multi-column field: replace the current columns instead of adding */
+  replace: boolean;
+  /** The field was set by hand: a flagged suggestion only */
+  locked: boolean;
+};
+
+export type TMusicImportAiMap = {
+  /** Backward-compatible shape: field -> column | columns */
+  mapping: Record<string, string | string[]>;
+  suggestions?: Record<string, TMusicImportAiSuggestion>;
+  model: string | null;
+};
 
 /** One tag found in a column of tagged names ("Ana <Tuba>") */
 export type TMusicImportRoleTag = {
@@ -346,8 +412,12 @@ export type TMusicImportRoleTag = {
   /** Most common spelling in the file */
   label: string;
   count: number;
-  /** Default role, or null when the tag is unknown */
+  /** Default role key; null for names without a tag (their field decides) */
   role: string | null;
+  role_label?: string | null;
+  role_category?: TMusicCreditRoleCategory | string | null;
+  /** The default is a new role named after the tag, created on import */
+  role_is_new?: boolean;
 };
 
 /** Existing values of an import field, for its fixed value */

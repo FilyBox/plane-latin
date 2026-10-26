@@ -18,6 +18,8 @@ from rest_framework.negotiation import DefaultContentNegotiation
 from rest_framework.response import Response
 
 from plane.app.permissions import ROLE, allow_permission
+from rest_framework.exceptions import ValidationError
+
 from plane.app.serializers import (
     MusicCompanySerializer,
     MusicGenreSerializer,
@@ -29,6 +31,7 @@ from plane.db.models import (
     FileAsset,
     MusicCompany,
     MusicCredit,
+    MusicCreditRole,
     MusicDistribution,
     MusicGenre,
     MusicImportRun,
@@ -45,15 +48,19 @@ from plane.db.models import (
 from plane.utils.contract_works import filter_by_contract, release_contract_count, track_contract_count
 from plane.utils.exception_logger import log_exception
 from plane.utils.music_credits import (
+    ARTIST_CATEGORY,
+    CATEGORIES,
+    ROLE_KEY,
     SKIP_ROLE,
     TAGGED_CREDIT_FIELDS,
-    default_role,
+    guess_category,
     merge_details,
     normalize_tag,
-    resolve_role,
+    role_key,
     similar_names,
     tag_counts,
     tagged_entries,
+    workspace_role_catalog,
 )
 from plane.utils.workspace_feature import is_workspace_feature_enabled
 
@@ -237,14 +244,15 @@ def _tagged_in(row, mapping, key):
 
 
 def _clean_role_map(value):
-    """{normalized tag: role | SKIP_ROLE} keeping only valid entries."""
+    """{normalized tag: role key | SKIP_ROLE}. Keys are checked against the
+    workspace's roles (and the roles the file creates) when importing, so a
+    tag may point at a role another tag of the same file brings."""
     if not isinstance(value, dict):
         return {}
-    valid = set(MusicCredit.Role.values)
     return {
         normalize_tag(tag): role
         for tag, role in value.items()
-        if isinstance(role, str) and (role == SKIP_ROLE or role in valid)
+        if isinstance(role, str) and (role == SKIP_ROLE or ROLE_KEY.match(role))
     }
 
 
@@ -265,23 +273,91 @@ def _clean_constants(value):
     return cleaned
 
 
-def _column_role_tags(headers, rows):
+def _column_role_tags(headers, rows, catalog, performer_columns=()):
     """Per column holding tagged names ("Ana <Tuba>"): every tag with how often
-    it appears and the role it means by default (None when unknown)."""
+    it appears and the role it imports as by default — an existing role, or
+    a new one named after the tag (role_is_new). Untagged names ("" tag) have
+    no role here: the field they are mapped to decides."""
     result = {}
     for header in headers:
         values = [row.get(header) for row in rows if isinstance(row.get(header), str) and row.get(header).strip()]
         if not any(ROLE_TAG.search(value) for value in values):
             continue
-        counts = tag_counts(values)
-        result[header] = sorted(
-            (
-                {"tag": key, "label": entry["tag"], "count": entry["count"], "role": default_role(entry["tag"])}
-                for key, entry in counts.items()
-            ),
-            key=lambda item: (-item["count"], item["tag"]),
-        )
+        field = "performers" if header in performer_columns else "contributors"
+        entries = []
+        for key, entry in tag_counts(values).items():
+            role = catalog.describe(entry["tag"], field) if key else None
+            entries.append(
+                {
+                    "tag": key,
+                    "label": entry["tag"],
+                    "count": entry["count"],
+                    "role": role["key"] if role else None,
+                    "role_label": role["label"] if role else None,
+                    "role_category": role["category"] if role else None,
+                    "role_is_new": bool(role and role["is_new"]),
+                }
+            )
+        result[header] = sorted(entries, key=lambda item: (-item["count"], item["tag"]))
     return result
+
+
+def _plan_file_roles(catalog, rows, mapping, constants=None):
+    """Registers in the catalog every new role the file's tagged columns
+    would create, so the role map can point at any of them."""
+    if not any(_columns_for(mapping, field) for field in TAGGED_CREDIT_FIELDS) and not any(
+        field in (constants or {}) for field in TAGGED_CREDIT_FIELDS
+    ):
+        return
+    for row in rows:
+        effective_row, effective_mapping = _apply_constants(row, mapping, constants)
+        for field in TAGGED_CREDIT_FIELDS:
+            for _name, tag in _tagged_in(effective_row, effective_mapping, field):
+                if tag:
+                    catalog.describe(tag, field)
+
+
+def _create_planned_roles(workspace, catalog, dry_run=False):
+    """The new roles the import's credits actually use, with how many credits
+    each has; created in the workspace unless this is a dry run."""
+    if not catalog.planned:
+        return []
+    used = {
+        entry["role"]: entry["count"]
+        for entry in MusicCredit.objects.filter(workspace=workspace, role__in=list(catalog.planned))
+        .values("role")
+        .annotate(count=Count("id"))
+    }
+    existing = set(
+        MusicCreditRole.objects.filter(workspace=workspace, key__in=list(used)).values_list("key", flat=True)
+    )
+    created = []
+    for key, count in sorted(used.items(), key=lambda item: -item[1]):
+        plan = catalog.planned[key]
+        if not dry_run and key not in existing:
+            MusicCreditRole.objects.create(
+                workspace=workspace,
+                key=key,
+                label=plan["label"],
+                category=plan["category"],
+                source_tags=plan["tags"][:20],
+            )
+        created.append(
+            {"key": key, "label": plan["label"], "category": plan["category"], "tags": plan["tags"], "count": count}
+        )
+    return created
+
+
+def _validate_credit_roles(workspace, entries):
+    """Raises a 400 when a credit names a role the workspace doesn't have."""
+    if not entries:
+        return
+    catalog = workspace_role_catalog(workspace.id)
+    unknown = sorted(
+        {str(entry.get("role") or "") for entry in entries if not catalog.exists(str(entry.get("role") or ""))}
+    )
+    if unknown:
+        raise ValidationError({"credit_entries": [f"Unknown credit role: {', '.join(unknown)}"]})
 
 
 def _restore_or_create(model, workspace, lookup, values=None):
@@ -381,6 +457,13 @@ def _duration_ms(value):
         return round(number * 1000) if number < 36000 else round(number)
     except ValueError:
         return None
+
+
+def _position(value):
+    """A track or disc number: "1", "01", "3/12", 2.0 -> int; None otherwise."""
+    match = re.match(r"^\s*0*(\d{1,5})(?:\.0+)?(?:\s*(?:/|of|de)\s*\d+)?\s*$", str(value if value is not None else ""))
+    number = int(match.group(1)) if match else None
+    return number if number and number <= 32767 else None
 
 
 def _decimal(value):
@@ -640,6 +723,14 @@ IMPORT_ALIASES = {
         "nombre cancion", "nombre de la cancion",
     ),
     "track.version": ("track version",),
+    "track.status": ("submission status", "track status"),
+    "track.external_id": ("track id", "song id", "track identifier", "id cancion"),
+    "track.p_line": ("track p line", "linea p cancion"),
+    "track.c_line": ("track c line", "linea c cancion"),
+    "track.tiktok_preview_start_ms": (
+        "sample start time", "preview start", "preview start time", "clip start", "clip start time",
+        "tiktok start", "inicio preview", "inicio del preview",
+    ),
     "track.language": ("audio language", "track language", "idioma"),
     "track.explicit": ("explicit lyrics", "explicit", "explicitlyrics", "explicito"),
     "track.isrc": ("isrc", "isrc audio", "isrc song"),
@@ -652,8 +743,20 @@ IMPORT_ALIASES = {
         "album", "album name", "album title", "product title", "release title", "release name",
         "titulo album single lp ep",
     ),
-    "release.p_line": ("product p line", "p line", "track p line"),
-    "release.c_line": ("product c line", "c line", "track c line"),
+    "release.p_line": ("product p line", "p line"),
+    "release.c_line": ("product c line", "c line"),
+    "release.version": ("product version", "release version", "album version"),
+    "release.status": ("submission status", "product status", "release status", "album status"),
+    "release.language": (
+        "primary metadata language", "metadata language", "product language", "release language", "album language",
+    ),
+    "release.external_id": ("product id", "release id", "album id", "id lanzamiento"),
+    "release.artists": (
+        "product display artist", "product artist", "release artist", "release artists", "album artist",
+        "album artists", "artista del album",
+    ),
+    "release.track_number": ("track number", "track no", "track num", "numero de pista", "no pista", "pista"),
+    "release.disc_number": ("track volume", "disc number", "disc", "volume number", "disco", "numero de disco"),
     "release.upc": ("upc",),
     "release.catalog_number": ("catalog", "catalog number", "product catalog"),
     "release.release_date": ("album release date", "release date", "fecha ano", "fecha"),
@@ -683,13 +786,20 @@ IMPORT_ALIASES = {
 }
 
 IMPORT_FIELDS = [
-    "track.title", "track.version", "track.isrc", "track.isrc_video", "track.catalog", "track.upc", "track.kind",
+    "track.title", "track.version", "track.isrc", "track.isrc_video", "track.catalog", "track.upc",
+    # The distributor's own id for the song ("Track Id"), kept in metadata
+    "track.external_id", "track.kind",
     "track.status", "track.release_date", "track.original_release_date", "track.duration_ms",
+    "track.tiktok_preview_start_ms",
     "track.country_of_recording", "track.language", "track.explicit", "track.ownership",
-    "track.us_publishing_obligations", "track.recoupment", "track.digital_format", "track.lyrics",
+    "track.us_publishing_obligations", "track.recoupment", "track.digital_format", "track.p_line", "track.c_line",
+    "track.lyrics",
     "track.aggregator_percentage", "track.distributor_percentage", "track.record_label_percentage",
-    "track.artist_percentage", "track.writer_percentage", "release.title", "release.type", "release.upc",
-    "release.catalog_number", "release.release_date", "release.p_line", "release.c_line", "artists",
+    "track.artist_percentage", "track.writer_percentage", "release.title", "release.version", "release.type",
+    "release.status", "release.upc", "release.external_id", "release.catalog_number", "release.release_date",
+    "release.language", "release.p_line", "release.c_line", "release.artists",
+    # Where the song sits in its release
+    "release.track_number", "release.disc_number", "artists",
     "featured_artists", "writers", "authors", "composers", "producers", "recording_engineers", "mixers",
     "mastering_engineers", "legal_representatives", "genres", "record_label", "aggregator", "distributor",
     # Tagged credits with any role ("Ana <Tuba>", "Luis <MixingEngineer>") and publishers
@@ -698,6 +808,123 @@ IMPORT_FIELDS = [
     # header says nothing useful (the assistant decides by LOOKING at values)
     "track.video_url", "track.video_release_date", "track.streaming_url",
 ]
+
+
+# One line per import field, for the AI mapper (what each field holds).
+FIELD_DESCRIPTIONS = {
+    "track.title": "Song title (required)",
+    "track.version": "Version of the song: Live, Remix, Acoustic, Radio Edit",
+    "track.isrc": "ISRC code of the audio recording, e.g. USRC17607839",
+    "track.isrc_video": "ISRC code of the music video",
+    "track.catalog": "Catalog number of the song",
+    "track.upc": "UPC/EAN barcode attached to the song row",
+    "track.external_id": "The distributor's internal id for the song (Track Id)",
+    "track.kind": "Audio or video",
+    "track.status": "Status of the song: draft, ready, released, taken down",
+    "track.release_date": "Release date of the song",
+    "track.original_release_date": "Original release date",
+    "track.duration_ms": "Duration, e.g. 3:16",
+    "track.tiktok_preview_start_ms": "Start time of the preview / sample clip, e.g. 00:00:47",
+    "track.country_of_recording": "Country where it was recorded (2-letter code)",
+    "track.language": "Language of the song's audio/lyrics",
+    "track.explicit": "Explicit lyrics yes/no",
+    "track.ownership": "Ownership / rights holder notes",
+    "track.us_publishing_obligations": "US publishing obligations notes",
+    "track.recoupment": "Recoupment notes",
+    "track.digital_format": "Digital format",
+    "track.p_line": "Song-level (P) phonographic copyright line, e.g. ℗ 2025 Label",
+    "track.c_line": "Song-level (C) copyright line, e.g. © 2025 Label",
+    "track.lyrics": "Full lyrics text",
+    "track.aggregator_percentage": "Aggregator share %",
+    "track.distributor_percentage": "Distributor share %",
+    "track.record_label_percentage": "Record label share %",
+    "track.artist_percentage": "Artist share %",
+    "track.writer_percentage": "Writer share %",
+    "release.title": "Album / EP / single (product) title",
+    "release.version": "Version of the release (product version)",
+    "release.type": "Release type: single, EP, album, compilation",
+    "release.status": "Status of the release (e.g. submission status Released)",
+    "release.upc": "UPC/EAN of the release",
+    "release.external_id": "The distributor's internal id for the release (Product Id)",
+    "release.catalog_number": "Catalog number of the release",
+    "release.release_date": "Release date of the album/product",
+    "release.language": "Metadata language of the release",
+    "release.p_line": "Release-level (P) line, e.g. Product P Line",
+    "release.c_line": "Release-level (C) line, e.g. Product C Line",
+    "release.artists": "Display artists of the release/product (may differ from the song's)",
+    "release.track_number": "Position of the song in its release (track number)",
+    "release.disc_number": "Disc / volume number of the song in its release",
+    "artists": "Main / display artists of the song",
+    "featured_artists": "Featured artists (feat.)",
+    "writers": "Songwriters",
+    "authors": "Lyricists / authors",
+    "composers": "Composers",
+    "producers": "Producers",
+    "recording_engineers": "Recording engineers",
+    "mixers": "Mixing engineers",
+    "mastering_engineers": "Mastering engineers",
+    "legal_representatives": "Legal representatives",
+    "genres": "Genres",
+    "record_label": "Record label",
+    "aggregator": "Aggregator company",
+    "distributor": "Distributor company",
+    "contributors": "Credited people tagged with ANY role, e.g. 'Ana <MixingEngineer>, Luis <AR>'",
+    "performers": "Performing musicians tagged with their instrument/voice, e.g. 'Ana <Vocals>'",
+    "publishers": "Publishers / collection societies, e.g. 'Top Music <ASCAP>'",
+    "track.video_url": "Music video URL (YouTube…)",
+    "track.video_release_date": "Release date of the music video",
+    "track.streaming_url": "Streaming / store / play link of the song (Spotify, Apple Music…)",
+}
+
+
+def _clean_mapping(value, headers):
+    """{field: column | [columns]} with real fields and real headers only."""
+    if not isinstance(value, dict):
+        return {}
+    header_set = set(headers)
+    mapping = {}
+    for field, item in value.items():
+        if field not in IMPORT_FIELDS:
+            continue
+        columns = [column for column in (item if isinstance(item, list) else [item]) if column in header_set]
+        if columns:
+            mapping[field] = columns if field in MULTI_COLUMN_FIELDS else columns[0]
+    return mapping
+
+
+def _clean_ai_suggestions(data, headers, locked):
+    """Per field {columns, confidence, reason, replace, locked} from the
+    Worker. An older Worker only returns `mapping`: those suggestions come
+    without confidence or reason."""
+    header_set = set(headers)
+    raw = data.get("suggestions")
+    if not isinstance(raw, dict):
+        raw = {field: {"columns": value} for field, value in (data.get("mapping") or {}).items()}
+    suggestions = {}
+    for field, entry in raw.items():
+        if field not in IMPORT_FIELDS or not isinstance(entry, dict):
+            continue
+        value = entry.get("columns")
+        columns = []
+        for column in value if isinstance(value, list) else [value]:
+            if column in header_set and column not in columns:
+                columns.append(column)
+        if not columns:
+            continue
+        multi = field in MULTI_COLUMN_FIELDS
+        try:
+            confidence = entry.get("confidence")
+            confidence = None if confidence is None else min(1.0, max(0.0, float(confidence)))
+        except (TypeError, ValueError):
+            confidence = None
+        suggestions[field] = {
+            "columns": columns if multi else columns[:1],
+            "confidence": confidence,
+            "reason": str(entry.get("reason") or "").strip()[:300],
+            "replace": bool(multi and entry.get("replace") is True),
+            "locked": field in locked,
+        }
+    return suggestions
 
 
 def _link_platform(url):
@@ -725,6 +952,9 @@ UNPARSED_CHECKS = {
     "track.original_release_date": _date,
     "track.video_release_date": _date,
     "release.release_date": _date,
+    "track.tiktok_preview_start_ms": _duration_ms,
+    "release.track_number": _position,
+    "release.disc_number": _position,
     "track.aggregator_percentage": _decimal,
     "track.distributor_percentage": _decimal,
     "track.record_label_percentage": _decimal,
@@ -779,6 +1009,7 @@ CHOICE_FIELDS = {
     "track.kind": MusicTrack.Kind.choices,
     "track.status": MusicTrack.Status.choices,
     "release.type": MusicRelease.Type.choices,
+    "release.status": MusicRelease.Status.choices,
 }
 for _field, _choices in CHOICE_FIELDS.items():
     UNPARSED_CHECKS.setdefault(_field, lambda value, choices=_choices: _choice_value(value, choices))
@@ -793,7 +1024,7 @@ MULTI_COLUMN_FIELDS = [
     "artists", "featured_artists", "writers", "authors", "composers", "producers", "recording_engineers",
     "mixers", "mastering_engineers", "legal_representatives", "genres", "record_label",
     "aggregator", "distributor", "track.video_url", "track.streaming_url",
-    "contributors", "performers", "publishers",
+    "contributors", "performers", "publishers", "release.artists",
 ]
 
 # Company fields and the kind of company each one creates/links
@@ -807,7 +1038,7 @@ COMPANY_FIELD_KINDS = {
 # Fields whose values are people/artists (MusicParty)
 PARTY_FIELDS = (
     "artists", "featured_artists", "writers", "authors", "composers", "producers", "recording_engineers",
-    "mixers", "mastering_engineers", "legal_representatives", "contributors", "performers",
+    "mixers", "mastering_engineers", "legal_representatives", "contributors", "performers", "release.artists",
 )
 
 # Example of the expected format per typed field, shown when the user decides
@@ -818,6 +1049,9 @@ FIELD_FORMAT_EXAMPLES = {
     "track.original_release_date": "2023-05-01",
     "track.video_release_date": "2023-05-01",
     "release.release_date": "2023-05-01",
+    "track.tiktok_preview_start_ms": "0:47",
+    "release.track_number": "1",
+    "release.disc_number": "1",
     "track.aggregator_percentage": "50",
     "track.distributor_percentage": "50",
     "track.record_label_percentage": "50",
@@ -925,12 +1159,20 @@ def _record_import_run(workspace, *, file_asset, source_name, source, sheet, rul
     return run
 
 
+# Fields whose bare name ("Version", "Status", "Artists") belongs to the
+# song's own field: they only map through their explicit aliases.
+ALIAS_ONLY_FIELDS = {
+    "release.version", "release.status", "release.language", "release.artists", "release.external_id",
+}
+
+
 def _infer_mapping(headers, fields):
     key = lambda value: re.sub(r"[^a-z0-9]+", " ", _plain(value)).strip()
     normalized = {key(header): header for header in headers}
     result = {}
     for field in fields:
-        candidates = (field, field.split(".")[-1], *IMPORT_ALIASES.get(field, ()))
+        bare = () if field in ALIAS_ONLY_FIELDS else (field, field.split(".")[-1])
+        candidates = (*bare, *IMPORT_ALIASES.get(field, ()))
         for candidate in candidates:
             wanted = key(candidate)
             match = next((header for key, header in normalized.items() if key == wanted), None)
@@ -1187,6 +1429,7 @@ class MusicTrackEndpoint(MusicBaseView):
         workspace = Workspace.objects.get(slug=slug)
         serializer = MusicTrackSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        _validate_credit_roles(workspace, request.data.get("credit_entries"))
         track = serializer.save(workspace=workspace)
         self._sync_relations(track, workspace, request.data)
         return Response(MusicTrackSerializer(track).data, status=status.HTTP_201_CREATED)
@@ -1214,6 +1457,8 @@ class MusicTrackEndpoint(MusicBaseView):
                     {"track": track, "genre_id": genre_id},
                 )
         if "credit_entries" in data:
+            # Built-in or workspace roles only; checked before touching anything
+            _validate_credit_roles(workspace, data.get("credit_entries"))
             track.credits.all().delete()
             for credit in data.get("credit_entries", []):
                 _restore_or_create(
@@ -1349,6 +1594,7 @@ class MusicTrackDetailEndpoint(MusicBaseView):
         track = MusicTrack.objects.get(id=track_id, workspace__slug=slug)
         serializer = MusicTrackSerializer(track, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        _validate_credit_roles(track.workspace, request.data.get("credit_entries"))
         serializer.save()
         MusicTrackEndpoint._sync_relations(track, track.workspace, request.data)
         return Response(MusicTrackSerializer(track).data)
@@ -1439,13 +1685,18 @@ class MusicCompanyDetailEndpoint(_NamedDetailEndpoint):
 class MusicCatalogOptionsEndpoint(MusicBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
+        workspace = Workspace.objects.get(slug=slug)
+        roles = workspace_role_catalog(workspace.id).options()
         return Response(
             {
                 "release_types": MusicRelease.Type.choices,
                 "release_statuses": MusicRelease.Status.choices,
                 "track_kinds": MusicTrack.Kind.choices,
                 "track_statuses": MusicTrack.Status.choices,
-                "credit_roles": MusicCredit.Role.choices,
+                # Built-in + the workspace's own roles, labels as stored (English)
+                "credit_roles": [[role["key"], role["label"]] for role in roles],
+                "credit_role_details": roles,
+                "credit_role_categories": MusicCreditRole.Category.choices,
                 "party_kinds": MusicParty.Kind.choices,
                 "company_kinds": MusicCompany.Kind.choices,
                 "import_fields": IMPORT_FIELDS,
@@ -1476,6 +1727,38 @@ class MusicCatalogOptionsEndpoint(MusicBaseView):
             else:
                 entry["runs"] += 1
         return list(files.values())[:100]
+
+
+class MusicCreditRoleEndpoint(MusicBaseView):
+    """The workspace's credit roles (built-in + its own) and creating one
+    from the track panel ("Create role «Bajo Quinto»")."""
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def get(self, request, slug):
+        workspace = Workspace.objects.get(slug=slug)
+        return Response(workspace_role_catalog(workspace.id).options())
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug):
+        workspace = Workspace.objects.get(slug=slug)
+        label = " ".join(str(request.data.get("label") or "").split())[:120]
+        if not label:
+            return Response({"label": ["Name the role"]}, status=status.HTTP_400_BAD_REQUEST)
+        catalog = workspace_role_catalog(workspace.id)
+        # The same role under another spelling is reused, never duplicated
+        existing = catalog.match(label) or (role_key(label) if catalog.exists(role_key(label)) else None)
+        if existing:
+            return Response({**catalog.roles[existing], "created": False}, status=status.HTTP_200_OK)
+        category = request.data.get("category")
+        if category not in CATEGORIES:
+            category = guess_category(label)
+        role = MusicCreditRole.objects.create(
+            workspace=workspace, key=role_key(label), label=label, category=category, source_tags=[]
+        )
+        return Response(
+            {"key": role.key, "label": role.label, "category": role.category, "builtin": False, "created": True},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class MusicImportAssetEndpoint(MusicBaseView):
@@ -1672,7 +1955,16 @@ class MusicImportPreviewEndpoint(MusicBaseView):
                 "multi_fields": MULTI_COLUMN_FIELDS,
                 # Tags found per column ("Ana <Tuba>") with their default role,
                 # for the role map of contributors/performers columns
-                "column_role_tags": _column_role_tags(headers, rows),
+                "column_role_tags": (
+                    _column_role_tags(
+                        headers,
+                        rows,
+                        workspace_role_catalog(Workspace.objects.get(slug=slug).id),
+                        performer_columns=_columns_for(inferred, "performers"),
+                    )
+                    if database_ready
+                    else {}
+                ),
                 "format_examples": FIELD_FORMAT_EXAMPLES,
                 "field_limits": FIELD_LENGTH_LIMITS,
                 "artist_examples": [
@@ -1707,23 +1999,48 @@ class MusicImportAIMapEndpoint(MusicBaseView):
             headers, rows, _sheets, _header_row = _read_table(upload, request.data.get("sheet"))
         except Exception as exc:
             return Response({"error": f"Could not read spreadsheet: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
+        # What the user has now: the AI fills gaps and leaves hand-picked
+        # fields alone (multipart form fields arrive as JSON text).
+        def _json_field(name, default):
+            value = request.data.get(name)
+            if isinstance(value, str):
+                try:
+                    return json.loads(value or "null") or default
+                except json.JSONDecodeError:
+                    return default
+            return value if value is not None else default
+
+        current_mapping = _clean_mapping(_json_field("current_mapping", {}), headers)
+        locked = [field for field in _json_field("locked_fields", []) if field in IMPORT_FIELDS]
+        constants = _clean_constants(_json_field("constants", {}))
+        locale = str(request.data.get("locale") or "es")[:10]
         try:
-            data = ai_map_music_columns(_column_samples(headers, rows), IMPORT_FIELDS, MULTI_COLUMN_FIELDS)
+            data = ai_map_music_columns(
+                _column_samples(headers, rows),
+                IMPORT_FIELDS,
+                MULTI_COLUMN_FIELDS,
+                current_mapping=current_mapping,
+                locked_fields=locked,
+                constants=constants,
+                field_descriptions=FIELD_DESCRIPTIONS,
+                locale=locale,
+            )
         except WorkerTriggerError as exc:
             log_exception(exc)
             return Response({"error": exc.public_message}, status=status.HTTP_502_BAD_GATEWAY)
 
-        # Only real fields mapped to real columns survive
-        header_set = set(headers)
-        mapping = {}
-        for field, value in (data.get("mapping") or {}).items():
-            if field not in IMPORT_FIELDS:
-                continue
-            columns = [column for column in (value if isinstance(value, list) else [value]) if column in header_set]
-            if not columns:
-                continue
-            mapping[field] = columns if field in MULTI_COLUMN_FIELDS and len(columns) > 1 else columns[0]
-        return Response({"mapping": mapping, "model": data.get("model")}, status=status.HTTP_200_OK)
+        # Only real fields mapped to real columns survive; `mapping` keeps
+        # its old shape for older clients.
+        suggestions = _clean_ai_suggestions(data, headers, set(locked))
+        mapping = {
+            field: (
+                entry["columns"] if field in MULTI_COLUMN_FIELDS and len(entry["columns"]) > 1 else entry["columns"][0]
+            )
+            for field, entry in suggestions.items()
+        }
+        return Response(
+            {"mapping": mapping, "suggestions": suggestions, "model": data.get("model")}, status=status.HTTP_200_OK
+        )
 
 
 FIELD_VALUE_LIMIT = 20
@@ -1931,6 +2248,9 @@ class MusicImportEndpoint(MusicBaseView):
         dedupe_within_file = str(request.data.get("dedupe_within_file", "false")).lower() == "true"
         dry_run = str(request.data.get("dry_run", "false")).lower() == "true"
         stream = str(request.data.get("stream", "false")).lower() == "true"
+        # Off unless the user asks: columns no field took are kept per song
+        # as extra data (track.metadata["extra"]).
+        keep_unmapped = str(request.data.get("keep_unmapped", "false")).lower() == "true"
         invalid_row_strategy = request.data.get("invalid_row_strategy", "abort")
         try:
             row_overrides = json.loads(request.data.get("row_overrides", "{}"))
@@ -1974,6 +2294,7 @@ class MusicImportEndpoint(MusicBaseView):
                     dry_run=dry_run,
                     constants=constants,
                     role_map=role_map,
+                    keep_unmapped=keep_unmapped,
                 ):
                     if event[0] == "result":
                         _, result, touched = event
@@ -2005,6 +2326,7 @@ class MusicImportEndpoint(MusicBaseView):
                             "defaults": defaults,
                             "constants": constants,
                             "role_map": role_map,
+                            "keep_unmapped": keep_unmapped,
                         },
                         summary={key: result.get(key, 0) for key in SUMMARY_KEYS},
                         touched=touched,
@@ -2081,6 +2403,11 @@ class MusicImportEndpoint(MusicBaseView):
         if dedupe_by == "upc":
             upc = _mapped(row, mapping, "track.upc")
             return found(first(songs.filter(upc__iexact=upc)) if upc else None, "upc")
+        if dedupe_by == "external_id":
+            external = _mapped(row, mapping, "track.external_id")
+            return found(
+                first(songs.filter(metadata__external_ids__track_id=external)) if external else None, "external_id"
+            )
 
         # auto. An ISRC identifies one recording: when the row carries one it
         # is the only thing allowed to match — a same-titled song with another
@@ -2133,15 +2460,38 @@ class MusicImportEndpoint(MusicBaseView):
             releases=Count("release_links", filter=Q(release_links__deleted_at__isnull=True), distinct=True),
             links=Count("links", filter=Q(links__deleted_at__isnull=True), distinct=True),
         )
-        return fields, tuple(sorted(counts.items()))
+        # Extra data / external ids and the song's position in its releases
+        metadata = json.dumps(track.metadata or {}, sort_keys=True, default=str)
+        positions = tuple(
+            sorted(
+                (str(release_id), disc, number)
+                for release_id, disc, number in track.release_links.values_list(
+                    "release_id", "disc_number", "track_number"
+                )
+            )
+        )
+        return fields, tuple(sorted(counts.items())), metadata, positions
+
+    def _role_catalog(self, workspace):
+        """The workspace's roles, read once per importer (a request or run)."""
+        cache = self.__dict__.setdefault("_role_catalogs", {})
+        if workspace.id not in cache:
+            cache[workspace.id] = workspace_role_catalog(workspace.id)
+        return cache[workspace.id]
 
     def _import_row(
         self, workspace, row, mapping, strategy, defaults=None, dedupe_by="auto", relations_mode="merge",
-        exclude_ids=None, ambiguous_strategy="create", blank_cells="keep", role_map=None,
+        exclude_ids=None, ambiguous_strategy="create", blank_cells="keep", role_map=None, role_catalog=None,
+        unmapped_columns=None,
     ):
         """Imports one spreadsheet row. Returns (outcome, track, match):
         outcome is created | updated | unchanged | skipped, and `match`
-        describes the existing song the row was matched to (_find_existing)."""
+        describes the existing song the row was matched to (_find_existing).
+
+        `role_catalog` holds the workspace's credit roles plus the ones this
+        file creates; `unmapped_columns` (keep_unmapped) are the file columns
+        no field took, saved per song in metadata["extra"]."""
+        catalog = role_catalog or self._role_catalog(workspace)
         title = _mapped(row, mapping, "track.title")
         if not title:
             raise ValueError("Track title is empty")
@@ -2172,6 +2522,7 @@ class MusicImportEndpoint(MusicBaseView):
             "release_date": _mapped_date(row, mapping, "track.release_date"),
             "original_release_date": _mapped_date(row, mapping, "track.original_release_date"),
             "duration_ms": _duration_ms(_mapped(row, mapping, "track.duration_ms")),
+            "tiktok_preview_start_ms": _duration_ms(_mapped(row, mapping, "track.tiktok_preview_start_ms")),
             "country_of_recording": _mapped(row, mapping, "track.country_of_recording"),
             "language": _mapped(row, mapping, "track.language"),
             "explicit": _bool(_mapped(row, mapping, "track.explicit")),
@@ -2179,6 +2530,8 @@ class MusicImportEndpoint(MusicBaseView):
             "us_publishing_obligations": _mapped(row, mapping, "track.us_publishing_obligations"),
             "recoupment": _mapped(row, mapping, "track.recoupment"),
             "digital_format": _mapped(row, mapping, "track.digital_format"),
+            "p_line": _mapped(row, mapping, "track.p_line"),
+            "c_line": _mapped(row, mapping, "track.c_line"),
             "lyrics": _mapped(row, mapping, "track.lyrics"),
             "aggregator_percentage": _decimal(_mapped(row, mapping, "track.aggregator_percentage")),
             "distributor_percentage": _decimal(_mapped(row, mapping, "track.distributor_percentage")),
@@ -2212,32 +2565,22 @@ class MusicImportEndpoint(MusicBaseView):
         else:
             track = MusicTrack.objects.create(workspace=workspace, **values)
             outcome = "created"
+        self._import_metadata(track, row, mapping, unmapped_columns)
 
-        release_title = _mapped(row, mapping, "release.title")
-        if release_title:
-            upc = _mapped(row, mapping, "release.upc")
-            release = MusicRelease.objects.filter(workspace=workspace, upc__iexact=upc).first() if upc else None
-            release = release or MusicRelease.objects.filter(
-                workspace=workspace,
-                title__iexact=release_title,
-                release_date=_mapped_date(row, mapping, "release.release_date"),
-            ).first()
-            if not release:
-                release = MusicRelease.objects.create(
-                    workspace=workspace,
-                    title=release_title,
-                    release_type=_choice(
-                        _mapped(row, mapping, "release.type"), MusicRelease.Type.choices, MusicRelease.Type.ALBUM
-                    ),
-                    upc=upc,
-                    catalog_number=_mapped(row, mapping, "release.catalog_number"),
-                    release_date=_mapped_date(row, mapping, "release.release_date"),
-                    p_line=_mapped(row, mapping, "release.p_line"),
-                    c_line=_mapped(row, mapping, "release.c_line"),
-                )
-            _restore_or_create(MusicReleaseTrack, workspace, {"release": release, "track": track})
-        else:
-            release = None
+        release = self._import_release(workspace, track, row, mapping)
+        # The release's own artist list ("Product Display Artist") when the
+        # file has one; otherwise the song's primary artists also credit it.
+        release_artists = _names_in(row, mapping, "release.artists", _split) if release else []
+        for name in release_artists:
+            _restore_or_create(
+                MusicReleaseArtist,
+                workspace,
+                {
+                    "release": release,
+                    "party": _party(workspace, name, MusicParty.Kind.ARTIST),
+                    "role": MusicReleaseArtist.Role.PRIMARY,
+                },
+            )
 
         role_fields = {
             "artists": (MusicParty.Kind.ARTIST, MusicCredit.Role.PRIMARY_ARTIST),
@@ -2261,8 +2604,7 @@ class MusicImportEndpoint(MusicBaseView):
         replace_relations = relations_mode == "replace"
         # Every credit the row brings, collected first: the same person and
         # role may come from several fields (a "Mixing" column and a generic
-        # contributors column) and several tags ("<Tuba>", "<Chorus>") — one
-        # credit each, with the details merged.
+        # contributors column) — one credit each, with any details merged.
         wanted = {}
 
         def want(party, role, detail=""):
@@ -2273,20 +2615,20 @@ class MusicImportEndpoint(MusicBaseView):
         for field, (kind, role) in role_fields.items():
             for name in _names_in(row, mapping, field, lambda text, field=field: _names_for(text, field)):
                 want(_party(workspace, name, kind), role)
-        artist_roles = (MusicCredit.Role.PRIMARY_ARTIST, MusicCredit.Role.FEATURED_ARTIST)
-        valid_roles = set(MusicCredit.Role.values)
+        # Tagged names: each tag is its own role (existing or created from
+        # the tag) unless the role map sends it elsewhere.
         for field in TAGGED_CREDIT_FIELDS:
             for name, tag in _tagged_in(row, mapping, field):
-                role, detail = resolve_role(tag, field, role_map)
-                if role == SKIP_ROLE or role not in valid_roles:
+                role, detail = catalog.resolve(tag, field, role_map)
+                if role == SKIP_ROLE or not catalog.is_known(role):
                     continue
-                kind = MusicParty.Kind.ARTIST if role in artist_roles else MusicParty.Kind.PERSON
+                kind = MusicParty.Kind.ARTIST if catalog.category(role) == ARTIST_CATEGORY else MusicParty.Kind.PERSON
                 want(_party(workspace, name, kind), role, detail)
         produced_credits = {}
         for (party_id, role), (party, details) in wanted.items():
             _save_credit(workspace, track, party, role, merge_details(*details), replace=replace_relations)
             produced_credits.setdefault(role, set()).add(party_id)
-            if release and role == MusicCredit.Role.PRIMARY_ARTIST:
+            if release and role == MusicCredit.Role.PRIMARY_ARTIST and not release_artists:
                 _restore_or_create(
                     MusicReleaseArtist,
                     workspace,
@@ -2322,12 +2664,103 @@ class MusicImportEndpoint(MusicBaseView):
             if replace_relations and produced_companies:
                 _prune(track.distributions.filter(company__kind=kind).exclude(company_id__in=produced_companies))
         self._import_links(workspace, track, row, mapping, values, replace_relations)
-        self._apply_defaults(workspace, track, release, defaults or {})
+        self._apply_defaults(workspace, track, release, defaults or {}, catalog)
         if before is not None:
             track.refresh_from_db()
             if self._track_state(track, mapping) == before:
                 outcome = "unchanged"
         return outcome, track, match
+
+    @staticmethod
+    def _import_metadata(track, row, mapping, unmapped_columns=None):
+        """The distributor's id for the song and, when asked, every unmapped
+        column with a value, kept in track.metadata (merged, never cleared)."""
+        external_id = _mapped(row, mapping, "track.external_id")[:255]
+        extra = {}
+        for column in unmapped_columns or ():
+            raw = row.get(column)
+            text = str(_jsonable_import_value(raw)).strip() if raw is not None else ""
+            if text:
+                extra[str(column)[:255]] = text[:2000]
+        if not external_id and not extra:
+            return
+        metadata = dict(track.metadata or {})
+        if external_id:
+            metadata["external_ids"] = {**(metadata.get("external_ids") or {}), "track_id": external_id}
+        if extra:
+            metadata["extra"] = {**(metadata.get("extra") or {}), **extra}
+        if metadata != (track.metadata or {}):
+            track.metadata = metadata
+            track.save()
+
+    @staticmethod
+    def _import_release(workspace, track, row, mapping):
+        """The release the row names (found by the distributor's id, UPC, or
+        title and date; created otherwise) linked to the song, with the song's
+        disc and track number. A found release only gets blanks filled."""
+        release_title = _mapped(row, mapping, "release.title")
+        if not release_title:
+            return None
+        upc = _mapped(row, mapping, "release.upc")
+        external_id = _mapped(row, mapping, "release.external_id")[:255]
+        release_date = _mapped_date(row, mapping, "release.release_date")
+        release = (
+            MusicRelease.objects.filter(workspace=workspace, metadata__external_ids__product_id=external_id).first()
+            if external_id
+            else None
+        )
+        if not release and upc:
+            release = MusicRelease.objects.filter(workspace=workspace, upc__iexact=upc).first()
+        release = release or MusicRelease.objects.filter(
+            workspace=workspace, title__iexact=release_title, release_date=release_date
+        ).first()
+        status_value = _choice_value(_mapped(row, mapping, "release.status"), MusicRelease.Status.choices)
+        version = _mapped(row, mapping, "release.version")
+        language = _mapped(row, mapping, "release.language")
+        if not release:
+            release = MusicRelease.objects.create(
+                workspace=workspace,
+                title=release_title,
+                version=version,
+                release_type=_choice(
+                    _mapped(row, mapping, "release.type"), MusicRelease.Type.choices, MusicRelease.Type.ALBUM
+                ),
+                status=status_value or MusicRelease.Status.DRAFT,
+                upc=upc,
+                catalog_number=_mapped(row, mapping, "release.catalog_number"),
+                release_date=release_date,
+                language=language,
+                p_line=_mapped(row, mapping, "release.p_line"),
+                c_line=_mapped(row, mapping, "release.c_line"),
+                metadata={"external_ids": {"product_id": external_id}} if external_id else {},
+            )
+        else:
+            changed = False
+            for attr, value in (("version", version), ("language", language)):
+                if value and not getattr(release, attr):
+                    setattr(release, attr, value)
+                    changed = True
+            if status_value and release.status == MusicRelease.Status.DRAFT and status_value != release.status:
+                release.status = status_value
+                changed = True
+            stored_ids = (release.metadata or {}).get("external_ids") or {}
+            if external_id and not stored_ids.get("product_id"):
+                release.metadata = {
+                    **(release.metadata or {}),
+                    "external_ids": {**stored_ids, "product_id": external_id},
+                }
+                changed = True
+            if changed:
+                release.save()
+        position = {}
+        track_number = _position(_mapped(row, mapping, "release.track_number"))
+        disc_number = _position(_mapped(row, mapping, "release.disc_number"))
+        if track_number:
+            position["track_number"] = track_number
+        if disc_number:
+            position["disc_number"] = disc_number
+        _restore_or_create(MusicReleaseTrack, workspace, {"release": release, "track": track}, position)
+        return release
 
     @staticmethod
     def _import_links(workspace, track, row, mapping, values, replace_relations=False):
@@ -2396,17 +2829,17 @@ class MusicImportEndpoint(MusicBaseView):
             _prune(track.links.filter(kind=MusicLink.Kind.STREAMING).exclude(url__in=streaming_urls))
 
     @staticmethod
-    def _apply_defaults(workspace, track, release, defaults):
+    def _apply_defaults(workspace, track, release, defaults, catalog=None):
         for entry in defaults.get("credit_entries", []):
             party = MusicParty.objects.get(id=entry["party_id"], workspace=workspace)
+            role = entry.get("role") or MusicCredit.Role.PRIMARY_ARTIST
+            if catalog is not None and not catalog.exists(role):
+                # A role deleted since the run was saved
+                role = MusicCredit.Role.OTHER
             credit = _restore_or_create(
                 MusicCredit,
                 workspace,
-                {
-                    "track": track,
-                    "party": party,
-                    "role": entry.get("role") or MusicCredit.Role.PRIMARY_ARTIST,
-                },
+                {"track": track, "party": party, "role": role},
             )
             for field in ("percentage", "publishing_share", "territory", "notes"):
                 if field in entry:
@@ -2472,9 +2905,11 @@ class MusicReportEndpoint(MusicBaseView):
         headers = [
             "Song", "Version", "Artists", "Featured artists", "ISRC", "Status", "Release date",
             "Releases", "UPC", "Genres", "Videos", "Video ISRCs", "Video dates", "Video URLs",
-            "Credits and rights", "Companies and shares", "Ownership", "P line",
+            "Credits and rights", "Companies and shares", "Ownership", "P line", "C line",
         ]
         rows = []
+        # Role names as stored (English), built-in or the workspace's own
+        roles = workspace_role_catalog(Workspace.objects.get(slug=slug).id)
         for track in tracks:
             releases = [link.release for link in track.release_links.all()]
             videos = list(track.videos.all())
@@ -2494,7 +2929,7 @@ class MusicReportEndpoint(MusicBaseView):
                 "; ".join(str(video.release_date or "") for video in videos),
                 "; ".join(link.url for video in videos for link in video.links.all() if link.kind == MusicLink.Kind.MUSIC_VIDEO),
                 "; ".join(
-                    f'{credit.party.display_name} ({credit.get_role_display()}: {credit.percentage if credit.percentage is not None else "-"}%, publishing {credit.publishing_share if credit.publishing_share is not None else "-"}%)'
+                    f'{credit.party.display_name} ({roles.label(credit.role)}: {credit.percentage if credit.percentage is not None else "-"}%, publishing {credit.publishing_share if credit.publishing_share is not None else "-"}%)'
                     for credit in track.credits.all()
                 ),
                 "; ".join(
@@ -2503,6 +2938,7 @@ class MusicReportEndpoint(MusicBaseView):
                 ),
                 track.ownership,
                 track.p_line,
+                track.c_line,
             ])
         export_format = request.query_params.get("format", "csv").lower()
         filename = f'music-catalog-{window or "report"}'

@@ -89,11 +89,32 @@ def _get(path):
     return response.json()
 
 
-def ai_map_music_columns(columns, canonical_fields, multi_fields):
-    """AI column mapping for the manual music import panel."""
+def ai_map_music_columns(
+    columns,
+    canonical_fields,
+    multi_fields,
+    *,
+    current_mapping=None,
+    locked_fields=None,
+    constants=None,
+    field_descriptions=None,
+    locale=None,
+):
+    """AI column mapping for the manual music import panel. The model also
+    sees what is mapped now and which fields the user set by hand, so it
+    fills gaps instead of redoing their work."""
     return _post(
         "/music/ai-map",
-        {"columns": columns, "canonical_fields": canonical_fields, "multi_fields": multi_fields},
+        {
+            "columns": columns,
+            "canonical_fields": canonical_fields,
+            "multi_fields": multi_fields,
+            "current_mapping": current_mapping or {},
+            "locked_fields": locked_fields or [],
+            "constants": constants or {},
+            "field_descriptions": field_descriptions or {},
+            "locale": locale,
+        },
         timeout=60,
     )
 

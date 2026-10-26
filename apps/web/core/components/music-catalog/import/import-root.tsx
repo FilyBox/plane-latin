@@ -240,7 +240,12 @@ export function MusicImportRoot({ workspaceSlug }: Props) {
             <ImportStepFile flow={flow} savedAssets={savedAssets} onViewFile={() => setIsFilePreviewOpen(true)} />
           )}
           {step === "columns" && (
-            <ImportStepColumns flow={flow} importFields={options?.import_fields ?? []} workspaceSlug={workspaceSlug} />
+            <ImportStepColumns
+              flow={flow}
+              importFields={options?.import_fields ?? []}
+              workspaceSlug={workspaceSlug}
+              companies={companies}
+            />
           )}
           {step === "rules" && (
             <ImportStepRules

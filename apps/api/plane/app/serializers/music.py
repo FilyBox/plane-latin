@@ -14,6 +14,8 @@ from plane.db.models import (
     MusicTrack,
 )
 
+from plane.utils.music_credits import workspace_role_catalog
+
 from .base import BaseSerializer
 
 
@@ -40,6 +42,23 @@ class MusicCompanySerializer(BaseSerializer):
 
 class MusicCreditSerializer(BaseSerializer):
     party = MusicPartySerializer(read_only=True)
+    # The role's name as stored (English, never translated) and its group
+    role_label = serializers.SerializerMethodField()
+    role_category = serializers.SerializerMethodField()
+
+    def _role_catalog(self, obj):
+        # One read of the workspace's roles per response, however many credits
+        root = self.root
+        cache = root.__dict__.setdefault("_music_role_catalogs", {})
+        if obj.workspace_id not in cache:
+            cache[obj.workspace_id] = workspace_role_catalog(obj.workspace_id)
+        return cache[obj.workspace_id]
+
+    def get_role_label(self, obj):
+        return self._role_catalog(obj).label(obj.role)
+
+    def get_role_category(self, obj):
+        return self._role_catalog(obj).category(obj.role)
 
     class Meta:
         model = MusicCredit

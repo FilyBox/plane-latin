@@ -110,6 +110,7 @@ from .music import (
     InternalWorkspaceAssetsEndpoint,
     MusicCatalogOptionsEndpoint,
     MusicCompanyDetailEndpoint,
+    MusicCreditRoleEndpoint,
     MusicCompanyEndpoint,
     MusicGenreDetailEndpoint,
     MusicGenreEndpoint,

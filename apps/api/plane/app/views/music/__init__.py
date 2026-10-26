@@ -7,6 +7,7 @@ from .internal import (
 from .base import (
     MusicCatalogOptionsEndpoint,
     MusicCompanyDetailEndpoint,
+    MusicCreditRoleEndpoint,
     MusicCompanyEndpoint,
     MusicGenreDetailEndpoint,
     MusicGenreEndpoint,
@@ -31,6 +32,7 @@ __all__ = [
     "InternalWorkspaceAssetsEndpoint",
     "MusicCatalogOptionsEndpoint",
     "MusicCompanyDetailEndpoint",
+    "MusicCreditRoleEndpoint",
     "MusicCompanyEndpoint",
     "MusicGenreDetailEndpoint",
     "MusicGenreEndpoint",

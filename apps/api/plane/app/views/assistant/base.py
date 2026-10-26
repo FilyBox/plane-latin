@@ -124,7 +124,12 @@ class AssistantMusicImportEndpoint(BaseAPIView):
         if not isinstance(row_overrides, dict):
             return Response({"row_overrides": ["Must be an object"]}, status=status.HTTP_400_BAD_REQUEST)
         dry_run = bool(request.data.get("dry_run", False))
-        from plane.app.views.music.base import _apply_overrides, _collect_unparsed, _record_import_run
+        from plane.app.views.music.base import (
+            _apply_overrides,
+            _collect_unparsed,
+            _create_planned_roles,
+            _record_import_run,
+        )
 
         importer = MusicImportEndpoint()
         result = {
@@ -171,6 +176,10 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                 except Exception as exc:
                     result["errors"].append(_import_error_detail(index, exc, effective_row, effective_mapping))
             aborted = result["errors"] and invalid_row_strategy == "abort"
+            # Roles named after the file's tags that the credits use
+            result["new_roles"] = _create_planned_roles(
+                workspace, importer._role_catalog(workspace), dry_run=bool(dry_run or aborted)
+            )
             if not dry_run and not aborted:
                 asset = FileAsset.objects.get(id=asset_id, workspace=workspace)
                 run = _record_import_run(

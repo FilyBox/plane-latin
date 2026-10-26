@@ -19,6 +19,7 @@ from django.db.models import Count
 
 # Module imports
 from plane.db.models import MusicCredit
+from plane.utils.music_credits import workspace_role_catalog
 
 from .base import (
     _apply_constants,
@@ -26,9 +27,11 @@ from .base import (
     _apply_row_overrides,
     _collect_unparsed,
     _columns_for,
+    _create_planned_roles,
     _import_error_detail,
     _mapped,
     _mapped_many,
+    _plan_file_roles,
 )
 
 # Cap on the per-row outcome list a validation returns; the review step filters
@@ -106,6 +109,7 @@ def run_import(
     dry_run=False,
     constants=None,
     role_map=None,
+    keep_unmapped=False,
 ):
     """Imports `rows`, yielding ("progress", payload) events and finally
     ("result", result, touched). `touched` lists (track_id, outcome, row) for
@@ -113,8 +117,21 @@ def run_import(
 
     `constants` ({field: value}) give a field a fixed value for the whole
     file (or fill its blank cells); `role_map` ({tag: role}) decides what
-    each tag of a contributors/performers column means."""
+    each tag of a contributors/performers column means (a role key, or
+    SKIP). Tags become roles of their own when no existing role matches;
+    those roles are created at the end of an applied run (a dry run only
+    lists them in `new_roles`). `keep_unmapped` saves every column no field
+    took into each song's metadata["extra"]."""
     row_overrides = row_overrides or {}
+    # The workspace's roles plus every role the file's tags would create
+    role_catalog = workspace_role_catalog(workspace.id)
+    _plan_file_roles(role_catalog, rows, mapping, constants)
+    mapped_columns = {column for field in mapping for column in _columns_for(mapping, field)}
+    unmapped_columns = (
+        [column for column in (rows[0].keys() if rows else ()) if column not in mapped_columns]
+        if keep_unmapped
+        else None
+    )
     value_overrides = value_overrides or {}
     total = len(rows)
     result = {
@@ -213,6 +230,8 @@ def run_import(
                     ambiguous_strategy=ambiguous_strategy,
                     blank_cells=blank_cells,
                     role_map=role_map,
+                    role_catalog=role_catalog,
+                    unmapped_columns=unmapped_columns,
                 )
         except Exception as exc:
             detail = _import_error_detail(index, exc, effective_row, effective_mapping)
@@ -250,6 +269,9 @@ def run_import(
     result["in_file_duplicates"] = [
         {"isrc": isrc, "rows": indexes} for isrc, indexes in rows_by_isrc.items() if len(indexes) > 1
     ][:EXAMPLE_LIMIT]
+    # Roles named after the file's tags that its credits use: created now
+    # when applying; a dry run reports what would be created.
+    result["new_roles"] = _create_planned_roles(workspace, role_catalog, dry_run=dry_run)
     if dry_run:
         result["rows"] = outcomes
         result["unparseable"] = _group_unparseable(unparseable)
@@ -266,5 +288,6 @@ def run_import(
             if track_ids
             else {}
         )
+        result["role_labels"] = {key: role_catalog.label(key) for key in result["credit_roles"]}
     yield progress(total)
     yield "result", result, touched

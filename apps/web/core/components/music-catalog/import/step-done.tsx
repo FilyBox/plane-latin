@@ -93,6 +93,13 @@ export function ImportStepDone({ flow, workspaceSlug, onImportAnother, onBackToR
         </dl>
       )}
 
+      {(applied.new_roles ?? []).length > 0 && (
+        <p className="text-12 text-secondary">
+          {t("music_import.done.new_roles", { count: applied.new_roles?.length ?? 0 })}:{" "}
+          <span className="text-primary">{applied.new_roles?.map((role) => role.label).join(", ")}</span>
+        </p>
+      )}
+
       <section className="space-y-3">
         <p className="text-13 text-secondary">{t("music_import.done.provenance")}</p>
         <div className="flex flex-wrap gap-2">

@@ -10,7 +10,7 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import type { TMusicImportResult, TMusicImportRowOutcome } from "@plane/types";
 import { cn } from "@plane/utils";
-import { creditRoleLabel } from "../credit-roles";
+import { humanizeRoleKey } from "../credit-roles";
 import { columnsOf, errorLabelKey, fieldLabelKey, MATCH_LABEL_KEY, ROW_OUTCOME_LABEL_KEY, SKIP_ROW } from "./constants";
 import { ImportLiveCounts } from "./live-counts";
 import type { TImportFlow, TValueDecision } from "./use-import-flow";
@@ -151,6 +151,9 @@ export function ImportStepReview({ flow, onValidate }: Props) {
     ([field, value]) => [field, Array.isArray(value) ? value : [value]] as const
   );
   const creditRoles = Object.entries(review.credit_roles ?? {}).sort((a, b) => b[1] - a[1]);
+  // Role names as stored (the file's own words), never translated
+  const roleLabel = (key: string) => review.role_labels?.[key] ?? humanizeRoleKey(key);
+  const newRoleKeys = new Set((review.new_roles ?? []).map((role) => role.key));
 
   const hasPending =
     valueEntries.length > 0 ||
@@ -252,11 +255,24 @@ export function ImportStepReview({ flow, onValidate }: Props) {
               <h4 className="text-13 font-medium text-primary">{t("music_import.review.credits_title")}</h4>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {creditRoles.map(([role, count]) => (
-                  <span key={role} className="rounded-md bg-layer-1 px-2 py-0.5 text-12 text-secondary">
-                    {creditRoleLabel(t, role)} <span className="text-primary tabular-nums">{count}</span>
+                  <span
+                    key={role}
+                    className={cn(
+                      "rounded-md px-2 py-0.5 text-12 text-secondary",
+                      newRoleKeys.has(role) ? "border-accent-primary/40 border bg-accent-primary/5" : "bg-layer-1"
+                    )}
+                    title={newRoleKeys.has(role) ? t("music_import.review.new_roles_hint") : undefined}
+                  >
+                    {roleLabel(role)} <span className="text-primary tabular-nums">{count}</span>
                   </span>
                 ))}
               </div>
+              {newRoleKeys.size > 0 && (
+                <p className="mt-2 text-11 text-tertiary">
+                  {t("music_import.review.new_roles", { count: newRoleKeys.size })} ·{" "}
+                  {t("music_import.review.new_roles_hint")}
+                </p>
+              )}
             </div>
           )}
         </div>

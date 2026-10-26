@@ -49,6 +49,7 @@ export const MATCH_LABEL_KEY: Record<TMusicImportMatch["by"], string> = {
   title_date: "music_import.review.match_by_title_date",
   upc: "music_import.review.match_by_upc",
   catalog: "music_import.review.match_by_catalog",
+  external_id: "music_import.review.match_by_external_id",
   ambiguous: "music_import.review.match_by_ambiguous",
 };
 

@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useSWRConfig } from "swr";
 import {
   Check,
   Copy,
@@ -53,7 +54,7 @@ import { AudioPreviewRange } from "./audio-preview-range";
 import { EditableField } from "./editable-field";
 import { MusicResourcePickerModal } from "./resource-picker-modal";
 import { SearchableSelect } from "./searchable-select";
-import { creditRoleOptions } from "./credit-roles";
+import { creditRoleLabel, creditRoleOptions, creditRolesOf } from "./credit-roles";
 import { AskAssistantButton } from "@/components/assistant/ask";
 import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 import { StackLayer } from "@/components/panel-stack/stack-layer";
@@ -104,6 +105,7 @@ const EMPTY_TRACK: TMusicTrack = {
   us_publishing_obligations: "",
   recoupment: "",
   p_line: "",
+  c_line: "",
   digital_format: "",
   lyrics: "",
   audio_url: "",
@@ -147,6 +149,7 @@ const CREATE_FIELDS: (keyof TMusicTrack)[] = [
   "us_publishing_obligations",
   "recoupment",
   "p_line",
+  "c_line",
   "digital_format",
   "lyrics",
   "audio_url",
@@ -285,6 +288,7 @@ export function MusicTrackPeekPanel(props: Props) {
   const referencesEnabled = isWorkspaceFeatureEnabled(workspaceSlug, "references");
   const [isCreating, setIsCreating] = useState(false);
   const [isAddingCredit, setIsAddingCredit] = useState(false);
+  const { mutate: mutateSWR } = useSWRConfig();
   const [newCreditRole, setNewCreditRole] = useState("PRIMARY_ARTIST");
   const [newCreditPercentage, setNewCreditPercentage] = useState("");
   const [newCreditDetail, setNewCreditDetail] = useState("");
@@ -476,6 +480,23 @@ export function MusicTrackPeekPanel(props: Props) {
     setIsAddingCredit(false);
     setNewCreditPercentage("");
     setNewCreditDetail("");
+  };
+
+  /** A new credit role named as typed ("Bajo Quinto"); an existing role
+   * with that name is reused. Returns its key. */
+  const createRole = async (label: string) => {
+    try {
+      const role = await musicService.createCreditRole(workspaceSlug, label);
+      await mutateSWR(`MUSIC_OPTIONS_${workspaceSlug}`);
+      return role.key;
+    } catch (error) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: t("music_catalog.credits.role_create_failed"),
+        message: (error as { error?: string; label?: string[] } | undefined)?.label?.[0],
+      });
+      return undefined;
+    }
   };
 
   const createParty = async (name: string) => {
@@ -751,7 +772,16 @@ export function MusicTrackPeekPanel(props: Props) {
 
   const statusOptions = (options?.track_statuses ?? []).map(([value, label]) => ({ value, label }));
   const kindOptions = (options?.track_kinds ?? []).map(([value, label]) => ({ value, label }));
-  const roleOptions = creditRoleOptions(t, options?.credit_roles);
+  // Built-in + workspace roles, named as stored, grouped by category
+  const roles = creditRolesOf(options);
+  const roleOptions = creditRoleOptions(t, roles);
+  /** The options for one credit, keeping its role even if it is no longer listed */
+  const roleOptionsFor = (credit: TMusicTrack["credits"][number]) =>
+    roleOptions.some((option) => option.value === credit.role)
+      ? roleOptions
+      : [{ value: credit.role, label: creditRoleLabel(roles, credit.role, credit.role_label) }, ...roleOptions];
+  const extraData = Object.entries((track.metadata?.extra as Record<string, unknown> | undefined) ?? {});
+  const externalIds = Object.entries((track.metadata?.external_ids as Record<string, unknown> | undefined) ?? {});
   const iconButton =
     "flex size-7 items-center justify-center rounded-sm border border-subtle text-secondary hover:bg-layer-1-hover";
 
@@ -1124,18 +1154,17 @@ export function MusicTrackPeekPanel(props: Props) {
                           )}
                         />
                       </div>
-                      {/* role editable inline */}
-                      <select
+                      {/* role editable inline: any role of the workspace, or a new one */}
+                      <SearchableSelect
+                        className="w-36 shrink-0"
+                        options={roleOptionsFor(credit)}
                         value={credit.role}
-                        onChange={(event) => void updateCredit(credit.id, { role: event.target.value })}
-                        className="w-32 shrink-0 rounded-sm border border-transparent bg-transparent px-1 py-0.5 text-11 text-tertiary hover:border-subtle"
-                      >
-                        {roleOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                        onSelect={(role) => role !== credit.role && void updateCredit(credit.id, { role })}
+                        onCreate={(label) =>
+                          void createRole(label).then((role) => (role ? updateCredit(credit.id, { role }) : undefined))
+                        }
+                        placeholder={t("music_catalog.credits.role_placeholder")}
+                      />
                       {/* rights % editable inline */}
                       <input
                         type="number"
@@ -1177,7 +1206,13 @@ export function MusicTrackPeekPanel(props: Props) {
                       options={roleOptions}
                       value={newCreditRole}
                       onSelect={setNewCreditRole}
-                      placeholder="Rol…"
+                      onCreate={(label) =>
+                        void createRole(label).then((role) => {
+                          if (role) setNewCreditRole(role);
+                          return undefined;
+                        })
+                      }
+                      placeholder={t("music_catalog.credits.role_placeholder")}
                     />
                     <input
                       type="number"
@@ -1854,8 +1889,30 @@ export function MusicTrackPeekPanel(props: Props) {
             />
             <FieldRow label="Recoupment" value={track.recoupment} onSave={saveField("recoupment")} variant="textarea" />
             <FieldRow label="P line" value={track.p_line} onSave={saveField("p_line")} />
+            <FieldRow label="C line" value={track.c_line} onSave={saveField("c_line")} />
             <FieldRow label="Letra" value={track.lyrics} onSave={saveField("lyrics")} variant="textarea" />
           </section>
+
+          {/* Distributor ids and the file columns kept as extra data (read-only) */}
+          {(extraData.length > 0 || externalIds.length > 0) && (
+            <details className="group/extra space-y-1">
+              <summary className="cursor-pointer list-none">
+                <SectionTitle>{`${t("music_catalog.credits.extra_title")} · ${extraData.length + externalIds.length}`}</SectionTitle>
+              </summary>
+              <p className="px-1.5 text-11 text-tertiary">{t("music_catalog.credits.extra_hint")}</p>
+              {externalIds.map(([key, value]) => (
+                <FieldRow
+                  key={`id-${key}`}
+                  label={`${t("music_catalog.credits.external_id")} (${key})`}
+                  value={String(value ?? "")}
+                  mono
+                />
+              ))}
+              {extraData.map(([key, value]) => (
+                <FieldRow key={key} label={key} value={String(value ?? "")} />
+              ))}
+            </details>
+          )}
         </div>
 
         {/* create mode: nothing persists until the user confirms */}

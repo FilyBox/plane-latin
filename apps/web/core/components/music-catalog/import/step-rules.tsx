@@ -5,28 +5,61 @@
  */
 
 import { useMemo } from "react";
-import { X } from "lucide-react";
+import { Pin, X } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TMusicCatalogOptions, TMusicCompany, TMusicGenre, TMusicParty, TMusicRelease } from "@plane/types";
 import { cn } from "@plane/utils";
 import { musicService } from "@/services/music.service";
-import { creditRoleOptions } from "../credit-roles";
+import {
+  creditRoleLabel,
+  creditRoleOptions,
+  creditRolesOf,
+  groupCreditRoles,
+  roleCategoryLabel,
+} from "../credit-roles";
 import { SearchableSelect } from "../searchable-select";
 import { getApiError } from "../shared";
-import { columnsOf, ROLE_SKIP, TAGGED_CREDIT_FIELDS } from "./constants";
+import { columnsOf, fieldLabelKey, ROLE_SKIP, TAGGED_CREDIT_FIELDS } from "./constants";
 import type { TImportDefaults, TImportFlow, TImportRules } from "./use-import-flow";
 
-/** "Add to every row" companies: one picker per kind, with plain names */
-const COMPANY_PICKERS: { kind: TMusicCompany["kind"]; label: string }[] = [
-  { kind: "AGGREGATOR", label: "music_import.rules.defaults_aggregators" },
-  { kind: "DISTRIBUTOR", label: "music_import.rules.defaults_distributors" },
-  { kind: "RECORD_LABEL", label: "music_import.rules.defaults_labels" },
-  { kind: "PUBLISHER", label: "music_import.rules.defaults_publishers" },
+/** "Add to every row" companies: one picker per kind, with plain names, and
+ * the import field whose fixed value (from Columns) it also shows. */
+const COMPANY_PICKERS: { kind: TMusicCompany["kind"]; label: string; field: string }[] = [
+  { kind: "AGGREGATOR", label: "music_import.rules.defaults_aggregators", field: "aggregator" },
+  { kind: "DISTRIBUTOR", label: "music_import.rules.defaults_distributors", field: "distributor" },
+  { kind: "RECORD_LABEL", label: "music_import.rules.defaults_labels", field: "record_label" },
+  { kind: "PUBLISHER", label: "music_import.rules.defaults_publishers", field: "publishers" },
 ];
 const PICKER_KINDS = new Set<string>(COMPANY_PICKERS.map((picker) => picker.kind));
 
-type TDetectedTag = { tag: string; label: string; count: number; suggested: string; known: boolean };
+/** People fields whose fixed values show in the people picker */
+const PARTY_FIELDS = [
+  "artists",
+  "featured_artists",
+  "writers",
+  "authors",
+  "composers",
+  "producers",
+  "recording_engineers",
+  "mixers",
+  "mastering_engineers",
+  "legal_representatives",
+  "contributors",
+  "performers",
+  "release.artists",
+];
+
+type TDetectedTag = {
+  tag: string;
+  label: string;
+  count: number;
+  /** The role it imports as by default */
+  suggested: string;
+  suggestedLabel: string;
+  /** The default is a new role named after the tag */
+  isNew: boolean;
+};
 
 type Props = {
   flow: TImportFlow;
@@ -100,7 +133,7 @@ export function ImportStepRules({
   onResourcesChanged,
 }: Props) {
   const { t } = useTranslation();
-  const { rules, defaults, preview, mapping, roleMap } = flow;
+  const { rules, defaults, preview, mapping, roleMap, constants } = flow;
   const setRule = <K extends keyof TImportRules>(key: K, value: TImportRules[K]) =>
     flow.setRules((current) => ({ ...current, [key]: value }));
   const setDefault = <K extends keyof TImportDefaults>(key: K, value: TImportDefaults[K]) =>
@@ -120,6 +153,16 @@ export function ImportStepRules({
     },
     { value: "upc", label: t("music_import.rules.identifier_upc") },
     { value: "catalog", label: t("music_import.rules.identifier_catalog") },
+    // Only useful when the file carries the distributor's song id
+    ...(columnsOf(mapping["track.external_id"]).length > 0 || rules.dedupeBy === "external_id"
+      ? [
+          {
+            value: "external_id",
+            label: t("music_import.rules.identifier_external_id"),
+            hint: t("music_import.rules.identifier_external_id_hint"),
+          },
+        ]
+      : []),
     { value: "none", label: t("music_import.rules.identifier_none") },
   ];
   const identifierLabel = identifiers.find((item) => item.value === rules.dedupeBy)?.label ?? rules.dedupeBy;
@@ -157,6 +200,52 @@ export function ImportStepRules({
     }
   };
 
+  /** Fixed values set in Columns, shown where the user also looks for them.
+   * They stay in `constants`: removing one here clears it there too. */
+  const fixedValues = (field: string) => {
+    const value = constants[field];
+    return !value ? [] : Array.isArray(value) ? value.filter(Boolean) : [value];
+  };
+  const fixedChips = (fields: string[], withFieldLabel = false) => {
+    const items = fields.flatMap((field) => fixedValues(field).map((value) => ({ field, value })));
+    if (items.length === 0) return null;
+    return (
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {items.map(({ field, value }) => {
+          const blankOnly = columnsOf(mapping[field]).length > 0;
+          const note = `${t("music_import.rules.fixed_from_columns")}${
+            blankOnly ? ` · ${t("music_import.rules.fixed_blank_only")}` : ""
+          }`;
+          return (
+            <span
+              key={`${field}:${value}`}
+              title={note}
+              className="border-accent-primary/40 flex max-w-full items-center gap-1 rounded-md border bg-accent-primary/5 py-0.5 pr-1 pl-1.5 text-12"
+            >
+              <Pin className="size-3 shrink-0 text-accent-primary" aria-label={note} />
+              <span className="truncate">{value}</span>
+              {withFieldLabel && <span className="shrink-0 text-11 text-tertiary">· {t(fieldLabelKey(field))}</span>}
+              {blankOnly && (
+                <span className="shrink-0 text-11 text-tertiary">· {t("music_import.rules.fixed_blank_only")}</span>
+              )}
+              <button
+                type="button"
+                aria-label={t("music_import.rules.fixed_remove", { value })}
+                onClick={() => {
+                  const remaining = fixedValues(field).filter((item) => item !== value);
+                  flow.setConstant(field, Array.isArray(constants[field]) ? remaining : undefined);
+                }}
+                className="rounded-sm p-0.5 text-tertiary hover:bg-layer-1-hover hover:text-primary"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          );
+        })}
+      </div>
+    );
+  };
+
   const chips = (
     key: "companyIds" | "genreIds" | "releaseIds",
     ids: string[],
@@ -191,7 +280,8 @@ export function ImportStepRules({
     key: "genreIds" | "releaseIds",
     label: string,
     type: "genre" | "release",
-    list: { value: string; label: string }[]
+    list: { value: string; label: string }[],
+    fixedField: string
   ) => {
     const selected = defaults[key];
     return (
@@ -205,6 +295,7 @@ export function ImportStepRules({
           onCreate={(name) => void create(type, name)}
           placeholder={t("music_import.rules.defaults_search")}
         />
+        {fixedChips([fixedField])}
         {chips(key, selected, list)}
       </div>
     );
@@ -215,7 +306,7 @@ export function ImportStepRules({
   const companyKindOf = (id: string) => companies.find((company) => company.id === id)?.kind;
   const companyOptions = companies.map((company) => ({ value: company.id, label: company.name }));
   const otherCompanyIds = defaults.companyIds.filter((id) => !PICKER_KINDS.has(companyKindOf(id) ?? ""));
-  const companyPicker = (kind: TMusicCompany["kind"], label: string) => {
+  const companyPicker = (kind: TMusicCompany["kind"], label: string, field: string) => {
     const selected = defaults.companyIds.filter((id) => companyKindOf(id) === kind);
     return (
       <div key={kind}>
@@ -230,14 +321,18 @@ export function ImportStepRules({
           onCreate={(name) => void create("company", name, kind)}
           placeholder={t("music_import.rules.defaults_search")}
         />
+        {fixedChips([field])}
         {chips("companyIds", selected, companyOptions)}
       </div>
     );
   };
 
   // Roles detected in the columns assigned to contributors/performers: what
-  // each tag imports as (the user's change, or the suggested role).
-  const roleChoices = creditRoleOptions(t, options?.credit_roles);
+  // each tag imports as — its own role by default (existing, or new and
+  // named after the tag), another role, or nothing.
+  const roles = useMemo(() => creditRolesOf(options), [options]);
+  const roleGroups = useMemo(() => groupCreditRoles(roles), [roles]);
+  const roleChoices = creditRoleOptions(t, roles);
   const taggedColumnsKey = JSON.stringify(TAGGED_CREDIT_FIELDS.map((field) => columnsOf(mapping[field])));
   const taggedColumns = useMemo(
     () => TAGGED_CREDIT_FIELDS.flatMap((field) => columnsOf(mapping[field]).map((column) => ({ field, column }))),
@@ -254,18 +349,39 @@ export function ImportStepRules({
           current.count += entry.count;
           continue;
         }
+        const suggested = entry.role ?? (field === "performers" ? "PERFORMER" : "OTHER");
         byTag.set(entry.tag, {
           tag: entry.tag,
           label: entry.label,
           count: entry.count,
-          suggested: entry.role ?? (field === "performers" ? "PERFORMER" : "OTHER"),
-          known: entry.role !== null || !entry.tag,
+          suggested,
+          suggestedLabel: entry.role_label ?? creditRoleLabel(roles, suggested),
+          isNew: Boolean(entry.role_is_new),
         });
       }
     }
     return [...byTag.values()].sort((a, b) => b.count - a.count);
-  }, [columnRoleTags, taggedColumns]);
+  }, [columnRoleTags, roles, taggedColumns]);
+  // New roles this file brings: also valid targets for other tags
+  const newRoles = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const entry of detectedTags)
+      if (entry.isNew && !seen.has(entry.suggested)) seen.set(entry.suggested, entry.suggestedLabel);
+    return [...seen.entries()].map(([key, label]) => ({ key, label }));
+  }, [detectedTags]);
+  // Roles that will really be created: new defaults still in use
+  const createdRoles = new Set(
+    detectedTags
+      .map((entry) => roleMap[entry.tag] ?? entry.suggested)
+      .filter((key) => newRoles.some((role) => role.key === key))
+  );
   const changedTags = detectedTags.filter((entry) => roleMap[entry.tag] !== undefined).length;
+
+  // Columns with data that no field takes (for "keep as extra data")
+  const usedColumns = new Set(Object.values(mapping).flatMap((value) => columnsOf(value)));
+  const unmappedWithData = (preview?.headers ?? []).filter(
+    (header) => !usedColumns.has(header) && (preview?.column_samples?.[header]?.non_empty ?? 0) > 0
+  );
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -424,6 +540,7 @@ export function ImportStepRules({
               onCreate={(name) => void create("party", name)}
               placeholder={t("music_import.rules.defaults_search")}
             />
+            {fixedChips(PARTY_FIELDS, true)}
             <div className="mt-2 space-y-1.5 empty:hidden">
               {defaults.credits.map((credit) => (
                 <div
@@ -462,7 +579,7 @@ export function ImportStepRules({
               ))}
             </div>
           </div>
-          {COMPANY_PICKERS.map((picker) => companyPicker(picker.kind, picker.label))}
+          {COMPANY_PICKERS.map((picker) => companyPicker(picker.kind, picker.label, picker.field))}
           {otherCompanyIds.length > 0 && (
             <div>
               <p className="text-12 font-medium text-secondary">{t("music_import.rules.defaults_other_companies")}</p>
@@ -473,13 +590,15 @@ export function ImportStepRules({
             "genreIds",
             t("music_import.rules.defaults_genres"),
             "genre",
-            genres.map((item) => ({ value: item.id, label: item.name }))
+            genres.map((item) => ({ value: item.id, label: item.name })),
+            "genres"
           )}
           {chipList(
             "releaseIds",
             t("music_import.rules.defaults_releases"),
             "release",
-            releases.map((item) => ({ value: item.id, label: item.title }))
+            releases.map((item) => ({ value: item.id, label: item.title })),
+            "release.title"
           )}
         </div>
       </section>
@@ -517,15 +636,13 @@ export function ImportStepRules({
               <tbody className="divide-y divide-subtle">
                 {detectedTags.map((entry) => {
                   const value = roleMap[entry.tag] ?? entry.suggested;
+                  const otherNew = newRoles.filter((role) => role.key !== entry.suggested);
                   return (
                     <tr key={entry.tag} className={cn(roleMap[entry.tag] !== undefined && "bg-accent-primary/5")}>
                       <td className="px-3 py-1.5">
                         <span className="text-primary">
                           {entry.tag ? entry.label : t("music_import.rules.roles_untagged")}
                         </span>
-                        {!entry.known && (
-                          <span className="ml-2 text-11 text-tertiary">{t("music_import.rules.roles_unknown")}</span>
-                        )}
                       </td>
                       <td className="px-3 py-1.5 text-right text-secondary tabular-nums">{entry.count}</td>
                       <td className="px-3 py-1">
@@ -539,14 +656,35 @@ export function ImportStepRules({
                             )
                           }
                           className={cn(
-                            "focus:border-accent-primary h-7 w-full max-w-56 rounded-md border border-subtle bg-layer-1 px-2 text-12 outline-none",
+                            "focus:border-accent-primary h-7 w-full max-w-64 rounded-md border border-subtle bg-layer-1 px-2 text-12 outline-none",
                             value === ROLE_SKIP ? "text-tertiary" : "text-primary"
                           )}
                         >
-                          {roleChoices.map((choice) => (
-                            <option key={choice.value} value={choice.value}>
-                              {choice.label}
-                            </option>
+                          {/* Its own role first: the default */}
+                          <option value={entry.suggested}>
+                            {entry.isNew
+                              ? `${entry.suggestedLabel} · ${t("music_import.rules.roles_new")}`
+                              : entry.suggestedLabel}
+                          </option>
+                          {otherNew.length > 0 && (
+                            <optgroup label={t("music_import.rules.roles_group_new")}>
+                              {otherNew.map((role) => (
+                                <option key={role.key} value={role.key}>
+                                  {role.label}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {roleGroups.map((group) => (
+                            <optgroup key={group.category} label={roleCategoryLabel(t, group.category)}>
+                              {group.roles
+                                .filter((role) => role.key !== entry.suggested)
+                                .map((role) => (
+                                  <option key={role.key} value={role.key}>
+                                    {role.label}
+                                  </option>
+                                ))}
+                            </optgroup>
                           ))}
                           <option value={ROLE_SKIP}>{t("music_import.rules.roles_skip")}</option>
                         </select>
@@ -557,9 +695,35 @@ export function ImportStepRules({
               </tbody>
             </table>
           </div>
+          {createdRoles.size > 0 && (
+            <p className="max-w-2xl text-12 text-secondary">
+              {t("music_import.rules.roles_new_summary", { count: createdRoles.size })}
+            </p>
+          )}
           <p className="max-w-2xl text-11 text-tertiary">{t("music_import.rules.roles_detail_hint")}</p>
         </section>
       )}
+
+      <section className="space-y-2">
+        <h3 className="text-14 font-medium text-primary">{t("music_import.rules.unmapped_title")}</h3>
+        <label className="flex max-w-2xl cursor-pointer gap-2.5" aria-label={t("music_import.rules.keep_unmapped")}>
+          <input
+            type="checkbox"
+            className="accent-accent-primary mt-0.5 shrink-0"
+            checked={rules.keepUnmapped}
+            onChange={(event) => setRule("keepUnmapped", event.target.checked)}
+          />
+          <span>
+            <span className="block text-13 text-primary">{t("music_import.rules.keep_unmapped")}</span>
+            <span className="block text-12 text-secondary">
+              {t("music_import.rules.keep_unmapped_hint", { count: unmappedWithData.length })}
+            </span>
+            {rules.keepUnmapped && unmappedWithData.length > 0 && (
+              <span className="mt-1 block text-11 text-tertiary">{unmappedWithData.join(" · ")}</span>
+            )}
+          </span>
+        </label>
+      </section>
 
       {!!preview?.artist_examples.length &&
         preview.artist_examples.some(

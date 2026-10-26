@@ -3,8 +3,10 @@ import type {
   TMusicCatalogOptions,
   TMusicBulkDeleteResult,
   TMusicCompany,
+  TMusicCreditRole,
   TMusicFilters,
   TMusicGenre,
+  TMusicImportAiMap,
   TMusicImportConstants,
   TMusicImportFieldValues,
   TMusicImportResult,
@@ -36,8 +38,10 @@ export type TMusicImportRequest = {
   valueOverrides: Record<string, Record<string, string>>;
   /** Fixed value per field for the whole file */
   constants: TMusicImportConstants;
-  /** Normalized tag → role | "__SKIP__" for contributors/performers columns */
+  /** Normalized tag → role key | "__SKIP__" for contributors/performers columns */
   roleMap: Record<string, string>;
+  /** Save unmapped columns as each song's extra data */
+  keepUnmapped?: boolean;
 };
 
 export class MusicService extends APIService {
@@ -51,6 +55,13 @@ export class MusicService extends APIService {
 
   getOptions(workspaceSlug: string) {
     return this.data<TMusicCatalogOptions>(this.get(`/api/workspaces/${workspaceSlug}/music/options/`));
+  }
+
+  /** Creates a credit role (or returns the existing one with that name) */
+  createCreditRole(workspaceSlug: string, label: string, category?: string) {
+    return this.data<TMusicCreditRole & { created: boolean }>(
+      this.post(`/api/workspaces/${workspaceSlug}/music/credit-roles/`, { label, category })
+    );
   }
 
   getReleases(workspaceSlug: string, filters: TMusicFilters = {}) {
@@ -186,6 +197,7 @@ export class MusicService extends APIService {
     data.append("value_overrides", JSON.stringify(request.valueOverrides));
     data.append("constants", JSON.stringify(request.constants));
     data.append("role_map", JSON.stringify(request.roleMap));
+    data.append("keep_unmapped", String(Boolean(request.keepUnmapped)));
     data.append("stream", "true");
     if (request.sheet) data.append("sheet", request.sheet);
 
@@ -228,14 +240,33 @@ export class MusicService extends APIService {
   }
 
   /** Optional AI column mapping for the manual import panel */
-  aiMapImport(workspaceSlug: string, source: File | { assetId: string }, sheet?: string) {
+  /** AI mapping proposal. The current mapping, the fields set by hand
+   * (locked) and the fixed values let the AI fill gaps instead of redoing
+   * the user's work; nothing is applied server side. */
+  aiMapImport(
+    workspaceSlug: string,
+    source: File | { assetId: string },
+    context: {
+      sheet?: string;
+      currentMapping?: Record<string, string | string[]>;
+      lockedFields?: string[];
+      constants?: TMusicImportConstants;
+      locale?: string;
+    } = {},
+    signal?: AbortSignal
+  ) {
     const data = new FormData();
     if (source instanceof File) data.append("file", source);
     else data.append("asset_id", source.assetId);
-    if (sheet) data.append("sheet", sheet);
-    return this.data<{ mapping: Record<string, string | string[]>; model: string | null }>(
+    if (context.sheet) data.append("sheet", context.sheet);
+    data.append("current_mapping", JSON.stringify(context.currentMapping ?? {}));
+    data.append("locked_fields", JSON.stringify(context.lockedFields ?? []));
+    data.append("constants", JSON.stringify(context.constants ?? {}));
+    if (context.locale) data.append("locale", context.locale);
+    return this.data<TMusicImportAiMap>(
       this.post(`/api/workspaces/${workspaceSlug}/music/import/ai-map/`, data, {
         headers: { "Content-Type": "multipart/form-data" },
+        signal,
       })
     );
   }

@@ -43,6 +43,7 @@ from .finance import (
 from .music import (
     MusicCompany,
     MusicCredit,
+    MusicCreditRole,
     MusicDistribution,
     MusicGenre,
     MusicImportRun,

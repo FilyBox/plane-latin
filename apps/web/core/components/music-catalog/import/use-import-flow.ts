@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type {
+  TMusicImportAiSuggestion,
   TMusicImportAsset,
   TMusicImportConstants,
   TMusicImportPreview,
@@ -17,6 +18,8 @@ import type {
 import { fileLibraryService } from "@/services/file-library.service";
 import { musicService } from "@/services/music.service";
 import { getApiError } from "../shared";
+import type { TAiDiffItem, TFieldSource } from "./ai-diff";
+import { diffAiSuggestions, isCheckedByDefault } from "./ai-diff";
 import { columnsOf, REQUIRED_FIELD, SKIP_ROW } from "./constants";
 
 export type TDefaultCredit = { party_id: string; role: string };
@@ -28,6 +31,8 @@ export type TImportRules = {
   dedupeWithinFile: boolean;
   ambiguousStrategy: "create" | "match" | "skip";
   blankCells: "keep" | "clear";
+  /** Save columns no field took as each song's extra data */
+  keepUnmapped: boolean;
 };
 
 export type TImportDefaults = {
@@ -58,12 +63,26 @@ const DEFAULT_RULES: TImportRules = {
   dedupeWithinFile: false,
   ambiguousStrategy: "create",
   blankCells: "keep",
+  keepUnmapped: false,
 };
 
 const EMPTY_DEFAULTS: TImportDefaults = { credits: [], companyIds: [], genreIds: [], releaseIds: [] };
 
+/** A field's value and source before the last AI application (for undo) */
+export type TAiPrevious = { columns: string[]; source?: TFieldSource };
+
+/** What the AI proposed; reviewed against the current mapping before use */
+export type TAiProposal = { suggestions: Record<string, TMusicImportAiSuggestion>; model: string | null };
+
+const sourcesFor = (mapping: Record<string, string | string[]>, source: TFieldSource) =>
+  Object.fromEntries(
+    Object.entries(mapping)
+      .filter(([, value]) => columnsOf(value).length > 0)
+      .map(([field]) => [field, source])
+  ) as Record<string, TFieldSource>;
+
 export function useImportFlow(workspaceSlug: string) {
-  const { t } = useTranslation();
+  const { t, currentLocale } = useTranslation();
   const [file, setFile] = useState<File>();
   const [assetId, setAssetId] = useState<string>();
   const [assetName, setAssetName] = useState<string>();
@@ -87,7 +106,23 @@ export function useImportFlow(workspaceSlug: string) {
   const [progress, setProgress] = useState<TMusicImportProgress>();
   const [startedAt, setStartedAt] = useState<number>();
   const [isAiMapping, setIsAiMapping] = useState(false);
+  const [aiStartedAt, setAiStartedAt] = useState<number>();
+  // Where each mapped field came from (auto / manual / ai)
+  const [fieldSources, setFieldSources] = useState<Record<string, TFieldSource>>({});
+  // The AI's last proposal under review, the user's checkbox changes, and
+  // the values the last applied proposal replaced (undo)
+  const [aiProposal, setAiProposal] = useState<TAiProposal>();
+  const [aiChecked, setAiChecked] = useState<Record<string, boolean>>({});
+  const [aiHistory, setAiHistory] = useState<Record<string, TAiPrevious>>();
+  const aiAbortRef = useRef<AbortController | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Latest values for callbacks that finish later (the AI request)
+  const latest = useRef({
+    mapping,
+    fieldSources,
+    constants: {} as TMusicImportConstants,
+    aiHistory: undefined as Record<string, TAiPrevious> | undefined,
+  });
   // A file this page stored that no import has used yet. Picking another file
   // or leaving the page discards it, so abandoned attempts don't pile up as
   // "never imported" copies in the file history.
@@ -105,6 +140,7 @@ export function useImportFlow(workspaceSlug: string) {
 
   useEffect(() => discardUnusedUpload, [discardUnusedUpload]);
   const sourceName = file?.name ?? assetName;
+  latest.current = { mapping, fieldSources, constants, aiHistory };
   const missingTitle = columnsOf(mapping[REQUIRED_FIELD]).length === 0 && !constants[REQUIRED_FIELD];
 
   /** Everything a review depends on. When it drifts the review is stale and
@@ -125,8 +161,17 @@ export function useImportFlow(workspaceSlug: string) {
   );
   const isReviewCurrent = Boolean(review) && reviewKey === configKey;
 
+  const clearAi = useCallback(() => {
+    aiAbortRef.current?.abort();
+    setAiProposal(undefined);
+    setAiChecked({});
+    setAiHistory(undefined);
+  }, []);
+
   const reset = useCallback(() => {
     abortRef.current?.abort();
+    clearAi();
+    setFieldSources({});
     discardUnusedUpload();
     setFile(undefined);
     setAssetId(undefined);
@@ -145,7 +190,7 @@ export function useImportFlow(workspaceSlug: string) {
     setApplied(undefined);
     setPhase("idle");
     setProgress(undefined);
-  }, [discardUnusedUpload]);
+  }, [clearAi, discardUnusedUpload]);
 
   const inspect = useCallback(
     async (target: File | { assetId: string }, sheet?: string) => {
@@ -154,6 +199,8 @@ export function useImportFlow(workspaceSlug: string) {
         const next = await musicService.previewImport(workspaceSlug, target, sheet);
         setPreview(next);
         setMapping(next.mapping);
+        setFieldSources(sourcesFor(next.mapping, "auto"));
+        clearAi();
         setReview(undefined);
         setReviewKey(undefined);
         return next;
@@ -164,7 +211,7 @@ export function useImportFlow(workspaceSlug: string) {
         setPhase("idle");
       }
     },
-    [t, workspaceSlug]
+    [clearAi, t, workspaceSlug]
   );
 
   /** A new file: stored first (so it can be re-imported and every song can
@@ -205,7 +252,11 @@ export function useImportFlow(workspaceSlug: string) {
       const next = await inspect({ assetId: asset.id }, draft?.sheet ?? asset.last_run?.sheet ?? undefined);
       if (!next) return false;
       const mappingToUse = draft?.mapping ?? ruleSet.mapping;
-      if (mappingToUse && Object.keys(mappingToUse).length > 0) setMapping(mappingToUse);
+      if (mappingToUse && Object.keys(mappingToUse).length > 0) {
+        setMapping(mappingToUse);
+        // A restored run counts as the system's choice, not the user's
+        setFieldSources(sourcesFor(mappingToUse, "auto"));
+      }
       const dedupeBy = draft?.dedupe_by ?? ruleSet.dedupe_by;
       setRules({
         strategy: draft?.duplicate_strategy ?? "update",
@@ -214,6 +265,7 @@ export function useImportFlow(workspaceSlug: string) {
         dedupeWithinFile: ruleSet.dedupe_within_file ?? false,
         ambiguousStrategy: ruleSet.ambiguous_strategy ?? "create",
         blankCells: ruleSet.blank_cells ?? "keep",
+        keepUnmapped: ruleSet.keep_unmapped ?? false,
       });
       setValueOverrides(ruleSet.value_overrides ?? {});
       setRowOverrides(ruleSet.row_overrides ?? {});
@@ -239,6 +291,8 @@ export function useImportFlow(workspaceSlug: string) {
     [inspect, source]
   );
 
+  /** The user's own pick: the field becomes "manual", which the AI only
+   * touches with a flagged, unchecked suggestion. */
   const setFieldColumns = useCallback((field: string, columns: string[], multi: boolean) => {
     setMapping((current) => {
       const next = { ...current };
@@ -246,7 +300,37 @@ export function useImportFlow(workspaceSlug: string) {
       else next[field] = multi ? columns : columns[0];
       return next;
     });
+    setFieldSources((current) => {
+      const next = { ...current };
+      if (columns.length === 0) delete next[field];
+      else next[field] = "manual";
+      return next;
+    });
   }, []);
+
+  /** Writes fields with their sources in one go (AI apply / undo). */
+  const writeFields = useCallback(
+    (entries: { field: string; columns: string[]; source?: TFieldSource }[]) => {
+      const multi = new Set(preview?.multi_fields ?? []);
+      setMapping((current) => {
+        const next = { ...current };
+        for (const entry of entries) {
+          if (entry.columns.length === 0) delete next[entry.field];
+          else next[entry.field] = multi.has(entry.field) ? entry.columns : entry.columns[0];
+        }
+        return next;
+      });
+      setFieldSources((current) => {
+        const next = { ...current };
+        for (const entry of entries) {
+          if (entry.columns.length === 0 || !entry.source) delete next[entry.field];
+          else next[entry.field] = entry.source;
+        }
+        return next;
+      });
+    },
+    [preview?.multi_fields]
+  );
 
   /** Sets (or clears, with an empty value) a field's fixed value. */
   const setConstant = useCallback((field: string, value: string | string[] | undefined) => {
@@ -269,28 +353,138 @@ export function useImportFlow(workspaceSlug: string) {
     });
   }, []);
 
+  const multiFieldSet = useMemo(() => new Set(preview?.multi_fields ?? []), [preview?.multi_fields]);
+  const columnsWithData = useMemo(
+    () => (preview?.headers ?? []).filter((header) => (preview?.column_samples?.[header]?.non_empty ?? 1) > 0),
+    [preview?.column_samples, preview?.headers]
+  );
+  /** The proposal against the CURRENT mapping: edits made meanwhile count. */
+  const aiDiff = useMemo(
+    () =>
+      aiProposal
+        ? diffAiSuggestions(aiProposal.suggestions, mapping, fieldSources, multiFieldSet, columnsWithData)
+        : undefined,
+    [aiProposal, columnsWithData, fieldSources, mapping, multiFieldSet]
+  );
+  const isAiItemChecked = useCallback(
+    (item: TAiDiffItem) => aiChecked[item.field] ?? isCheckedByDefault(item),
+    [aiChecked]
+  );
+
+  /** Asks the AI for a proposal. Nothing changes until the user applies it;
+   * returns how many fields it would fill and change. */
   const aiMap = useCallback(async () => {
-    if (!source) return;
+    if (!source) return undefined;
+    aiAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
     setIsAiMapping(true);
+    setAiStartedAt(Date.now());
+    setAiProposal(undefined);
+    setAiChecked({});
+    const { mapping: currentMapping, fieldSources: sources, constants: currentConstants } = latest.current;
     try {
-      const { mapping: suggested } = await musicService.aiMapImport(
+      const result = await musicService.aiMapImport(
         workspaceSlug,
         source,
-        preview?.selected_sheet ?? undefined
+        {
+          sheet: preview?.selected_sheet ?? undefined,
+          currentMapping,
+          lockedFields: Object.keys(sources).filter((field) => sources[field] === "manual"),
+          constants: currentConstants,
+          locale: currentLocale,
+        },
+        controller.signal
       );
-      const count = Object.keys(suggested).length;
-      if (count === 0) {
-        setToast({ type: TOAST_TYPE.WARNING, title: t("music_import.columns.ai_empty") });
-        return;
-      }
-      setMapping((current) => ({ ...current, ...suggested }));
-      setToast({ type: TOAST_TYPE.SUCCESS, title: t("music_import.columns.ai_applied", { count }) });
+      // An older server only sends `mapping`: no confidence, no reason
+      const suggestions =
+        result.suggestions ??
+        Object.fromEntries(
+          Object.entries(result.mapping).map(([field, value]) => [
+            field,
+            { columns: columnsOf(value), confidence: null, reason: "", replace: false, locked: false },
+          ])
+        );
+      setAiProposal({ suggestions, model: result.model });
+      const diff = diffAiSuggestions(
+        suggestions,
+        latest.current.mapping,
+        latest.current.fieldSources,
+        multiFieldSet,
+        columnsWithData
+      );
+      return {
+        fields: diff.items.filter((item) => item.kind === "new").length,
+        changes: diff.items.filter((item) => item.kind === "change").length,
+      };
     } catch (error) {
+      if (controller.signal.aborted) return undefined;
       setToast({ type: TOAST_TYPE.ERROR, title: t("music_import.columns.ai_failed"), message: getApiError(error) });
+      return undefined;
     } finally {
-      setIsAiMapping(false);
+      if (aiAbortRef.current === controller) {
+        setIsAiMapping(false);
+        aiAbortRef.current = null;
+      }
     }
-  }, [preview?.selected_sheet, source, t, workspaceSlug]);
+  }, [columnsWithData, currentLocale, multiFieldSet, preview?.selected_sheet, source, t, workspaceSlug]);
+
+  const cancelAiMap = useCallback(() => aiAbortRef.current?.abort(), []);
+
+  const toggleAiItem = useCallback(
+    (item: TAiDiffItem, checked: boolean) => setAiChecked((current) => ({ ...current, [item.field]: checked })),
+    []
+  );
+
+  /** Applies the checked suggestions; remembers what they replaced. Returns
+   * how many fields changed. */
+  const applyAiProposal = useCallback(() => {
+    if (!aiDiff) return 0;
+    const chosen = aiDiff.items.filter(isAiItemChecked);
+    const previous: Record<string, TAiPrevious> = {};
+    for (const item of chosen) previous[item.field] = { columns: item.before, source: fieldSources[item.field] };
+    writeFields(chosen.map((item) => ({ field: item.field, columns: item.after, source: "ai" as const })));
+    setAiHistory(chosen.length ? previous : undefined);
+    setAiProposal(undefined);
+    setAiChecked({});
+    return chosen.length;
+  }, [aiDiff, fieldSources, isAiItemChecked, writeFields]);
+
+  const discardAiProposal = useCallback(() => {
+    setAiProposal(undefined);
+    setAiChecked({});
+  }, []);
+
+  /** Restores one field to what it had before the AI. */
+  const revertAiField = useCallback(
+    (field: string) => {
+      const previous = aiHistory?.[field];
+      if (!previous) return;
+      writeFields([{ field, columns: previous.columns, source: previous.source }]);
+      setAiHistory((current) => {
+        if (!current) return current;
+        const next = { ...current };
+        delete next[field];
+        return Object.keys(next).length ? next : undefined;
+      });
+    },
+    [aiHistory, writeFields]
+  );
+
+  /** Reverts the whole last AI application (also from a toast rendered
+   * before it, hence the ref). */
+  const undoAiProposal = useCallback(() => {
+    const history = latest.current.aiHistory;
+    if (!history) return;
+    writeFields(
+      Object.entries(history).map(([field, previous]) => ({
+        field,
+        columns: previous.columns,
+        source: previous.source,
+      }))
+    );
+    setAiHistory(undefined);
+  }, [writeFields]);
 
   /** One decision per unparseable value → the overrides the backend applies
    * (keyed lowercase, so every casing of the value shares the decision). */
@@ -350,6 +544,7 @@ export function useImportFlow(workspaceSlug: string) {
             dedupeWithinFile: rules.dedupeWithinFile,
             ambiguousStrategy: rules.ambiguousStrategy,
             blankCells: rules.blankCells,
+            keepUnmapped: rules.keepUnmapped,
             dryRun,
             sheet: preview?.selected_sheet ?? undefined,
             defaults: {
@@ -440,8 +635,20 @@ export function useImportFlow(workspaceSlug: string) {
     setFieldColumns,
     constants,
     setConstant,
+    fieldSources,
     aiMap,
+    cancelAiMap,
     isAiMapping,
+    aiStartedAt,
+    aiProposal,
+    aiDiff,
+    isAiItemChecked,
+    toggleAiItem,
+    applyAiProposal,
+    discardAiProposal,
+    aiHistory,
+    revertAiField,
+    undoAiProposal,
     // rules
     rules,
     setRules,
