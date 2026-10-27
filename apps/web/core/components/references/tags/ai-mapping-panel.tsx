@@ -11,7 +11,7 @@ import useSWR, { mutate as mutateGlobal } from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
-import type { TEntityName, TTaggingRun, TTaggingTagProposal } from "@plane/types";
+import type { TEntityName, TTaggingMergeProposal, TTaggingRun, TTaggingTagProposal } from "@plane/types";
 import { cn } from "@plane/utils";
 import { isPeekKind } from "@/components/entity-peek/routes";
 import { useEntityPeek } from "@/components/entity-peek/use-entity-peek";
@@ -21,29 +21,41 @@ import { ENTITY_ICONS, entityGroupKey, tagKindKey } from "../entity-meta";
 import { TAG_KIND_ICONS } from "../shared-tag-chip";
 import { MappingKindList, countMappingItems, initialMappingKinds } from "./mapping-kinds";
 
-type Props = { workspaceSlug: string; isOpen: boolean; onClose: () => void };
+type Props = {
+  workspaceSlug: string;
+  isOpen: boolean;
+  onClose: () => void;
+  /** "merge": look for duplicated tags and propose joining them */
+  mode?: "map" | "merge";
+};
 
 const itemKey = (entity: string, id: string) => `${entity}:${id}`;
 
 /** Start an AI scan of contracts, files, work items and expenses (songs and
  * releases when ticked), follow it, then review what it proposes: nothing is
  * tagged until it is applied. */
-export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
+export function AIMappingPanel({ workspaceSlug, isOpen, onClose, mode = "map" }: Props) {
   const { t } = useTranslation();
   const [types, setTypes] = useState<TEntityName[] | null>(null);
   const [starting, setStarting] = useState(false);
   const { data: overview, mutate } = useSWR(isOpen ? ["TAGGING_OVERVIEW", workspaceSlug] : null, () =>
     taggingService.overview(workspaceSlug)
   );
-  const skippedNote = useSkippedNote();
-  const active = overview?.runs.find((run) => ["QUEUED", "RUNNING", "REVIEW"].includes(run.status));
+  // A run in progress shows whichever button opened the panel (one at a
+  // time); a review waiting shows only under its own button.
+  const active =
+    overview?.runs.find((run) => ["QUEUED", "RUNNING"].includes(run.status)) ??
+    overview?.runs.find((run) => run.status === "REVIEW" && (run.scope.mode === "merge") === (mode === "merge"));
   const history = (overview?.runs ?? []).filter((run) => run.id !== active?.id);
   const chosen = types ?? (overview ? initialMappingKinds(overview) : []);
+  // A run already going decides what the panel shows, whichever button opened it
+  const merging = active ? active.scope.mode === "merge" : mode === "merge";
 
   const start = async () => {
     setStarting(true);
     try {
-      await taggingService.start(workspaceSlug, chosen);
+      if (merging) await taggingService.startMerge(workspaceSlug);
+      else await taggingService.start(workspaceSlug, chosen);
       await mutate();
     } catch {
       setToast({ type: TOAST_TYPE.ERROR, title: t("references.ai.start_failed") });
@@ -68,8 +80,8 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
       isOpen={isOpen}
       onClose={onClose}
       width="xl"
-      title={t("references.ai.title")}
-      description={t("references.ai.description")}
+      title={t(merging ? "references.ai.merge_title" : "references.ai.title")}
+      description={t(merging ? "references.ai.merge_description" : "references.ai.description")}
     >
       <div className="flex min-h-0 flex-1 flex-col">
         {!overview ? (
@@ -78,6 +90,17 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
           <Review workspaceSlug={workspaceSlug} runId={active.id} onDone={() => void mutate()} />
         ) : active ? (
           <Progress workspaceSlug={workspaceSlug} run={active} onUpdate={() => void mutate()} />
+        ) : merging ? (
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-6">
+            <section className="rounded-md bg-layer-1 p-3 text-12 text-secondary">
+              <p>{t("references.ai.merge_how")}</p>
+            </section>
+            <Button variant="primary" size="lg" loading={starting} onClick={() => void start()}>
+              <Merge className="size-3.5" />
+              {t("references.ai.merge_start")}
+            </Button>
+            <RunHistory runs={history} onUndo={(run) => void undo(run)} />
+          </div>
         ) : (
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-6">
             <section className="space-y-3">
@@ -101,43 +124,7 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
               {t("references.ai.start", { count: countMappingItems(overview, chosen) })}
             </Button>
 
-            {history.length > 0 && (
-              <section className="space-y-2">
-                <h3 className="text-13 font-medium text-primary">{t("references.ai.history")}</h3>
-                <ul className="divide-y divide-subtle rounded-md border border-subtle">
-                  {history.map((run) => (
-                    <li key={run.id} className="flex items-center gap-3 px-3 py-2">
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-13 text-primary">
-                          {t(`references.ai.status.${run.status.toLowerCase()}`)}
-                          {run.scope.auto && <span className="text-tertiary"> · {t("references.ai.auto_label")}</span>}
-                          {run.scope.source === "assistant" && (
-                            <span className="text-tertiary"> · {t("references.ai.assistant_label")}</span>
-                          )}
-                        </span>
-                        <span className="block text-11 text-tertiary">
-                          {new Date(run.created_at).toLocaleString()}
-                          {run.scope.merge
-                            ? ` · ${t("references.ai.merge_summary", {
-                                variants: run.scope.merge.variants.join(", "),
-                                keep: run.scope.merge.keep,
-                              })}`
-                            : run.status === "COMPLETED" &&
-                              ` · ${t("references.ai.applied_count", { count: run.counts.applied_links })}`}
-                          {run.error && ` · ${run.error}`}
-                          {run.scope.skipped && run.scope.skipped.length > 0 && ` · ${skippedNote(run)}`}
-                        </span>
-                      </span>
-                      {run.status === "COMPLETED" && (
-                        <Button variant="secondary" size="base" onClick={() => void undo(run)}>
-                          <Undo2 className="size-3" /> {t("references.ai.undo")}
-                        </Button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
+            <RunHistory runs={history} onUndo={(run) => void undo(run)} />
           </div>
         )}
       </div>
@@ -145,7 +132,58 @@ export function AIMappingPanel({ workspaceSlug, isOpen, onClose }: Props) {
   );
 }
 
-/** "Not reviewed: Songs, Releases…" for kinds a run had to leave out. */
+/** Past runs, newest first, with undo for the applied ones. */
+function RunHistory({ runs, onUndo }: { runs: TTaggingRun[]; onUndo: (run: TTaggingRun) => void }) {
+  const { t } = useTranslation();
+  const skippedNote = useSkippedNote();
+  return (
+    <>
+      {runs.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-13 font-medium text-primary">{t("references.ai.history")}</h3>
+          <ul className="divide-y divide-subtle rounded-md border border-subtle">
+            {runs.map((run) => (
+              <li key={run.id} className="flex items-center gap-3 px-3 py-2">
+                <span className="min-w-0 flex-1">
+                  <span className="block text-13 text-primary">
+                    {t(`references.ai.status.${run.status.toLowerCase()}`)}
+                    {run.scope.auto && <span className="text-tertiary"> · {t("references.ai.auto_label")}</span>}
+                    {run.scope.mode === "merge" && (
+                      <span className="text-tertiary"> · {t("references.ai.merge_label")}</span>
+                    )}
+                    {run.scope.source === "assistant" && (
+                      <span className="text-tertiary"> · {t("references.ai.assistant_label")}</span>
+                    )}
+                  </span>
+                  <span className="block text-11 text-tertiary">
+                    {new Date(run.created_at).toLocaleString()}
+                    {run.scope.merge
+                      ? ` · ${t("references.ai.merge_summary", {
+                          variants: run.scope.merge.variants.join(", "),
+                          keep: run.scope.merge.keep,
+                        })}`
+                      : run.status === "COMPLETED" &&
+                        (run.scope.mode === "merge"
+                          ? ` · ${t("references.ai.merged_count", { count: run.counts.applied_merges ?? 0 })}`
+                          : ` · ${t("references.ai.applied_count", { count: run.counts.applied_links })}`)}
+                    {run.error && ` · ${run.error}`}
+                    {run.scope.skipped && run.scope.skipped.length > 0 && ` · ${skippedNote(run)}`}
+                  </span>
+                </span>
+                {run.status === "COMPLETED" && (
+                  <Button variant="secondary" size="base" onClick={() => onUndo(run)}>
+                    <Undo2 className="size-3" /> {t("references.ai.undo")}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </>
+  );
+}
+
 /** Items the model never answered, after retrying them in smaller batches */
 const unansweredCount = (run: TTaggingRun) =>
   Object.entries(run.progress)
@@ -158,6 +196,7 @@ const failedKinds = (run: TTaggingRun) =>
     .split(",")
     .filter(Boolean) as TEntityName[];
 
+/** "Not reviewed: Songs, Releases…" for kinds a run had to leave out. */
 function useSkippedNote() {
   const { t } = useTranslation();
   return (run: TTaggingRun) =>
@@ -165,6 +204,9 @@ function useSkippedNote() {
       names: (run.scope.skipped ?? []).map((name) => t(entityGroupKey(name))).join(", "),
     });
 }
+
+/** part of whole, as a whole percent (0 when there is no whole yet) */
+const share = (part: number, whole: number) => (whole > 0 ? Math.min(100, Math.round((part / whole) * 100)) : 0);
 
 function Progress({ workspaceSlug, run, onUpdate }: { workspaceSlug: string; run: TTaggingRun; onUpdate: () => void }) {
   const { t } = useTranslation();
@@ -181,14 +223,29 @@ function Progress({ workspaceSlug, run, onUpdate }: { workspaceSlug: string; run
   const done = Object.entries(current.progress)
     .filter(([key]) => key.startsWith("done_"))
     .reduce((sum, [, value]) => sum + Number(value), 0);
-  const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
   const stage = String(current.progress.stage ?? "classify");
+  // Joining spellings: its own count of model calls, after reading is done
+  const joinTotal = Number(current.progress.normalize_total ?? 0);
+  const joinDone = Number(current.progress.normalize_done ?? 0);
+  let percent = share(done, total);
+  let label = t("references.ai.reading", { done, total });
+  if (stage === "save") {
+    percent = 100;
+    label = t("references.ai.saving");
+  } else if (stage === "normalize" && joinTotal > 0) {
+    percent = share(joinDone, joinTotal);
+    label = t("references.ai.normalizing_count", { done: Math.min(joinDone + 1, joinTotal), total: joinTotal });
+  } else if (stage === "normalize") {
+    // Until the looking-alike sets are counted, the bar waits at the start
+    percent = current.progress.normalize_total === undefined ? 0 : 100;
+    label = t("references.ai.normalizing");
+  }
 
   return (
     <div className="space-y-4 px-6 py-4">
       <div className="flex items-center gap-2 text-13 text-primary">
         <Loader2 className="size-4 animate-spin text-secondary" />
-        {t(stage === "normalize" ? "references.ai.normalizing" : "references.ai.reading", { done, total })}
+        {label}
       </div>
       <div
         className="h-1.5 overflow-hidden rounded-full bg-layer-3"
@@ -199,6 +256,16 @@ function Progress({ workspaceSlug, run, onUpdate }: { workspaceSlug: string; run
       >
         <div className="h-full rounded-full bg-accent-primary transition-[width]" style={{ width: `${percent}%` }} />
       </div>
+      {stage === "normalize" && (
+        <p className="text-12 text-secondary">
+          {t(
+            current.scope.mode === "merge" ? "references.ai.normalizing_help_tags" : "references.ai.normalizing_help",
+            {
+              count: Number(current.progress.names_total ?? 0),
+            }
+          )}
+        </p>
+      )}
       {current.scope.skipped && current.scope.skipped.length > 0 && (
         <p className="text-12 text-tertiary">{skippedNote(current)}</p>
       )}
@@ -208,6 +275,87 @@ function Progress({ workspaceSlug, run, onUpdate }: { workspaceSlug: string; run
 }
 
 const tagId = (tag: TTaggingTagProposal) => `${tag.kind}:${tag.name}`;
+
+type MergeEdit = { name: string; apart: string[] };
+
+/** One proposed merge: the final name (editable) and the names it joins,
+ * each with its kind and how many items carry it; unticking one leaves it
+ * as its own tag. */
+function MergeRow({
+  merge,
+  accepted,
+  edit,
+  onToggle,
+  onEdit,
+}: {
+  merge: TTaggingMergeProposal;
+  accepted: boolean;
+  edit: MergeEdit;
+  onToggle: () => void;
+  onEdit: (edit: MergeEdit) => void;
+}) {
+  const { t } = useTranslation();
+  const details = new Map((merge.details ?? []).map((detail) => [detail.name, detail]));
+  const names = [merge.keep, ...merge.variants];
+  const joined = names.filter((name) => !edit.apart.includes(name)).length;
+  return (
+    <li className="space-y-2 px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          aria-label={t("references.ai.merge_accept", { name: edit.name || merge.keep })}
+          className="accent-accent-primary size-4 shrink-0"
+          checked={accepted}
+          onChange={onToggle}
+        />
+        <input
+          value={edit.name}
+          disabled={!accepted}
+          onChange={(event) => onEdit({ ...edit, name: event.target.value })}
+          aria-label={t("references.ai.merge_name")}
+          placeholder={merge.keep}
+          className="h-8 min-w-0 flex-1 rounded-md border border-subtle bg-transparent px-2 text-13 font-medium text-primary outline-none focus:border-accent-strong disabled:opacity-60"
+        />
+      </div>
+      <ul className="flex flex-wrap gap-1.5 pl-7" aria-label={t("references.ai.merge_names")}>
+        {names.map((name) => {
+          const detail = details.get(name);
+          const Icon = detail ? TAG_KIND_ICONS[detail.kind] : null;
+          const included = !edit.apart.includes(name);
+          return (
+            <li key={name}>
+              <label
+                className={cn(
+                  "flex cursor-pointer items-center gap-1.5 rounded-md border border-subtle px-2 py-1 text-12",
+                  included ? "text-primary" : "text-tertiary line-through"
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="accent-accent-primary size-3"
+                  checked={included}
+                  disabled={!accepted}
+                  onChange={() =>
+                    onEdit({
+                      ...edit,
+                      apart: included ? [...edit.apart, name] : edit.apart.filter((value) => value !== name),
+                    })
+                  }
+                />
+                {Icon && <Icon className="size-3 text-secondary" aria-hidden />}
+                <span>{name}</span>
+                {detail && <span className="text-tertiary tabular-nums">· {detail.usage}</span>}
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      {accepted && joined < 2 && (
+        <p className="pl-7 text-11 text-warning-primary">{t("references.ai.merge_too_few")}</p>
+      )}
+    </li>
+  );
+}
 
 /** Ticks or unticks one proposal in a set of rejected keys. */
 const toggle = (setter: Dispatch<SetStateAction<Set<string>>>, key: string) =>
@@ -229,6 +377,8 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
   const [rejectedItems, setRejectedItems] = useState<Set<string>>(new Set());
   const [rejectedTags, setRejectedTags] = useState<Set<string>>(new Set());
   const [rejectedMerges, setRejectedMerges] = useState<Set<string>>(new Set());
+  // Per merge (by its kept name): the final name and the names left apart
+  const [mergeEdits, setMergeEdits] = useState<Record<string, MergeEdit>>({});
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const skippedNote = useSkippedNote();
@@ -249,7 +399,16 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
       items: tag.items.filter((item) => !rejectedItems.has(`${tagId(tag)}|${itemKey(item.entity_name, item.id)}`)),
     }))
     .filter((tag) => tag.items.length > 0);
-  const approvedMerges = merges.filter((merge) => !rejectedMerges.has(merge.keep));
+  const approvedMerges = merges.flatMap((merge) => {
+    if (rejectedMerges.has(merge.keep)) return [];
+    const edit = mergeEdits[merge.keep];
+    const apart = new Set(edit?.apart ?? []);
+    const joined = [merge.keep, ...merge.variants].filter((name) => !apart.has(name));
+    if (joined.length < 2) return [];
+    const [keep, ...variants] = joined;
+    const name = (edit?.name ?? "").trim() || merge.keep;
+    return [{ ...merge, keep, variants, ...(name !== keep ? { name } : {}) }];
+  });
   const changeCount = approvedTags.reduce((sum, tag) => sum + tag.items.length, 0) + approvedMerges.length;
 
   const finish = async (action: "apply" | "discard") => {
@@ -304,7 +463,9 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
           </p>
         )}
         {tags.length === 0 && merges.length === 0 && (
-          <p className="py-10 text-center text-13 text-tertiary">{t("references.ai.nothing")}</p>
+          <p className="py-10 text-center text-13 text-tertiary">
+            {t(run.scope.mode === "merge" ? "references.ai.merge_nothing" : "references.ai.nothing")}
+          </p>
         )}
 
         {merges.length > 0 && (
@@ -316,20 +477,14 @@ function Review({ workspaceSlug, runId, onDone }: { workspaceSlug: string; runId
             <p className="text-12 text-tertiary">{t("references.ai.merges_help")}</p>
             <ul className="divide-y divide-subtle rounded-md border border-subtle">
               {merges.map((merge) => (
-                <li key={merge.keep}>
-                  <label className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 px-3 py-2.5">
-                    <input
-                      type="checkbox"
-                      className="accent-accent-primary row-span-2 mt-0.5 size-4"
-                      checked={!rejectedMerges.has(merge.keep)}
-                      onChange={() => toggle(setRejectedMerges, merge.keep)}
-                    />
-                    <span className="text-13 font-medium text-primary">{merge.keep}</span>
-                    <span className="text-12 text-tertiary">
-                      {t("references.ai.absorbs", { names: merge.variants.join(" · ") })}
-                    </span>
-                  </label>
-                </li>
+                <MergeRow
+                  key={merge.keep}
+                  merge={merge}
+                  accepted={!rejectedMerges.has(merge.keep)}
+                  edit={mergeEdits[merge.keep] ?? { name: merge.keep, apart: [] }}
+                  onToggle={() => toggle(setRejectedMerges, merge.keep)}
+                  onEdit={(edit) => setMergeEdits((current) => ({ ...current, [merge.keep]: edit }))}
+                />
               ))}
             </ul>
           </section>

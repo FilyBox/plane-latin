@@ -235,11 +235,12 @@ def trigger_contract_query(job_id, query_id, workspace_id, user_query):
     return data.get("workflow_instance_id")
 
 
-def trigger_tagging_run(run_id, workspace_id, types):
-    """Starts a TaggingWorkflow instance (AI mapping of shared tags)."""
+def trigger_tagging_run(run_id, workspace_id, types, mode="map"):
+    """Starts a TaggingWorkflow instance: the AI mapping of shared tags, or
+    with mode="merge" the search for duplicated tags ("Combinar con IA")."""
     data = _post(
         "/trigger/tagging",
-        {"run_id": str(run_id), "workspace_id": str(workspace_id), "types": list(types)},
+        {"run_id": str(run_id), "workspace_id": str(workspace_id), "types": list(types), "mode": mode},
     )
     return data.get("workflow_instance_id")
 

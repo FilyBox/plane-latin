@@ -192,7 +192,13 @@ export default {
 
       if (url.pathname === "/trigger/tagging") {
         const params = await request.json<TaggingParams>();
-        if (!params.run_id || !params.workspace_id || !Array.isArray(params.types) || params.types.length === 0) {
+        const needsTypes = params.mode !== "merge";
+        if (
+          !params.run_id ||
+          !params.workspace_id ||
+          !Array.isArray(params.types) ||
+          (needsTypes && params.types.length === 0)
+        ) {
           return Response.json({ error: "run_id, workspace_id and types are required" }, { status: 400 });
         }
         // The run id makes a retried trigger reuse the same instance.

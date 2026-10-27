@@ -46,6 +46,7 @@ from plane.utils.contract_extraction import (  # noqa: F401 (re-exported)
     status_for,
 )
 from plane.utils.contract_text_search import fold, fold_aligned, terms_for, window as text_window
+from plane.utils.shared_tags import find_tag_by_name
 
 # Stage codes the pipeline reports (see the contracts spec). Terminal codes
 # never open a step of their own.
@@ -146,15 +147,16 @@ def record_job_warnings(contract, warnings, job_id=None):
 
 
 def link_contract_tag(contract, name, kind):
-    """Get-or-create a FileTag by name (case-insensitive) and link it to the
-    contract's document. Adopts the given kind on previously-unclassified
-    (CUSTOM) tags so manually-created tags gain a grouping once the AI
-    recognizes them.
+    """Get-or-create a FileTag by name and link it to the contract's
+    document. The name matches an existing tag ignoring case, spaces, accents
+    and punctuation, so an artist "3ball Mty" reuses the group "3BallMTY".
+    Adopts the given kind on previously-unclassified (CUSTOM) tags so
+    manually-created tags gain a grouping once the AI recognizes them.
     """
     name = str(name).strip()
     if not name or not contract.file_asset_id:
         return
-    tag = FileTag.objects.filter(workspace_id=contract.workspace_id, name__iexact=name).first()
+    tag = find_tag_by_name(contract.workspace_id, name)
     if tag is None:
         tag = FileTag.objects.create(workspace_id=contract.workspace_id, name=name, kind=kind)
     elif tag.kind == FileTag.Kind.CUSTOM and kind != FileTag.Kind.CUSTOM:

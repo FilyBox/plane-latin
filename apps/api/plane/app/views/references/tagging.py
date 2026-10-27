@@ -94,6 +94,8 @@ class TaggingRunEndpoint(ReferenceBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         ctx = self.context(slug)
+        if request.data.get("mode") == "merge":
+            return self.start_merge(request, ctx)
         requested = request.data.get("types") or DEFAULT_TYPES
         if not isinstance(requested, (list, tuple)):
             return Response({"error": "types must be a list"}, status=status.HTTP_400_BAD_REQUEST)
@@ -107,9 +109,7 @@ class TaggingRunEndpoint(ReferenceBaseView):
                 else "Choose at least one kind of item"
             )
             return Response({"error": message, "skipped": skipped}, status=status.HTTP_400_BAD_REQUEST)
-        if TaggingRun.objects.filter(
-            workspace_id=ctx.workspace_id, status__in=[TaggingRun.Status.QUEUED, TaggingRun.Status.RUNNING]
-        ).exists():
+        if self.busy(ctx):
             return Response({"error": "A mapping is already running"}, status=status.HTTP_409_CONFLICT)
         run = TaggingRun.objects.create(
             workspace=Workspace.objects.get(id=ctx.workspace_id),
@@ -117,8 +117,31 @@ class TaggingRunEndpoint(ReferenceBaseView):
             progress={"done": 0, "total": sum(count_scannable(ctx.workspace_id, types).values())},
             created_by=request.user,
         )
+        return self.launch(run, ctx, types)
+
+    @staticmethod
+    def busy(ctx):
+        """One run at a time: a waiting review blocks nothing, a running one does."""
+        return TaggingRun.objects.filter(
+            workspace_id=ctx.workspace_id, status__in=[TaggingRun.Status.QUEUED, TaggingRun.Status.RUNNING]
+        ).exists()
+
+    def start_merge(self, request, ctx):
+        """"Combinar con IA": looks for duplicated tags across the workspace
+        and proposes joining them; nothing changes until a person applies."""
+        if self.busy(ctx):
+            return Response({"error": "A mapping is already running"}, status=status.HTTP_409_CONFLICT)
+        run = TaggingRun.objects.create(
+            workspace=Workspace.objects.get(id=ctx.workspace_id),
+            scope={"mode": "merge", "types": []},
+            progress={"done": 0, "total": 0, "stage": "normalize"},
+            created_by=request.user,
+        )
+        return self.launch(run, ctx, [], mode="merge")
+
+    def launch(self, run, ctx, types, mode="map"):
         try:
-            instance_id = trigger_tagging_run(run.id, ctx.workspace_id, types)
+            instance_id = trigger_tagging_run(run.id, ctx.workspace_id, types, mode=mode)
         except WorkerTriggerError as error:
             logger.exception("tagging run trigger failed")
             run.status, run.error = TaggingRun.Status.FAILED, error.public_message

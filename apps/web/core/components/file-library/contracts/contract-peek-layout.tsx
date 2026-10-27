@@ -136,10 +136,6 @@ export function ContractPeekLayout({
       onBackdropClick={onClose}
       dialog={{ label: title, modal: true }}
       className={panelClassName}
-      style={{
-        boxShadow:
-          "0px 4px 8px 0px rgba(0, 0, 0, 0.12), 0px 6px 12px 0px rgba(16, 24, 40, 0.12), 0px 1px 16px 0px rgba(16, 24, 40, 0.12)",
-      }}
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-subtle px-3 py-2.5 sm:px-4">
         <div className="flex min-w-0 items-center gap-2">

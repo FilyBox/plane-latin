@@ -11,6 +11,7 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { AlertModalCore } from "@plane/ui";
 import { ImportInferredTypes } from "./inferred-types";
+import { ImportLinkedTags } from "./linked-tags";
 import { ImportLiveCounts } from "./live-counts";
 import type { TImportFlow } from "./use-import-flow";
 
@@ -102,6 +103,7 @@ export function ImportStepDone({ flow, workspaceSlug, onImportAnother, onBackToR
       )}
 
       <ImportInferredTypes inferred={applied.release_types_inferred} />
+      <ImportLinkedTags linked={applied.artist_tags_linked} />
 
       <section className="space-y-3">
         <p className="text-13 text-secondary">{t("music_import.done.provenance")}</p>

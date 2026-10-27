@@ -1292,6 +1292,12 @@
       "count_error": "With errors",
       "new_roles": "{count, plural, one {# new role created} other {# new roles created}}"
     },
+    "linked_tags": {
+      "line": "Tied to existing tags: {names}",
+      "line_dry": "Will be tied to existing tags: {names}",
+      "more": "{count, plural, one {and # more} other {and # more}}",
+      "hint": "Artists of these songs that already had a tag with their name (case, spaces and accents aside): their songs and releases show under it. No new tag is created."
+    },
     "inferred": {
       "line": "Release type inferred: {summary}",
       "line_dry": "Release type to infer: {summary}",

@@ -104,6 +104,188 @@ const words = (value: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()} `;
 
+/** "A / B", "A - B", "A feat. B"…: several artists, never a spelling of one. */
+const COLLABORATION = /\s[/&x-]\s|\/|\bfeat\b|\bft\b|\s+y\s+/i;
+export const isCollaboration = (name: string) => COLLABORATION.test(name);
+
+/** Letters and digits only, lowercase and without accents: "3ball Mty",
+ * "3BallMTY" and "3-Ball MTY" share it. Two names with the same key are the
+ * same name written differently. */
+export const nameKey = (value: string) => fold(value).replace(/[^\p{L}\p{N}]+/gu, "");
+
+/** The key without a leading article: "Los Tigres" and "Tigres". */
+const looseKey = (value: string) => nameKey(fold(value).replace(/^(los|las|la|el|lo|the)\s+/, ""));
+
+/** Edits (insert, delete, change, swap two neighbours) between `a` and `b`,
+ * or `max + 1` as soon as it is clear there are more. */
+export const editDistance = (a: string, b: string, max: number): number => {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  if (a === b) return 0;
+  // Only cells within `max` of the diagonal can stay under the limit
+  const far = max + 1;
+  let before = Array.from({ length: b.length + 1 }, () => far);
+  let previous = Array.from({ length: b.length + 1 }, (_, j) => (j <= max ? j : far));
+  for (let i = 1; i <= a.length; i++) {
+    const current = Array.from({ length: b.length + 1 }, () => far);
+    if (i <= max) current[0] = i;
+    let rowMin = far;
+    for (let j = Math.max(1, i - max); j <= Math.min(b.length, i + max); j++) {
+      let value = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) value = Math.min(value, before[j - 2] + 1);
+      current[j] = Math.min(value, far);
+      rowMin = Math.min(rowMin, current[j]);
+    }
+    if (rowMin > max) return far;
+    before = previous;
+    previous = current;
+  }
+  return Math.min(previous[b.length], far);
+};
+
+/** Typos tolerated between two keys of this length: none for short names,
+ * where one letter makes another artist ("Kany" / "Kanye"). */
+const typoLimit = (length: number) => (length >= 9 ? 2 : length >= 6 ? 1 : 0);
+
+/** Sorts indexes by the text each one has in `list` (plain code-unit order) */
+const byText = (list: string[]) => (a: number, b: number) => (list[a] < list[b] ? -1 : list[a] > list[b] ? 1 : 0);
+
+export type NameClusters = {
+  /** Names with the same key: one name, no model needed */
+  exact: string[][];
+  /** Names that look alike (a typo, an article) and a person or the model
+   * must confirm, largest first; each at most `maxCluster` names */
+  review: string[][];
+};
+
+/**
+ * Groups the names that may be one artist, without the model: identical keys
+ * are certain; near keys (a typo or two, "Los X" / "X") are only candidates.
+ * Near keys are found among neighbours in the list sorted by key and by the
+ * key reversed, so a typo anywhere but at both ends is caught, in linear time.
+ * Collaborations are never candidates of anyone.
+ */
+export const clusterNames = (names: string[], { window = 6, maxCluster = 25 } = {}): NameClusters => {
+  // Every distinct spelling counts: "América Sierra" and "America Sierra"
+  // may be two tags to join
+  const unique = [...new Set(names.map((name) => name.trim()))].filter((name) => nameKey(name).length > 0);
+  const keys = unique.map(nameKey);
+  const parent = unique.map((_, index) => index);
+  const find = (index: number): number => {
+    let root = index;
+    while (parent[root] !== root) root = parent[root];
+    while (parent[index] !== root) [parent[index], index] = [root, parent[index]];
+    return root;
+  };
+  const union = (a: number, b: number) => {
+    const [ra, rb] = [find(a), find(b)];
+    if (ra !== rb) parent[rb] = ra;
+  };
+
+  const exactByKey = new Map<string, string[]>();
+  unique.forEach((name, index) => {
+    const group = exactByKey.get(keys[index]);
+    if (group) group.push(name);
+    else exactByKey.set(keys[index], [name]);
+  });
+  const firstByKey = new Map<string, number>();
+  keys.forEach((key, index) => {
+    const first = firstByKey.get(key);
+    if (first === undefined) firstByKey.set(key, index);
+    else union(first, index);
+  });
+
+  const solo = unique.map((_, index) => index).filter((index) => !isCollaboration(unique[index]));
+  const firstByLoose = new Map<string, number>();
+  for (const index of solo) {
+    const key = looseKey(unique[index]);
+    if (key.length < 4) continue;
+    const first = firstByLoose.get(key);
+    if (first === undefined) firstByLoose.set(key, index);
+    else union(first, index);
+  }
+  const reversed = keys.map((key) => [...key].reduceRight((text, char) => text + char, ""));
+  for (const order of [[...solo].sort(byText(keys)), [...solo].sort(byText(reversed))]) {
+    for (let p = 0; p < order.length; p++) {
+      for (let q = p + 1; q < Math.min(order.length, p + 1 + window); q++) {
+        const [a, b] = [order[p], order[q]];
+        const limit = typoLimit(Math.min(keys[a].length, keys[b].length));
+        if (limit > 0 && keys[a] !== keys[b] && editDistance(keys[a], keys[b], limit) <= limit) union(a, b);
+      }
+    }
+  }
+
+  const components = new Map<number, number[]>();
+  unique.forEach((_, index) => {
+    const root = find(index);
+    const members = components.get(root);
+    if (members) members.push(index);
+    else components.set(root, [index]);
+  });
+  const review: string[][] = [];
+  for (const members of components.values()) {
+    if (new Set(members.map((index) => keys[index])).size < 2) continue;
+    const sorted = members.sort(byText(keys)).map((index) => unique[index]);
+    for (let start = 0; start < sorted.length; start += maxCluster)
+      review.push(sorted.slice(start, start + maxCluster));
+  }
+  return {
+    exact: [...exactByKey.values()].filter((group) => group.length > 1),
+    review: review.sort((a, b) => b.length - a.length),
+  };
+};
+
+/** Clusters packed into model calls of at most `maxNames` names each. */
+export const packClusters = (clusters: string[][], maxNames = 150): string[][][] => {
+  const calls: string[][][] = [];
+  let current: string[][] = [];
+  let size = 0;
+  for (const cluster of clusters) {
+    if (current.length > 0 && size + cluster.length > maxNames) {
+      calls.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(cluster);
+    size += cluster.length;
+  }
+  if (current.length > 0) calls.push(current);
+  return calls;
+};
+
+/** Overlapping groups of names joined into one (each spelling as is). */
+export const joinGroups = (groups: string[][]): string[][] => {
+  const parent = new Map<string, string>();
+  const spelling = new Map<string, string>();
+  const find = (key: string): string => {
+    let root = key;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    parent.set(key, root);
+    return root;
+  };
+  for (const group of groups) {
+    const keys = group.map((name) => {
+      const key = name.trim();
+      if (!parent.has(key)) {
+        parent.set(key, key);
+        spelling.set(key, name);
+      }
+      return key;
+    });
+    for (const key of keys.slice(1)) {
+      const [ra, rb] = [find(keys[0]), find(key)];
+      if (ra !== rb) parent.set(rb, ra);
+    }
+  }
+  const joined = new Map<string, string[]>();
+  for (const key of parent.keys()) {
+    const root = find(key);
+    const members = joined.get(root);
+    if (members) members.push(spelling.get(key)!);
+    else joined.set(root, [spelling.get(key)!]);
+  }
+  return [...joined.values()].filter((group) => group.length > 1);
+};
+
 /** Known names worth showing the model for this batch: those that occur in
  * it. Keeps the prompt short however large the catalog is. */
 export const namesInBatch = (known: string[], items: TaggingItem[], cap = 120) => {

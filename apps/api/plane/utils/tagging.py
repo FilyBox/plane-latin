@@ -33,6 +33,7 @@ from plane.utils.shared_tags import (
     _expense_ids,
     add_tag,
     find_or_create_tag,
+    find_tag_by_name,
     get_tags,
     merge_into,
     remirror_expenses,
@@ -223,7 +224,7 @@ def context(workspace_id):
         }
         for row in FileTag.objects.filter(workspace_id=workspace_id)
         .values("id", "name", "kind", "party_id")
-        .order_by("name")[:3000]
+        .order_by("name")[:6000]
     ]
     artists = list(
         MusicParty.objects.filter(workspace_id=workspace_id, disabled=False)
@@ -261,7 +262,9 @@ def apply_run(run: TaggingRun, ctx, approved: dict, user_id) -> dict:
     workspace_id = run.workspace_id
 
     for merge in approved.get("merges") or []:
-        record = merge_tags(workspace_id, merge.get("keep") or "", merge.get("variants") or [])
+        record = merge_tags(
+            workspace_id, merge.get("keep") or "", merge.get("variants") or [], new_name=merge.get("name")
+        )
         if record:
             applied["merges"].append(record)
 
@@ -270,7 +273,7 @@ def apply_run(run: TaggingRun, ctx, approved: dict, user_id) -> dict:
         if not name:
             continue
         kind = group.get("kind") if group.get("kind") in FileTag.Kind.values else FileTag.Kind.CUSTOM
-        existed = FileTag.objects.filter(workspace_id=workspace_id, name__iexact=name).exists()
+        existed = find_tag_by_name(workspace_id, name) is not None
         tag = find_or_create_tag(workspace_id, name, kind, user_id)
         if not existed:
             applied["created_tags"].append(str(tag.id))
@@ -302,23 +305,41 @@ def apply_run(run: TaggingRun, ctx, approved: dict, user_id) -> dict:
     return applied
 
 
-def merge_tags(workspace_id, keep_name: str, variant_names) -> dict | None:
-    """Folds variant tags into one, recording enough to put them back."""
-    keep = FileTag.objects.filter(workspace_id=workspace_id, name__iexact=keep_name.strip()).first()
+def _tag_named(workspace_id, name, exclude_id=None):
+    """The tag with exactly this name, else one with it in other case: two
+    tags may differ only in case ("3ball Mty" / "3Ball Mty")."""
+    clean = " ".join(str(name or "").split())
+    tags = FileTag.objects.filter(workspace_id=workspace_id)
+    if exclude_id:
+        tags = tags.exclude(id=exclude_id)
+    return tags.filter(name=clean).first() or tags.filter(name__iexact=clean).first()
+
+
+def merge_tags(workspace_id, keep_name: str, variant_names, new_name=None) -> dict | None:
+    """Folds variant tags into one, recording enough to put them back.
+
+    Everything the variants were on ends up on the kept tag once (an item
+    that carried two of them carries the kept one, not two links), and the
+    variants are removed. `new_name` renames the kept tag (the person edited
+    the proposed name); another tag that already has that name joins too.
+    """
+    keep = _tag_named(workspace_id, keep_name)
     if keep is None:
         return None
     record = {"keep_id": str(keep.id), "variants": []}
+    renamed = " ".join(str(new_name or "").split())[:255]
+    if renamed and renamed != keep.name:
+        variant_names = [*variant_names, renamed]
     for name in variant_names:
-        variant = (
-            FileTag.objects.filter(workspace_id=workspace_id, name__iexact=str(name).strip())
-            .exclude(id=keep.id)
-            .first()
-        )
+        variant = _tag_named(workspace_id, name, exclude_id=keep.id)
         if variant is None:
             continue
         record["variants"].append(merge_into(workspace_id, keep, variant))
         keep.refresh_from_db()
-    return record if record["variants"] else None
+    if renamed and renamed != keep.name:
+        record["renamed_from"] = keep.name
+        FileTag.objects.filter(id=keep.id).update(name=renamed, updated_at=timezone.now())
+    return record if record["variants"] or record.get("renamed_from") else None
 
 
 @transaction.atomic
@@ -339,6 +360,10 @@ def undo_run(run: TaggingRun) -> dict:
 
     for merge in reversed(applied.get("merges") or []):
         keep_id = merge["keep_id"]
+        # The kept tag gets its own name back first, so a variant with the
+        # edited name can come back next to it.
+        if merge.get("renamed_from"):
+            FileTag.objects.filter(id=keep_id).update(name=merge["renamed_from"], updated_at=timezone.now())
         for variant in reversed(merge["variants"]):
             tag = FileTag.all_objects.filter(id=variant["id"]).first()
             if tag is None:

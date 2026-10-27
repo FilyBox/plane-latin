@@ -21,7 +21,7 @@ export const PEEK_ICON_BUTTON =
 
 /** The docked music panel: right edge, full height, the song panel's width */
 export const PEEK_PANEL_CLASS =
-  "absolute top-0 right-0 bottom-0 flex w-full flex-col overflow-hidden rounded-sm border-l border-subtle bg-surface-1 shadow-raised-200 md:w-xl";
+  "absolute top-0 right-0 bottom-0 flex w-full flex-col overflow-hidden rounded-sm border-l border-subtle bg-surface-1 md:w-xl";
 
 export function CopyButton({ value, label }: { value: string | null | undefined; label?: string }) {
   const [copied, setCopied] = useState(false);

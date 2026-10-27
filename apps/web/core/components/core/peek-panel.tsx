@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@plane/utils";
-import { StackLayer } from "@/components/panel-stack/stack-layer";
+import { PANEL_SHADOW, StackLayer } from "@/components/panel-stack/stack-layer";
 import type { TPanelLayer } from "@/components/panel-stack/use-panel-layer";
 
 export type PeekMode = "side-peek" | "modal" | "full-screen";
@@ -30,7 +30,7 @@ export const PeekPanel = forwardRef<
   const container = typeof document !== "undefined" ? document.getElementById("full-screen-portal") : null;
   const shadow = isNested
     ? "0px 12px 32px 0px rgba(16, 24, 40, 0.20), 0px 2px 8px 0px rgba(16, 24, 40, 0.12)"
-    : "0px 4px 8px 0px rgba(0, 0, 0, 0.12), 0px 6px 12px 0px rgba(16, 24, 40, 0.12), 0px 1px 16px 0px rgba(16, 24, 40, 0.12)";
+    : PANEL_SHADOW;
 
   if (layer && !embedded) {
     const stacked = (

@@ -188,6 +188,13 @@ export class TaggingService extends APIService {
     return this.post(`/api/workspaces/${workspaceSlug}/tagging-runs/`, { types }).then((response) => response.data);
   }
 
+  /** "Combinar con IA": looks for duplicated tags and proposes joining them. */
+  async startMerge(workspaceSlug: string): Promise<TTaggingRun> {
+    return this.post(`/api/workspaces/${workspaceSlug}/tagging-runs/`, { mode: "merge" }).then(
+      (response) => response.data
+    );
+  }
+
   async getRun(workspaceSlug: string, runId: string): Promise<TTaggingRun> {
     return this.get(`/api/workspaces/${workspaceSlug}/tagging-runs/${runId}/`).then((response) => response.data);
   }

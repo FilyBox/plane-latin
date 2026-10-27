@@ -23,7 +23,14 @@ from django.utils import timezone
 from plane.db.models import AssistantAction, FileTag, Issue, Project, ProjectMember
 from plane.utils.assistant_markdown import MENTION_RE
 from plane.utils.entities import REGISTRY
-from plane.utils.shared_tags import add_tag, find_or_create_tag, get_tags, remove_tag, tag_payload
+from plane.utils.shared_tags import (
+    add_tag,
+    find_or_create_tag,
+    find_tag_by_name,
+    get_tags,
+    remove_tag,
+    tag_payload,
+)
 
 MAX_ITEMS = 200
 # Edits within this window after creation count as part of creating it.
@@ -61,7 +68,7 @@ def tag_items(ctx, user, *, tag_id=None, tag_name=None, items=None, remove=False
     created_tag = False
     tag = FileTag.objects.filter(workspace_id=ctx.workspace_id, id=tag_id).first() if tag_id else None
     if tag is None and tag_name and not remove:
-        existed = FileTag.objects.filter(workspace_id=ctx.workspace_id, name__iexact=str(tag_name).strip()).exists()
+        existed = find_tag_by_name(ctx.workspace_id, str(tag_name)) is not None
         tag = find_or_create_tag(ctx.workspace_id, str(tag_name), user_id=user.id)
         created_tag = not existed
     if tag is None:

@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  clusterNames,
+  editDistance,
   fitProposals,
   isSoftModelFailure,
+  joinGroups,
+  nameKey,
+  packClusters,
   maxTokensFor,
   pageSizeFor,
   pickOffered,
@@ -91,6 +96,76 @@ describe("tag mapping batches", () => {
     ]);
     assert.deepEqual(pickOffered("Catálogo Norte", offered), []);
     assert.deepEqual(pickOffered(["Catálogo Norte"], []), []);
+  });
+});
+
+describe("joining spellings of a name", () => {
+  it("gives one key to names that only differ in case, spaces or accents", () => {
+    assert.equal(nameKey("3ball Mty"), nameKey("3BallMTY"));
+    assert.equal(nameKey("3-Ball MTY"), "3ballmty");
+    assert.equal(nameKey("Ángela Aguilar"), nameKey("angela aguilar"));
+    assert.notEqual(nameKey("3BALLMNTY"), nameKey("3BallMTY"));
+  });
+
+  it("counts typos, swaps included, and gives up early", () => {
+    assert.equal(editDistance("3ballmnty", "3ballmty", 2), 1);
+    assert.equal(editDistance("tigres", "tigers", 1), 1);
+    assert.equal(editDistance("abcdef", "uvwxyz", 1), 2);
+  });
+
+  it("joins same-key names without the model and sends look-alikes for review", () => {
+    const { exact, review } = clusterNames([
+      "3ball Mty",
+      "3BALLMNTY",
+      "3BallMTY",
+      "Los Tigres",
+      "Tigres",
+      "Kany",
+      "Kanye",
+    ]);
+    assert.deepEqual(exact, [["3ball Mty", "3BallMTY"]]);
+    assert.ok(review.some((cluster) => cluster.includes("3BALLMNTY") && cluster.includes("3BallMTY")));
+    assert.ok(review.some((cluster) => cluster.includes("Los Tigres") && cluster.includes("Tigres")));
+    // Short names: one letter is another artist
+    assert.ok(!review.some((cluster) => cluster.includes("Kany")));
+  });
+
+  it("keeps tags that only differ in accents or case as separate spellings to join", () => {
+    const { exact } = clusterNames(["América Sierra", "America Sierra", "3ball Mty", "3Ball Mty"]);
+    assert.deepEqual(exact, [
+      ["América Sierra", "America Sierra"],
+      ["3ball Mty", "3Ball Mty"],
+    ]);
+  });
+
+  it("never offers a collaboration as a spelling of one artist", () => {
+    const { review } = clusterNames(["Carin León", "Carin Leon / Grupo Frontera", "Carin Leonn"]);
+    assert.ok(review.every((cluster) => !cluster.includes("Carin Leon / Grupo Frontera")));
+  });
+
+  it("packs look-alikes into calls and joins overlapping groups", () => {
+    assert.equal(
+      packClusters(
+        [
+          ["a", "b"],
+          ["c", "d"],
+          ["e", "f"],
+        ],
+        4
+      ).length,
+      2
+    );
+    assert.deepEqual(
+      joinGroups([
+        ["A", "B"],
+        ["B", "C"],
+        ["X", "Y"],
+      ]),
+      [
+        ["A", "B", "C"],
+        ["X", "Y"],
+      ]
+    );
   });
 });
 

@@ -21,9 +21,10 @@ const SharedTagsPage = observer(function SharedTagsPage({ params }: Route.Compon
   // ?mapping=1 (the assistant's "review" button) opens the AI mapping panel.
   const [searchParams] = useSearchParams();
   const openMapping = searchParams.get("mapping") === "1";
-  const [aiOpen, setAiOpen] = useState(openMapping);
+  // The panel opens on mapping or on combining duplicated tags
+  const [aiOpen, setAiOpen] = useState<"map" | "merge" | null>(openMapping ? "map" : null);
   useEffect(() => {
-    if (openMapping) setAiOpen(true);
+    if (openMapping) setAiOpen("map");
   }, [openMapping, searchParams]);
 
   if (flagsLoaded && !isWorkspaceFeatureEnabled(workspaceSlug, "references"))
@@ -36,10 +37,18 @@ const SharedTagsPage = observer(function SharedTagsPage({ params }: Route.Compon
         <SharedTagsRoot
           workspaceSlug={workspaceSlug}
           tagId={tagId}
-          onMapWithAI={isAdmin ? () => setAiOpen(true) : undefined}
+          onMapWithAI={isAdmin ? () => setAiOpen("map") : undefined}
+          onMergeWithAI={isAdmin ? () => setAiOpen("merge") : undefined}
         />
       </div>
-      {isAdmin && <AIMappingPanel workspaceSlug={workspaceSlug} isOpen={aiOpen} onClose={() => setAiOpen(false)} />}
+      {isAdmin && (
+        <AIMappingPanel
+          workspaceSlug={workspaceSlug}
+          isOpen={aiOpen !== null}
+          mode={aiOpen ?? "map"}
+          onClose={() => setAiOpen(null)}
+        />
+      )}
     </>
   );
 });

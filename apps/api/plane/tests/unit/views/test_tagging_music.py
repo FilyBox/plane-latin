@@ -211,3 +211,41 @@ class TestInternalInventory:
     def test_kinds_outside_the_run_read_nothing(self, api_client, workspace, catalog):
         run = TaggingRun.objects.create(workspace=workspace, scope={"types": ["contract"], "skipped": ["music_track"]})
         assert self.get(api_client, workspace, "music_track", run).json() == {"total": 0, "results": []}
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+class TestImportLinksArtistTags:
+    """After an import, a song's artists join the tag the workspace already
+    has with their name, so the songs show under it; nothing is created."""
+
+    def test_ties_performers_to_tags_written_differently(self, workspace, catalog):
+        from plane.utils.tagging_music import link_artist_tags
+
+        tigres = FileTag.objects.create(workspace=workspace, name="LOS  tigres", kind=FileTag.Kind.GROUP)
+        guest = FileTag.objects.create(workspace=workspace, name="Ána Voz", kind=FileTag.Kind.PERSON)
+        writer = FileTag.objects.create(workspace=workspace, name="Juan Pluma", kind=FileTag.Kind.PERSON)
+
+        preview = link_artist_tags(workspace.id, [catalog.track.id], dry_run=True)
+        assert {entry["tag"] for entry in preview} == {"LOS  tigres", "Ána Voz"}
+        assert not FileTag.objects.filter(party__isnull=False).exists()
+
+        link_artist_tags(workspace.id, [catalog.track.id])
+        tigres.refresh_from_db()
+        guest.refresh_from_db()
+        writer.refresh_from_db()
+        assert tigres.party_id == catalog.artist.id
+        assert guest.party_id is not None
+        # Composers are not whose the song is
+        assert writer.party_id is None
+        assert FileTag.objects.filter(workspace=workspace).count() == 3
+
+    def test_never_takes_a_tag_of_another_artist_nor_creates_one(self, workspace, catalog):
+        from plane.utils.tagging_music import link_artist_tags
+
+        other = MusicParty.objects.create(workspace=workspace, display_name="Otros Tigres")
+        taken = FileTag.objects.create(workspace=workspace, name="Los Tigres", party=other)
+        assert link_artist_tags(workspace.id, [catalog.track.id]) == []
+        taken.refresh_from_db()
+        assert taken.party_id == other.id
+        assert FileTag.objects.filter(workspace=workspace).count() == 1

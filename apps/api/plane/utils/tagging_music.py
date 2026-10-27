@@ -20,6 +20,7 @@ from plane.db.models import (
     MusicCredit,
     MusicCreditRole,
     MusicDistribution,
+    MusicParty,
     MusicRelease,
     MusicReleaseArtist,
     MusicReleaseTrack,
@@ -76,6 +77,44 @@ def party_tag_names(workspace_id, party_ids) -> dict[str, list[str]]:
     ):
         names.setdefault(str(party_id), []).append(name)
     return names
+
+
+def link_artist_tags(workspace_id, track_ids, dry_run=False) -> list[dict]:
+    """Ties the catalog artists of these songs (performers and their
+    releases' artists) that have no tag yet to the workspace's existing tag
+    with their name, ignoring case, spaces and accents: their songs and
+    releases then show under that tag (FileTag.party). Never creates a tag,
+    and never takes a tag already tied to another artist. Returns
+    [{"artist", "tag"}]; a dry run only reports them."""
+    from plane.utils.shared_tags import find_tag_by_name
+
+    track_ids = list(track_ids)
+    if not track_ids:
+        return []
+    artist_roles = [key for key, (_label, category) in _roles(workspace_id).items() if category in _ARTIST_CATEGORIES]
+    party_ids = set(
+        MusicCredit.objects.filter(track_id__in=track_ids, role__in=artist_roles).values_list("party_id", flat=True)
+    )
+    party_ids |= set(
+        MusicReleaseArtist.objects.filter(release__track_links__track_id__in=track_ids).values_list(
+            "party_id", flat=True
+        )
+    )
+    party_ids.discard(None)
+    tagged = set(
+        FileTag.objects.filter(workspace_id=workspace_id, party_id__in=party_ids).values_list("party_id", flat=True)
+    )
+    linked = []
+    taken = set()
+    for party in MusicParty.objects.filter(id__in=party_ids - tagged).order_by("display_name"):
+        tag = find_tag_by_name(workspace_id, party.display_name)
+        if tag is None or tag.party_id or tag.kind == FileTag.Kind.TYPE or tag.id in taken:
+            continue
+        taken.add(tag.id)
+        if not dry_run:
+            FileTag.objects.filter(id=tag.id, party__isnull=True).update(party=party)
+        linked.append({"artist": party.display_name, "tag": tag.name})
+    return linked
 
 
 def _extra(metadata, limit=200):

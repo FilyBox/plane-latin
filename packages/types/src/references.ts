@@ -104,7 +104,15 @@ export type TTaggingTagProposal = {
   items: TTaggingProposalItem[];
 };
 
-export type TTaggingMergeProposal = { keep: string; variants: string[]; reason: string };
+export type TTaggingMergeProposal = {
+  keep: string;
+  variants: string[];
+  reason: string;
+  /** Kind and how many items each name is on, kept tag first */
+  details?: { name: string; kind: TSharedTagKind; usage: number }[];
+  /** When applying: the name the kept tag ends up with, if a person edited it */
+  name?: string;
+};
 
 export type TTaggingRun = {
   id: string;
@@ -120,6 +128,8 @@ export type TTaggingRun = {
     auto?: boolean;
     source?: "assistant";
     merge?: { keep: string; variants: string[] };
+    /** "merge": a "Combinar con IA" run, which only proposes joining tags */
+    mode?: "merge";
   };
   progress: Record<string, number | string>;
   error: string;

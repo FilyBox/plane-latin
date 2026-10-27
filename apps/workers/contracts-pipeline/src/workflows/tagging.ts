@@ -18,11 +18,16 @@ import { internalApi } from "../lib/internal-api";
 import { parseJsonResponse } from "../lib/json-repair";
 import {
   TagProposal,
+  clusterNames,
   fitProposals,
   fold,
+  isCollaboration,
   isSoftModelFailure,
+  joinGroups,
   maxTokensFor,
+  nameKey,
   namesInBatch,
+  packClusters,
   pageSizeFor,
   pickOffered,
   salvageItems,
@@ -35,6 +40,9 @@ export type TaggingParams = {
   run_id: string;
   workspace_id: string;
   types: string[];
+  /** "merge": only look for duplicated existing tags and propose joining
+   * them ("Combinar con IA"); no item is read. */
+  mode?: "map" | "merge";
 };
 
 type Classified = {
@@ -51,21 +59,23 @@ type Classified = {
 };
 
 type TagKind = "ARTIST" | "GROUP" | "PERSON" | "TYPE" | "CUSTOM";
-type MergeProposal = { keep: string; variants: string[]; reason: string };
+type MergeName = { name: string; kind: string; usage: number };
+type MergeProposal = { keep: string; variants: string[]; reason: string; details: MergeName[] };
 
 const MIN_CONFIDENCE = 0.5;
 /** Under Django's request body limit (DATA_UPLOAD_MAX_MEMORY_SIZE, 5 MB). */
 const MAX_PROPOSALS_BYTES = 4_000_000;
-const NORMALIZE_CHUNK = 350;
+/** Look-alike names per model call when joining spellings. */
+const NORMALIZE_NAMES = 150;
+/** How established a tag is: tied to the catalog first, then the most used. */
+const rankTag = (tag: { catalog?: boolean; usage?: number }) => (tag.catalog ? 1_000_000 : 0) + (tag.usage ?? 0);
 const AI_RETRIES: WorkflowStepConfig = { retries: { limit: 2, delay: "10 seconds", backoff: "exponential" } };
-
-/** "A / B", "A - B", "A feat. B"…: several artists, never a spelling of one. */
-const COLLABORATION = /\s[/&x-]\s|\/|\bfeat\b|\bft\b|\s+y\s+/i;
-const isCollaboration = (name: string) => COLLABORATION.test(name);
 
 export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
   async run(event: WorkflowEvent<TaggingParams>, step: WorkflowStep) {
-    const { run_id: runId, workspace_id: workspaceId, types } = event.payload;
+    const { run_id: runId, workspace_id: workspaceId } = event.payload;
+    const mergeOnly = event.payload.mode === "merge";
+    const types = mergeOnly ? [] : event.payload.types;
     const api = internalApi(this.env);
 
     try {
@@ -118,6 +128,7 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
                       ),
                       keys: CLASSIFY_KEYS,
                       maxTokens: maxTokensFor(entityType),
+                      thinking: false,
                     });
                     model = result.model;
                     for (const row of salvageItems(result.text)) {
@@ -183,92 +194,157 @@ export class TaggingWorkflow extends WorkflowEntrypoint<Env, TaggingParams> {
         }
       };
       const scanned = (await Promise.all(types.map((entityType) => scanSafely(entityType)))).flat();
-      if (Object.keys(failedKinds).length === types.length) {
+      if (types.length > 0 && Object.keys(failedKinds).length === types.length) {
         throw new Error(Object.values(failedKinds)[0] ?? "Every kind failed");
       }
       const confident = scanned.filter((item) => item.confianza >= MIN_CONFIDENCE);
 
       // ── Fold spelling variants of the same artist together ──────────────
+      // Names that only differ in case, spaces, accents or punctuation are one
+      // name: joined without the model. Names that merely look alike (a typo,
+      // "Los X" / "X") go to the model in small sets, so only they cost a
+      // call. Artists, groups and people are compared together, so an artist
+      // and a group spelled differently still end up as one tag.
       const proposedNames = [...new Set(confident.flatMap((item) => item.artistas))];
-      const existingPeople = context.tags.filter((tag) => peopleKinds.has(tag.kind)).map((tag) => tag.name);
-      const allNames = [...new Set([...proposedNames, ...existingPeople])].sort((a, b) =>
-        fold(a).localeCompare(fold(b))
-      );
+      // Combining compares every existing tag, whatever its kind
+      const existingPeople = context.tags
+        .filter((tag) => mergeOnly || peopleKinds.has(tag.kind))
+        .map((tag) => tag.name);
+      const clusters = await step.do("cluster names", async () => clusterNames([...proposedNames, ...existingPeople]));
+      const calls = packClusters(clusters.review, NORMALIZE_NAMES);
+      await step.do("normalize start", async () => {
+        await api.taggingProgress(runId, {
+          progress: {
+            stage: "normalize",
+            names_total: proposedNames.length + existingPeople.length,
+            normalize_done: 0,
+            normalize_total: calls.length,
+          },
+        });
+      });
 
       const groups: { canonico: string; variantes: string[] }[] = [];
-      for (let index = 0, chunk = 0; index < allNames.length; index += NORMALIZE_CHUNK, chunk += 1) {
-        const names = allNames.slice(index, index + NORMALIZE_CHUNK);
-        if (names.length < 2) continue;
-        // eslint-disable-next-line no-await-in-loop -- one chunk at a time keeps the AI provider under its rate limit
-        const result = await step.do(`normalize ${chunk}`, AI_RETRIES, async () => {
-          await api.taggingProgress(runId, { progress: { stage: "normalize" } });
+      for (const [index, call] of calls.entries()) {
+        const names = call.flat();
+        // eslint-disable-next-line no-await-in-loop -- one call at a time keeps the AI provider under its rate limit
+        const result = await step.do(`normalize ${index}`, AI_RETRIES, async () => {
           let parsed: { grupos?: { canonico?: string; variantes?: string[] }[] };
           try {
             const { text } = await generateStructuredJson(this.env, {
               prompt: normalizePrompt(
-                names,
-                context.artists.filter((name) => names.some((n) => fold(n) === fold(name)))
+                call,
+                context.artists.filter((name) => names.some((n) => nameKey(n) === nameKey(name))),
+                mergeOnly ? "tags" : "artists"
               ),
               keys: NORMALIZE_KEYS,
-              maxTokens: 8192,
+              maxTokens: 4096,
+              thinking: false,
             });
             parsed = parseJsonResponse<{ grupos?: { canonico?: string; variantes?: string[] }[] }>(text);
           } catch (error) {
-            // An unusable answer only costs this chunk's spelling merges
+            // An unusable answer only costs these look-alikes' merges
             if (!isSoftModelFailure(error)) throw error;
+            console.warn(JSON.stringify({ message: "normalize answer unusable", run: runId, error: String(error) }));
             parsed = { grupos: [] };
           }
+          // Only names that were asked about: the model can't add any.
+          const asked = new Map(names.map((name) => [fold(name), name]));
           return (parsed.grupos ?? [])
-            .filter((group) => group.canonico && Array.isArray(group.variantes) && group.variantes.length >= 1)
-            .map((group) => ({
-              canonico: String(group.canonico),
-              variantes: [...new Set(group.variantes!.map(String))].filter(
-                (name) => fold(name) !== fold(String(group.canonico))
-              ),
-            }))
-            .filter((group) => group.variantes.length > 0);
+            .filter((group) => group.canonico && Array.isArray(group.variantes))
+            .map((group) => {
+              const members = [String(group.canonico), ...group.variantes!.map(String)]
+                .map((name) => asked.get(fold(name)))
+                .filter((name): name is string => !!name);
+              return { canonico: members[0], variantes: [...new Set(members.slice(1))] };
+            })
+            .filter((group) => group.canonico && group.variantes.length > 0);
         });
         groups.push(...result);
+        // eslint-disable-next-line no-await-in-loop -- reports this call before the next one starts
+        await step.do(`normalize progress ${index}`, async () => {
+          await api.taggingProgress(runId, { progress: { stage: "normalize", normalize_done: index + 1 } });
+        });
       }
 
       // ── Build proposals from step outputs only (deterministic) ──────────
+      await step.do("saving start", async () => {
+        await api.taggingProgress(runId, { progress: { stage: "save" } });
+      });
       const existingByFold = new Map(context.tags.map((tag) => [fold(tag.name), tag]));
+      // Tags may differ only in case ("3ball Mty" / "3Ball Mty"): each by its own name
+      const existingByName = new Map(context.tags.map((tag) => [tag.name, tag]));
+      // Same name written differently: the most established tag answers for it
+      const existingByKey = new Map<string, (typeof context.tags)[number]>();
+      for (const tag of context.tags) {
+        const key = nameKey(tag.name);
+        const current = existingByKey.get(key);
+        if (key && (!current || rankTag(tag) > rankTag(current))) existingByKey.set(key, tag);
+      }
+      const existingTag = (name: string) => existingByFold.get(fold(name)) ?? existingByKey.get(nameKey(name));
+      // How often the run read each spelling: breaks ties between new names
+      const mentions = new Map<string, number>();
+      for (const item of confident)
+        for (const name of item.artistas) mentions.set(fold(name), (mentions.get(fold(name)) ?? 0) + 1);
+      const modelPick = new Set(groups.map((group) => fold(group.canonico)));
+
       const canonicalOf = new Map<string, string>();
       const merges: MergeProposal[] = [];
-      for (const group of groups) {
+      const memberGroups = joinGroups([
+        ...clusters.exact,
         // Collaborations stay their own name, whatever the model grouped.
-        const members = [group.canonico, ...group.variantes].filter(
-          (name) => isCollaboration(name) === isCollaboration(group.canonico)
-        );
-        if (members.length < 2) continue;
-        const existing = members.filter((name) => existingByFold.has(fold(name)));
+        ...groups.map((group) =>
+          [group.canonico, ...group.variantes].filter(
+            (name) => isCollaboration(name) === isCollaboration(group.canonico)
+          )
+        ),
+      ]);
+      for (const members of memberGroups) {
+        // Every existing tag the group stands for, each once
+        const existing = [
+          ...new Map(
+            members
+              .map((name) => existingByName.get(name) ?? existingByFold.get(fold(name)))
+              .filter((tag): tag is (typeof context.tags)[number] => !!tag)
+              .map((tag) => [tag.name, tag])
+          ).values(),
+        ];
         // The name to keep is the most established existing tag: the one tied
         // to the catalog, then the most used. The model's pick only breaks
         // ties, so a one-off typo never swallows a name used hundreds of times.
-        const rank = (name: string) => {
-          const tag = existingByFold.get(fold(name));
-          return tag
-            ? (tag.catalog ? 1_000_000 : 0) + (tag.usage ?? 0) + (fold(name) === fold(group.canonico) ? 0.5 : 0)
-            : -1;
-        };
-        const keep = existing.length > 0 ? [...existing].sort((a, b) => rank(b) - rank(a))[0] : group.canonico;
+        // Among new names: the model's pick, then the most read spelling,
+        // then one written in mixed case over ALL CAPS.
+        const newScore = (name: string) =>
+          (modelPick.has(fold(name)) ? 1_000_000 : 0) +
+          (mentions.get(fold(name)) ?? 0) * 10 +
+          (name !== name.toUpperCase() ? 1 : 0);
+        const keep =
+          existing.length > 0
+            ? [...existing].sort(
+                (a, b) =>
+                  rankTag(b) +
+                  (modelPick.has(fold(b.name)) ? 0.5 : 0) -
+                  (rankTag(a) + (modelPick.has(fold(a.name)) ? 0.5 : 0))
+              )[0].name
+            : [...members].sort((a, b) => newScore(b) - newScore(a))[0];
         for (const name of members) canonicalOf.set(fold(name), keep);
-        const variants = existing.filter((name) => fold(name) !== fold(keep));
-        if (existingByFold.has(fold(keep)) && variants.length > 0) {
+        const variants = existing.filter((tag) => tag.name !== keep);
+        if (existing.length > 0 && variants.length > 0) {
+          const keepTag = existing.find((tag) => tag.name === keep)!;
           merges.push({
-            keep: existingByFold.get(fold(keep))!.name,
-            variants: variants.map((name) => existingByFold.get(fold(name))!.name),
+            keep,
+            variants: variants.map((tag) => tag.name),
             reason: "Variantes del mismo nombre",
+            details: [keepTag, ...variants].map((tag) => ({ name: tag.name, kind: tag.kind, usage: tag.usage ?? 0 })),
           });
         }
       }
 
       const tagMap = new Map<string, TagProposal>();
       const propose = (name: string, kind: TagKind, item: Classified) => {
-        const existing = existingByFold.get(fold(name));
+        const existing = existingTag(name);
         const label = existing?.name ?? name;
         // Already carries it: nothing to propose.
-        if (item.tags.some((tag) => fold(tag) === fold(label))) return;
+        if (item.tags.some((tag) => nameKey(tag) === nameKey(label))) return;
         const resolvedKind = (
           existing && (peopleKinds.has(existing.kind) || existing.kind === "TYPE") ? existing.kind : kind
         ) as TagKind;

@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ListChecks, Loader2, Plus, Search, Sparkles } from "lucide-react";
+import { Check, ListChecks, Loader2, Merge, Plus, Search, Sparkles } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
@@ -17,17 +17,23 @@ import { TAG_KIND_ICONS } from "../shared-tag-chip";
 import { MAX_COMBINED_TAGS } from "./combine-tags";
 import { TagDetail } from "./tag-detail";
 
+/** Lowercase, without accents, single spaces: "jose" finds "José". */
+const foldText = (value: string) =>
+  value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
+
 type Props = {
   workspaceSlug: string;
   tagId?: string;
   /** Opens the AI mapping panel (phase 4). */
   onMapWithAI?: () => void;
+  /** Opens the same panel to look for duplicated tags and join them */
+  onMergeWithAI?: () => void;
 };
 
 /** Every shared tag of the workspace on the left; on the right, everything
  * carrying the chosen one — contracts, files, songs, work items… — one step
  * from downloading it all. */
-export function SharedTagsRoot({ workspaceSlug, tagId, onMapWithAI }: Props) {
+export function SharedTagsRoot({ workspaceSlug, tagId, onMapWithAI, onMergeWithAI }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
@@ -56,14 +62,16 @@ export function SharedTagsRoot({ workspaceSlug, tagId, onMapWithAI }: Props) {
     referencesService.getTags(workspaceSlug, { usage: true })
   );
   // Proposals waiting for an admin (e.g. for files just uploaded).
-  const { data: overview } = useSWR(onMapWithAI ? ["TAGGING_OVERVIEW", workspaceSlug] : null, () =>
+  const { data: overview } = useSWR(onMapWithAI || onMergeWithAI ? ["TAGGING_OVERVIEW", workspaceSlug] : null, () =>
     taggingService.overview(workspaceSlug)
   );
-  const pendingReview = overview?.runs.some((run) => run.status === "REVIEW");
+  // Each button says when it has a review waiting
+  const pendingReview = overview?.runs.some((run) => run.status === "REVIEW" && run.scope.mode !== "merge");
+  const pendingMerge = overview?.runs.some((run) => run.status === "REVIEW" && run.scope.mode === "merge");
 
   const groups = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    const visible = (tags ?? []).filter((tag) => !needle || tag.name.toLowerCase().includes(needle));
+    const needle = foldText(search);
+    const visible = (tags ?? []).filter((tag) => !needle || foldText(tag.name).includes(needle));
     return TAG_KINDS.map((kind) => ({
       kind,
       tags: visible.filter((tag) => tag.kind === kind).sort((a, b) => (b.usage ?? 0) - (a.usage ?? 0)),
@@ -111,6 +119,17 @@ export function SharedTagsRoot({ workspaceSlug, tagId, onMapWithAI }: Props) {
               <Sparkles className="size-3.5" />
               {t("references.ai.open")}
               {pendingReview && (
+                <span className="rounded-full bg-accent-primary px-1.5 text-11 font-medium text-on-color">
+                  {t("references.ai.to_review")}
+                </span>
+              )}
+            </Button>
+          )}
+          {onMergeWithAI && (
+            <Button variant="secondary" size="base" className="w-full" onClick={onMergeWithAI}>
+              <Merge className="size-3.5" />
+              {t("references.ai.merge_open")}
+              {pendingMerge && (
                 <span className="rounded-full bg-accent-primary px-1.5 text-11 font-medium text-on-color">
                   {t("references.ai.to_review")}
                 </span>

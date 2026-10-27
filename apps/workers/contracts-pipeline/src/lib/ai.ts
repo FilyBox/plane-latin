@@ -29,6 +29,11 @@ export type StructuredJsonRequest = {
   /** Top-level keys the caller expects — steers DeepSeek's JSON mode */
   keys: readonly string[];
   maxTokens?: number;
+  /** false: answer without thinking first. DeepSeek's reasoning counts
+   * against max_tokens, so on a long list it can use them all and leave the
+   * answer empty; simple classification doesn't need it and is several
+   * times faster without it. */
+  thinking?: boolean;
 };
 
 export type StructuredJsonResult = { text: string; model: string };
@@ -86,6 +91,7 @@ async function callDeepseek(env: AIEnvironment, req: StructuredJsonRequest): Pro
       ],
       response_format: { type: "json_object" },
       max_tokens: req.maxTokens ?? 4096,
+      ...(req.thinking === false ? { thinking: { type: "disabled" } } : {}),
     }),
   });
   if (!response.ok) {

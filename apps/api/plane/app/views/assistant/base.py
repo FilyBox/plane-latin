@@ -22,6 +22,7 @@ from plane.app.views.base import BaseAPIView
 from plane.db.models import Workspace, WorkspaceFeature, WorkspaceMember
 from plane.utils.exception_logger import log_exception
 from plane.utils.streaming import proxy_stream
+from plane.utils.tagging_music import link_artist_tags
 from plane.utils.worker_client import (
     WorkerTriggerError,
     get_assistant_balance,
@@ -181,6 +182,10 @@ class AssistantMusicImportEndpoint(BaseAPIView):
                 workspace, importer._role_catalog(workspace), dry_run=bool(dry_run or aborted)
             )
             if not dry_run and not aborted:
+                # The songs' artists join the tag the workspace already has for them
+                result["artist_tags_linked"] = link_artist_tags(
+                    workspace.id, {track_id for track_id, _outcome, _row in touched}
+                )
                 asset = FileAsset.objects.get(id=asset_id, workspace=workspace)
                 run = _record_import_run(
                     workspace,

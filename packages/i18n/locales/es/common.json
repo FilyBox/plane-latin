@@ -1292,6 +1292,12 @@
       "count_error": "Con error",
       "new_roles": "{count, plural, one {# rol nuevo creado} other {# roles nuevos creados}}"
     },
+    "linked_tags": {
+      "line": "Ligadas a tags existentes: {names}",
+      "line_dry": "Se ligarán a tags existentes: {names}",
+      "more": "{count, plural, one {y # más} other {y # más}}",
+      "hint": "Artistas de estas canciones que ya tenían una tag con su nombre (sin importar mayúsculas, espacios ni acentos): sus canciones y lanzamientos aparecen ahí. No se crea ninguna tag nueva."
+    },
     "inferred": {
       "line": "Tipo de lanzamiento inferido: {summary}",
       "line_dry": "Tipo de lanzamiento a inferir: {summary}",

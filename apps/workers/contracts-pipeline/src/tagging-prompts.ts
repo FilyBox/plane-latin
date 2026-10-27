@@ -64,14 +64,25 @@ Elementos: ${JSON.stringify(items)}
 Responde en json: {"items": [{"id": "...", "tipo": null, "artistas": [], ${topics.length > 0 ? '"etiquetas": [], ' : ""}"confianza": 0.0, "razon": "..."}]}
 `;
 
-export const normalizePrompt = (names: string[], catalog: string[]) => `
-Estos son nombres de artistas y grupos musicales encontrados en distintos lugares. Agrupa los que se refieren al mismo artista o grupo: variantes de escritura, acentos, errores de dedo, "Los X" frente a "X", abreviaturas.
-No agrupes artistas distintos aunque se parezcan (por ejemplo, dos bandas diferentes de la misma ciudad). Ante la duda, no agrupes.
-Una colaboración (varios artistas unidos por "/", "-", "&", "feat", "ft", " x " o " y ") no es una variante de ninguno de ellos: nunca la agrupes con un artista individual.
-Para cada grupo de dos o más nombres elige "canonico": el que aparezca en el catálogo; si ninguno aparece, el más completo y mejor escrito.
-Incluye solo grupos con dos o más nombres.
+/** `clusters`: names of artists and groups that look alike (found without
+ * the model); the model says which, inside each cluster, are one artist. */
+const NORMALIZE_SUBJECT = {
+  artists: "nombres de artistas y grupos musicales",
+  tags: "etiquetas de una disquera (artistas, grupos, personas, proyectos, campañas, catálogos, tipos de documento…)",
+};
 
-Nombres: ${JSON.stringify(names)}
+export const normalizePrompt = (
+  clusters: string[][],
+  catalog: string[],
+  subject: keyof typeof NORMALIZE_SUBJECT = "artists"
+) => `
+Estos son conjuntos de ${NORMALIZE_SUBJECT[subject]} que se parecen. Dentro de cada conjunto, junta los que se refieren al mismo artista o grupo: mayúsculas, espacios, acentos, errores de dedo ("3BALLMNTY" por "3BallMTY"), "Los X" frente a "X".
+No juntes nombres distintos aunque se parezcan (por ejemplo "Grupo 5" y "Grupo 6", "Campaña 2023" y "Campaña 2024", o dos bandas diferentes de la misma ciudad). Ante la duda, no juntes. Nunca juntes nombres de conjuntos distintos.
+Una colaboración (varios artistas unidos por "/", "-", "&", "feat", "ft", " x " o " y ") no es una variante de ninguno de ellos: nunca la juntes con un artista individual.
+Para cada grupo de dos o más nombres elige "canonico": el que aparezca en el catálogo; si ninguno aparece, el más completo y mejor escrito.
+Incluye solo grupos con dos o más nombres, escritos exactamente como aparecen abajo.
+
+Conjuntos: ${JSON.stringify(clusters)}
 
 Catálogo: ${JSON.stringify(catalog)}
 

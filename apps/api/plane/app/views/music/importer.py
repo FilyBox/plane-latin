@@ -20,6 +20,7 @@ from django.db.models import Count
 # Module imports
 from plane.db.models import MusicCredit, MusicRelease
 from plane.utils.music_credits import workspace_role_catalog
+from plane.utils.tagging_music import link_artist_tags
 from plane.utils.music_release_types import (
     apply_inferred_types,
     count_by_type,
@@ -297,6 +298,11 @@ def run_import(
     if inferred and not dry_run:
         apply_inferred_types(inferred)
     result["release_types_inferred"] = {key: count for key, count in count_by_type(inferred).items() if count}
+    # The songs' artists join the tag the workspace already has for them
+    # (a dry run reports which would)
+    result["artist_tags_linked"] = link_artist_tags(
+        workspace.id, {track_id for track_id, _outcome, _row in touched}, dry_run=dry_run
+    )
     if dry_run:
         result["rows"] = outcomes
         result["unparseable"] = _group_unparseable(unparseable)

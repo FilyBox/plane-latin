@@ -16,6 +16,9 @@ Songs and releases credited to a catalog artist also count as tagged with
 that artist's tag (FileTag.party), without a stored row.
 """
 
+# Python imports
+import unicodedata
+
 from django.db import IntegrityError, transaction
 from django.db.models import Count, DateTimeField, F, Q
 from django.db.models.functions import ExtractYear, TruncDate
@@ -528,10 +531,43 @@ def tag_usage(workspace_id) -> dict[str, int]:
     return counts
 
 
-def find_or_create_tag(workspace_id, name: str, kind=FileTag.Kind.CUSTOM, user_id=None) -> FileTag:
-    """Case-insensitive, the way the contract pipeline matches names."""
-    clean = " ".join(name.split())[:255]
+def tag_name_key(name) -> str:
+    """Letters and digits only, lowercase and without accents: "3ball Mty",
+    "3BallMTY" and "3-Ball MTY" share it, so they are one tag (the AI mapping
+    compares names the same way)."""
+    text = unicodedata.normalize("NFKD", str(name or "")).lower()
+    return "".join(char for char in text if char.isalnum() and not unicodedata.combining(char))
+
+
+def find_tag_by_name(workspace_id, name: str) -> FileTag | None:
+    """The workspace's tag for a name: the same text ignoring case, else the
+    same name written with other spaces, accents or punctuation (the one tied
+    to a catalog artist first, then the oldest)."""
+    clean = " ".join(str(name or "").split())
+    if not clean:
+        return None
     tag = FileTag.objects.filter(workspace_id=workspace_id, name__iexact=clean).first()
+    if tag:
+        return tag
+    key = tag_name_key(clean)
+    if not key:
+        return None
+    same = [
+        tag_id
+        for tag_id, other in FileTag.objects.filter(workspace_id=workspace_id).values_list("id", "name")
+        if tag_name_key(other) == key
+    ]
+    if not same:
+        return None
+    return FileTag.objects.filter(id__in=same).order_by(F("party_id").asc(nulls_last=True), "created_at").first()
+
+
+def find_or_create_tag(workspace_id, name: str, kind=FileTag.Kind.CUSTOM, user_id=None) -> FileTag:
+    """Reuses the tag a name already has (see find_tag_by_name), the way the
+    contract pipeline matches names, so "3ball Mty" never becomes a second
+    "3BallMTY"."""
+    clean = " ".join(name.split())[:255]
+    tag = find_tag_by_name(workspace_id, clean)
     if tag:
         return tag
     try:
@@ -541,12 +577,22 @@ def find_or_create_tag(workspace_id, name: str, kind=FileTag.Kind.CUSTOM, user_i
         return FileTag.objects.filter(workspace_id=workspace_id, name__iexact=clean).first()
 
 
+def _folded(text) -> str:
+    """Lowercase, without accents, single spaces: what a search compares."""
+    decomposed = unicodedata.normalize("NFKD", str(text or "")).lower()
+    return " ".join("".join(char for char in decomposed if not unicodedata.combining(char)).split())
+
+
 def search_tags(workspace_id, query: str = "", kind: str | None = None, limit: int = 50):
+    """Tags whose name contains the query, ignoring case and accents ("jose"
+    finds "José")."""
     tags = FileTag.objects.filter(workspace_id=workspace_id)
-    if query:
-        tags = tags.filter(Q(name__icontains=query))
     if kind:
         tags = tags.filter(kind=kind)
+    needle = _folded(query)
+    if needle:
+        ids = [tag_id for tag_id, name in tags.values_list("id", "name") if needle in _folded(name)]
+        tags = tags.filter(id__in=ids)
     return tags.order_by("name")[:limit]
 
 

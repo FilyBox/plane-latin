@@ -401,6 +401,9 @@ export type TMusicImportResult = {
   /** New releases the file gave no type, by the type inferred for them
    * (title hint, then number of songs); a dry run reports what would be */
   release_types_inferred?: Partial<Record<"SINGLE" | "EP" | "ALBUM", number>>;
+  /** Artists of the imported songs tied to the tag the workspace already had
+   * for them (a dry run reports which would be) */
+  artist_tags_linked?: { artist: string; tag: string }[];
 };
 
 /** "Corregir tipo de lanzamientos": releases still on the default type

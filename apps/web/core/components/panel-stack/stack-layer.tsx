@@ -21,6 +21,10 @@ const isDesktopNow = () => window.matchMedia(DESKTOP_QUERY).matches;
 const EASE = [0.32, 0.72, 0, 1] as const;
 const DURATION = 0.28;
 
+/** The lift every side panel gets, so it never blends into the page behind it. */
+export const PANEL_SHADOW =
+  "0px 4px 8px 0px rgba(0, 0, 0, 0.12), 0px 6px 12px 0px rgba(16, 24, 40, 0.12), 0px 1px 16px 0px rgba(16, 24, 40, 0.12)";
+
 type Props = {
   layer: TPanelLayer;
   /** `dim` darkens what is behind, `clear` only catches clicks, `none` lets
@@ -111,6 +115,7 @@ export const StackLayer = forwardRef<HTMLDivElement, Props>(function StackLayer(
           receding && !reduceMotion && "rounded-xl border border-subtle"
         )}
         style={{
+          boxShadow: PANEL_SHADOW,
           ...style,
           originX: side ? 0 : 0.5,
           originY: side ? 0.5 : 0,
