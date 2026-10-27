@@ -20,7 +20,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
-from plane.db.models import AssistantAction, FileTag, Issue, Project, ProjectMember
+from plane.db.models import AssistantAction, FileTag, Issue, Project, ProjectMember, WorkspaceMember
 from plane.utils.assistant_markdown import MENTION_RE
 from plane.utils.entities import REGISTRY
 from plane.utils.shared_tags import (
@@ -317,8 +317,110 @@ def _undo_page(action: AssistantAction):
     page.delete()
 
 
+def _page_mention_check(ctx, markdown: str):
+    """Which mentions in the assistant's Markdown the reader may open."""
+    visible_cache: dict[str, set[str]] = {}
+    member_ids: set[str] | None = None
+
+    def allowed(kind: str, identifier: str) -> bool:
+        nonlocal member_ids
+        if kind == "user_mention":
+            if member_ids is None:
+                member_ids = {
+                    str(value).lower()
+                    for value in WorkspaceMember.objects.filter(
+                        workspace_id=ctx.workspace_id, is_active=True
+                    ).values_list("member_id", flat=True)
+                }
+            return identifier.lower() in member_ids
+        # Without References the chips can't load: write the plain name instead.
+        if "references" not in ctx.features:
+            return False
+        if kind not in visible_cache:
+            ids = [match.group(3) for match in MENTION_RE.finditer(markdown) if match.group(1) == kind]
+            visible_cache[kind] = {value.lower() for value in _visible(ctx, kind, ids)}
+        return identifier.lower() in visible_cache[kind]
+
+    return allowed
+
+
+def edit_page(ctx, user, data: dict, cookie: str, payload=None) -> AssistantAction:
+    """Rewrites an existing page's content with the assistant's Markdown.
+
+    Refuses when the page changed since the assistant read it, so nobody's
+    edit is overwritten; blocks Markdown can't hold come back untouched.
+    """
+    from plane.utils.assistant_markdown import plain_text
+    from plane.utils.assistant_pages import PageUnavailable, find_page, write_page_html
+    from plane.utils.page_markdown import PageChanged, fingerprint, markdown_to_page_html
+    from plane.utils.references import sync_mentions
+
+    try:
+        page, project = find_page(ctx, user, data.get("page_id"), for_edit=True)
+    except PageUnavailable as error:
+        raise ActionError(str(error))
+    before_html = page.description_html or ""
+    if data.get("base_version") and fingerprint(before_html) != data.get("base_version"):
+        raise ActionError("The page changed after the assistant read it. Ask it to read the page again.")
+    markdown = str(data.get("markdown") or "")[:120_000]
+    if not markdown.strip():
+        raise ActionError("The new content is empty.")
+    try:
+        after_html = markdown_to_page_html(
+            markdown,
+            before_html,
+            set(REGISTRY) | {"user_mention"},
+            _page_mention_check(ctx, markdown),
+            tag_href=lambda identifier: f"/{ctx.slug}/tags/{identifier}/",
+        )
+    except PageChanged:
+        raise ActionError("The page changed after the assistant read it. Ask it to read the page again.")
+    try:
+        write_page_html(page, project, after_html, user, cookie)
+    except PageUnavailable as error:
+        raise ActionError(str(error))
+    sync_mentions(ctx.workspace_id, "page", str(page.id), after_html, user.id)
+    return AssistantAction.objects.create(
+        workspace_id=ctx.workspace_id,
+        kind=AssistantAction.Kind.EDIT_PAGE,
+        summary=f"Editó la página «{page.name}»"[:300],
+        payload=payload or {},
+        result={
+            "page_id": str(page.id),
+            "project_id": str(project.id),
+            "name": page.name,
+            "path": f"/{ctx.slug}/projects/{project.id}/pages/{page.id}/",
+            # What it was, to put it back; the words after, to refuse once someone edits again
+            "before_html": before_html,
+            "text": plain_text(after_html)[:20_000],
+        },
+    )
+
+
+def _undo_page_edit(action: AssistantAction, user, cookie: str):
+    from plane.utils.assistant_markdown import plain_text
+    from plane.utils.assistant_pages import PageUnavailable, find_page, write_page_html
+    from plane.utils.entities import AccessContext
+    from plane.utils.references import sync_mentions
+
+    result = action.result or {}
+    ctx = AccessContext.build(action.workspace.slug, user)
+    try:
+        page, project = find_page(ctx, user, result.get("page_id"), for_edit=True)
+    except PageUnavailable as error:
+        raise ActionError(str(error))
+    if plain_text(page.description_html)[:20_000] != result.get("text"):
+        raise ActionError("Someone edited this page after the change; undo it from the page's version history.")
+    before_html = result.get("before_html") or "<p></p>"
+    try:
+        write_page_html(page, project, before_html, user, cookie)
+    except PageUnavailable as error:
+        raise ActionError(str(error))
+    sync_mentions(action.workspace_id, "page", str(page.id), before_html, user.id)
+
+
 @transaction.atomic
-def undo(action: AssistantAction, user, origin: str) -> AssistantAction:
+def undo(action: AssistantAction, user, origin: str, cookie: str = "") -> AssistantAction:
     if action.status != AssistantAction.Status.APPLIED:
         raise ActionError("This change was already undone.")
     if action.kind in (AssistantAction.Kind.TAG_ITEMS, AssistantAction.Kind.UNTAG_ITEMS):
@@ -327,6 +429,8 @@ def undo(action: AssistantAction, user, origin: str) -> AssistantAction:
         _undo_work_item(action, user, origin)
     elif action.kind == AssistantAction.Kind.CREATE_PAGE:
         _undo_page(action)
+    elif action.kind == AssistantAction.Kind.EDIT_PAGE:
+        _undo_page_edit(action, user, cookie)
     action.status = AssistantAction.Status.UNDONE
     action.undone_at = timezone.now()
     action.undone_by = user
@@ -340,7 +444,8 @@ def action_payload(action: AssistantAction) -> dict:
         "kind": action.kind,
         "status": action.status,
         "summary": action.summary,
-        "result": action.result,
+        # The page as it was before an edit stays on the server (it can be large)
+        "result": {key: value for key, value in (action.result or {}).items() if key != "before_html"},
         "created_at": action.created_at.isoformat(),
         "created_by": str(action.created_by_id) if action.created_by_id else None,
         "undone_at": action.undone_at.isoformat() if action.undone_at else None,

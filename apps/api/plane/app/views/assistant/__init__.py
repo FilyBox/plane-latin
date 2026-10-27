@@ -6,6 +6,7 @@ from .base import AssistantBalanceEndpoint, AssistantChatEndpoint, AssistantMode
 from .chats import AssistantChatDetailEndpoint, AssistantChatMessagesEndpoint, AssistantChatsEndpoint
 from .memory import AssistantMemoriesEndpoint, AssistantMemoryDetailEndpoint, InternalAssistantMemorySearchEndpoint
 from .files import InternalAssistantFileReadEndpoint
+from .pages import InternalAssistantPageReadEndpoint
 from .actions import AssistantActionUndoEndpoint, AssistantActionsEndpoint
 from .reports import InternalAssistantReportEndpoint
 from .deep_review import (

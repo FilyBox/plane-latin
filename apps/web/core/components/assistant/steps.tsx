@@ -65,6 +65,7 @@ export const TRACE_TOOLS = new Set([
   "get_references",
   "search_memory",
   "read_file",
+  "read_page",
   "read_deep_review",
 ]);
 
@@ -683,6 +684,10 @@ export function buildTraceToolUIs(slug: string) {
           name: String(result.name ?? ""),
           pages: Number(result.pages ?? 0),
         }),
+    }),
+    traceTool("read_page", {
+      icon: FileText,
+      output: (result) => String(result.name ?? ""),
     }),
     traceTool("read_deep_review", {
       icon: ScanSearch,

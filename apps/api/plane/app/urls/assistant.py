@@ -15,6 +15,7 @@ from plane.app.views.assistant import (
     AssistantMemoriesEndpoint,
     AssistantMemoryDetailEndpoint,
     InternalAssistantFileReadEndpoint,
+    InternalAssistantPageReadEndpoint,
     InternalAssistantMemorySearchEndpoint,
     InternalAssistantReportEndpoint,
     AssistantDeepReviewDecisionEndpoint,
@@ -81,6 +82,11 @@ urlpatterns = [
         "internal/workspaces/<uuid:workspace_id>/assistant/files/<uuid:asset_id>/read/",
         InternalAssistantFileReadEndpoint.as_view(),
         name="internal-assistant-file-read",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/pages/<uuid:page_id>/read/",
+        InternalAssistantPageReadEndpoint.as_view(),
+        name="internal-assistant-page-read",
     ),
     path("workspaces/<str:slug>/assistant/actions/", AssistantActionsEndpoint.as_view(), name="assistant-actions"),
     path(

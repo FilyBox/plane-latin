@@ -211,6 +211,14 @@
         "done": "Prepared memory"
       },
       "memories": "{count, plural, =0 {No matches} one {# memory} other {# memories}}",
+      "read_page": {
+        "running": "Reading the page",
+        "done": "Read the page"
+      },
+      "propose_page_edit": {
+        "running": "Preparing the page changes",
+        "done": "Prepared the page changes"
+      },
       "read_file": {
         "running": "Reading the file",
         "done": "Read the file"
@@ -485,6 +493,12 @@
       "discard": "Discard",
       "discarded": "Discarded",
       "failed": "Couldn't apply the change.",
+      "page_edit_title": "Edit page “{name}”",
+      "apply_page_edit": "Apply changes",
+      "page_edited": "Page updated",
+      "page_new_version": "New version",
+      "page_current_version": "Current",
+      "page_kept_block": "Unchanged block (image, checklist, code…)",
       "page_title": "New page",
       "create_page": "Create page",
       "page_created": "Page created",

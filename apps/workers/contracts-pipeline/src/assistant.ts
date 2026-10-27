@@ -334,6 +334,7 @@ ${
   }
 - Formato: Markdown con títulos (#, ##), párrafos, listas, tablas, negritas, citas y enlaces. Empieza con una introducción breve de qué es y de dónde salen los datos.
 - La tarjeta deja revisar, editar y elegir proyecto antes de crearla, y se puede deshacer. En el chat solo resume en una frase qué contiene.
+- EDITAR una página existente ("agrega / cambia / corrige / actualiza / quita … en la página X"): SÍ puedes. 1) Ubica su id (mención, contexto o search_workspace con types page); 2) read_page; 3) propose_page_edit: para cambios puntuales usa mode "edits" con fragmentos copiados EXACTOS del Markdown leído; para agregar al final, "append"; para reescribirla, "replace" con el documento completo. Las líneas [[bloque:…]] son imágenes, listas de tareas, código u otros bloques que el Markdown no muestra: déjalas tal cual y en su lugar; quítalas solo si el usuario pidió borrar ese contenido, y nunca inventes una. Escribe con las mismas reglas de formato y menciones que al crear. La tarjeta muestra la versión nueva para revisar y aplicar y se puede deshacer: nunca digas que ya quedó cambiada. Si read_page dice can_edit false, explica que no tiene permiso.
 - "Reporte / listado de todo lo de un artista, grupo o etiqueta" (contratos con sus fechas, canciones con lanzamiento, videos y enlaces, lanzamientos): propose_report con la etiqueta exacta (find_tags antes). Lo arma el servidor con los datos reales, en tablas y con cada fila enlazada; tú solo escribes una introducción breve (intro) con lo más relevante. No copies esas listas a mano en propose_page.${
     caps.tagAdmin
       ? `
@@ -527,6 +528,99 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
           ? linkMentions(input.markdown, collectEntities(sources, ENTITY_TYPES))
           : { markdown: input.markdown, linked: 0 };
         return { ...compact({ ...input, markdown }), workspace_slug: slug, linked_mentions: linked };
+      },
+    });
+
+    type PageRead = {
+      id: string;
+      name: string;
+      project_id: string;
+      path: string;
+      markdown: string;
+      kept_blocks: number;
+      base_version: string;
+      can_edit: boolean;
+    };
+    const readPage = (pageId: string) =>
+      api.request<PageRead>(
+        "GET",
+        `/internal/workspaces/${workspace}/assistant/pages/${pageId}/read/?${query({ user_id: body.user_id })}`
+      );
+
+    tools.read_page = tool({
+      description:
+        "Lee una página existente (su id: mención, contexto o search_workspace) y devuelve su contenido en Markdown con menciones. Las líneas [[bloque:…]] son bloques que el Markdown no muestra (imágenes, listas de tareas, código, colores…). Úsala antes de propose_page_edit.",
+      inputSchema: z.object({ page_id: z.string() }),
+      execute: async ({ page_id }) => {
+        try {
+          return await readPage(page_id);
+        } catch {
+          return { error: "No encontré esa página o no tienes acceso a ella." };
+        }
+      },
+    });
+
+    tools.propose_page_edit = tool({
+      description:
+        "Propone cambiar el contenido de una página existente (después de read_page). Modos: edits = reemplazos exactos de fragmentos del texto leído (lo preferido para cambios puntuales); append = agregar Markdown al final; replace = el documento completo nuevo. Devuelve una tarjeta con la versión nueva para revisar y aplicar; se puede deshacer.",
+      inputSchema: z.object({
+        page_id: z.string(),
+        mode: z.enum(["edits", "append", "replace"]),
+        edits: z
+          .array(z.object({ find: z.string().min(1), replace: z.string() }))
+          .max(30)
+          .optional()
+          .describe("Cada find, copiado tal cual del Markdown leído, debe aparecer una sola vez"),
+        markdown: z.string().max(60_000).optional().describe("Para append o replace"),
+        summary: z.string().max(300).describe("Qué cambia, en una frase"),
+      }),
+      execute: async (input, { messages }) => {
+        let page: PageRead;
+        try {
+          page = await readPage(input.page_id);
+        } catch {
+          return { error: "No encontré esa página o no tienes acceso a ella." };
+        }
+        if (!page.can_edit) return { error: "No puedes editar esta página (permisos, bloqueada o archivada)." };
+        let next = page.markdown;
+        if (input.mode === "edits") {
+          const failed: string[] = [];
+          for (const edit of input.edits ?? []) {
+            const count = next.split(edit.find).length - 1;
+            if (count !== 1)
+              failed.push(`${count === 0 ? "no aparece" : `aparece ${count} veces`}: ${edit.find.slice(0, 80)}`);
+            else next = next.replace(edit.find, () => edit.replace);
+          }
+          if (failed.length > 0)
+            return {
+              error: `Algunos fragmentos no se pudieron reemplazar. Vuelve a leer la página y cópialos exactos. ${failed.join(" | ")}`,
+            };
+          if (!input.edits?.length) return { error: "Faltan los reemplazos (edits)." };
+        } else if (!input.markdown?.trim()) {
+          return { error: "Falta el Markdown." };
+        } else {
+          next = input.mode === "append" ? [page.markdown, input.markdown].join("\n\n") : input.markdown;
+        }
+        // Names of things the conversation returned become mentions, as in propose_page
+        const sources: unknown[] = [body.mentions, body.context?.items];
+        for (const message of body.messages) {
+          if (message.role !== "assistant") continue;
+          for (const part of message.parts) sources.push((part as { output?: unknown }).output);
+        }
+        for (const message of messages) if (message.role === "tool") sources.push(message.content);
+        const { markdown } = caps.references
+          ? linkMentions(next, collectEntities(sources, ENTITY_TYPES))
+          : { markdown: next };
+        return {
+          page_id: page.id,
+          name: page.name,
+          path: page.path,
+          before: page.markdown,
+          markdown,
+          base_version: page.base_version,
+          summary: input.summary,
+          workspace_slug: slug,
+        };
       },
     });
 

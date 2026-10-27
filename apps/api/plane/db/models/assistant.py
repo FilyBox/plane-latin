@@ -150,6 +150,7 @@ class AssistantAction(BaseModel):
         UNTAG_ITEMS = "UNTAG_ITEMS", "Untag items"
         CREATE_WORK_ITEM = "CREATE_WORK_ITEM", "Create work item"
         CREATE_PAGE = "CREATE_PAGE", "Create page"
+        EDIT_PAGE = "EDIT_PAGE", "Edit page"
 
     class Status(models.TextChoices):
         APPLIED = "APPLIED", "Applied"

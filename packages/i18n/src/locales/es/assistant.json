@@ -211,6 +211,14 @@
         "done": "Preparó la memoria"
       },
       "memories": "{count, plural, =0 {Sin coincidencias} one {# memoria} other {# memorias}}",
+      "read_page": {
+        "running": "Leyendo la página",
+        "done": "Leyó la página"
+      },
+      "propose_page_edit": {
+        "running": "Preparando los cambios de la página",
+        "done": "Preparó los cambios de la página"
+      },
       "read_file": {
         "running": "Leyendo el archivo",
         "done": "Leyó el archivo"
@@ -485,6 +493,12 @@
       "discard": "Descartar",
       "discarded": "Descartado",
       "failed": "No se pudo aplicar el cambio.",
+      "page_edit_title": "Editar página «{name}»",
+      "apply_page_edit": "Aplicar cambios",
+      "page_edited": "Página actualizada",
+      "page_new_version": "Versión nueva",
+      "page_current_version": "Actual",
+      "page_kept_block": "Bloque sin cambios (imagen, lista de tareas, código…)",
       "page_title": "Nueva página",
       "create_page": "Crear página",
       "page_created": "Página creada",

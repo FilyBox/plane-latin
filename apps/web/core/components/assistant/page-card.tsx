@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from "react";
 import { makeAssistantToolUI } from "@assistant-ui/react";
-import { FileText } from "lucide-react";
+import { FilePen, FileText } from "lucide-react";
 import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";
 import { setToast, TOAST_TYPE } from "@plane/propel/toast";
@@ -216,5 +216,158 @@ export const ReportCard = makeAssistantToolUI<Record<string, unknown>, TPageProp
       return <p className="text-12 text-tertiary">{result.error ?? t("assistant.actions.failed")}</p>;
     }
     return <PageForm proposal={result} toolCallId={toolCallId} />;
+  },
+});
+
+type TPageEditProposal = {
+  page_id?: string;
+  name?: string;
+  path?: string;
+  before?: string;
+  markdown?: string;
+  base_version?: string;
+  summary?: string;
+  workspace_slug?: string;
+  error?: string;
+};
+
+// A block the Markdown can't show (image, checklist, code…): it stays as it is
+const KEPT_BLOCK = /^\s*\[\[bloque:[0-9a-f]{10}\]\]\s*$/gm;
+
+/** Changes to an existing page: the new version next to the current one,
+ * editable before applying; undoable until someone edits the page again. */
+const PageEditForm = observer(function PageEditForm({
+  proposal,
+  toolCallId,
+}: {
+  proposal: TPageEditProposal;
+  toolCallId: string;
+}) {
+  const { t } = useTranslation();
+  const slug = proposal.workspace_slug!;
+  const [outcome, remember] = useOutcome(`assistant-page-edit:${toolCallId}`);
+  const [markdown, setMarkdown] = useState(proposal.markdown ?? "");
+  const [view, setView] = useState<"new" | "current" | "edit">("new");
+  const busy = outcome.state === "busy";
+  const done = outcome.state !== "idle" && outcome.state !== "busy";
+  const keptLabel = `> ${t("assistant.actions.page_kept_block")}`;
+  const previewHtml = useMemo(
+    () =>
+      markdownToPreviewHtml((view === "current" ? (proposal.before ?? "") : markdown).replace(KEPT_BLOCK, keptLabel)),
+    [view, markdown, proposal.before, keptLabel]
+  );
+
+  const apply = async () => {
+    remember({ state: "busy" });
+    try {
+      const action = await assistantService.createAction(slug, {
+        kind: "EDIT_PAGE",
+        page_id: proposal.page_id,
+        markdown,
+        base_version: proposal.base_version,
+      });
+      remember({ state: "applied", id: action.id, result: action.result });
+    } catch (error) {
+      remember({ state: "idle" });
+      setToast({ type: TOAST_TYPE.ERROR, title: errorText(error, t("assistant.actions.failed")) });
+    }
+  };
+  const undo = async () => {
+    if (!outcome.id) return;
+    remember({ ...outcome, state: "busy" });
+    try {
+      await assistantService.undoAction(slug, outcome.id);
+      remember({ state: "undone", id: outcome.id });
+    } catch (error) {
+      if (alreadyUndone(error)) remember({ state: "undone", id: outcome.id });
+      else {
+        remember({ ...outcome, state: "applied" });
+        setToast({ type: TOAST_TYPE.ERROR, title: errorText(error, t("assistant.actions.failed")) });
+      }
+    }
+  };
+
+  const tab = (key: typeof view, label: string) => (
+    <button
+      type="button"
+      onClick={() => setView(key)}
+      aria-pressed={view === key}
+      className={cn(
+        "rounded-sm px-1.5 py-0.5 text-11",
+        view === key ? "bg-layer-2 font-medium text-primary" : "text-secondary hover:text-primary"
+      )}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-center gap-2">
+        <FilePen className="size-4 shrink-0 text-tertiary" aria-hidden />
+        <p className="min-w-0 flex-1 truncate text-13 font-medium text-primary">
+          {t("assistant.actions.page_edit_title", { name: proposal.name ?? "" })}
+        </p>
+      </div>
+      {proposal.summary && <p className="mt-1 text-12 text-secondary">{proposal.summary}</p>}
+      {!done && (
+        <>
+          <div className="mt-2 flex items-center gap-1">
+            {tab("new", t("assistant.actions.page_new_version"))}
+            {tab("current", t("assistant.actions.page_current_version"))}
+            {tab("edit", t("assistant.actions.edit_text"))}
+          </div>
+          {view === "edit" ? (
+            <textarea
+              value={markdown}
+              rows={10}
+              onChange={(event) => setMarkdown(event.target.value)}
+              aria-label={t("assistant.actions.fields.content")}
+              className={cn(FIELD, "font-mono mt-1.5 [field-sizing:content] max-h-96 min-h-40 resize-y text-11")}
+            />
+          ) : (
+            <div className="mt-1.5 max-h-72 overflow-auto rounded-md border border-subtle px-2.5 py-2">
+              <div
+                className={PREVIEW}
+                // Escaped by the converter before any tag is added.
+                // oxlint-disable-next-line react/no-danger
+                dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
+            </div>
+          )}
+        </>
+      )}
+      <Footer
+        outcome={outcome}
+        busy={busy}
+        doneLabel={t("assistant.actions.page_edited")}
+        extra={
+          proposal.path ? (
+            <AssistantLink href={proposal.path} className="shrink-0 text-12">
+              {t("assistant.actions.open")}
+            </AssistantLink>
+          ) : null
+        }
+        applyLabel={t("assistant.actions.apply_page_edit")}
+        disabled={!markdown.trim()}
+        onApply={() => void apply()}
+        onDiscard={() => remember({ state: "discarded" })}
+        onUndo={() => void undo()}
+      />
+    </div>
+  );
+});
+
+export const PageEditCard = makeAssistantToolUI<Record<string, unknown>, TPageEditProposal>({
+  toolName: "propose_page_edit",
+  render: function PageEditRender({ result, status, toolCallId }) {
+    const { t } = useTranslation();
+    if (status.type === "running" || !result) {
+      return <TraceLine live icon={FilePen} label={t("assistant.steps.propose_page_edit.running")} />;
+    }
+    if (result.error || !result.workspace_slug || !result.page_id) {
+      return <p className="text-12 text-tertiary">{result.error ?? t("assistant.actions.failed")}</p>;
+    }
+    return <PageEditForm proposal={result} toolCallId={toolCallId} />;
   },
 });

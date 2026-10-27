@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ArrowLeft, FileText, ListTodo, Merge, Tag, Tags, Undo2 } from "lucide-react";
+import { ArrowLeft, FilePen, FileText, ListTodo, Merge, Tag, Tags, Undo2 } from "lucide-react";
 import useSWR, { mutate as mutateGlobal } from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
@@ -26,6 +26,7 @@ const ICONS: Record<TAssistantAction["kind"], LucideIcon> = {
   UNTAG_ITEMS: Tags,
   CREATE_WORK_ITEM: ListTodo,
   CREATE_PAGE: FileText,
+  EDIT_PAGE: FilePen,
   MERGE_TAGS: Merge,
 };
 

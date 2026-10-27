@@ -35,7 +35,7 @@ import { AlbumGroupingCard } from "./album-grouping-card";
 import { ActionsView } from "./actions-view";
 import { DeepReviewCard } from "./deep-review-card";
 import { AssistantHelp } from "./help";
-import { PageCard, ReportCard } from "./page-card";
+import { PageCard, PageEditCard, ReportCard } from "./page-card";
 import { AssistantAttachmentAdapter } from "./attachments";
 import {
   AskUserCard,
@@ -471,6 +471,7 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
       <WorkLinksCard />
       <AlbumGroupingCard />
       <PageCard />
+      <PageEditCard />
       <ReportCard />
       <DeepReviewCard />
       <StartTagMappingCard />

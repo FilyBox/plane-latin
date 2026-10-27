@@ -62,7 +62,8 @@ export class Server {
     // Logging middleware
     this.app.use(loggerMiddleware);
     // Body parsing middleware
-    this.app.use(express.json());
+    // Pages can be large: the assistant's page edits send a whole page
+    this.app.use(express.json({ limit: "20mb" }));
     this.app.use(express.urlencoded({ extended: true }));
     // cors middleware
     this.setupCors();

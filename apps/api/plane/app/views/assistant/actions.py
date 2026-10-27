@@ -10,7 +10,15 @@ from rest_framework.response import Response
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
 from plane.db.models import AssistantAction, TaggingRun, User, WorkspaceMember
-from plane.utils.assistant_actions import ActionError, action_payload, create_page, create_work_item, tag_items, undo
+from plane.utils.assistant_actions import (
+    ActionError,
+    action_payload,
+    create_page,
+    create_work_item,
+    edit_page,
+    tag_items,
+    undo,
+)
 from plane.utils.host import base_host
 
 
@@ -87,6 +95,9 @@ class AssistantActionsEndpoint(BaseAPIView):
                 action = create_work_item(ctx, request.user, data, base_host(request=request, is_app=True), payload=data)
             elif kind == AssistantAction.Kind.CREATE_PAGE:
                 action = create_page(ctx, request.user, data, payload=data)
+            elif kind == AssistantAction.Kind.EDIT_PAGE:
+                # The live server loads and saves the page as this person
+                action = edit_page(ctx, request.user, data, request.META.get("HTTP_COOKIE", ""), payload=data)
             else:
                 return Response({"error": "Unknown action"}, status=status.HTTP_400_BAD_REQUEST)
         except ActionError as error:
@@ -106,7 +117,7 @@ class AssistantActionUndoEndpoint(BaseAPIView):
         if action.created_by_id != request.user.id and not is_admin:
             return Response({"error": "Only who made this change can undo it"}, status=status.HTTP_403_FORBIDDEN)
         try:
-            undo(action, request.user, base_host(request=request, is_app=True))
+            undo(action, request.user, base_host(request=request, is_app=True), request.META.get("HTTP_COOKIE", ""))
         except ActionError as error:
             return Response({"error": str(error)}, status=status.HTTP_409_CONFLICT)
         action.refresh_from_db()
