@@ -26,6 +26,7 @@ import { AskAssistantButton } from "@/components/assistant/ask";
 import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 import { useEntityPeek } from "@/components/entity-peek/use-entity-peek";
 import { StackLayer } from "@/components/panel-stack/stack-layer";
+import { usePanelEscape } from "@/components/panel-stack/use-panel-escape";
 import { usePanelLayer } from "@/components/panel-stack/use-panel-layer";
 import { EntityBacklinks } from "@/components/references/references-section";
 import { SharedTagPicker } from "@/components/references/shared-tag-picker";
@@ -312,22 +313,8 @@ export function MusicReleasePeekPanel(props: Props) {
   const layer = usePanelLayer(true);
   const isTopLayer = layer.isTop;
   const dialogOpen = contractsDialogOpen || isDeleteOpen || isMergeOpen;
-  // Escape closes the panel when it is on top and nothing of its own is open.
-  // A field being edited takes the first Escape (it cancels or blurs).
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || !isTopLayer || dialogOpen) return;
-      if (document.querySelector('[data-headlessui-state="open"]')) return;
-      const target = event.target;
-      if (target instanceof HTMLElement && target.closest("input, textarea, select")) {
-        target.blur();
-        return;
-      }
-      onClose();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [isTopLayer, dialogOpen, onClose]);
+  // Escape closes the panel when it is on top and nothing of its own is open
+  usePanelEscape(onClose, { isTop: isTopLayer, blocked: dialogOpen });
   // Focus goes back where it was when the panel closes
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;

@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Columns2, Maximize2, X } from "lucide-react";
 // plane imports
@@ -13,6 +13,7 @@ import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/prop
 import { Tooltip } from "@plane/propel/tooltip";
 import { cn } from "@plane/utils";
 import { StackLayer } from "@/components/panel-stack/stack-layer";
+import { usePanelEscape } from "@/components/panel-stack/use-panel-escape";
 import { usePanelLayer } from "@/components/panel-stack/use-panel-layer";
 
 type TPeekMode = "side-peek" | "modal" | "full-screen";
@@ -72,14 +73,7 @@ export function ContractPeekLayout({
   const layer = usePanelLayer(true, { variant: peekMode === "side-peek" ? "side" : "center" });
   const isTopLayer = layer.isTop;
   // Only the panel on top closes on Escape
-  useEffect(() => {
-    if (suspendClose || !isTopLayer) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [suspendClose, isTopLayer, onClose]);
+  usePanelEscape(onClose, { isTop: isTopLayer, blocked: suspendClose });
   // Which half of the split has the whole width. Independent of `peekMode`:
   // the document and the side pane each sometimes need the full container.
   const [expanded, setExpanded] = useState<"none" | "document" | "side">("none");

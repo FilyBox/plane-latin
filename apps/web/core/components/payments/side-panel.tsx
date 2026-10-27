@@ -5,6 +5,7 @@ import { useTranslation } from "@plane/i18n";
 import { CenterPanelIcon, FullScreenPanelIcon, SidePanelIcon } from "@plane/propel/icons";
 import { CustomSelect } from "@plane/ui";
 import { PeekPanel, type PeekMode } from "@/components/core/peek-panel";
+import { hasOpenOverlay, usePanelEscape } from "@/components/panel-stack/use-panel-escape";
 import { usePanelLayer } from "@/components/panel-stack/use-panel-layer";
 import usePeekOverviewOutsideClickDetector from "@/hooks/use-peek-overview-outside-click";
 
@@ -53,7 +54,7 @@ export function PaymentsSidePanel({
     ref,
     () => {
       if (!isOpen || !isTopRef.current) return;
-      if (!document.querySelector('[data-headlessui-state="open"]')) closeRef.current();
+      if (!hasOpenOverlay()) closeRef.current();
     },
     isOpen ? title : "",
     ["main-sidebar"]
@@ -64,24 +65,7 @@ export function PaymentsSidePanel({
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     return () => previous?.focus();
   }, [isOpen]);
-  useEffect(() => {
-    if (!isOpen) return;
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || !isTopRef.current) return;
-      if (document.querySelector('[data-headlessui-state="open"], .editor-image-full-screen-modal')) return;
-      const focused = document.activeElement;
-      // Rich text keeps Escape for itself. A plain field gives up focus first,
-      // so a second Escape closes the panel instead of never closing it.
-      if (focused?.closest('[contenteditable="true"]')) return;
-      if (focused instanceof HTMLElement && focused.closest("input, textarea, select")) {
-        focused.blur();
-        return;
-      }
-      closeRef.current();
-    };
-    document.addEventListener("keydown", escape);
-    return () => document.removeEventListener("keydown", escape);
-  }, [isOpen]);
+  usePanelEscape(onClose, { isTop: layer.isTop, enabled: isOpen });
   const current = modes.find((item) => item.key === mode)!;
   return (
     // Kept mounted while it slides out

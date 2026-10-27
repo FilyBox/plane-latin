@@ -44,6 +44,7 @@ import { cn } from "@plane/utils";
 import { AskAssistantButton } from "@/components/assistant/ask";
 import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 import { StackLayer } from "@/components/panel-stack/stack-layer";
+import { usePanelEscape } from "@/components/panel-stack/use-panel-escape";
 import { usePanelLayer } from "@/components/panel-stack/use-panel-layer";
 import { EntityBacklinks } from "@/components/references/references-section";
 import { SharedTagPicker } from "@/components/references/shared-tag-picker";
@@ -256,15 +257,8 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
   // Where this panel sits among the open panels (a song opened from it stacks on top)
   const layer = usePanelLayer(true, { variant: peekMode === "side-peek" ? "side" : "center" });
   const isTopLayer = layer.isTop;
-  // Escape closes (matches the work-item peek behavior), unless a dialog or another panel is on top
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || anyModalOpen || !isTopLayer) return;
-      requestClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [anyModalOpen, isTopLayer, requestClose]);
+  // Escape closes (asking first if there are unsaved changes), unless a dialog or another panel is on top
+  usePanelEscape(requestClose, { isTop: isTopLayer, blocked: anyModalOpen });
 
   // PDF presigned URL
   useEffect(() => {

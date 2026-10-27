@@ -57,6 +57,7 @@ import { creditRoleLabel, creditRoleOptions, creditRolesOf } from "./credit-role
 import { AskAssistantButton } from "@/components/assistant/ask";
 import { PeekLinkActions } from "@/components/entity-peek/peek-link-actions";
 import { StackLayer } from "@/components/panel-stack/stack-layer";
+import { usePanelEscape } from "@/components/panel-stack/use-panel-escape";
 import { usePanelLayer } from "@/components/panel-stack/use-panel-layer";
 import { WorkContractsSection } from "./work-contracts-section";
 import { useEntityPeek } from "@/components/entity-peek/use-entity-peek";
@@ -267,13 +268,7 @@ export function MusicTrackPeekPanel(props: Props) {
   const layer = usePanelLayer(true);
   const isTopLayer = layer.isTop;
   // Escape closes the panel unless a sheet or another panel is stacked on top
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !suspendClose && !contractsDialogOpen && isTopLayer) onClose();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [suspendClose, contractsDialogOpen, isTopLayer, onClose]);
+  usePanelEscape(onClose, { isTop: isTopLayer, blocked: !!suspendClose || contractsDialogOpen });
 
   const patch = async (payload: Record<string, unknown>) => {
     // Create mode: nothing persisted yet — accumulate into the local draft
