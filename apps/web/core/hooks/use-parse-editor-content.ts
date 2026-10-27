@@ -5,15 +5,22 @@
  */
 
 import { useCallback } from "react";
+import { useTranslation } from "@plane/i18n";
 // plane types
-import type { TSearchEntities } from "@plane/types";
+import type { TEntityCard, TSearchEntities } from "@plane/types";
 // helpers
 import { getBase64Image, getEditorAssetSrc } from "@plane/utils";
 import type { TCustomComponentsMetaData } from "@plane/utils";
+// references
+import { entityLabelKey, isEntityName } from "@/components/references/entity-meta";
 // hooks
 import { useMember } from "@/hooks/store/use-member";
 // plane web hooks
 import { useAdditionalEditorMention } from "@/hooks/use-additional-editor-mention";
+// services
+import { referencesService } from "@/services/references.service";
+
+type TMentionLabel = { textContent: string; path?: string };
 
 type TArgs = {
   projectId?: string;
@@ -22,12 +29,69 @@ type TArgs = {
 
 export const useParseEditorContent = (args: TArgs) => {
   const { projectId, workspaceSlug } = args;
+  const { t } = useTranslation();
   // store hooks
   const { getUserDetails } = useMember();
   // parse additional content
   const { parseAdditionalEditorContent } = useAdditionalEditorMention({
     enableAdvancedMentions: true,
   });
+
+  /**
+   * @description labels for every mention in the exported content: the user's display name, or the
+   * contract/song/file… title resolved in one request (same lookup and permissions as the editor chips).
+   * Items the reader can't see, or that no longer exist, show their kind ("Canción", "Contrato"…).
+   */
+  const getMentionLabels = useCallback(
+    async (mentions: { id: string; entityType: string }[]): Promise<Map<string, TMentionLabel>> => {
+      const entities = new Map<string, { entity_name: string; id: string }>();
+      mentions.forEach(({ id, entityType }) => {
+        if (id && entityType !== "user_mention" && isEntityName(entityType))
+          entities.set(`${entityType}:${id}`, { entity_name: entityType, id });
+      });
+      let cards: TEntityCard[] = [];
+      if (entities.size > 0 && workspaceSlug) {
+        try {
+          cards = await referencesService.resolve(workspaceSlug, [...entities.values()]);
+        } catch (error) {
+          console.error("Failed to resolve mentioned items for export:", error);
+        }
+      }
+      const resolved = new Map(
+        cards
+          .filter((card) => card.status === "ok" && card.title)
+          .map((card) => [`${card.entity_name}:${card.id}`, card])
+      );
+
+      const labels = new Map<string, TMentionLabel>();
+      mentions.forEach(({ id, entityType }) => {
+        const key = `${entityType}:${id}`;
+        if (labels.has(key)) return;
+        if (entityType === "user_mention") {
+          labels.set(key, {
+            textContent: getUserDetails(id)?.display_name ?? "",
+            path: `${workspaceSlug}/profile/${id}`,
+          });
+        } else if (isEntityName(entityType)) {
+          const card = resolved.get(key);
+          labels.set(
+            key,
+            card
+              ? { textContent: card.title ?? "", path: card.path?.replace(/^\//, "") }
+              : { textContent: t(entityLabelKey(entityType)) }
+          );
+        } else {
+          const details = parseAdditionalEditorContent({ id, entityType: entityType as TSearchEntities });
+          labels.set(
+            key,
+            details ? { textContent: details.textContent, path: details.redirectionPath } : { textContent: "" }
+          );
+        }
+      });
+      return labels;
+    },
+    [getUserDetails, parseAdditionalEditorContent, t, workspaceSlug]
+  );
 
   /**
    * @description function to replace all the custom components from the html component to make it pdf compatible
@@ -42,28 +106,18 @@ export const useParseEditorContent = (args: TArgs) => {
       // parse the HTML string into a DOM document
       const doc = parser.parseFromString(htmlContent, "text/html");
       // replace all mention-component elements
-      const mentionComponents = doc.querySelectorAll("mention-component");
+      const mentionComponents = Array.from(doc.querySelectorAll("mention-component"));
+      const readMention = (component: Element) => ({
+        id: component.getAttribute("entity_identifier") || "",
+        entityType: component.getAttribute("entity_name") || "user_mention",
+      });
+      const mentionLabels = await getMentionLabels(mentionComponents.map(readMention));
       mentionComponents.forEach((component) => {
+        const { id, entityType } = readMention(component);
         // create a span element to replace the mention-component
         const span = doc.createElement("span");
         span.setAttribute("data-node-type", "mention-block");
-        // get the user id from the component
-        const id = component.getAttribute("entity_identifier") || "";
-        const entityType = (component.getAttribute("entity_name") || "user_mention") as TSearchEntities;
-        let textContent = "user";
-        if (entityType === "user_mention") {
-          const userDetails = getUserDetails(id);
-          textContent = userDetails?.display_name ?? "";
-        } else {
-          const mentionDetails = parseAdditionalEditorContent({
-            id,
-            entityType,
-          });
-          if (mentionDetails) {
-            textContent = mentionDetails.textContent;
-          }
-        }
-        span.textContent = `@${textContent}`;
+        span.textContent = `@${mentionLabels.get(`${entityType}:${id}`)?.textContent ?? ""}`;
         // replace the mention-component with the span element
         component.replaceWith(span);
       });
@@ -160,41 +214,29 @@ export const useParseEditorContent = (args: TArgs) => {
       serializedDoc = serializedDoc.replace(/background-color: null/g, "").replace(/color: null/g, "");
       return serializedDoc;
     },
-    [getUserDetails, parseAdditionalEditorContent]
+    [getMentionLabels]
   );
 
   /**
    * @description function to replace all the custom components from the markdown content
    * @param props
-   * @returns {string}
+   * @returns {Promise<string>}
    */
   const replaceCustomComponentsFromMarkdownContent = useCallback(
-    (props: { markdownContent: string; noAssets?: boolean }): string => {
+    async (props: { markdownContent: string; noAssets?: boolean }): Promise<string> => {
       const { markdownContent, noAssets = false } = props;
       let parsedMarkdownContent = markdownContent;
       // replace the matched mention components with [display_name](redirect_url)
       const mentionRegex =
         /<mention-component[^>]*entity_identifier="([^"]+)"[^>]*entity_name="([^"]+)"[^>]*><\/mention-component>/g;
       const originUrl = typeof window !== "undefined" && (window.location.origin ?? "");
-      parsedMarkdownContent = parsedMarkdownContent.replace(mentionRegex, (_match, id, entity_type) => {
-        const entityType = entity_type as TSearchEntities;
-        if (!id || !entityType) return "";
-        if (entityType === "user_mention") {
-          const userDetails = getUserDetails(id);
-          if (!userDetails) return "";
-          return `[${userDetails.display_name}](${originUrl}/${workspaceSlug}/profile/${id})`;
-        } else {
-          const mentionDetails = parseAdditionalEditorContent({
-            id,
-            entityType,
-          });
-          if (!mentionDetails) {
-            return "";
-          } else {
-            const { redirectionPath, textContent } = mentionDetails;
-            return `[${textContent}](${originUrl}/${redirectionPath})`;
-          }
-        }
+      const mentionLabels = await getMentionLabels(
+        Array.from(markdownContent.matchAll(mentionRegex), ([, id, entityType]) => ({ id, entityType }))
+      );
+      parsedMarkdownContent = parsedMarkdownContent.replace(mentionRegex, (_match, id: string, entityType: string) => {
+        const label = mentionLabels.get(`${entityType}:${id}`);
+        if (!label?.textContent) return "";
+        return label.path ? `[${label.textContent}](${originUrl}/${label.path})` : label.textContent;
       });
       // replace the matched image components with <img src={src} >
       const imageComponentRegex = /<image-component[^>]*src="([^"]+)"[^>]*>[^]*<\/image-component>/g;
@@ -214,7 +256,7 @@ export const useParseEditorContent = (args: TArgs) => {
       parsedMarkdownContent = parsedMarkdownContent.replace(issueEmbedRegex, "");
       return parsedMarkdownContent;
     },
-    [getUserDetails, parseAdditionalEditorContent, workspaceSlug]
+    [getMentionLabels]
   );
 
   const getEditorMetaData = useCallback(

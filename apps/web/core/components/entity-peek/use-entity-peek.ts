@@ -7,36 +7,37 @@
 import { useCallback } from "react";
 import type { MouseEvent } from "react";
 import { useLocation, useSearchParams } from "react-router";
-import { OPEN_PARAM, encodeOpen, isPeekKind, ownOpenParams, ownParam, parseOpenList, parsePeekHref } from "./routes";
+import { currentParams, writeOpenPanels } from "./open-store";
+import { encodeOpen, isPeekKind, ownOpenParams, ownParam, parseOpenList, parsePeekHref } from "./routes";
 import type { TPeekTarget } from "./routes";
 
 /** Opens an entity's panel where the user is, through the URL. With no panel
  * open: the page's own parameter when it has a panel for that kind, else the
  * global `?open=`. From inside an open panel, the new one stacks on top (one
  * more `open` value); one already in the stack comes back to the top instead.
- * Opening pushes a history entry, so Back closes it. */
+ * Opening pushes a history entry, so Back closes it. The global panels skip
+ * the router (see open-store): the page underneath doesn't re-render. */
 export function useEntityPeek() {
   const { pathname } = useLocation();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [, setSearchParams] = useSearchParams();
   const open = useCallback(
     (target: TPeekTarget) => {
-      const next = new URLSearchParams(searchParams);
+      // The address bar, not the router's copy: it may hold panels the router never saw
+      const current = currentParams();
       const own = ownParam(pathname, target.kind);
-      const opened = parseOpenList(next);
-      const pagePanels = ownOpenParams(pathname, next);
-      const encoded = encodeOpen(target);
-      const index = opened.findIndex((item) => encodeOpen(item) === encoded);
-      const setOpened = (list: TPeekTarget[]) => {
-        next.delete(OPEN_PARAM);
-        list.forEach((item) => next.append(OPEN_PARAM, encodeOpen(item)));
-      };
-      if (own && next.get(own) === target.id) setOpened([]);
-      else if (index >= 0) setOpened(opened.slice(0, index + 1));
-      else if (own && pagePanels.length === 0 && opened.length === 0) next.set(own, target.id);
-      else setOpened([...opened, target]);
-      if (next.toString() !== searchParams.toString()) setSearchParams(next);
+      const opened = parseOpenList(current);
+      const index = opened.findIndex((item) => encodeOpen(item) === encodeOpen(target));
+      if (own && current.get(own) === target.id) {
+        if (opened.length > 0) writeOpenPanels([], "replace");
+      } else if (index >= 0) {
+        if (index < opened.length - 1) writeOpenPanels(opened.slice(0, index + 1), "replace");
+      } else if (own && ownOpenParams(pathname, current).length === 0 && opened.length === 0) {
+        // The page's own panel: the page reads its parameter through the router
+        current.set(own, target.id);
+        setSearchParams(current);
+      } else writeOpenPanels([...opened, target], "push");
     },
-    [pathname, searchParams, setSearchParams]
+    [pathname, setSearchParams]
   );
   return { open };
 }

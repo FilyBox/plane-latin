@@ -12,7 +12,7 @@
  * permissions and the transcript keeps it for later turns.
  */
 
-import { useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import type { TextMessagePartProps } from "@assistant-ui/react";
 import type { LucideIcon } from "lucide-react";
 import { AtSign, Tag } from "lucide-react";
@@ -98,21 +98,31 @@ export function useOpenMention() {
   );
 }
 
-export function MentionChip({ type, label, id }: { type: TMentionType; label: string; id: string }) {
+/** An empty `id` is a mention still streaming in: same chip, not clickable
+ * yet, so it doesn't change shape (or remount) once the id arrives. */
+export const MentionChip = memo(function MentionChip({
+  type,
+  label,
+  id,
+}: {
+  type: TMentionType;
+  label: string;
+  id: string;
+}) {
   const openMention = useOpenMention();
   const Icon = iconFor(type);
-  const open = () => openMention(type, id);
   return (
     <button
       type="button"
-      onClick={() => void open()}
-      className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-sm bg-accent-primary/15 px-1 align-baseline text-accent-primary hover:bg-accent-primary/25"
+      disabled={!id}
+      onClick={() => void openMention(type, id)}
+      className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-sm bg-accent-primary/15 px-1 align-baseline text-accent-primary hover:bg-accent-primary/25 disabled:hover:bg-accent-primary/15"
     >
       <Icon className="size-3 shrink-0" aria-hidden />
       <span className="truncate">{label}</span>
     </button>
   );
-}
+});
 
 // Assistant answers carry the same directives (tables, lists, prose). Markdown
 // would print them raw, so they travel as in-page links the renderer swaps
@@ -125,11 +135,29 @@ export const mentionsToLinks = (text: string) =>
     (_match, type: string, label: string, id: string) => `[${label}](${MENTION_HREF}${type}:${id})`
   );
 
-/** The mention behind a link written by `mentionsToLinks`, if it is one. */
+// The tail of a directive the stream hasn't finished yet:
+// ":music_track[La Pu" or ":music_track[La Pura]{name=3f2a".
+const OPEN_DIRECTIVE_RE =
+  /:([a-z_]{2,20})\[([^\]\n]{0,160})(?:\](?:\{(?:n(?:a(?:m(?:e(?:=[0-9a-fA-F-]{0,36})?)?)?)?)?)?)?$/;
+const OPEN_TYPE_RE = /:[a-z_]{0,20}$/;
+
+/** `mentionsToLinks` for text still streaming: a half-written directive at
+ * the end shows as a pending chip (or nothing, before its label starts)
+ * instead of flashing raw syntax that later snaps into a chip. */
+export function streamingMentionsToLinks(text: string): string {
+  const open = OPEN_DIRECTIVE_RE.exec(text);
+  if (!open) return mentionsToLinks(text.replace(OPEN_TYPE_RE, ""));
+  const [, type, label] = open;
+  const pending = label.trim() ? `[${label}](${MENTION_HREF}${type}:)` : "";
+  return mentionsToLinks(text.slice(0, open.index)) + pending;
+}
+
+/** The mention behind a link written by `mentionsToLinks`, if it is one
+ * (`id` is empty while it is still streaming). */
 export function mentionFromHref(href: string | undefined): { type: TMentionType; id: string } | null {
   if (!href?.startsWith(MENTION_HREF)) return null;
-  const [type, id] = href.slice(MENTION_HREF.length).split(":");
-  return type && id ? { type: type as TMentionType, id } : null;
+  const [type, id = ""] = href.slice(MENTION_HREF.length).split(":");
+  return type ? { type: type as TMentionType, id } : null;
 }
 
 // The note an attachment adds for the agent ("[Archivo adjunto] … asset_id=…"):

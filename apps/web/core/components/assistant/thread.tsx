@@ -8,13 +8,17 @@
  * block, wide tables scroll inside their own box, and links open in the app.
  */
 
+import { useMemo } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import {
   ActionBarPrimitive,
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
+  TextMessagePartProvider,
   ThreadPrimitive,
+  useMessagePartText,
+  useSmooth,
   useThread,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
@@ -26,7 +30,7 @@ import { AttachMenu, ComposerAttachmentsRow, MessageAttachmentsRow } from "./att
 import { GenerationLoader } from "./elements/generation-loader";
 import { AssistantLink } from "./links";
 import { useComposerMentions } from "./mention-composer";
-import { MentionChip, MentionText, mentionFromHref, mentionsToLinks } from "./mentions";
+import { MentionChip, MentionText, mentionFromHref, mentionsToLinks, streamingMentionsToLinks } from "./mentions";
 import { FallbackStep, groupThought, ReasoningStep, ThinkingBlock, useIsMessageRunning } from "./steps";
 
 const textOf = (children: ReactNode): string =>
@@ -51,14 +55,26 @@ const MARKDOWN_COMPONENTS = {
   },
 };
 
+const REMARK_PLUGINS = [remarkGfm];
+
+/** The typing reveal runs on the raw text and mentions become links after it.
+ * The primitive's own `preprocess` runs before its reveal, so each finished
+ * mention rewrote text already on screen: the reveal saw a text that no
+ * longer extended the shown one and restarted from empty, so the whole answer
+ * blinked out and retyped (and the scroll jumped) once per mention. */
 function MarkdownText() {
+  const { text, status } = useSmooth(useMessagePartText(), true);
+  const running = status.type === "running";
+  const shown = useMemo(() => (running ? streamingMentionsToLinks(text) : mentionsToLinks(text)), [text, running]);
   return (
-    <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
-      preprocess={mentionsToLinks}
-      components={MARKDOWN_COMPONENTS}
-      className="min-w-0 text-13 leading-relaxed break-words text-primary *:first:mt-0 *:last:mb-0 [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_blockquote]:text-secondary [&_code]:rounded-sm [&_code]:bg-layer-2 [&_code]:px-1 [&_code]:text-12 [&_h1]:mt-3 [&_h1]:text-14 [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:text-13 [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:text-13 [&_h3]:font-medium [&_hr]:my-3 [&_hr]:border-subtle [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-layer-2 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_td]:border-t [&_td]:border-subtle [&_td]:px-2 [&_td]:py-1 [&_td]:align-top [&_th]:bg-layer-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium [&_th]:whitespace-nowrap [&_ul]:list-disc [&_ul]:pl-5"
-    />
+    <TextMessagePartProvider text={shown} isRunning={running}>
+      <MarkdownTextPrimitive
+        smooth={false}
+        remarkPlugins={REMARK_PLUGINS}
+        components={MARKDOWN_COMPONENTS}
+        className="min-w-0 text-13 leading-relaxed break-words text-primary *:first:mt-0 *:last:mb-0 [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_blockquote]:text-secondary [&_code]:rounded-sm [&_code]:bg-layer-2 [&_code]:px-1 [&_code]:text-12 [&_h1]:mt-3 [&_h1]:text-14 [&_h1]:font-semibold [&_h2]:mt-3 [&_h2]:text-13 [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:text-13 [&_h3]:font-medium [&_hr]:my-3 [&_hr]:border-subtle [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-layer-2 [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_td]:border-t [&_td]:border-subtle [&_td]:px-2 [&_td]:py-1 [&_td]:align-top [&_th]:bg-layer-2 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium [&_th]:whitespace-nowrap [&_ul]:list-disc [&_ul]:pl-5"
+      />
+    </TextMessagePartProvider>
   );
 }
 

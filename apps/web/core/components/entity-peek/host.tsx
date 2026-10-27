@@ -25,6 +25,7 @@ import { ExpenseModal } from "@/components/payments/expense-modal";
 import { financeService } from "@/services/finance.service";
 import { musicService } from "@/services/music.service";
 import { PanelLayerRank } from "@/components/panel-stack/use-panel-layer";
+import { currentParams, syncOpenPanels, useOpenPanels, writeOpenPanels } from "./open-store";
 import { OPEN_PARAM, encodeOpen, ownOpenParams, ownParam, parseOpenList, sectionPath } from "./routes";
 import type { TPeekTarget } from "./routes";
 
@@ -203,7 +204,11 @@ export function EntityPeekHost() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const opened = parseOpenList(searchParams);
+  // Panels opened in place live outside the router (see open-store); when the
+  // router itself moves the URL, the store reads it again.
+  const routerSearch = searchParams.toString();
+  useEffect(() => syncOpenPanels(), [routerSearch]);
+  const opened = useOpenPanels();
   const pagePanelOpen = ownOpenParams(pathname, searchParams).length > 0;
   // Only the bottom panel can belong to the page: one opened over another
   // panel stays in the stack, even when the page has a panel for its kind.
@@ -214,33 +219,28 @@ export function EntityPeekHost() {
   // on the contracts list, say), hand the link to the page.
   useEffect(() => {
     if (!first || !handOff) return;
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        const rest = parseOpenList(next).filter((item) => encodeOpen(item) !== encodeOpen(first));
-        next.delete(OPEN_PARAM);
-        next.set(handOff, first.id);
-        rest.forEach((item) => next.append(OPEN_PARAM, encodeOpen(item)));
-        return next;
-      },
-      { replace: true }
-    );
+    const next = currentParams();
+    const rest = parseOpenList(next).filter((item) => encodeOpen(item) !== encodeOpen(first));
+    next.delete(OPEN_PARAM);
+    next.set(handOff, first.id);
+    rest.forEach((item) => next.append(OPEN_PARAM, encodeOpen(item)));
+    setSearchParams(next, { replace: true });
   }, [first?.kind, first?.id, handOff]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!workspaceSlug) return null;
   const slug = String(workspaceSlug);
   // Closing one removes only its own entry; the panels under it stay
-  const close = (target: TPeekTarget) =>
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        const rest = parseOpenList(next).filter((item) => encodeOpen(item) !== encodeOpen(target));
-        next.delete(OPEN_PARAM);
-        rest.forEach((item) => next.append(OPEN_PARAM, encodeOpen(item)));
-        return next;
-      },
-      { replace: true }
-    );
+  const close = (target: TPeekTarget) => {
+    const rest = opened.filter((item) => encodeOpen(item) !== encodeOpen(target));
+    // A panel the router knows about (a link that landed with `?open=`) closes
+    // through the router, so a later navigation doesn't bring it back
+    if (parseOpenList(searchParams).some((item) => encodeOpen(item) === encodeOpen(target))) {
+      const next = currentParams();
+      next.delete(OPEN_PARAM);
+      rest.forEach((item) => next.append(OPEN_PARAM, encodeOpen(item)));
+      setSearchParams(next, { replace: true });
+    } else writeOpenPanels(rest, "replace");
+  };
   const stacked = handOff ? opened.slice(1) : opened;
   return (
     // Keeps a closed panel mounted while it slides out
