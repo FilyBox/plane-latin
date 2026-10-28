@@ -294,6 +294,22 @@
       "propose_contract_from_template": {
         "running": "Preparing the contract",
         "done": "Prepared the contract"
+      },
+      "propose_contract_edit": {
+        "running": "Checking the corrections",
+        "done": "Checked the corrections"
+      },
+      "query_work_items": {
+        "running": "Looking for work items",
+        "done": "Looked for work items"
+      },
+      "propose_work_item_update": {
+        "running": "Preparing the work item changes",
+        "done": "Prepared the work item changes"
+      },
+      "propose_work_item_comment": {
+        "running": "Preparing the comment",
+        "done": "Prepared the comment"
       }
     },
     "export": {
@@ -537,7 +553,8 @@
       "page_created": "Page created",
       "preview": "Preview",
       "edit_text": "Edit text",
-      "private": "Private"
+      "private": "Private",
+      "undo_conflicts": "{count, plural, one {# value stayed: someone changed it after the assistant} other {# values stayed: someone changed them after the assistant}}"
     },
     "history_view": {
       "title": "Assistant changes",
@@ -768,6 +785,38 @@
       "apply": "Create draft",
       "created": "Draft «{title}» ready to review",
       "open": "Review and send"
+    },
+    "contract_edit": {
+      "title": "{count, plural, one {Correct a contract} other {Correct # contracts}}",
+      "pending_reanalysis": "It has a re-analysis waiting to be reviewed.",
+      "apply": "{count, plural, one {Apply # change} other {Apply # changes}}",
+      "done": "{count, plural, one {# value corrected} other {# values corrected}}"
+    },
+    "work_items": {
+      "title": "{count, plural, one {Change a work item} other {Change # work items}}",
+      "choose": "Choose…",
+      "apply": "{count, plural, one {Apply # change} other {Apply # changes}}",
+      "done": "{count, plural, one {# change applied} other {# changes applied}}",
+      "comment_on": "Comment on",
+      "comment": "Comment",
+      "edit": "Edit",
+      "see_preview": "Preview",
+      "publish": "Comment",
+      "commented": "Commented on {key}",
+      "fields": {
+        "name": "Title",
+        "state_id": "State",
+        "priority": "Priority",
+        "start_date": "Start date",
+        "target_date": "Due date",
+        "assignee_ids": "Assignees",
+        "label_ids": "Labels",
+        "cycle_id": "Cycle",
+        "module_ids": "Modules",
+        "parent_id": "Parent",
+        "description_append": "Add to description",
+        "description_html": "Description"
+      }
     }
   }
 }

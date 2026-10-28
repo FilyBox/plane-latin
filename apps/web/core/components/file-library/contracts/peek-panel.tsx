@@ -464,7 +464,15 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
 
   const evidenceButton = (key: string) => {
     const evidence = evidenceFor(key);
-    if (!evidence || (!evidence.quote && !evidence.page)) return null;
+    if (!evidence) return null;
+    const manual = evidence.manual ? (
+      <Tooltip tooltipContent={t("file_library.contracts.evidence.manual_hint")}>
+        <span className="rounded-sm bg-layer-1 px-1 text-10 text-tertiary">
+          {t("file_library.contracts.evidence.manual")}
+        </span>
+      </Tooltip>
+    ) : null;
+    if (!evidence.quote && !evidence.page) return manual;
     const tip = (
       <span className="block max-w-72 text-11">
         {evidence.page ? (
@@ -477,6 +485,7 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
     );
     return (
       <>
+        {manual}
         {evidence.approximate && (
           <Tooltip tooltipContent={t("file_library.contracts.evidence.approximate_hint")}>
             <span className="rounded-sm bg-warning-subtle px-1 text-10 text-warning-primary">

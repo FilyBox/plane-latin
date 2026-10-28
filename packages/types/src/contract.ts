@@ -83,12 +83,16 @@ export type TContractEvidence = {
   approximate?: boolean;
   /** derived, e.g. the end date from a stated duration */
   computed?: boolean;
+  /** corrected on request through the assistant ({by, at, reason} too) */
+  manual?: boolean;
 };
 
 export type TContractProposedChange = {
   field: string;
   current: unknown;
   proposed: unknown;
+  /** the current value was corrected by hand: the proposal would replace it */
+  manual?: boolean;
 };
 
 /** GET contracts/{id}/ */

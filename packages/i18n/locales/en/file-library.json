@@ -1418,7 +1418,9 @@
         "computed": "calculated",
         "computed_hint": "Calculated from other data in the contract (e.g. start date + term)",
         "see": "See in document",
-        "not_found": "Couldn't find the exact quote in the PDF"
+        "not_found": "Couldn't find the exact quote in the PDF",
+        "manual": "corrected by hand",
+        "manual_hint": "Someone corrected this value by hand; a re-analysis does not change it unless you choose to."
       },
       "renew": {
         "expired_hint": "This contract has expired. You can create a new one from its template.",

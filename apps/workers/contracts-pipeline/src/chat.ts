@@ -45,7 +45,10 @@ Usa EXCLUSIVAMENTE el texto del contrato siguiente; si la respuesta no está en 
 TEXTO COMPLETO DEL CONTRATO:
 ${text}`;
 
-export async function handleChat(env: Env, body: ChatRequest): Promise<{ answer: string; sources: ChatSource[]; model: string }> {
+export async function handleChat(
+  env: Env,
+  body: ChatRequest
+): Promise<{ answer: string; sources: ChatSource[]; model: string }> {
   const api = internalApi(env);
   const history = (body.history ?? []).filter(
     (message) => message && (message.role === "user" || message.role === "assistant") && message.content
@@ -80,7 +83,13 @@ export async function handleChat(env: Env, body: ChatRequest): Promise<{ answer:
     )
     .join("\n\n---\n\n");
 
-  const { text, model } = await generateText(env, GENERAL_SYSTEM(context), history, body.query, body.model ?? undefined);
+  const { text, model } = await generateText(
+    env,
+    GENERAL_SYSTEM(context),
+    history,
+    body.query,
+    body.model ?? undefined
+  );
 
   // Sources: unique contracts ordered by their best-ranked chunk
   const sources: ChatSource[] = [];

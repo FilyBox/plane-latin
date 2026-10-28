@@ -31,7 +31,7 @@ type TPageProposal = {
   workspace_slug?: string;
 };
 
-const PREVIEW =
+export const PREVIEW =
   "min-w-0 text-12 leading-relaxed break-words text-primary *:first:mt-0 [&_blockquote]:border-l-2 [&_blockquote]:border-strong [&_blockquote]:pl-2 [&_blockquote]:text-secondary [&_h1]:mt-2 [&_h1]:text-14 [&_h1]:font-semibold [&_h2]:mt-2 [&_h2]:text-13 [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:font-medium [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5 [&_table]:my-2 [&_table]:w-max [&_table]:min-w-full [&_table]:border-collapse [&_td]:border [&_td]:border-subtle [&_td]:px-1.5 [&_td]:py-0.5 [&_td]:align-top [&_th]:border [&_th]:border-subtle [&_th]:bg-layer-2 [&_th]:px-1.5 [&_th]:py-0.5 [&_th]:text-left [&_th]:font-medium [&_a]:text-accent-primary";
 
 export const PageForm = observer(function PageForm({

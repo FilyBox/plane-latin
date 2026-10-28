@@ -6,6 +6,10 @@ from django.urls import path
 
 from plane.app.views import AssistantChatEndpoint, AssistantModelsEndpoint, AssistantMusicImportEndpoint
 from plane.app.views.assistant import (
+    InternalAssistantContractEditPreviewEndpoint,
+    InternalAssistantWorkItemCommentPreviewEndpoint,
+    InternalAssistantWorkItemsPreviewEndpoint,
+    InternalAssistantWorkItemsQueryEndpoint,
     AssistantContractDraftPreviewEndpoint,
     AssistantTemplatePreviewEndpoint,
     InternalAssistantContractProposalEndpoint,
@@ -136,6 +140,26 @@ urlpatterns = [
         "workspaces/<str:slug>/contract-templates/variants/<uuid:variant_id>/assistant-contract-preview/",
         AssistantContractDraftPreviewEndpoint.as_view(),
         name="assistant-contract-preview",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/contracts/edit-preview/",
+        InternalAssistantContractEditPreviewEndpoint.as_view(),
+        name="internal-assistant-contract-edit-preview",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/work-items/query/",
+        InternalAssistantWorkItemsQueryEndpoint.as_view(),
+        name="internal-assistant-work-items-query",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/work-items/update-preview/",
+        InternalAssistantWorkItemsPreviewEndpoint.as_view(),
+        name="internal-assistant-work-items-preview",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/work-items/comment-preview/",
+        InternalAssistantWorkItemCommentPreviewEndpoint.as_view(),
+        name="internal-assistant-work-item-comment-preview",
     ),
     path(
         "workspaces/<str:slug>/assistant/actions/<uuid:action_id>/undo/",

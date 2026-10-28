@@ -27,6 +27,7 @@ import {
   FileSpreadsheet,
   FileText,
   FolderSearch,
+  ListChecks,
   Layers,
   Link2,
   ListMusic,
@@ -70,6 +71,7 @@ export const TRACE_TOOLS = new Set([
   "analyze_pdf_segments",
   "find_contract_templates",
   "read_contract_template",
+  "query_work_items",
 ]);
 
 export const formatDuration = (seconds: number) =>
@@ -703,6 +705,11 @@ export function buildTraceToolUIs(slug: string) {
         const base = (result.base as { template_name?: string; variant_name?: string }) ?? {};
         return [base.template_name, base.variant_name].filter(Boolean).join(" · ");
       },
+    }),
+    traceTool("query_work_items", {
+      icon: ListChecks,
+      input: (args) => text(args?.project ?? args?.assignee ?? args?.text),
+      output: (result, t) => t("assistant.steps.results", { count: Number(result.total ?? 0) }),
     }),
     traceTool("analyze_pdf_segments", {
       icon: ScanText,

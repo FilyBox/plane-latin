@@ -53,6 +53,7 @@ import { collectEntities, linkMentions } from "./lib/page-links";
 import { visionModel } from "./lib/vision";
 import { buildPdfTools } from "./pdf-tools";
 import { TEMPLATE_FORMAT_PROMPT, buildTemplateTools } from "./template-tools";
+import { WORKSPACE_EDIT_PROMPT, buildWorkspaceEditTools } from "./workspace-edit-tools";
 import { ANALYSIS_SYSTEM, contractPrefix, worksPrompt } from "./prompts";
 
 export type AssistantPageContext = {
@@ -319,6 +320,7 @@ PDFs DE LA BIBLIOTECA (separar, unir, páginas)
     : ""
 }
 ${caps.contracts ? TEMPLATE_FORMAT_PROMPT : ""}
+${WORKSPACE_EDIT_PROMPT(caps.contracts)}
 PÁGINAS
 - Cuándo: el usuario pide una página o "page" ("haz / crea / genera / arma una page", "pon esto en una página", "guárdalo como página", "hazme un informe, dossier, minuta o tabla en una página"), aunque lo diga de pasada o en inglés. Termina SIEMPRE con propose_page; no respondas solo con texto ni con una tabla en el chat.
 - Datos: primero reúne lo que vaya en la página con las herramientas (nunca inventes cifras, fechas ni nombres). Si la página es sobre algo de turnos anteriores ("esos contratos que me dijiste") y ya no tienes sus ids a la vista, vuelve a consultarlos antes de escribir.
@@ -673,6 +675,9 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
 
   if (caps.contracts && body.user_id) {
     tools = { ...tools, ...buildPdfTools(env, api, body), ...buildTemplateTools(api, body) };
+  }
+  if (body.user_id) {
+    tools = { ...tools, ...buildWorkspaceEditTools(api, body, caps.contracts) };
   }
 
   if (caps.deepReview) {

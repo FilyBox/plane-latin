@@ -1418,7 +1418,9 @@
         "computed": "calculado",
         "computed_hint": "Calculado con otros datos del contrato (p. ej., inicio + duración)",
         "see": "Ver en el documento",
-        "not_found": "No se encontró la cita exacta en el PDF"
+        "not_found": "No se encontró la cita exacta en el PDF",
+        "manual": "corregido a mano",
+        "manual_hint": "Alguien corrigió este valor a mano; un reanálisis no lo cambia salvo que lo elijas."
       },
       "renew": {
         "expired_hint": "Este contrato venció. Puede crear uno nuevo desde su plantilla.",

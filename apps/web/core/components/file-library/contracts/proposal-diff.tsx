@@ -32,9 +32,11 @@ export function ProposalDiff({ changes, onApply, onDiscard, isActing, readOnly }
   const { t, currentLocale } = useTranslation();
   const [open, setOpen] = useState(true);
   const fieldsKey = changes.map((change) => change.field).join(",");
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(changes.map((change) => change.field)));
+  // A value corrected by hand is kept unless the user picks the new one
+  const initial = () => new Set(changes.filter((change) => !change.manual).map((change) => change.field));
+  const [selected, setSelected] = useState<Set<string>>(initial);
   useEffect(() => {
-    setSelected(new Set(changes.map((change) => change.field)));
+    setSelected(initial());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fieldsKey]);
 
@@ -130,7 +132,17 @@ export function ProposalDiff({ changes, onApply, onDiscard, isActing, readOnly }
                           />
                         </td>
                       )}
-                      <td className="px-2 py-1.5 whitespace-nowrap text-secondary">{label}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap text-secondary">
+                        {label}
+                        {change.manual ? (
+                          <span
+                            title={t("file_library.contracts.evidence.manual_hint")}
+                            className="ml-1 rounded-sm bg-warning-subtle px-1 text-10 text-warning-primary"
+                          >
+                            {t("file_library.contracts.evidence.manual")}
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="px-2 py-1.5">
                         <span className="flex flex-wrap items-baseline gap-x-1.5">
                           <span className="break-words text-tertiary line-through decoration-1">

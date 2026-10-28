@@ -37,3 +37,9 @@ from .templates import (
     InternalAssistantTemplateOutlineEndpoint,
     InternalAssistantTemplatesEndpoint,
 )
+from .workspace_edits import (
+    InternalAssistantContractEditPreviewEndpoint,
+    InternalAssistantWorkItemCommentPreviewEndpoint,
+    InternalAssistantWorkItemsPreviewEndpoint,
+    InternalAssistantWorkItemsQueryEndpoint,
+)

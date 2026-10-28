@@ -294,6 +294,22 @@
       "propose_contract_from_template": {
         "running": "Preparando el contrato",
         "done": "Preparó el contrato"
+      },
+      "propose_contract_edit": {
+        "running": "Revisando las correcciones",
+        "done": "Revisó las correcciones"
+      },
+      "query_work_items": {
+        "running": "Buscando tareas",
+        "done": "Buscó tareas"
+      },
+      "propose_work_item_update": {
+        "running": "Preparando los cambios a las tareas",
+        "done": "Preparó los cambios a las tareas"
+      },
+      "propose_work_item_comment": {
+        "running": "Preparando el comentario",
+        "done": "Preparó el comentario"
       }
     },
     "export": {
@@ -537,7 +553,8 @@
       "page_created": "Página creada",
       "preview": "Vista previa",
       "edit_text": "Editar texto",
-      "private": "Privada"
+      "private": "Privada",
+      "undo_conflicts": "{count, plural, one {# valor se quedó: alguien lo cambió después del asistente} other {# valores se quedaron: alguien los cambió después del asistente}}"
     },
     "history_view": {
       "title": "Cambios del asistente",
@@ -768,6 +785,38 @@
       "apply": "Crear borrador",
       "created": "Borrador «{title}» listo para revisar",
       "open": "Revisar y enviar"
+    },
+    "contract_edit": {
+      "title": "{count, plural, one {Corregir un contrato} other {Corregir # contratos}}",
+      "pending_reanalysis": "Tiene un reanálisis pendiente de revisar.",
+      "apply": "{count, plural, one {Aplicar # cambio} other {Aplicar # cambios}}",
+      "done": "{count, plural, one {# dato corregido} other {# datos corregidos}}"
+    },
+    "work_items": {
+      "title": "{count, plural, one {Cambiar una tarea} other {Cambiar # tareas}}",
+      "choose": "Elige…",
+      "apply": "{count, plural, one {Aplicar # cambio} other {Aplicar # cambios}}",
+      "done": "{count, plural, one {# cambio aplicado} other {# cambios aplicados}}",
+      "comment_on": "Comentar en",
+      "comment": "Comentario",
+      "edit": "Editar",
+      "see_preview": "Vista previa",
+      "publish": "Comentar",
+      "commented": "Comentó en {key}",
+      "fields": {
+        "name": "Título",
+        "state_id": "Estado",
+        "priority": "Prioridad",
+        "start_date": "Inicio",
+        "target_date": "Vencimiento",
+        "assignee_ids": "Responsables",
+        "label_ids": "Etiquetas",
+        "cycle_id": "Ciclo",
+        "module_ids": "Módulos",
+        "parent_id": "Tarea padre",
+        "description_append": "Agregar a la descripción",
+        "description_html": "Descripción"
+      }
     }
   }
 }

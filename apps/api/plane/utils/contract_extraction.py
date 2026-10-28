@@ -425,5 +425,9 @@ def proposed_changes(contract, proposed):
     for field, value in result["values"].items():
         current = getattr(contract, field)
         if db_repr(current) != db_repr(value):
-            changes.append({"field": field, "current": db_repr(current), "proposed": db_repr(value)})
+            change = {"field": field, "current": db_repr(current), "proposed": db_repr(value)}
+            # Someone corrected it by hand (or through the assistant): flag it
+            if ((contract.evidence or {}).get(field) or {}).get("manual"):
+                change["manual"] = True
+            changes.append(change)
     return changes
