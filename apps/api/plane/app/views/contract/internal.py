@@ -400,6 +400,14 @@ class InternalContractTextEndpoint(InternalBaseView):
         contract.extracted_text = text
         contract.text_extracted_at = timezone.now()
         contract.save(update_fields=["extracted_text", "text_extracted_at"])
+        # The [[p. N]] markers give the PDF's page count for free
+        from plane.utils.assistant_pdf import contract_pages, remember_page_count
+
+        pages = contract_pages(text)
+        if pages and contract.file_asset_id:
+            asset = FileAsset.objects.filter(id=contract.file_asset_id).first()
+            if asset is not None:
+                remember_page_count(asset, max(pages))
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
 
@@ -460,40 +468,6 @@ class InternalContractChunksEndpoint(InternalBaseView):
             batch_size=100,
         )
         return Response({"status": "ok", "count": len(chunks)}, status=status.HTTP_200_OK)
-
-
-class InternalContractThumbnailEndpoint(InternalBaseView):
-    def post(self, request, contract_id):
-        """Returns a presigned POST so the Worker can upload the rendered
-        thumbnail directly to storage.
-        """
-        contract = Contract.objects.get(id=contract_id)
-        name = f"contract-thumbnail-{contract.id}.png"
-        asset_key = f"{contract.workspace_id}/{uuid.uuid4().hex}-{name}"
-        asset = FileAsset.objects.create(
-            attributes={"name": name, "type": "image/png", "size": 0},
-            asset=asset_key,
-            size=0,
-            workspace_id=contract.workspace_id,
-            entity_type=FileAsset.EntityTypeContext.CONTRACT_THUMBNAIL,
-        )
-        storage = S3Storage()
-        presigned = storage.generate_presigned_post(
-            object_name=asset_key, file_type="image/png", file_size=10 * 1024 * 1024
-        )
-        return Response({"upload_data": presigned, "asset_id": str(asset.id)}, status=status.HTTP_200_OK)
-
-    def patch(self, request, contract_id):
-        contract = Contract.objects.get(id=contract_id)
-        asset_id = request.data.get("asset_id")
-        asset = FileAsset.objects.filter(id=asset_id, workspace_id=contract.workspace_id).first()
-        if asset is None:
-            return Response({"error": "Asset not found"}, status=status.HTTP_400_BAD_REQUEST)
-        asset.is_uploaded = True
-        asset.save(update_fields=["is_uploaded"])
-        contract.thumbnail_asset = asset
-        contract.save(update_fields=["thumbnail_asset"])
-        return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
 
 class InternalWorkspaceContractsEndpoint(InternalBaseView):

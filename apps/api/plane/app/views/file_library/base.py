@@ -378,10 +378,11 @@ class FileLibraryAssetDownloadEndpoint(FileLibraryBaseView):
 
 
 class FileLibraryAssetThumbnailEndpoint(FileLibraryBaseView):
-    """Redirects to the presigned URL of a contract's generated page-1
-    thumbnail (see the contracts AI pipeline's `extract_thumbnail` stage).
-    Only PDFs categorized as contracts have one; anything else 404s so the
-    frontend can fall back to a generic file-type tile.
+    """Redirects to the presigned URL of a contract's page-1 thumbnail.
+
+    The pipeline never generated them (its placeholder step is gone), so this
+    404s for every file today and the frontend shows the generic file-type
+    tile. Kept, like `has_thumbnail`, until the web stops asking.
     """
 
     model = FileAsset

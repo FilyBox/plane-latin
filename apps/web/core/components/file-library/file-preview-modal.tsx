@@ -4,13 +4,14 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { Download, FileText, Loader2, Pencil, Tags, X } from "lucide-react";
 import { Link } from "react-router";
 import useSWR from "swr";
 // plane imports
 import { CsvViewer, DocxViewerPreview, PDFViewer, XlsxViewerPreview } from "@plane/extend-ui";
+import type { PDFViewerHandle } from "@plane/extend-ui";
 import { useTranslation } from "@plane/i18n";
 import { EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { cn } from "@plane/utils";
@@ -37,6 +38,8 @@ export type TPreviewFile = {
   assetId: string;
   name: string;
   contentType: string;
+  /** PDFs open on this page (the assistant's "Ver" links) */
+  page?: number;
 };
 
 type ViewerKind = "image" | "pdf" | "xlsx" | "docx" | "csv" | "xml" | "none";
@@ -83,6 +86,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
   );
 
   const kind = file ? viewerKind(file) : "none";
+  const pdfViewerRef = useRef<PDFViewerHandle | null>(null);
 
   // Contract PDFs also expose their AI-extracted data right in the viewer
   const { data: contractMatches } = useSWR(
@@ -159,7 +163,24 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
           </div>
         );
       case "pdf":
-        return <PDFViewer src={url} fileName={file.name} className="h-full" showUpload={false} />;
+        return (
+          <PDFViewer
+            ref={pdfViewerRef}
+            src={url}
+            fileName={file.name}
+            className="h-full"
+            showUpload={false}
+            onDocumentLoadSuccess={() => {
+              const page = file.page;
+              if (!page || page < 2) return;
+              // The viewer refits its zoom right after loading, which resets the
+              // scroll: jump once that settles, and again in case it was slow
+              for (const delay of [150, 600]) {
+                window.setTimeout(() => pdfViewerRef.current?.scrollToPage(page), delay);
+              }
+            }}
+          />
+        );
       case "xlsx":
         return (
           <XlsxViewerPreview

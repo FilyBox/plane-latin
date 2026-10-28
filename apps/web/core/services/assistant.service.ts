@@ -19,7 +19,16 @@ export type TAssistantBalance = {
 
 export type TAssistantAction = {
   id: string;
-  kind: "TAG_ITEMS" | "UNTAG_ITEMS" | "CREATE_WORK_ITEM" | "CREATE_PAGE" | "EDIT_PAGE" | "MERGE_TAGS";
+  kind:
+    | "TAG_ITEMS"
+    | "UNTAG_ITEMS"
+    | "CREATE_WORK_ITEM"
+    | "CREATE_PAGE"
+    | "EDIT_PAGE"
+    | "MERGE_TAGS"
+    | "SPLIT_PDF"
+    | "MERGE_PDF"
+    | "EDIT_PDF_PAGES";
   status: "APPLIED" | "UNDONE";
   summary: string;
   result: Record<string, unknown>;

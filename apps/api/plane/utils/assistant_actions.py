@@ -33,6 +33,11 @@ from plane.utils.shared_tags import (
 )
 
 MAX_ITEMS = 200
+PDF_KINDS = (
+    AssistantAction.Kind.SPLIT_PDF,
+    AssistantAction.Kind.MERGE_PDF,
+    AssistantAction.Kind.EDIT_PDF_PAGES,
+)
 # Edits within this window after creation count as part of creating it.
 EDIT_GRACE = timedelta(seconds=30)
 
@@ -431,6 +436,10 @@ def undo(action: AssistantAction, user, origin: str, cookie: str = "") -> Assist
         _undo_page(action)
     elif action.kind == AssistantAction.Kind.EDIT_PAGE:
         _undo_page_edit(action, user, cookie)
+    elif action.kind in PDF_KINDS:
+        from plane.utils.assistant_pdf import undo_pdf
+
+        undo_pdf(action)
     action.status = AssistantAction.Status.UNDONE
     action.undone_at = timezone.now()
     action.undone_by = user

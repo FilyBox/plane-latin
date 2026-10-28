@@ -375,7 +375,6 @@ from .contract import (
     InternalContractChunksEndpoint,
     InternalContractDataEndpoint,
     InternalContractTextEndpoint,
-    InternalContractThumbnailEndpoint,
     InternalJobProgressEndpoint,
     InternalQueryResultEndpoint,
     InternalWorkspaceContractsEndpoint,

@@ -5,7 +5,11 @@
 from .base import AssistantBalanceEndpoint, AssistantChatEndpoint, AssistantModelsEndpoint, AssistantMusicImportEndpoint
 from .chats import AssistantChatDetailEndpoint, AssistantChatMessagesEndpoint, AssistantChatsEndpoint
 from .memory import AssistantMemoriesEndpoint, AssistantMemoryDetailEndpoint, InternalAssistantMemorySearchEndpoint
-from .files import InternalAssistantFileReadEndpoint
+from .files import (
+    InternalAssistantFilePagesEndpoint,
+    InternalAssistantFilePreviewEndpoint,
+    InternalAssistantFileReadEndpoint,
+)
 from .pages import InternalAssistantPageReadEndpoint
 from .actions import AssistantActionUndoEndpoint, AssistantActionsEndpoint
 from .reports import InternalAssistantReportEndpoint

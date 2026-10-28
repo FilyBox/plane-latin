@@ -249,7 +249,6 @@ export type TContractRetryOptions = {
   extract_text?: boolean;
   generate_embeddings?: boolean;
   ai_analysis?: boolean;
-  extract_thumbnail?: boolean;
   /** AI-free: resyncs ARTIST/GROUP/PERSON tags from the contract's stored fields */
   tags?: boolean;
   /** Re-runs only the type/editorial classification */

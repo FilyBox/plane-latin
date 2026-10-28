@@ -10,7 +10,19 @@
 
 import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ArrowLeft, FilePen, FileText, ListTodo, Merge, Tag, Tags, Undo2 } from "lucide-react";
+import {
+  ArrowLeft,
+  FilePen,
+  FileStack,
+  FileText,
+  Files,
+  ListTodo,
+  Merge,
+  Scissors,
+  Tag,
+  Tags,
+  Undo2,
+} from "lucide-react";
 import useSWR, { mutate as mutateGlobal } from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
@@ -28,6 +40,9 @@ const ICONS: Record<TAssistantAction["kind"], LucideIcon> = {
   CREATE_PAGE: FileText,
   EDIT_PAGE: FilePen,
   MERGE_TAGS: Merge,
+  SPLIT_PDF: Scissors,
+  MERGE_PDF: Files,
+  EDIT_PDF_PAGES: FileStack,
 };
 
 const errorText = (error: unknown, fallback: string) => {

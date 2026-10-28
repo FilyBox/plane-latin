@@ -67,6 +67,7 @@ export const TRACE_TOOLS = new Set([
   "read_file",
   "read_page",
   "read_deep_review",
+  "analyze_pdf_segments",
 ]);
 
 export const formatDuration = (seconds: number) =>
@@ -688,6 +689,26 @@ export function buildTraceToolUIs(slug: string) {
     traceTool("read_page", {
       icon: FileText,
       output: (result) => String(result.name ?? ""),
+    }),
+    traceTool("analyze_pdf_segments", {
+      icon: ScanText,
+      input: (args) => text(args?.instructions),
+      output: (result, t) =>
+        t("assistant.steps.pdf_segments", {
+          name: String(result.name ?? ""),
+          documents: ((result.segments as unknown[]) ?? []).length,
+          pages: Number(result.page_count ?? 0),
+        }),
+      body: (result) => (
+        <ResultRows
+          rows={(
+            (result.segments as { start_page: number; end_page: number; title?: string; doc_type?: string }[]) ?? []
+          ).map((segment) => ({
+            key: String(segment.start_page),
+            title: `${segment.start_page}–${segment.end_page} · ${segment.title || segment.doc_type || ""}`,
+          }))}
+        />
+      ),
     }),
     traceTool("read_deep_review", {
       icon: ScanSearch,

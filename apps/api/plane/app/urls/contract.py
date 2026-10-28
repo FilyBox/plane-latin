@@ -79,7 +79,6 @@ from plane.app.views import (
     InternalContractChunksEndpoint,
     InternalContractDataEndpoint,
     InternalContractTextEndpoint,
-    InternalContractThumbnailEndpoint,
     InternalJobProgressEndpoint,
     InternalQueryResultEndpoint,
     InternalWorkspaceContractsEndpoint,
@@ -389,11 +388,6 @@ urlpatterns = [
         "internal/contracts/<uuid:contract_id>/chunks/",
         InternalContractChunksEndpoint.as_view(),
         name="internal-contract-chunks",
-    ),
-    path(
-        "internal/contracts/<uuid:contract_id>/thumbnail/",
-        InternalContractThumbnailEndpoint.as_view(),
-        name="internal-contract-thumbnail",
     ),
     path(
         "internal/workspaces/<uuid:workspace_id>/contracts/",

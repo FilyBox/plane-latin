@@ -44,7 +44,6 @@ RETRY_OPTION_KEYS = [
     "extract_text",
     "generate_embeddings",
     "ai_analysis",
-    "extract_thumbnail",
     "tags",
     "classify",
     "works",

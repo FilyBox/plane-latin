@@ -113,6 +113,38 @@ export function resolveInternalApiConfig(env: InternalApiEnv): { baseUrl: string
   return { baseUrl: rawUrl.replace(/\/+$/, ""), secret };
 }
 
+/** The body, up to `maxBytes`: a Worker has 128 MB, and a scan can be large. */
+export async function readCapped(response: Response, maxBytes: number): Promise<Uint8Array> {
+  const declared = Number(response.headers.get("content-length") || 0);
+  if (declared > maxBytes) {
+    await response.body?.cancel();
+    throw new Error(`Response of ${declared} bytes is over the ${maxBytes}-byte limit`);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop -- a stream is read in order
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) break;
+    chunks.push(value);
+  }
+  if (size > maxBytes) {
+    await reader.cancel();
+    throw new Error(`Response is over the ${maxBytes}-byte limit`);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export function internalApi(env: Env) {
   const { baseUrl, secret } = resolveInternalApiConfig(env);
 
@@ -133,6 +165,19 @@ export function internalApi(env: Env) {
       );
     }
     return response.json<T>();
+  };
+
+  /** A binary response (a PDF), refused past `maxBytes` before and while reading it. */
+  const requestBytes = async (path: string, maxBytes: number): Promise<Uint8Array> => {
+    const response = await fetch(`${baseUrl}/api${path}`, { headers: { "X-Plane-Internal-Key": secret } });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new InternalApiError(
+        `Internal API GET ${path} -> ${response.status}: ${text.slice(0, 300)}`,
+        response.status
+      );
+    }
+    return readCapped(response, maxBytes);
   };
 
   return {
@@ -168,13 +213,6 @@ export function internalApi(env: Env) {
       chunks: Array<{ index: number; content: string; token_count: number; embedding: number[] }>,
       mode: "replace" | "append" = "replace"
     ) => request<{ status: string }>("POST", `/internal/contracts/${contractId}/chunks/`, { chunks, mode }),
-    createThumbnailUpload: (contractId: string) =>
-      request<{ upload_data: { url: string; fields: Record<string, string> }; asset_id: string }>(
-        "POST",
-        `/internal/contracts/${contractId}/thumbnail/`
-      ),
-    confirmThumbnail: (contractId: string, assetId: string) =>
-      request<{ status: string }>("PATCH", `/internal/contracts/${contractId}/thumbnail/`, { asset_id: assetId }),
     listContracts: (workspaceId: string, offset: number, limit: number) =>
       request<{
         total: number;
@@ -248,5 +286,6 @@ export function internalApi(env: Env) {
       ),
     // Generic escape hatch for one-off internal endpoints (assistant tools)
     request,
+    requestBytes,
   };
 }

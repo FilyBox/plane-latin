@@ -19,6 +19,7 @@ from plane.utils.assistant_actions import (
     tag_items,
     undo,
 )
+from plane.utils.assistant_pdf import edit_pdf_pages, merge_pdf, split_pdf
 from plane.utils.host import base_host
 
 
@@ -98,6 +99,12 @@ class AssistantActionsEndpoint(BaseAPIView):
             elif kind == AssistantAction.Kind.EDIT_PAGE:
                 # The live server loads and saves the page as this person
                 action = edit_page(ctx, request.user, data, request.META.get("HTTP_COOKIE", ""), payload=data)
+            elif kind == AssistantAction.Kind.SPLIT_PDF:
+                action = split_pdf(ctx, request.user, data, payload=data)
+            elif kind == AssistantAction.Kind.MERGE_PDF:
+                action = merge_pdf(ctx, request.user, data, payload=data)
+            elif kind == AssistantAction.Kind.EDIT_PDF_PAGES:
+                action = edit_pdf_pages(ctx, request.user, data, payload=data)
             else:
                 return Response({"error": "Unknown action"}, status=status.HTTP_400_BAD_REQUEST)
         except ActionError as error:

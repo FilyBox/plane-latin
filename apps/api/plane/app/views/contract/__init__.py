@@ -30,7 +30,6 @@ from .internal import (
     InternalContractFacetsEndpoint,
     InternalContractSearchEndpoint,
     InternalContractTextEndpoint,
-    InternalContractThumbnailEndpoint,
     InternalJobProgressEndpoint,
     InternalQueryResultEndpoint,
     InternalWorkspaceContractsEndpoint,

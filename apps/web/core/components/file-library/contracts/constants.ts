@@ -53,14 +53,7 @@ export const YES_NO_UNSPECIFIED_OPTIONS: { value: TYesNoUnspecified; i18nKey: st
   { value: "NO_ESPECIFICADO", i18nKey: "file_library.contracts.status.no_especificado" },
 ];
 
-export type TRetryOptionKey =
-  | "extract_text"
-  | "generate_embeddings"
-  | "ai_analysis"
-  | "classify"
-  | "extract_thumbnail"
-  | "tags"
-  | "works";
+export type TRetryOptionKey = "extract_text" | "generate_embeddings" | "ai_analysis" | "classify" | "tags" | "works";
 
 export const RETRY_OPTIONS: {
   key: TRetryOptionKey;
@@ -79,7 +72,6 @@ export const RETRY_OPTIONS: {
     i18nKey: "file_library.contracts.retry.classify",
     hintKey: "file_library.contracts.retry.classify_hint",
   },
-  { key: "extract_thumbnail", i18nKey: "file_library.contracts.retry.extract_thumbnail" },
   {
     key: "tags",
     i18nKey: "file_library.contracts.retry.tags",

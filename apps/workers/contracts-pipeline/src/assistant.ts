@@ -24,7 +24,6 @@ import {
   streamText,
   tool,
 } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 
 import {
@@ -51,6 +50,8 @@ import { cleanAlbums, groupingSummary, type GroupingAlbumInput, type GroupingAlb
 import { internalApi, type ContractWorkLink } from "./lib/internal-api";
 import { repairTruncatedJson } from "./lib/json-repair";
 import { collectEntities, linkMentions } from "./lib/page-links";
+import { visionModel } from "./lib/vision";
+import { buildPdfTools } from "./pdf-tools";
 import { ANALYSIS_SYSTEM, contractPrefix, worksPrompt } from "./prompts";
 
 export type AssistantPageContext = {
@@ -141,16 +142,6 @@ const IMAGE_TYPES: Record<string, string> = {
 
 const mediaTypeOf = (file: FileRead) =>
   file.mime || IMAGE_TYPES[file.name.split(".").pop()?.toLowerCase() ?? ""] || "application/octet-stream";
-
-/** First declared Gemini model: it reads PDFs and images (DeepSeek can't). */
-function visionModel(env: Env) {
-  const id = (env.GEMINI_MODEL_FALLBACK_LIST || "")
-    .split(",")
-    .map((value) => value.trim())
-    .find(Boolean);
-  if (!id || !env.GOOGLE_GENERATIVE_AI_API_KEY) return null;
-  return { id, model: createGoogleGenerativeAI({ apiKey: env.GOOGLE_GENERATIVE_AI_API_KEY })(id) };
-}
 
 /** Lowercase, no accents, single spaces: how evidence is checked against the message. */
 const fold = (text: string) =>
@@ -315,7 +306,16 @@ ETIQUETAS Y REFERENCIAS
   }
 TAREAS (elementos de trabajo)
 - "Crea una tarea / recuérdame / hay que…": propose_work_item con título claro y accionable, descripción breve, proyecto, responsable y fecha si los dijo, y como references los elementos de los que trata (contratos, canciones, archivos mencionados o encontrados). La tarjeta deja editar todo antes de crearla y se puede deshacer.
-
+${
+  caps.contracts
+    ? `
+PDFs DE LA BIBLIOTECA (separar, unir, páginas)
+- "Sepáralo / divide este PDF en sus documentos / separa los contratos y adendums": 1) analyze_pdf_segments con el id del archivo (mención, adjunto, contexto o search_workspace con types file); en instructions pasa tal cual las reglas que dio el usuario ("cada adendum por separado", "deja los anexos con su contrato"), y annexes "separate" solo si pidió los anexos aparte; 2) propose_pdf_split con los segmentos que devolvió, sin cambiarlos salvo que el usuario lo pida. Si el usuario dicta los rangos ("separa 1–5, 6–8 y 9–20"), llama propose_pdf_split directo. Los segmentos deben cubrir todo el PDF sin huecos.
+- "Une estos archivos": propose_pdf_merge con los ids en el orden que pidió y el nombre final.
+- "Extrae / quita / reordena páginas": propose_pdf_pages con operation extract, remove o reorder y las páginas ("1-3, 7").
+- Al proponer, di en una o dos frases cuántos archivos salen, que van a una carpeta nueva junto al original (que no cambia) y que se analizarán como contratos (la tarjeta permite apagarlo). Si analyze_pdf_segments marca cortes con confianza baja (low_confidence) o páginas sin leer, dilo en una frase. Nunca digas que ya quedó hecho: la persona revisa y aplica en la tarjeta.`
+    : ""
+}
 PÁGINAS
 - Cuándo: el usuario pide una página o "page" ("haz / crea / genera / arma una page", "pon esto en una página", "guárdalo como página", "hazme un informe, dossier, minuta o tabla en una página"), aunque lo diga de pasada o en inglés. Termina SIEMPRE con propose_page; no respondas solo con texto ni con una tabla en el chat.
 - Datos: primero reúne lo que vaya en la página con las herramientas (nunca inventes cifras, fechas ni nombres). Si la página es sobre algo de turnos anteriores ("esos contratos que me dijiste") y ya no tienes sus ids a la vista, vuelve a consultarlos antes de escribir.
@@ -666,6 +666,10 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
         return { ...rest, text: text.slice(0, 20_000), read_with: model.id };
       },
     });
+  }
+
+  if (caps.contracts && body.user_id) {
+    tools = { ...tools, ...buildPdfTools(env, api, body) };
   }
 
   if (caps.deepReview) {

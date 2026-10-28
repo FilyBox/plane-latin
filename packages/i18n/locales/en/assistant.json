@@ -261,7 +261,24 @@
         "running": "Reading the review…",
         "done": "Read the review"
       },
-      "deep_review_rows": "{count, plural, one {# contract} other {# contracts}}"
+      "deep_review_rows": "{count, plural, one {# contract} other {# contracts}}",
+      "analyze_pdf_segments": {
+        "running": "Finding where each document starts",
+        "done": "Read the PDF page by page"
+      },
+      "propose_pdf_split": {
+        "running": "Preparing the split",
+        "done": "Prepared the split"
+      },
+      "propose_pdf_merge": {
+        "running": "Preparing the merge",
+        "done": "Prepared the merge"
+      },
+      "propose_pdf_pages": {
+        "running": "Preparing the pages",
+        "done": "Prepared the pages"
+      },
+      "pdf_segments": "{name} · {documents, plural, one {# document} other {# documents}} in {pages, plural, one {# page} other {# pages}}"
     },
     "export": {
       "title": "Excel ready",
@@ -508,7 +525,7 @@
     },
     "history_view": {
       "title": "Assistant changes",
-      "intro": "What the assistant changed after someone approved it: tags, work items, pages and merges. Every change can be undone.",
+      "intro": "What the assistant changed after someone approved it: tags, work items, pages, merges and PDFs split or joined. Every change can be undone.",
       "scope": {
         "mine": "Mine",
         "all": "Whole workspace"
@@ -622,6 +639,59 @@
         "error": "could not be read",
         "chunks": "{count} chunks",
         "show_all": "Show all {count}"
+      }
+    },
+    "pdf": {
+      "split_title": "Split «{name}»",
+      "merge_title": "Merge {count, plural, one {# file} other {# files}}",
+      "pages_title": "Pages of «{name}»",
+      "total_pages": "{count, plural, one {# page} other {# pages}}",
+      "start_page": "First page",
+      "end_page": "Last page",
+      "title_placeholder": "Document title (goes in the file name)",
+      "view": "View",
+      "confidence": "{value} %",
+      "low_confidence": "Doubtful cut · {value} %",
+      "confidence_hint": "How sure the AI is that a new document starts here",
+      "evidence": "Evidence",
+      "move_cut_earlier": "Move the cut one page back",
+      "move_cut_later": "Move the cut one page forward",
+      "merge_next": "Join with the next part",
+      "split_half": "Split in two",
+      "folder": "New folder (next to the original)",
+      "analyze": "Analyze as contracts",
+      "analyze_hint": "Each new file goes through OCR and the AI analysis, which has a cost.",
+      "original_untouched": "The original file stays as it is.",
+      "apply_split": "Split into {count, plural, one {# file} other {# files}}",
+      "apply_merge": "Merge files",
+      "apply_pages": "Create file",
+      "applied": "{count, plural, one {# file} other {# files}} in «{folder}»",
+      "open_folder": "Open folder",
+      "result_name": "Name of the new file",
+      "move_up": "Move up",
+      "move_down": "Move down",
+      "remove": "Leave out",
+      "operation_label": "What to do",
+      "operations": {
+        "extract": "Keep only",
+        "remove": "Remove",
+        "reorder": "Reorder"
+      },
+      "pages_placeholder": "Pages, e.g. 1-3, 7, 9-12",
+      "result_preview": "The new file will have {count, plural, one {# page} other {# pages}}: {pages}",
+      "page_errors": {
+        "unreadable": "Write pages as 1-3, 7, 9-12.",
+        "empty": "Choose at least one page.",
+        "outside": "The PDF has {total} pages.",
+        "nothing_left": "Removing every page would leave an empty file.",
+        "incomplete": "A new order must list every page from 1 to {total} once."
+      },
+      "doc_types": {
+        "CONTRATO": "Contract",
+        "ADENDUM": "Addendum",
+        "ANEXO": "Annex",
+        "IDENTIFICACION": "ID",
+        "OTRO": "Other"
       }
     }
   }

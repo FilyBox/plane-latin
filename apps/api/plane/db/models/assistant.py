@@ -151,6 +151,9 @@ class AssistantAction(BaseModel):
         CREATE_WORK_ITEM = "CREATE_WORK_ITEM", "Create work item"
         CREATE_PAGE = "CREATE_PAGE", "Create page"
         EDIT_PAGE = "EDIT_PAGE", "Edit page"
+        SPLIT_PDF = "SPLIT_PDF", "Split PDF"
+        MERGE_PDF = "MERGE_PDF", "Merge PDFs"
+        EDIT_PDF_PAGES = "EDIT_PDF_PAGES", "Edit PDF pages"
 
     class Status(models.TextChoices):
         APPLIED = "APPLIED", "Applied"

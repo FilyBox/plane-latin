@@ -36,6 +36,7 @@ import { ActionsView } from "./actions-view";
 import { DeepReviewCard } from "./deep-review-card";
 import { AssistantHelp } from "./help";
 import { PageCard, PageEditCard, ReportCard } from "./page-card";
+import { PdfMergeCard, PdfPagesCard, PdfSplitCard } from "./pdf-cards";
 import { AssistantAttachmentAdapter } from "./attachments";
 import {
   AskUserCard,
@@ -473,6 +474,9 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
       <PageCard />
       <PageEditCard />
       <ReportCard />
+      <PdfSplitCard />
+      <PdfMergeCard />
+      <PdfPagesCard />
       <DeepReviewCard />
       <StartTagMappingCard />
       <AskUserCard />

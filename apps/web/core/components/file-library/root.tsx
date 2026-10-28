@@ -61,7 +61,6 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
     bulkAction,
     getPresignedViewUrl,
     getFileViewUrl,
-    getFileThumbnailUrl,
     filesLoader,
   } = useFileLibrary();
   // states
@@ -88,14 +87,16 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
     "icons"
   );
 
-  // Deep link (Power K file search): ?preview=<asset_id> opens the viewer
+  // Deep link (Power K file search, assistant): ?preview=<asset_id> opens the
+  // viewer (on ?page=N for PDFs)
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     const previewId = searchParams.get("preview");
     if (!previewId) return;
     const file = getFileById(previewId);
     if (!file) return; // files not loaded yet — retried when the loader settles
-    setPreviewFile({ assetId: file.id, name: file.attributes.name, contentType: file.attributes.type });
+    const page = Number(searchParams.get("page")) || undefined;
+    setPreviewFile({ assetId: file.id, name: file.attributes.name, contentType: file.attributes.type, page });
     setSearchParams({}, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, filesLoader]);
@@ -118,7 +119,9 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
   }, [filters]);
 
   // data
-  useSWR(`FILE_LIBRARY_CATEGORIES_${workspaceSlug}`, () => fetchCategories(workspaceSlug), { revalidateOnFocus: false });
+  useSWR(`FILE_LIBRARY_CATEGORIES_${workspaceSlug}`, () => fetchCategories(workspaceSlug), {
+    revalidateOnFocus: false,
+  });
   useSWR(`FILE_LIBRARY_FOLDERS_${workspaceSlug}`, () => fetchFolders(workspaceSlug), { revalidateOnFocus: false });
   useSWR(`FILE_LIBRARY_TAGS_${workspaceSlug}`, () => fetchTags(workspaceSlug), { revalidateOnFocus: false });
   useSWR(`FILE_LIBRARY_FILES_${workspaceSlug}`, () => fetchFiles(workspaceSlug), { revalidateOnFocus: false });
@@ -160,7 +163,12 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
   const handleDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) setPendingUploads(acceptedFiles);
   }, []);
-  const { getRootProps, getInputProps, isDragActive, open: openFilePicker } = useDropzone({
+  const {
+    getRootProps,
+    getInputProps,
+    isDragActive,
+    open: openFilePicker,
+  } = useDropzone({
     onDrop: handleDrop,
     noClick: true,
     noKeyboard: true,
@@ -200,14 +208,9 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
             : { label: t("file_library.contracts.badge"), tone: "success" as const }
         : null;
       // Thumbnails: images render inline (their own file IS the thumbnail);
-      // contract PDFs get the AI pipeline's page-1 render. Everything else
-      // falls back to the built-in generic file-type tile.
+      // everything else falls back to the built-in generic file-type tile.
       const isImage = file.attributes.type.startsWith("image/");
-      const previewImageUrl = isImage
-        ? getFileViewUrl(workspaceSlug, file.id)
-        : file.has_thumbnail
-          ? getFileThumbnailUrl(workspaceSlug, file.id)
-          : undefined;
+      const previewImageUrl = isImage ? getFileViewUrl(workspaceSlug, file.id) : undefined;
       manifest.push({
         kind: "file",
         path: uniquePath(`${prefix}${file.attributes.name}`),
@@ -385,6 +388,15 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
     setBrowseKey((k) => k + 1);
   };
 
+  // ?folder=<folder_id> (the assistant's "Abrir carpeta") browses into it
+  useEffect(() => {
+    const folderId = searchParams.get("folder");
+    if (!folderId || !folderIds.includes(folderId)) return; // folders not loaded yet — retried when they arrive
+    navigateTo(folderPathString(folderId));
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, folderIds]);
+
   // Safe delete: the modal collects the contents strategy for folders and
   // requires typed confirmation before this runs
   const handleDeleteConfirm = async (contents: "detach" | "delete") => {
@@ -411,7 +423,10 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
 
   // Mirror the DB order inside the browser (folders always sort first)
   const sortOverride = useMemo(() => {
-    const map: Record<string, { key: "name" | "kind" | "size" | "createdAt" | "updatedAt"; direction: "asc" | "desc" }> = {
+    const map: Record<
+      string,
+      { key: "name" | "kind" | "size" | "createdAt" | "updatedAt"; direction: "asc" | "desc" }
+    > = {
       "-created_at": { key: "createdAt", direction: "desc" },
       name: { key: "name", direction: "asc" },
       "-name": { key: "name", direction: "desc" },
@@ -422,7 +437,8 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
     return map[filters.order ?? "-created_at"];
   }, [filters.order]);
 
-  const iconAction = "flex size-8 items-center justify-center rounded-sm border border-subtle text-secondary hover:bg-layer-1-hover";
+  const iconAction =
+    "flex size-8 items-center justify-center rounded-sm border border-subtle text-secondary hover:bg-layer-1-hover";
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -456,7 +472,7 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
       {/* toolbar — single compact row: folder breadcrumbs + actions */}
       <div className="flex items-center justify-between gap-2 border-b border-subtle px-2 py-1.5 sm:px-4">
         {/* Scrolls horizontally instead of clipping/overlapping the toolbar when the trail is deep */}
-        <div className="horizontal-scrollbar scrollbar-xs flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <div className="horizontal-scrollbar flex scrollbar-xs min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           <FolderBreadcrumbs currentFolderId={currentFolderId} onNavigate={(id) => navigateTo(folderPathString(id))} />
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -493,7 +509,7 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder={t("file_library.bulk.search_placeholder")}
-              className="w-36 rounded-sm border border-subtle bg-transparent py-1 pl-6 pr-1.5 text-12 lg:w-44"
+              className="w-36 rounded-sm border border-subtle bg-transparent py-1 pr-1.5 pl-6 text-12 lg:w-44"
             />
           </div>
 
@@ -515,11 +531,15 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
             <option value="-updated_at">{t("file_library.order.modified")}</option>
           </select>
 
-          <span className="mx-0.5 h-5 w-px bg-subtle" />
+          <span className="bg-subtle mx-0.5 h-5 w-px" />
 
           {/* primary actions — icon-only, tooltip-labelled */}
           <Tooltip tooltipContent={t("file_library.upload.button")}>
-            <button type="button" className={cn(iconAction, "bg-accent-primary text-on-color hover:opacity-90")} onClick={openFilePicker}>
+            <button
+              type="button"
+              className={cn(iconAction, "bg-accent-primary text-on-color hover:opacity-90")}
+              onClick={openFilePicker}
+            >
               <Upload className="size-4" />
             </button>
           </Tooltip>

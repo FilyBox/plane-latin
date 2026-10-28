@@ -70,7 +70,6 @@ export type PipelineParams = {
     extract_text?: boolean;
     generate_embeddings?: boolean;
     ai_analysis?: boolean;
-    extract_thumbnail?: boolean;
     /** Only the editorial classification, over the stored text — the backfill
      * for contracts analyzed before the field existed. */
     classify?: boolean;
@@ -652,15 +651,6 @@ export class ContractPipelineWorkflow extends WorkflowEntrypoint<Env, PipelinePa
           // receives — nothing else on the contract moves. The empty model
           // keeps `ai_model_used` naming the model of the full analysis.
           await api.saveExtractedData(contractId, { esEditorial: classification.esEditorial }, "apply", "");
-        });
-      }
-
-      // ── Thumbnail ─────────────────────────────────────────────────────
-      if (wants("extract_thumbnail") && !isReanalysis) {
-        await step.do("thumbnail placeholder", async () => {
-          // Browser Rendering spike pending. Non-fatal: the pipeline completes
-          // without a thumbnail and this step can be retried selectively.
-          return { skipped: true };
         });
       }
 

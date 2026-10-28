@@ -61,7 +61,7 @@ class TestIsClassifyOnly:
         assert not is_classify_only({"classify": True, "ai_analysis": True})
 
     def test_full_retry_is_a_normal_run(self):
-        keys = ["extract_text", "generate_embeddings", "ai_analysis", "extract_thumbnail", "tags", "classify"]
+        keys = ["extract_text", "generate_embeddings", "ai_analysis", "tags", "classify"]
         assert not is_classify_only({key: True for key in keys})
 
     def test_no_classify(self):
