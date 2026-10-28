@@ -290,6 +290,10 @@
       "propose_template_edit": {
         "running": "Preparando los cambios de la plantilla",
         "done": "Preparó los cambios de la plantilla"
+      },
+      "propose_contract_from_template": {
+        "running": "Preparando el contrato",
+        "done": "Preparó el contrato"
       }
     },
     "export": {
@@ -743,6 +747,27 @@
       "open": "Abrir",
       "apply_new": "Crear variante",
       "apply_version": "Guardar versión nueva"
+    },
+    "contract_draft": {
+      "title": "Contrato desde «{template}»",
+      "base": "Variante {variant}, versión {version}",
+      "with_edits": "{count, plural, one {# cambio al texto} other {# cambios al texto}} solo para este contrato: se crea la variante «{name}» y el contrato se hace sobre ella.",
+      "contract_title": "Título del contrato",
+      "values": "Valores",
+      "missing": "falta",
+      "optional": "opcional · si queda vacío se omite",
+      "source": "de: {source}",
+      "signers": "Firmantes",
+      "name": "Nombre",
+      "email": "Correo",
+      "unknown_values": "Estos valores no están en la plantilla y se ignoraron: {keys}",
+      "still_missing": "{count, plural, one {Falta # dato} other {Faltan # datos}} para crear el borrador.",
+      "never_sends": "Crea un borrador listo para revisar; tú lo envías a firma desde la pantalla de envío.",
+      "preview": "Vista previa con valores (PDF)",
+      "preview_failed": "No se pudo generar la vista previa.",
+      "apply": "Crear borrador",
+      "created": "Borrador «{title}» listo para revisar",
+      "open": "Revisar y enviar"
     }
   }
 }

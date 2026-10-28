@@ -125,8 +125,19 @@ class AssistantActionsEndpoint(BaseAPIView):
                     action.chat = chat
                     action.save(update_fields=["tool_call_id", "chat", "updated_at"])
         except ActionError as error:
-            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(_error_body(error), status=status.HTTP_400_BAD_REQUEST)
         return Response(action_payload(action), status=status.HTTP_201_CREATED)
+
+
+def _error_body(error) -> dict:
+    """The message, plus a code and its params when the web translates it
+    (missing_value, missing_signer…) or where an anchor was found."""
+    body = {"error": str(error)}
+    if getattr(error, "code", None):
+        body = {**getattr(error, "params", {}), **body, "code": error.code}
+    if getattr(error, "detail", None):
+        body["detail"] = error.detail
+    return body
 
 
 def _is_uuid(value) -> bool:

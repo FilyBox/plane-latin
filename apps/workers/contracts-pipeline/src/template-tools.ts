@@ -30,7 +30,13 @@ PLANTILLAS DE CONTRATO (Word con marcadores {{Clave}})
 - Guardar crea SIEMPRE una variante nueva (save "new_variant") con nombre "<base> – <cambio en pocas palabras>" ("Principal – artista como variable"). Solo si el usuario pide explícitamente cambiar una variante ("cambia la variante Principal", "guárdalo en la variante X") usa save "this_variant": se crea una versión nueva y las anteriores no cambian.
 - Flujo: find_contract_templates → read_contract_template (párrafos numerados) → propose_template_edit. Para reemplazar un nombre usa match "loose" (encuentra MAYÚSCULAS, sin acentos y en encabezados). Las menciones parciales ("el Sr. Pérez") ponlas en una operación aparte con default_off: true, para que la persona decida. Si propose_template_edit devuelve un error con apariciones, corrige el ancla (más texto, occurrence o paragraph) y vuelve a proponer.
 - Un ancla vive en UN párrafo y no cruza tabulaciones, saltos, imágenes, campos ni notas. No cambies estilos, márgenes, fuentes, numeración ni tablas: eso se hace en Word.
-- Nunca digas que la plantilla ya quedó cambiada: la persona revisa (con vista previa en PDF) y aplica en la tarjeta.`;
+- Nunca digas que la plantilla ya quedó cambiada: la persona revisa (con vista previa en PDF) y aplica en la tarjeta.
+
+CONTRATO DESDE UNA PLANTILLA
+- "Hazme el contrato de edición para Ana López": find_contract_templates → propose_contract_from_template con los valores que ya sabes. Cada valor lleva su origen (source): "lo dijiste en el chat", "etiqueta Ana López", "contrato anterior de Ana (2025)". Busca en el workspace antes de preguntar (etiqueta del artista, catálogo, contratos anteriores); pregunta solo lo indispensable y deja vacío lo que no sepas: la tarjeta lo marca.
+- Fechas en ISO (2026-03-01); números sin formato (12500). Firmantes con nombre y correo en el orden de los roles de la variante.
+- Llenar variables NO cambia la plantilla. Si piden cambiar el texto solo para este contrato ("quita la exclusividad", "pon 5 años"), pasa esos cambios en document_edits (mismas operaciones que propose_template_edit, después de read_contract_template): se crea una variante nueva y el contrato se hace sobre ella.
+- La tarjeta crea un borrador listo para revisar. Tú NUNCA envías a firma: la persona revisa los campos y pulsa "Enviar a firma" en la pantalla de envío.`;
 
 const editSchema = z.discriminatedUnion("op", [
   z.object({
@@ -192,6 +198,63 @@ export function buildTemplateTools(api: Api, body: AssistantChatRequest): ToolSe
         save: input.save,
         name: input.save === "new_variant" ? input.name : undefined,
         recipient_roles: input.recipient_roles,
+        summary: input.summary,
+        workspace_slug: slug,
+      };
+    },
+  });
+
+  tools.propose_contract_from_template = tool({
+    description:
+      "Prepara un contrato desde una variante de plantilla: valores de las variables (cada uno con su origen) y firmantes. La tarjeta deja corregirlos, ver el PDF con los valores y crear el borrador; nunca se envía a firma desde aquí. Cambios al texto solo para este contrato van en document_edits (crean una variante nueva).",
+    inputSchema: z.object({
+      variant_id: z.string(),
+      revision: z.number().int().min(1).optional().describe("Versión; por defecto la publicada"),
+      title: z.string().max(500).optional().describe('Título del contrato, p. ej. "Contrato de edición – Ana López"'),
+      values: z
+        .record(
+          z.string(),
+          z.object({
+            value: z.string().max(5000),
+            source: z.string().max(300).optional().describe("De dónde salió el valor"),
+          })
+        )
+        .default({}),
+      recipients: z
+        .array(
+          z.object({
+            name: z.string().max(255).optional(),
+            email: z.string().max(255).optional(),
+            source: z.string().max(300).optional(),
+          })
+        )
+        .max(20)
+        .default([])
+        .describe("Firmantes en orden (Firmante 1, 2…)"),
+      document_edits: z.array(editSchema).max(50).optional(),
+      variant_name: z.string().max(200).optional().describe("Nombre de la variante nueva si hay document_edits"),
+      summary: z.string().max(300).describe("Qué contrato se prepara, en una frase"),
+    }),
+    execute: async (input) => {
+      const run = await api.request<Record<string, unknown> & { error?: string; detail?: unknown }>(
+        "POST",
+        `${base}variants/${input.variant_id}/contract-proposal/`,
+        {
+          user_id: userId,
+          revision: input.revision,
+          values: input.values,
+          recipients: input.recipients,
+          title: input.title,
+          document_edits: input.document_edits,
+        }
+      );
+      if (run.error) {
+        return { error: `${run.error} Corrige y vuelve a proponer.`, detail: run.detail };
+      }
+      return {
+        ...run,
+        document_edits_input: input.document_edits,
+        variant_name_input: input.document_edits?.length ? input.variant_name : undefined,
         summary: input.summary,
         workspace_slug: slug,
       };

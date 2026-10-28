@@ -251,3 +251,113 @@ class TestEditVariant:
         response = client_for(template["user"]).post(actions(template), self.edit_body(template), format="json")
         assert response.status_code == 400 and "draft" in response.json()["error"]
         assert not AssistantAction.objects.exists()
+
+
+# ----------------------------------------------------------- contract drafts
+
+DRAFT_SOURCE = simple_docx(
+    [
+        "Contrato con {{NombreArtista}} por {{Duracion}}",
+        "Exclusividad: sí",
+        "Firma: {{FirmaFirmante1}} {{NombreFirmante1}}",
+    ]
+)
+
+
+@pytest.fixture
+def draft_template(template, store, monkeypatch):
+    variant = template["variant"]
+    store["contracts/test/source.docx"] = DRAFT_SOURCE
+    variant.recipient_roles = {"0": "Artista"}
+    variant.variable_settings = {"Duracion": {"label": "Duración", "required": False}}
+    variant.save()
+    ContractTemplateRevision.objects.filter(variant=variant).delete(soft=False)
+    workflow._create_revision(variant, template["user"], DRAFT_SOURCE, name="Original")
+    monkeypatch.setattr(workflow, "locate_and_remove_pdf_markers", lambda pdf, markers: (pdf, []))
+    return template
+
+
+def draft_body(setup, **extra):
+    return {
+        "kind": "CREATE_CONTRACT_DRAFT",
+        "variant_id": str(setup["variant"].id),
+        "title": "Contrato Ana",
+        "values": {"NombreArtista": {"value": "Ana López", "source": "Etiqueta Ana López"}},
+        "recipients": [{"name": "Ana López", "email": "ana@example.com"}],
+        **extra,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+class TestContractDraft:
+    def test_the_proposal_shows_values_their_origin_and_what_is_missing(self, draft_template):
+        workspace, user = draft_template["workspace"], draft_template["user"]
+        run = internal(
+            f"/api/internal/workspaces/{workspace.id}/assistant/contract-templates/variants/"
+            f"{draft_template['variant'].id}/contract-proposal/",
+            "post",
+            {"user_id": str(user.id), "values": {"NombreArtista": {"value": "Ana", "source": "catálogo"}}},
+        ).json()
+        rows = {row["key"]: row for row in run["variables"]}
+        assert rows["NombreArtista"]["source"] == "catálogo" and rows["NombreArtista"]["required"] is True
+        assert rows["Duracion"]["label"] == "Duración" and rows["Duracion"]["required"] is False
+        assert run["signers"][0]["role"] == "Artista" and run["signers"][0]["requires_name"] is True
+        assert run["missing"] == ["signer:0"]
+        assert run["revision"] == 1
+
+    def test_a_ready_draft_never_sent_and_undo(self, draft_template, store):
+        client = client_for(draft_template["user"])
+        response = client.post(actions(draft_template), draft_body(draft_template), format="json")
+        assert response.status_code == 201, response.content
+        result = response.json()["result"]
+        signature_request = ContractSignatureRequest.objects.get(id=result["request_id"])
+        assert signature_request.status == ContractSignatureRequest.Status.READY
+        assert signature_request.documenso_envelope_id is None and signature_request.sent_at is None
+        assert signature_request.variable_values["NombreArtista"] == "Ana López"
+        assert "Ana López" in texts(store[signature_request.rendered_source_asset.asset.name])
+        assert result["path"].endswith(f"/documents/{signature_request.id}/editor")
+        # The template is untouched
+        assert store["contracts/test/source.docx"] == DRAFT_SOURCE
+
+        undone = client.post(actions(draft_template, f"{response.json()['id']}/undo/"), format="json")
+        assert undone.status_code == 200, undone.content
+        assert not ContractSignatureRequest.objects.filter(id=signature_request.id).exists()
+
+    def test_once_sent_undo_refuses(self, draft_template):
+        client = client_for(draft_template["user"])
+        action = client.post(actions(draft_template), draft_body(draft_template), format="json").json()
+        ContractSignatureRequest.objects.filter(id=action["result"]["request_id"]).update(
+            status=ContractSignatureRequest.Status.PENDING
+        )
+        response = client.post(actions(draft_template, f"{action['id']}/undo/"), format="json")
+        assert response.status_code == 409 and "cancel" in response.json()["error"]
+
+    def test_a_missing_value_comes_with_its_key(self, draft_template):
+        body = draft_body(draft_template, values={})
+        response = client_for(draft_template["user"]).post(actions(draft_template), body, format="json")
+        assert response.status_code == 400
+        assert response.json()["code"] == "missing_value" and response.json()["key"] == "NombreArtista"
+        assert not ContractSignatureRequest.objects.exists()
+
+    def test_text_changes_make_a_new_variant_first(self, draft_template, store):
+        body = draft_body(
+            draft_template,
+            document_edits=[{"op": "delete_paragraph", "anchor": "Exclusividad: sí"}],
+            variant_name="Principal – sin exclusividad",
+            base_sha256=hashlib.sha256(DRAFT_SOURCE).hexdigest(),
+        )
+        client = client_for(draft_template["user"])
+        response = client.post(actions(draft_template), body, format="json")
+        assert response.status_code == 201, response.content
+        result = response.json()["result"]
+        created = ContractTemplateVariant.objects.get(id=result["variant_id"])
+        assert created.name == "Principal – sin exclusividad" and created.id != draft_template["variant"].id
+        signature_request = ContractSignatureRequest.objects.get(id=result["request_id"])
+        assert signature_request.revision.variant_id == created.id
+        assert "Exclusividad" not in texts(store[signature_request.rendered_source_asset.asset.name])
+        assert store["contracts/test/source.docx"] == DRAFT_SOURCE
+
+        client.post(actions(draft_template, f"{response.json()['id']}/undo/"), format="json")
+        assert not ContractTemplateVariant.objects.filter(id=created.id).exists()
+        assert AssistantAction.objects.get(id=result["variant_action_id"]).status == "UNDONE"

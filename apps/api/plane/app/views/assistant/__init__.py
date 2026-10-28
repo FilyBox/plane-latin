@@ -30,7 +30,9 @@ from .deep_review import (
     InternalDeepReviewTextEndpoint,
 )
 from .templates import (
+    AssistantContractDraftPreviewEndpoint,
     AssistantTemplatePreviewEndpoint,
+    InternalAssistantContractProposalEndpoint,
     InternalAssistantTemplateDryRunEndpoint,
     InternalAssistantTemplateOutlineEndpoint,
     InternalAssistantTemplatesEndpoint,

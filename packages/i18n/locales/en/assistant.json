@@ -290,6 +290,10 @@
       "propose_template_edit": {
         "running": "Preparing the template changes",
         "done": "Prepared the template changes"
+      },
+      "propose_contract_from_template": {
+        "running": "Preparing the contract",
+        "done": "Prepared the contract"
       }
     },
     "export": {
@@ -743,6 +747,27 @@
       "open": "Open",
       "apply_new": "Create variant",
       "apply_version": "Save new version"
+    },
+    "contract_draft": {
+      "title": "Contract from «{template}»",
+      "base": "Variant {variant}, version {version}",
+      "with_edits": "{count, plural, one {# text change} other {# text changes}} only for this contract: a new variant «{name}» is created and the contract is made on it.",
+      "contract_title": "Contract title",
+      "values": "Values",
+      "missing": "missing",
+      "optional": "optional · left out if blank",
+      "source": "from: {source}",
+      "signers": "Signers",
+      "name": "Name",
+      "email": "Email",
+      "unknown_values": "These values are not in the template and were ignored: {keys}",
+      "still_missing": "{count, plural, one {# value is missing} other {# values are missing}} before the draft can be made.",
+      "never_sends": "Creates a draft ready to review; you send it for signature from the send screen.",
+      "preview": "Preview with values (PDF)",
+      "preview_failed": "The preview could not be made.",
+      "apply": "Create draft",
+      "created": "Draft «{title}» ready to review",
+      "open": "Review and send"
     }
   }
 }

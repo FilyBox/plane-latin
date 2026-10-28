@@ -1618,6 +1618,186 @@ class ContractTemplateVariantSchemaEndpoint(FileLibraryBaseView):
         )
 
 
+def create_signature_request(variant, user, data):
+    """Render a variant with its values and leave a READY signature request.
+
+    Shared by the send dialog and the assistant's contract drafts: nothing is
+    sent to Documenso here. Returns (request, reused); a TEMPLATE session that
+    is already open is reused. Raises MissingValueError / ContractInputError
+    with the codes the web maps to i18n; uploaded objects are removed on error.
+    """
+    title = str(data.get("title") or variant.template.name).strip()
+    authoring_mode = str(data.get("authoring_mode") or "DOCUMENT").upper()
+    if authoring_mode not in ContractSignatureRequest.AuthoringMode.values:
+        raise ContractInputError("Invalid authoring mode")
+    is_template = authoring_mode == ContractSignatureRequest.AuthoringMode.TEMPLATE
+    uploaded = []
+    try:
+        revision_id = data.get("revision_id")
+        if revision_id:
+            revision = (
+                ContractTemplateRevision.objects.select_related("source_asset", "pdf_asset")
+                .filter(id=revision_id, variant=variant)
+                .first()
+            )
+            if not revision:
+                raise ContractInputError("Revision not found", http_status=status.HTTP_404_NOT_FOUND)
+        else:
+            revision, _ = _get_or_create_template_revision(variant, user)
+
+        if is_template:
+            # One configure session per revision: reuse the open one.
+            open_session = _open_template_session(revision)
+            if open_session is not None and data.get("reuse") is not False:
+                return open_session, True
+
+        source_bytes = _read_asset(revision.source_asset)
+        schema = _revision_schema(revision)
+        settings_map = variant.variable_settings or {}
+        variable_values = data.get("variable_values")
+        variable_values = variable_values if isinstance(variable_values, dict) else {}
+        variable_values = {str(key)[:100]: str(value)[:5000] for key, value in variable_values.items()}
+        omitted_variable_keys = data.get("omitted_variable_keys")
+        omitted_variable_keys = omitted_variable_keys if isinstance(omitted_variable_keys, list) else []
+        omitted_variable_keys = [str(key)[:100] for key in omitted_variable_keys[:100]]
+        supplied_recipients = data.get("recipients")
+        supplied_recipients = supplied_recipients if isinstance(supplied_recipients, list) else []
+
+        if is_template:
+            omitted_variable_keys = []
+            # Realistic stand-ins so the configure PDF flows like a real one.
+            rendered_values = {
+                item["key"]: variable_values.get(item["key"]) or sample_value(item, settings_map.get(item["key"]))
+                for item in schema.get("variables") or []
+            }
+            variable_values = rendered_values
+        else:
+            rendered_values = _rendered_variable_values(schema, variable_values, omitted_variable_keys, settings_map)
+            for semantic_recipient in schema.get("recipients") or []:
+                index = semantic_recipient["index"]
+                provided = supplied_recipients[index] if index < len(supplied_recipients) else {}
+                provided = provided if isinstance(provided, dict) else {}
+                if semantic_recipient.get("requires_name") and not str(provided.get("name") or "").strip():
+                    raise ContractInputError(
+                        "missing_signer", f"Missing name for Firmante {index + 1}", index=index, field="name"
+                    )
+                if semantic_recipient.get("requires_email") and "@" not in str(provided.get("email") or ""):
+                    raise ContractInputError(
+                        "missing_signer",
+                        f"Missing valid email for Firmante {index + 1}",
+                        index=index,
+                        field="email",
+                    )
+
+        manual_blueprint, recipient_blueprint, manual_status = _manual_blueprint_for_revision(variant, revision)
+        sample_recipients = _prepare_recipients(
+            schema=schema,
+            supplied=supplied_recipients,
+            blueprint=recipient_blueprint,
+            fields=[],
+            authoring_mode=authoring_mode,
+            variant=variant,
+        )
+        if is_template:
+            sample_recipients = [
+                {**recipient, "name": "Nombre Apellido Apellido", "email": "nombre@empresa.com"}
+                for recipient in sample_recipients
+            ]
+        rendered_docx, marker_fields, _ = render_docx_variables(
+            source_bytes,
+            rendered_values,
+            sample_recipients,
+            omitted_keys=omitted_variable_keys,
+        )
+        pdf_bytes = _pdf_for_content(variant.workspace, rendered_docx, f"{title}.docx", user=user, store=is_template)
+        if not pdf_bytes:
+            raise ContractInputError("conversion_failed", "Collabora could not convert the completed Word file")
+        pdf_bytes, semantic_fields = locate_and_remove_pdf_markers(pdf_bytes, marker_fields)
+        layout_signature = _pdf_layout_signature(pdf_bytes)
+
+        manual_blueprint = [
+            field for field in manual_blueprint if not (field.get("fieldMeta") or {}).get("templateVariable")
+        ]
+        reusable_manual_fields = _blueprint_for_layout(
+            manual_blueprint,
+            revision.signature_blueprint_layout or revision.layout_signature,
+            layout_signature,
+        )
+        combined_fields = [*reusable_manual_fields, *semantic_fields]
+        warnings = []
+        if manual_status == "REQUIRES_REVIEW":
+            warnings.append(
+                "El Word cambió desde la última configuración. Los campos manuales no se reutilizaron; "
+                "los campos con variables sí se recalcularon."
+            )
+        elif manual_blueprint and not reusable_manual_fields:
+            warnings.append(
+                "La paginación cambió y los campos manuales se descartaron para evitar posiciones incorrectas."
+            )
+        elif reusable_manual_fields and (schema.get("variables") or []):
+            warnings.append(
+                "Revisa los campos manuales: los valores insertados pueden desplazar texto aunque "
+                "la paginación coincida."
+            )
+
+        recipients = _prepare_recipients(
+            schema=schema,
+            supplied=supplied_recipients,
+            blueprint=recipient_blueprint,
+            fields=combined_fields,
+            authoring_mode=authoring_mode,
+            variant=variant,
+        )
+        with transaction.atomic():
+            rendered_source_asset = _create_asset(
+                workspace=variant.workspace,
+                user=user,
+                key=_asset_key(variant.workspace_id, "rendered", "docx"),
+                name=f"{title}.docx",
+                mime_type=DOCX_MIME,
+                content=rendered_docx,
+                entity_type=FileAsset.EntityTypeContext.CONTRACT_REVISION,
+                track=uploaded,
+            )
+            rendered_pdf_asset = _create_asset(
+                workspace=variant.workspace,
+                user=user,
+                key=_asset_key(variant.workspace_id, "unsigned", "pdf"),
+                name=f"{title}.pdf",
+                mime_type="application/pdf",
+                content=pdf_bytes,
+                entity_type=FileAsset.EntityTypeContext.CONTRACT_UNSIGNED,
+                track=uploaded,
+            )
+            if is_template:
+                # Forced fresh session: older open ones are marked, never deleted.
+                for previous in _open_template_sessions(revision):
+                    previous.metadata = {**(previous.metadata or {}), "superseded": True}
+                    previous.save(update_fields=["metadata", "updated_at"])
+            signature_request = ContractSignatureRequest.objects.create(
+                workspace=variant.workspace,
+                revision=revision,
+                rendered_source_asset=rendered_source_asset,
+                rendered_pdf_asset=rendered_pdf_asset,
+                title=title,
+                authoring_mode=authoring_mode,
+                status=ContractSignatureRequest.Status.READY,
+                recipients=recipients,
+                fields=combined_fields,
+                authoring_settings=_normalise_authoring_settings(
+                    revision.authoring_settings or variant.authoring_settings
+                ),
+                variable_values=variable_values,
+                preparation_warnings=warnings,
+                rendered_layout_signature=layout_signature,
+                created_by=user,
+            )
+    except Exception:
+        _delete_uploaded(uploaded)
+        raise
+    return signature_request, False
+
+
 class ContractSignatureRequestsEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug):
@@ -1648,187 +1828,19 @@ class ContractSignatureRequestsEndpoint(FileLibraryBaseView):
         )
         if not variant:
             return Response({"error": "Variant not found"}, status=status.HTTP_404_NOT_FOUND)
-        title = str(request.data.get("title") or variant.template.name).strip()
-        authoring_mode = str(request.data.get("authoring_mode") or "DOCUMENT").upper()
-        if authoring_mode not in ContractSignatureRequest.AuthoringMode.values:
-            return Response({"error": "Invalid authoring mode"}, status=status.HTTP_400_BAD_REQUEST)
-        is_template = authoring_mode == ContractSignatureRequest.AuthoringMode.TEMPLATE
-        uploaded = []
         try:
-            revision_id = request.data.get("revision_id")
-            if revision_id:
-                revision = (
-                    ContractTemplateRevision.objects.select_related("source_asset", "pdf_asset")
-                    .filter(id=revision_id, variant=variant)
-                    .first()
-                )
-                if not revision:
-                    return Response({"error": "Revision not found"}, status=status.HTTP_404_NOT_FOUND)
-            else:
-                revision, _ = _get_or_create_template_revision(variant, request.user)
-
-            if is_template:
-                # One configure session per revision: reuse the open one.
-                open_session = _open_template_session(revision)
-                if open_session is not None and request.data.get("reuse") is not False:
-                    return Response(ContractSignatureRequestSerializer(open_session).data, status=status.HTTP_200_OK)
-
-            source_bytes = _read_asset(revision.source_asset)
-            schema = _revision_schema(revision)
-            settings_map = variant.variable_settings or {}
-            variable_values = request.data.get("variable_values")
-            variable_values = variable_values if isinstance(variable_values, dict) else {}
-            variable_values = {str(key)[:100]: str(value)[:5000] for key, value in variable_values.items()}
-            omitted_variable_keys = request.data.get("omitted_variable_keys")
-            omitted_variable_keys = omitted_variable_keys if isinstance(omitted_variable_keys, list) else []
-            omitted_variable_keys = [str(key)[:100] for key in omitted_variable_keys[:100]]
-            supplied_recipients = request.data.get("recipients")
-            supplied_recipients = supplied_recipients if isinstance(supplied_recipients, list) else []
-
-            if is_template:
-                omitted_variable_keys = []
-                # Realistic stand-ins so the configure PDF flows like a real one.
-                rendered_values = {
-                    item["key"]: variable_values.get(item["key"]) or sample_value(item, settings_map.get(item["key"]))
-                    for item in schema.get("variables") or []
-                }
-                variable_values = rendered_values
-            else:
-                rendered_values = _rendered_variable_values(
-                    schema, variable_values, omitted_variable_keys, settings_map
-                )
-                for semantic_recipient in schema.get("recipients") or []:
-                    index = semantic_recipient["index"]
-                    provided = supplied_recipients[index] if index < len(supplied_recipients) else {}
-                    provided = provided if isinstance(provided, dict) else {}
-                    if semantic_recipient.get("requires_name") and not str(provided.get("name") or "").strip():
-                        raise ContractInputError(
-                            "missing_signer", f"Missing name for Firmante {index + 1}", index=index, field="name"
-                        )
-                    if semantic_recipient.get("requires_email") and "@" not in str(provided.get("email") or ""):
-                        raise ContractInputError(
-                            "missing_signer",
-                            f"Missing valid email for Firmante {index + 1}",
-                            index=index,
-                            field="email",
-                        )
-
-            manual_blueprint, recipient_blueprint, manual_status = _manual_blueprint_for_revision(variant, revision)
-            sample_recipients = _prepare_recipients(
-                schema=schema,
-                supplied=supplied_recipients,
-                blueprint=recipient_blueprint,
-                fields=[],
-                authoring_mode=authoring_mode,
-                variant=variant,
-            )
-            if is_template:
-                sample_recipients = [
-                    {**recipient, "name": "Nombre Apellido Apellido", "email": "nombre@empresa.com"}
-                    for recipient in sample_recipients
-                ]
-            rendered_docx, marker_fields, _ = render_docx_variables(
-                source_bytes,
-                rendered_values,
-                sample_recipients,
-                omitted_keys=omitted_variable_keys,
-            )
-            pdf_bytes = _pdf_for_content(
-                variant.workspace, rendered_docx, f"{title}.docx", user=request.user, store=is_template
-            )
-            if not pdf_bytes:
-                raise ContractInputError("conversion_failed", "Collabora could not convert the completed Word file")
-            pdf_bytes, semantic_fields = locate_and_remove_pdf_markers(pdf_bytes, marker_fields)
-            layout_signature = _pdf_layout_signature(pdf_bytes)
-
-            manual_blueprint = [
-                field for field in manual_blueprint if not (field.get("fieldMeta") or {}).get("templateVariable")
-            ]
-            reusable_manual_fields = _blueprint_for_layout(
-                manual_blueprint,
-                revision.signature_blueprint_layout or revision.layout_signature,
-                layout_signature,
-            )
-            combined_fields = [*reusable_manual_fields, *semantic_fields]
-            warnings = []
-            if manual_status == "REQUIRES_REVIEW":
-                warnings.append(
-                    "El Word cambió desde la última configuración. Los campos manuales no se reutilizaron; "
-                    "los campos con variables sí se recalcularon."
-                )
-            elif manual_blueprint and not reusable_manual_fields:
-                warnings.append(
-                    "La paginación cambió y los campos manuales se descartaron para evitar posiciones incorrectas."
-                )
-            elif reusable_manual_fields and (schema.get("variables") or []):
-                warnings.append(
-                    "Revisa los campos manuales: los valores insertados pueden desplazar texto aunque "
-                    "la paginación coincida."
-                )
-
-            recipients = _prepare_recipients(
-                schema=schema,
-                supplied=supplied_recipients,
-                blueprint=recipient_blueprint,
-                fields=combined_fields,
-                authoring_mode=authoring_mode,
-                variant=variant,
-            )
-            with transaction.atomic():
-                rendered_source_asset = _create_asset(
-                    workspace=variant.workspace,
-                    user=request.user,
-                    key=_asset_key(variant.workspace_id, "rendered", "docx"),
-                    name=f"{title}.docx",
-                    mime_type=DOCX_MIME,
-                    content=rendered_docx,
-                    entity_type=FileAsset.EntityTypeContext.CONTRACT_REVISION,
-                    track=uploaded,
-                )
-                rendered_pdf_asset = _create_asset(
-                    workspace=variant.workspace,
-                    user=request.user,
-                    key=_asset_key(variant.workspace_id, "unsigned", "pdf"),
-                    name=f"{title}.pdf",
-                    mime_type="application/pdf",
-                    content=pdf_bytes,
-                    entity_type=FileAsset.EntityTypeContext.CONTRACT_UNSIGNED,
-                    track=uploaded,
-                )
-                if is_template:
-                    # Forced fresh session: older open ones are marked, never deleted.
-                    for previous in _open_template_sessions(revision):
-                        previous.metadata = {**(previous.metadata or {}), "superseded": True}
-                        previous.save(update_fields=["metadata", "updated_at"])
-                signature_request = ContractSignatureRequest.objects.create(
-                    workspace=variant.workspace,
-                    revision=revision,
-                    rendered_source_asset=rendered_source_asset,
-                    rendered_pdf_asset=rendered_pdf_asset,
-                    title=title,
-                    authoring_mode=authoring_mode,
-                    status=ContractSignatureRequest.Status.READY,
-                    recipients=recipients,
-                    fields=combined_fields,
-                    authoring_settings=_normalise_authoring_settings(
-                        revision.authoring_settings or variant.authoring_settings
-                    ),
-                    variable_values=variable_values,
-                    preparation_warnings=warnings,
-                    rendered_layout_signature=layout_signature,
-                    created_by=request.user,
-                )
+            signature_request, reused = create_signature_request(variant, request.user, request.data)
         except MissingValueError as exc:
-            _delete_uploaded(uploaded)
             return _error("missing_value", detail=str(exc), key=exc.key, label=exc.label)
         except ContractInputError as exc:
-            _delete_uploaded(uploaded)
             return _input_error_response(exc)
         except Exception as exc:
             log_exception(exc)
-            _delete_uploaded(uploaded)
             return _error("upload_failed", detail="Something went wrong please try again later")
-        return Response(ContractSignatureRequestSerializer(signature_request).data, status=status.HTTP_201_CREATED)
+        return Response(
+            ContractSignatureRequestSerializer(signature_request).data,
+            status=status.HTTP_200_OK if reused else status.HTTP_201_CREATED,
+        )
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def delete(self, request, slug):

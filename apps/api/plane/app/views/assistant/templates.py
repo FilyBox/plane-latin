@@ -15,6 +15,7 @@ from plane.app.views.contract.internal import InternalBaseView
 from plane.app.views.file_library.base import FileLibraryBaseView
 from plane.db.models import User, Workspace
 from plane.utils.assistant_actions import ActionError
+from plane.utils.assistant_contract_drafts import proposal, render_preview
 from plane.utils.assistant_templates import (
     TemplateEditError,
     can_edit,
@@ -108,3 +109,47 @@ class AssistantTemplatePreviewEndpoint(FileLibraryBaseView):
             response["X-Layout-Note"] = note
             response["Access-Control-Expose-Headers"] = "X-Layout-Note"
         return response
+
+
+class InternalAssistantContractProposalEndpoint(InternalBaseView):
+    """The card for a contract from a template: the form with the proposed
+    values and their origin, the signers by role, and what is missing."""
+
+    def post(self, request, workspace_id, variant_id):
+        data = request.data if isinstance(request.data, dict) else {}
+        ctx = asking_context(request, workspace_id, data.get("user_id"))
+        if not can_edit(ctx):
+            return Response({"error": "Not available"}, status=status.HTTP_403_FORBIDDEN)
+        variant = find_variant(workspace_id, variant_id)
+        if variant is None:
+            return Response({"error": "Template variant not found"}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            return Response(
+                proposal(
+                    variant,
+                    data.get("revision"),
+                    data.get("values"),
+                    data.get("recipients"),
+                    data.get("title"),
+                    data.get("document_edits"),
+                ),
+                status=status.HTTP_200_OK,
+            )
+        except ActionError as error:
+            return _failure(error)
+
+
+class AssistantContractDraftPreviewEndpoint(FileLibraryBaseView):
+    """The contract with the card's values, as a PDF; nothing is stored."""
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    def post(self, request, slug, variant_id):
+        workspace = Workspace.objects.get(slug=slug)
+        variant = find_variant(workspace.id, variant_id)
+        if variant is None:
+            return Response({"error": "Template variant not found"}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            pdf = render_preview(variant, request.data if isinstance(request.data, dict) else {})
+        except ActionError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return HttpResponse(pdf, content_type="application/pdf")

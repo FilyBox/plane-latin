@@ -272,6 +272,15 @@ export class AssistantService extends APIService {
     }));
   }
 
+  /** The contract filled with the card's values, as a PDF (nothing is saved). */
+  async contractDraftPreview(workspaceSlug: string, variantId: string, data: Record<string, unknown>): Promise<Blob> {
+    return this.post(
+      `/api/workspaces/${workspaceSlug}/contract-templates/variants/${variantId}/assistant-contract-preview/`,
+      data,
+      { responseType: "blob" }
+    ).then((response) => response.data as Blob);
+  }
+
   /** What each card already did, by tool call id (cards of one chat). */
   async getOutcomes(workspaceSlug: string, toolCallIds: string[]): Promise<Record<string, TAssistantAction>> {
     return this.get(`/api/workspaces/${workspaceSlug}/assistant/actions/`, {
