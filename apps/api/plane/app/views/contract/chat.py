@@ -45,7 +45,7 @@ class ContractChatModelsEndpoint(FileLibraryBaseView):
 
     model = ContractChat
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         try:
             return Response(get_contracts_agent_models(), status=status.HTTP_200_OK)
@@ -58,7 +58,7 @@ class ContractChatsEndpoint(FileLibraryBaseView):
     serializer_class = ContractChatSerializer
     model = ContractChat
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         chats = ContractChat.objects.filter(workspace__slug=slug, user=request.user)
         contract_id = request.query_params.get("contract_id")
@@ -69,7 +69,7 @@ class ContractChatsEndpoint(FileLibraryBaseView):
             chats = chats.filter(mode=mode)
         return Response(ContractChatSerializer(chats[:50], many=True).data, status=status.HTTP_200_OK)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         workspace = Workspace.objects.get(slug=slug)
         mode = request.data.get("mode", ContractChat.Mode.GENERAL)
@@ -94,7 +94,7 @@ class ContractChatDetailEndpoint(FileLibraryBaseView):
     serializer_class = ContractChatMessageSerializer
     model = ContractChatMessage
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, chat_id):
         chat = ContractChat.objects.get(id=chat_id, workspace__slug=slug, user=request.user)
         messages = chat.messages.all()
@@ -106,7 +106,7 @@ class ContractChatDetailEndpoint(FileLibraryBaseView):
             status=status.HTTP_200_OK,
         )
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, chat_id):
         chat = ContractChat.objects.get(id=chat_id, workspace__slug=slug, user=request.user)
         chat.delete()
@@ -117,7 +117,7 @@ class ContractChatMessageEndpoint(FileLibraryBaseView):
     serializer_class = ContractChatMessageSerializer
     model = ContractChatMessage
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, chat_id):
         chat = ContractChat.objects.select_related("contract").get(
             id=chat_id, workspace__slug=slug, user=request.user
@@ -238,7 +238,7 @@ class ContractAgentChatEndpoint(FileLibraryBaseView):
 
     model = ContractChat
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         workspace = Workspace.objects.get(slug=slug)
 
@@ -306,7 +306,7 @@ class ContractChatTurnEndpoint(FileLibraryBaseView):
     serializer_class = ContractChatMessageSerializer
     model = ContractChatMessage
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, chat_id):
         chat = ContractChat.objects.filter(id=chat_id, workspace__slug=slug, user=request.user).first()
         if chat is None:

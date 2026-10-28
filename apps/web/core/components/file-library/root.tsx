@@ -24,6 +24,7 @@ import { cn } from "@plane/utils";
 import { useFileLibrary } from "@/hooks/store/use-file-library";
 // services
 import { contractService } from "@/services/contract.service";
+import { useCanViewContracts } from "./contracts/use-can-edit";
 // local imports
 import { BulkActionsModal } from "./bulk-actions-modal";
 import { downloadAssets as downloadAssetsBundle } from "./download";
@@ -128,8 +129,10 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
 
   // Active contract analyses (shared SWR key with the contracts page). While
   // any run is live, also refresh the file list so the badges track progress.
+  // Contracts are admin-only: members get neither the link nor the monitor
+  const canViewContracts = useCanViewContracts(workspaceSlug) === true;
   const { data: activeJobs } = useSWR(
-    `CONTRACT_ACTIVE_JOBS_${workspaceSlug}`,
+    canViewContracts ? `CONTRACT_ACTIVE_JOBS_${workspaceSlug}` : null,
     () => contractService.getJobs(workspaceSlug, { active: true }),
     { refreshInterval: (latest) => ((latest?.length ?? 0) > 0 ? 2000 : 15000) }
   );
@@ -480,13 +483,15 @@ export const FileLibraryRoot = observer(function FileLibraryRoot(props: Props) {
               stays lean: navigation, search/filter/order, and primary actions */}
 
           {/* contracts sub-module (AI-analyzed PDFs) */}
-          <Link
-            to={`/${workspaceSlug}/file-library/contracts`}
-            className="flex h-8 items-center gap-1 rounded-sm border border-subtle px-2 text-12 hover:bg-layer-1-hover"
-          >
-            <FileText className="size-3.5" />
-            <span className="hidden sm:inline">{t("file_library.contracts.title")}</span>
-          </Link>
+          {canViewContracts && (
+            <Link
+              to={`/${workspaceSlug}/file-library/contracts`}
+              className="flex h-8 items-center gap-1 rounded-sm border border-subtle px-2 text-12 hover:bg-layer-1-hover"
+            >
+              <FileText className="size-3.5" />
+              <span className="hidden sm:inline">{t("file_library.contracts.title")}</span>
+            </Link>
+          )}
 
           {/* live pipeline monitor — mirrors the contracts page badge */}
           {(activeJobs?.length ?? 0) > 0 && (

@@ -338,7 +338,7 @@ class TestDrafts:
         from plane.db.models import User, WorkspaceMember
 
         other = User.objects.create(email="otra@plane.so", username="otra", first_name="Ana", last_name="Pérez")
-        WorkspaceMember.objects.create(workspace=workspace, member=other, role=15)
+        WorkspaceMember.objects.create(workspace=workspace, member=other, role=20)
         variant = template["variant"]
         session_client.post(self.url(workspace, variant))
         session_client.force_authenticate(user=other)

@@ -238,7 +238,8 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS: Record<string, IWorkspa
     key: "contracts",
     labelTranslationKey: "sidebar.contracts",
     href: `/file-library/contracts/`,
-    access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
+    // Admin-only, like the API: members and guests never see contracts
+    access: [EUserWorkspaceRoles.ADMIN],
     highlight: (pathname: string, url: string) => pathname.includes(url),
   },
   // Gated by the "payments" per-workspace flag AND admin-only: salaries and the

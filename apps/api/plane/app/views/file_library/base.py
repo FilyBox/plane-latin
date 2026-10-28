@@ -41,6 +41,7 @@ from plane.db.models import (
     WorkspaceMember,
 )
 from plane.settings.storage import S3Storage
+from plane.utils.contract_access import can_view_contracts, hide_contract_files
 from plane.utils.path_validator import sanitize_filename
 from plane.utils.shared_tags import _expense_ids, delete_tag, merge_into, remirror_expenses
 from plane.utils.workspace_feature import is_workspace_feature_enabled
@@ -89,6 +90,12 @@ class FileLibraryBaseView(BaseAPIView):
             ).exists()
             if not is_admin:
                 self.permission_denied(request, message="Only workspace admins can manage Music assets")
+        if slug and _is_contract_scope(request) and not can_view_contracts(request.user, slug=slug):
+            self.permission_denied(request, message="Only workspace admins can open contracts")
+
+    def visible_assets(self, queryset, slug):
+        """Contract files (and the "Contratos" category) are for admins only."""
+        return hide_contract_files(queryset, self.request.user, slug=slug)
 
 
 def _asset_context(request):
@@ -110,6 +117,8 @@ class FileCategoryEndpoint(FileLibraryBaseView):
             .annotate(file_count=Count("file_links", filter=Q(file_links__deleted_at__isnull=True)))
             .order_by("-is_default", "name")
         )
+        if not can_view_contracts(request.user, slug=slug):
+            categories = categories.filter(is_default=False)
         serializer = FileCategorySerializer(categories, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -166,11 +175,14 @@ class FileLibraryAssetEndpoint(FileLibraryBaseView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug):
         assets = (
-            FileAsset.objects.filter(
-                workspace__slug=slug,
-                entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
-                is_uploaded=True,
-                is_deleted=False,
+            self.visible_assets(
+                FileAsset.objects.filter(
+                    workspace__slug=slug,
+                    entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+                    is_uploaded=True,
+                    is_deleted=False,
+                ),
+                slug,
             )
             .prefetch_related(
                 Prefetch("category_links", queryset=FileCategoryLink.objects.all()),
@@ -306,7 +318,7 @@ class FileLibraryAssetDetailEndpoint(FileLibraryBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def patch(self, request, slug, asset_id):
-        asset = FileAsset.objects.get(
+        asset = self.visible_assets(FileAsset.objects, slug).get(
             id=asset_id,
             workspace__slug=slug,
             entity_type=_asset_context(request),
@@ -333,7 +345,7 @@ class FileLibraryAssetDetailEndpoint(FileLibraryBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def delete(self, request, slug, asset_id):
-        asset = FileAsset.objects.get(
+        asset = self.visible_assets(FileAsset.objects, slug).get(
             id=asset_id,
             workspace__slug=slug,
             entity_type=_asset_context(request),
@@ -354,7 +366,7 @@ class FileLibraryAssetDownloadEndpoint(FileLibraryBaseView):
             filters["entity_type__in"] = CONTRACT_ASSET_TYPES
         else:
             filters["entity_type"] = _asset_context(request)
-        asset = FileAsset.objects.get(**filters)
+        asset = self.visible_assets(FileAsset.objects, slug).get(**filters)
         if not asset.is_uploaded:
             return Response(
                 {"error": "The requested asset could not be found."},
@@ -389,7 +401,7 @@ class FileLibraryAssetThumbnailEndpoint(FileLibraryBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, asset_id):
-        asset = FileAsset.objects.get(
+        asset = self.visible_assets(FileAsset.objects, slug).get(
             id=asset_id,
             workspace__slug=slug,
             entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
@@ -414,14 +426,21 @@ class FileLibraryAssetLineageEndpoint(FileLibraryBaseView):
     def get(self, request, slug, asset_id):
         from plane.utils.assistant_pdf import lineage
 
-        asset = FileAsset.objects.filter(
-            id=asset_id,
-            workspace__slug=slug,
-            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
-        ).first()
+        asset = (
+            self.visible_assets(FileAsset.objects, slug)
+            .filter(id=asset_id, workspace__slug=slug, entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY)
+            .first()
+        )
         if asset is None:
             return Response({"error": "File not found"}, status=status.HTTP_404_NOT_FOUND)
-        return Response(lineage(asset.workspace_id, asset), status=status.HTTP_200_OK)
+        data = lineage(asset.workspace_id, asset)
+        if not can_view_contracts(request.user, slug=slug):
+            # Parts or sources that are contracts stay out of sight
+            data = {
+                key: [row for row in rows if not row.get("contract_id")] if isinstance(rows, list) else rows
+                for key, rows in data.items()
+            }
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class FileLibraryExportEndpoint(FileLibraryBaseView):
@@ -448,7 +467,7 @@ class FileLibraryExportEndpoint(FileLibraryBaseView):
             filters["entity_type__in"] = CONTRACT_ASSET_TYPES
         else:
             filters["entity_type"] = FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY
-        assets = list(FileAsset.objects.filter(**filters))
+        assets = list(self.visible_assets(FileAsset.objects, slug).filter(**filters))
         if not assets:
             return Response({"error": "No downloadable assets in the selection"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -496,6 +515,17 @@ class FileLibraryExportEndpoint(FileLibraryBaseView):
         if not isinstance(asset_ids, list) or not asset_ids:
             return Response({"error": "asset_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        if not can_view_contracts(request.user, slug=slug):
+            asset_ids = [
+                str(asset_id)
+                for asset_id in self.visible_assets(FileAsset.objects, slug)
+                .filter(workspace__slug=slug, id__in=asset_ids)
+                .values_list("id", flat=True)
+            ]
+            if not asset_ids:
+                return Response(
+                    {"error": "No downloadable assets in the selection"}, status=status.HTTP_400_BAD_REQUEST
+                )
         workspace = Workspace.objects.get(slug=slug)
         exporter = ExporterHistory.objects.create(
             workspace=workspace,
@@ -533,7 +563,7 @@ class FileCategoryLinkEndpoint(FileLibraryBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug, asset_id):
-        asset = FileAsset.objects.get(
+        asset = self.visible_assets(FileAsset.objects, slug).get(
             id=asset_id,
             workspace__slug=slug,
             entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
@@ -546,6 +576,9 @@ class FileCategoryLinkEndpoint(FileLibraryBaseView):
             )
 
         categories = FileCategory.objects.filter(workspace__slug=slug, id__in=category_ids)
+        if not can_view_contracts(request.user, slug=slug):
+            # "Contratos" turns a file into a contract: admins only
+            categories = categories.filter(is_default=False)
         if categories.count() != len(set(category_ids)):
             return Response(
                 {"error": "One or more categories were not found"},
@@ -585,11 +618,14 @@ class FileCategoryLinkEndpoint(FileLibraryBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def delete(self, request, slug, asset_id, category_id):
-        FileCategoryLink.objects.filter(
+        links = FileCategoryLink.objects.filter(
             file_asset_id=asset_id,
             file_asset__workspace__slug=slug,
             category_id=category_id,
-        ).delete()
+        )
+        if not can_view_contracts(request.user, slug=slug):
+            links = links.filter(category__is_default=False)
+        links.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -762,7 +798,7 @@ class FileTagLinkEndpoint(FileLibraryBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug, asset_id):
-        asset = FileAsset.objects.get(
+        asset = self.visible_assets(FileAsset.objects, slug).get(
             id=asset_id,
             workspace__slug=slug,
             entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
@@ -787,10 +823,11 @@ class FileTagLinkEndpoint(FileLibraryBaseView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def delete(self, request, slug, asset_id, tag_id):
-        FileTagLink.objects.filter(
-            file_asset_id=asset_id,
-            file_asset__workspace__slug=slug,
-            tag_id=tag_id,
+        hide_contract_files(
+            FileTagLink.objects.filter(file_asset_id=asset_id, file_asset__workspace__slug=slug, tag_id=tag_id),
+            request.user,
+            slug=slug,
+            prefix="file_asset__",
         ).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -825,7 +862,7 @@ class FileLibraryBulkActionEndpoint(FileLibraryBaseView):
         if folder_ids and action not in ("move", "delete"):
             return Response({"error": "Folders only support move and delete"}, status=status.HTTP_400_BAD_REQUEST)
 
-        assets = FileAsset.objects.filter(
+        assets = self.visible_assets(FileAsset.objects, slug).filter(
             id__in=file_ids,
             workspace=workspace,
             entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
@@ -879,9 +916,11 @@ class FileLibraryBulkActionEndpoint(FileLibraryBaseView):
                 if request.data.get("contents") == "delete":
                     # Remove the whole subtree: nested files first, then folders
                     doomed_ids = self._descendant_folder_ids(selected_folders)
-                    FileAsset.objects.filter(folder_id__in=doomed_ids, is_deleted=False).update(
-                        is_deleted=True, deleted_at=timezone.now()
-                    )
+                    # Contract files a member cannot see are left alone (they
+                    # fall back to the root when their folder goes)
+                    self.visible_assets(FileAsset.objects, slug).filter(
+                        folder_id__in=doomed_ids, is_deleted=False
+                    ).update(is_deleted=True, deleted_at=timezone.now())
                     FileFolder.objects.filter(id__in=doomed_ids).delete()
                 else:
                     # Default: re-parent contents so nothing is lost. Re-fetch
@@ -897,7 +936,10 @@ class FileLibraryBulkActionEndpoint(FileLibraryBaseView):
 
         elif action in ("add_categories", "remove_categories"):
             category_ids = request.data.get("category_ids", [])
-            categories = list(FileCategory.objects.filter(workspace=workspace, id__in=category_ids))
+            categories = FileCategory.objects.filter(workspace=workspace, id__in=category_ids)
+            if not can_view_contracts(request.user, slug=slug):
+                categories = categories.filter(is_default=False)
+            categories = list(categories)
             if not categories:
                 return Response({"error": "No valid categories provided"}, status=status.HTTP_400_BAD_REQUEST)
             if action == "add_categories":

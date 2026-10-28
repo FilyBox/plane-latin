@@ -73,6 +73,7 @@ export type AssistantChatRequest = {
   model?: string | null;
   capabilities?: {
     contracts?: boolean;
+    library?: boolean;
     music?: boolean;
     references?: boolean;
     tag_admin?: boolean;
@@ -112,7 +113,10 @@ const ENTITY_TYPES = [
 const MAPPABLE_TYPES = ["contract", "file", "issue", "expense"] as const;
 
 type Caps = {
+  /** Contracts and templates: workspace admins only */
   contracts: boolean;
+  /** The file library's own tools (list, duplicates, organize): any member */
+  library: boolean;
   music: boolean;
   references: boolean;
   tagAdmin: boolean;
@@ -328,7 +332,7 @@ PDFs DE LA BIBLIOTECA (separar, unir, páginas)
 ${caps.contracts ? TEMPLATE_FORMAT_PROMPT : ""}
 ${WORKSPACE_EDIT_PROMPT(caps.contracts)}
 ${caps.expenses ? EXPENSES_PROMPT : ""}
-${caps.contracts ? LIBRARY_PROMPT : ""}
+${caps.library ? LIBRARY_PROMPT : ""}
 ${caps.music ? CATALOG_AUDIT_PROMPT : ""}
 PÁGINAS
 - Cuándo: el usuario pide una página o "page" ("haz / crea / genera / arma una page", "pon esto en una página", "guárdalo como página", "hazme un informe, dossier, minuta o tabla en una página"), aunque lo diga de pasada o en inglés. Termina SIEMPRE con propose_page; no respondas solo con texto ni con una tabla en el chat.
@@ -683,12 +687,10 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
   }
 
   if (caps.contracts && body.user_id) {
-    tools = {
-      ...tools,
-      ...buildPdfTools(env, api, body),
-      ...buildTemplateTools(api, body),
-      ...buildLibraryTools(api, body),
-    };
+    tools = { ...tools, ...buildPdfTools(env, api, body), ...buildTemplateTools(api, body) };
+  }
+  if (caps.library && body.user_id) {
+    tools = { ...tools, ...buildLibraryTools(api, body) };
   }
   if (body.user_id) {
     tools = { ...tools, ...buildWorkspaceEditTools(api, body, caps.contracts) };
@@ -1460,6 +1462,8 @@ function compactHistory(messages: UIMessage[]): UIMessage[] {
 export async function handleAssistantChat(env: Env, body: AssistantChatRequest): Promise<Response> {
   const caps = {
     contracts: body.capabilities?.contracts === true,
+    // Older APIs only sent "contracts", which then covered the library too
+    library: body.capabilities?.library === true || body.capabilities?.contracts === true,
     music: body.capabilities?.music === true,
     // Only with a known user: answers are limited to what they may open.
     references: body.capabilities?.references === true && Boolean(body.user_id),

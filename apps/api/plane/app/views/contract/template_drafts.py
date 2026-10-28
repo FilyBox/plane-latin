@@ -128,7 +128,7 @@ def _draft_bytes(variant):
 class ContractTemplateVariantDraftEndpoint(FileLibraryBaseView):
     """Create (or reuse) the draft and return the Collabora editor for it."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         uploaded = []
         created = False
@@ -189,7 +189,7 @@ class ContractTemplateVariantDraftEndpoint(FileLibraryBaseView):
 
 
 class ContractTemplateVariantDraftHeartbeatEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         with transaction.atomic():
             variant = _locked_variant(slug, variant_id)
@@ -207,7 +207,7 @@ class ContractTemplateVariantDraftHeartbeatEndpoint(FileLibraryBaseView):
 
 
 class ContractTemplateVariantDraftReleaseEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         with transaction.atomic():
             variant = _locked_variant(slug, variant_id)
@@ -224,7 +224,7 @@ class ContractTemplateVariantDraftPublishEndpoint(FileLibraryBaseView):
     """Draft → revision N + new live source. Never renames an existing
     revision; identical content to the latest revision just drops the draft."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         name = str(request.data.get("name") or "").strip()[:255]
         variant = (
@@ -310,7 +310,7 @@ class ContractTemplateVariantDraftPublishEndpoint(FileLibraryBaseView):
 
 
 class ContractTemplateVariantDraftDiscardEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         with transaction.atomic():
             variant = _locked_variant(slug, variant_id)
@@ -329,7 +329,7 @@ class ContractTemplateVariantDraftAsVariantEndpoint(FileLibraryBaseView):
     """Save the draft as a new variant (with revision 1); the original
     variant's draft is dropped and its live document is untouched."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         name = str(request.data.get("name") or "").strip()[:255]
         if not name:

@@ -45,6 +45,7 @@ from plane.db.models import (
     Workspace,
 )
 from plane.settings.storage import S3Storage
+from plane.utils.contract_access import can_view_contracts, is_contract_file
 from plane.utils.exception_logger import log_exception
 
 from ..base import BaseAPIView
@@ -495,7 +496,7 @@ class CollaboraSessionEndpoint(BaseAPIView):
             is_uploaded=True,
             deleted_at__isnull=True,
         ).first()
-        if not asset:
+        if not asset or (is_contract_file(asset) and not can_view_contracts(request.user, slug=slug)):
             return Response({"error": "File not found"}, status=status.HTTP_404_NOT_FOUND)
 
         payload, error = build_editor_session(
@@ -516,7 +517,7 @@ class CollaboraPdfEndpoint(BaseAPIView):
             workspace__slug=slug,
             deleted_at__isnull=True,
         ).first()
-        if not asset:
+        if not asset or (is_contract_file(asset) and not can_view_contracts(request.user, slug=slug)):
             return Response({"error": "File not found"}, status=status.HTTP_404_NOT_FOUND)
 
         pdf_key = asset.attributes.get("pdf_key")

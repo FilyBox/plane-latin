@@ -35,6 +35,7 @@ from plane.db.models import (
     WorkspaceFeature,
     WorkspaceMember,
 )
+from plane.utils.contract_access import contract_file_q
 
 ADMIN, MEMBER, GUEST = 20, 15, 5
 
@@ -184,12 +185,14 @@ def _describe_page(page, ctx):
 
 
 def _visible_files(ctx):
-    return FileAsset.objects.filter(
+    files = FileAsset.objects.filter(
         workspace_id=ctx.workspace_id,
         entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
         is_uploaded=True,
         is_deleted=False,
     )
+    # A contract's PDF is the contract: admins only, like the contract itself
+    return files if ctx.role >= ADMIN else files.exclude(contract_file_q())
 
 
 def _describe_file(asset, ctx):
@@ -371,7 +374,7 @@ REGISTRY: dict[str, EntityDefinition] = {
             name="contract",
             model=Contract,
             feature=FEATURE.FILE_LIBRARY,
-            min_role=GUEST,
+            min_role=ADMIN,
             visible=_visible_contracts,
             search=_icontains("titulo", "artistas", "file_asset__attributes__name"),
             describe=_describe_contract,

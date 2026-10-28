@@ -36,7 +36,7 @@ from plane.utils.assistant_actions import ActionError, register_undo
 from plane.utils.assistant_workspace import register_apply
 from plane.utils.docx_edit import EditError, NotPreserved, apply_edits, docx_outline, verify_preserved
 
-MEMBER = 15
+ADMIN = 20
 
 
 def _workflow():
@@ -46,12 +46,13 @@ def _workflow():
 
 
 def can_edit(ctx) -> bool:
-    return ctx is not None and ctx.role >= MEMBER and "file_library" in ctx.features
+    # Contracts and their templates are for workspace admins only
+    return ctx is not None and ctx.role >= ADMIN and "file_library" in ctx.features
 
 
 def _require(ctx):
     if not can_edit(ctx):
-        raise ActionError("Only workspace members with the file library can change contract templates.")
+        raise ActionError("Only workspace admins can change contract templates.")
 
 
 # ----------------------------------------------------------------- reading

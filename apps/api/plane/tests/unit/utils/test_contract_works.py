@@ -331,7 +331,7 @@ class TestEndpoints:
         assert [row["work"]["title"] for row in body["unmatched"]] == ["Otra"]
         assert ContractWorkLink.objects.count() == before
 
-    def test_member_sees_links_without_catalog_details(self, api_client, workspace, catalog, modules, make_contract):
+    def test_members_cannot_open_a_contracts_works(self, api_client, workspace, catalog, modules, make_contract):
         from plane.db.models import User, WorkspaceMember
 
         member = User.objects.create(email="member@plane.so", username="member_works")
@@ -341,7 +341,7 @@ class TestEndpoints:
         link(contract, catalog["safaera"])
         base = f"/api/workspaces/{workspace.slug}/contracts/{contract.id}/works/"
 
-        [row] = api_client.get(base).json()["links"]
-        assert row["entity"] is None and row["restricted"] is True
+        # Contracts are admin-only, works included
+        assert api_client.get(base).status_code == 403
         items = {"items": [{"entity_type": "music_track", "entity_id": str(catalog["callaita"].id)}]}
         assert api_client.post(base, items, format="json").status_code == 403

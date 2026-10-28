@@ -117,6 +117,12 @@ class TestChatPayload:
         assert self.run_chat(setup, setup["admin"], {})["capabilities"]["music"] is True
         assert self.run_chat(setup, setup["member"], {})["capabilities"]["music"] is False
 
+    def test_contract_tools_are_for_admins_and_the_library_for_members(self, setup):
+        admin = self.run_chat(setup, setup["admin"], {})["capabilities"]
+        member = self.run_chat(setup, setup["member"], {})["capabilities"]
+        assert admin["contracts"] is True and admin["library"] is True
+        assert member["contracts"] is False and member["library"] is True
+
     def test_only_admins_get_tag_admin_tools(self, setup):
         assert self.run_chat(setup, setup["admin"], {})["capabilities"]["tag_admin"] is True
         assert self.run_chat(setup, setup["member"], {})["capabilities"]["tag_admin"] is False
@@ -130,20 +136,23 @@ class TestChatPayload:
             f"¿Qué tiene :tag[3Ball falso]{{name={tag.id}}} en :contract[X]{{name={item.id}}} "
             f"y :contract[Borrado]{{name={uuid4()}}}?"
         )
-        payload = self.run_chat(
-            setup, setup["member"], {"messages": [{"role": "user", "parts": [{"type": "text", "text": text}]}]}
-        )
+        body = {"messages": [{"role": "user", "parts": [{"type": "text", "text": text}]}]}
+        payload = self.run_chat(setup, setup["admin"], body)
         mentions = {(row["entity_name"], row["title"]) for row in payload["mentions"]}
         # Names come from the database, never from the message; unknown ids are dropped.
         assert mentions == {("tag", "3BallMTY"), ("contract", "Contrato editorial 3Ball")}
+        # Contracts are admin-only: a member's mention never names one
+        mentioned = self.run_chat(setup, setup["member"], body)["mentions"]
+        member = {(row["entity_name"], row.get("title")) for row in mentioned}
+        assert ("contract", "Contrato editorial 3Ball") not in member
 
     def test_page_context_is_resolved_on_the_server(self, setup):
         item = contract(setup["workspace"], "Contrato editorial 3Ball", "texto")
         context = {"page": "contracts", "items": [{"entity_name": "contract", "id": str(item.id), "title": "X"}]}
-        payload = self.run_chat(setup, setup["member"], {"context": context})
+        payload = self.run_chat(setup, setup["admin"], {"context": context})
         assert payload["context"]["page"] == "contracts"
         assert payload["context"]["items"][0]["title"] == "Contrato editorial 3Ball"
-        assert payload["today"] and payload["user_id"] == str(setup["member"].id)
+        assert payload["today"] and payload["user_id"] == str(setup["admin"].id)
 
 
 class TestContractLookups:

@@ -222,8 +222,8 @@ def test_guest_only_sees_what_their_role_opens(api_client, space, catalog):
     WorkspaceMember.objects.create(workspace=space, member=guest, role=5)
     api_client.force_authenticate(user=guest)
     data = _get(api_client, space, catalog["artist"], **{"with": str(catalog["album"].id)}).json()
-    # Music is admin-only; contracts are open to guests
-    assert list(data["groups"]) == ["contract"]
+    # Music and contracts are admin-only
+    assert list(data["groups"]) == []
 
 
 @pytest.mark.django_db

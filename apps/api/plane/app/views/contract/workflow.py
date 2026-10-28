@@ -1045,7 +1045,7 @@ def _signing_details_from_envelope(envelope):
 
 
 class ContractTemplatesEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         templates = (
             ContractTemplate.objects.filter(workspace__slug=slug, is_active=True)
@@ -1060,7 +1060,7 @@ class ContractTemplatesEndpoint(FileLibraryBaseView):
         )
         return Response(ContractTemplateSerializer(templates, many=True).data)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         upload = request.FILES.get("file")
         name = str(request.data.get("name") or "").strip()[:255]
@@ -1144,7 +1144,7 @@ class ContractTemplatesEndpoint(FileLibraryBaseView):
 
 
 class ContractTemplateDetailEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, template_id):
         template = (
             ContractTemplate.objects.filter(id=template_id, workspace__slug=slug, is_active=True)
@@ -1160,7 +1160,7 @@ class ContractTemplateDetailEndpoint(FileLibraryBaseView):
         )
         return Response(ContractTemplateSerializer(template).data)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def patch(self, request, slug, template_id):
         template = ContractTemplate.objects.get(id=template_id, workspace__slug=slug, is_active=True)
         if "name" in request.data:
@@ -1185,7 +1185,7 @@ class ContractTemplateDetailEndpoint(FileLibraryBaseView):
         )
         return Response(ContractTemplateSerializer(template).data)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, template_id):
         template = ContractTemplate.objects.get(id=template_id, workspace__slug=slug, is_active=True)
         # Do not cascade through variants/revisions: signed and pending requests
@@ -1199,7 +1199,7 @@ class ContractTemplateDetailEndpoint(FileLibraryBaseView):
 class ContractAssetThumbnailEndpoint(FileLibraryBaseView):
     """Render a small first-page image for fast version selection."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, asset_id):
         asset = FileAsset.objects.filter(
             id=asset_id,
@@ -1245,7 +1245,7 @@ class ContractAssetPdfPreviewEndpoint(FileLibraryBaseView):
     thumbnails already use and handed to the regular PDF viewer instead.
     """
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, asset_id):
         asset = FileAsset.objects.filter(
             id=asset_id,
@@ -1273,7 +1273,7 @@ class ContractAssetPdfPreviewEndpoint(FileLibraryBaseView):
 
 
 class ContractTemplateVariantsEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, template_id):
         template = ContractTemplate.objects.get(id=template_id, workspace__slug=slug)
         source_variant_id = request.data.get("source_variant_id")
@@ -1335,7 +1335,7 @@ class ContractTemplateVariantsEndpoint(FileLibraryBaseView):
 
 
 class ContractTemplateVariantDetailEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def patch(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.get(id=variant_id, workspace__slug=slug)
         if "name" in request.data:
@@ -1381,7 +1381,7 @@ class ContractTemplateVariantDetailEndpoint(FileLibraryBaseView):
             return _error("variant_name_taken", status.HTTP_409_CONFLICT)
         return Response(ContractTemplateSerializer(variant.template).data)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.select_related("template").get(id=variant_id, workspace__slug=slug)
         siblings = variant.template.variants.exclude(id=variant.id)
@@ -1405,13 +1405,13 @@ class ContractTemplateVariantDetailEndpoint(FileLibraryBaseView):
 
 
 class ContractTemplateVariantRevisionsEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.get(id=variant_id, workspace__slug=slug)
         revisions = variant.revisions.select_related("source_asset", "pdf_asset").order_by("-revision")
         return Response(ContractTemplateRevisionSerializer(revisions, many=True).data)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.select_related("workspace", "template", "source_asset").get(
             id=variant_id, workspace__slug=slug
@@ -1436,7 +1436,7 @@ class ContractTemplateVariantRevisionsEndpoint(FileLibraryBaseView):
 
 
 class ContractTemplateVariantEditSessionEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.select_related("source_asset", "workspace").get(
             id=variant_id,
@@ -1461,7 +1461,7 @@ class ContractTemplateVariantEditSessionEndpoint(FileLibraryBaseView):
             )
         return Response({"backup_asset_id": backup.id}, status=status.HTTP_201_CREATED)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def patch(self, request, slug, variant_id):
         variant = ContractTemplateVariant.objects.select_related("source_asset", "workspace", "template").get(
             id=variant_id,
@@ -1537,7 +1537,7 @@ class ContractTemplateVariantEditSessionEndpoint(FileLibraryBaseView):
 
 
 class ContractTemplateVariantSchemaEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, variant_id):
         variant = (
             ContractTemplateVariant.objects.select_related("source_asset", "template", "draft_asset")
@@ -1799,7 +1799,7 @@ def create_signature_request(variant, user, data):
 
 
 class ContractSignatureRequestsEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         requests_qs = (
             ContractSignatureRequest.objects.filter(
@@ -1819,7 +1819,7 @@ class ContractSignatureRequestsEndpoint(FileLibraryBaseView):
         )
         return Response(ContractSignatureRequestSerializer(requests_qs, many=True).data)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         variant = (
             ContractTemplateVariant.objects.select_related("source_asset", "workspace", "template")
@@ -1842,7 +1842,7 @@ class ContractSignatureRequestsEndpoint(FileLibraryBaseView):
             status=status.HTTP_200_OK if reused else status.HTTP_201_CREATED,
         )
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug):
         return _delete_signature_requests_from_payload(request, slug)
 
@@ -1850,13 +1850,13 @@ class ContractSignatureRequestsEndpoint(FileLibraryBaseView):
 class ContractSignatureRequestsDeleteEndpoint(FileLibraryBaseView):
     """Action endpoint for clients/proxies that do not support DELETE bodies."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         return _delete_signature_requests_from_payload(request, slug)
 
 
 class ContractSignatureRequestDetailEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, request_id):
         signature_request = (
             ContractSignatureRequest.objects.select_related(
@@ -1880,7 +1880,7 @@ class ContractSignatureRequestDetailEndpoint(FileLibraryBaseView):
                 }
         return Response(ContractSignatureRequestSerializer(signature_request).data)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def patch(self, request, slug, request_id):
         signature_request = ContractSignatureRequest.objects.select_related("revision").get(
             id=request_id, workspace__slug=slug
@@ -1974,7 +1974,7 @@ class ContractSignatureRequestDetailEndpoint(FileLibraryBaseView):
             data["committed"] = commit is not False
         return Response(data)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, request_id):
         if request.data.get("confirm") is not True:
             return Response({"error": "Deletion must be confirmed"}, status=status.HTTP_400_BAD_REQUEST)
@@ -2003,7 +2003,7 @@ class ContractSignatureRequestDetailEndpoint(FileLibraryBaseView):
 
 
 class ContractSignatureRequestPdfEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, request_id):
         signature_request = ContractSignatureRequest.objects.select_related(
             "revision__pdf_asset", "rendered_pdf_asset"
@@ -2042,7 +2042,7 @@ class ContractSignatureRequestSendEndpoint(FileLibraryBaseView):
     and reports its steps in metadata.send (queued → uploading → creating →
     distributing → done | failed)."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, request_id):
         with transaction.atomic():
             signature_request = (
@@ -2237,7 +2237,7 @@ def run_signature_send(request_id):
 
 
 class ContractSignatureRequestLinksEndpoint(FileLibraryBaseView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, request_id):
         signature_request = ContractSignatureRequest.objects.get(id=request_id, workspace__slug=slug)
         if not signature_request.documenso_envelope_id:
@@ -2523,7 +2523,7 @@ class DocumensoWebhookEndpoint(BaseAPIView):
 class ContractSignatureRequestSyncEndpoint(FileLibraryBaseView):
     """Manual recovery path when a webhook was delayed or misconfigured."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, request_id):
         signature_request = ContractSignatureRequest.objects.get(id=request_id, workspace__slug=slug)
         if not signature_request.documenso_envelope_id:
@@ -2603,7 +2603,7 @@ class ContractSignatureRequestCancelEndpoint(FileLibraryBaseView):
     """Withdraws a request. A sent envelope is cancelled in Documenso too, so
     the signing links stop working; the local record is kept."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, request_id):
         signature_request = ContractSignatureRequest.objects.get(id=request_id, workspace__slug=slug)
         if signature_request.status not in ACTIVE_SIGNATURE_STATUSES:
@@ -2620,7 +2620,7 @@ class ContractSignatureRequestCancelEndpoint(FileLibraryBaseView):
 class ContractSignatureRequestRemindEndpoint(FileLibraryBaseView):
     """Re-sends the signing email to everyone who has not signed yet."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, request_id):
         signature_request = ContractSignatureRequest.objects.get(id=request_id, workspace__slug=slug)
         if signature_request.status != ContractSignatureRequest.Status.PENDING or not (
@@ -2699,7 +2699,7 @@ class ContractSignatureRequestDuplicateEndpoint(FileLibraryBaseView):
     """A fresh, unsent copy of a request (same document, recipients and
     fields), ready to adjust and send."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, request_id):
         source = ContractSignatureRequest.objects.select_related(
             "workspace", "revision", "rendered_source_asset", "rendered_pdf_asset"
@@ -2719,7 +2719,7 @@ class ContractSignatureRequestCancelAndDuplicateEndpoint(FileLibraryBaseView):
     """Correct a sent contract in one step: cancel it (Documenso too) and
     return a READY copy to edit and send again."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, request_id):
         source = (
             ContractSignatureRequest.objects.select_related(

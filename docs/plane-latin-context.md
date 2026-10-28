@@ -114,6 +114,7 @@ Trampas conocidas:
 
 `views/contract/*`, `utils/contract_*`, `components/file-library/contracts`, `workflows/contract-pipeline.ts`.
 
+- **Acceso: solo admins del workspace.** Contratos analizados, plantillas, firma y sus PDF (`utils/contract_access.py`). Los miembros e invitados no ven el menú ni la ruta, la API les responde 403, la biblioteca les oculta los archivos de contratos y la categoría "Contratos", las menciones los muestran como restringidos y el asistente no les da herramientas de contratos (`capabilities.contracts`; `capabilities.library` sigue para miembros). `tests/unit/test_contract_access.py` recorre todas las rutas de contratos.
 - **Pipeline**: al subir un contrato, la API lanza `ContractPipelineWorkflow`. Etapas: `extracting_text` → `waiting_ocr` (Textract) → `collecting_text` → `embedding` → `analyzing` → `saving` → `classifying` → `done`. Cada paso reporta progreso y costo; el panel muestra los pasos y permite reintentar etapas.
 - **Análisis**: varios prompts (principal, secundario, artistas, obras). Cada campo trae la cita textual que lo respalda (`_evidence`) y se valida contra el texto.
 - **Etiquetas automáticas**: el análisis crea etiquetas de artista, grupo y persona (`link_contract_tag` en `views/contract/internal.py`). Reusa la etiqueta existente aunque el nombre cambie en mayúsculas, espacios, acentos o puntuación (`tag_name_key`): "3ball Mty" reusa "3BallMTY".

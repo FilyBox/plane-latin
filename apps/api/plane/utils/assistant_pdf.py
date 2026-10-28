@@ -29,6 +29,7 @@ from plane.utils import pdf_ops
 from plane.utils.exception_logger import log_exception
 from plane.utils.path_validator import sanitize_filename
 
+ADMIN = 20
 PDF_TYPE = "application/pdf"
 MAX_NAME = 200
 
@@ -348,9 +349,9 @@ def lineage(workspace_id, asset) -> dict:
     }
 
 
-def _wants_analysis(data) -> bool:
-    # On unless the card turned it off for this one
-    return data.get("analyze") is not False
+def _wants_analysis(ctx, data) -> bool:
+    # On unless the card turned it off for this one; contracts are admin-only
+    return ctx.role >= ADMIN and data.get("analyze") is not False
 
 
 def split_pdf(ctx, user, data: dict, payload=None) -> AssistantAction:
@@ -382,7 +383,7 @@ def split_pdf(ctx, user, data: dict, payload=None) -> AssistantAction:
         sources=[source],
         outputs=outputs,
         folder_name=_folder_name(data.get("folder_name"), f"Separados de {base}"),
-        analyze=_wants_analysis(data),
+        analyze=_wants_analysis(ctx, data),
         summary=lambda folder: f"Separó «{display_name(source)}» en {len(outputs)} archivos en «{folder.name}»",
         payload=payload,
     )
@@ -415,7 +416,7 @@ def merge_pdf(ctx, user, data: dict, payload=None) -> AssistantAction:
         sources=sources,
         outputs=[{"name": name, "content": merged, "pages": list(range(1, total + 1))}],
         folder_name=_folder_name(data.get("folder_name"), f"Unidos – {base_name(name)}"),
-        analyze=_wants_analysis(data),
+        analyze=_wants_analysis(ctx, data),
         summary=lambda folder: f"Unió {len(sources)} archivos en «{name}»",
         payload=payload,
     )
@@ -444,7 +445,7 @@ def edit_pdf_pages(ctx, user, data: dict, payload=None) -> AssistantAction:
         sources=[source],
         outputs=[{"name": name, "content": new, "pages": chosen, "label": label[:200]}],
         folder_name=_folder_name(data.get("folder_name"), f"Páginas de {base}"),
-        analyze=_wants_analysis(data),
+        analyze=_wants_analysis(ctx, data),
         summary=lambda folder: f"{verbs[operation]} páginas de «{display_name(source)}» en «{name}»",
         payload=payload,
     )

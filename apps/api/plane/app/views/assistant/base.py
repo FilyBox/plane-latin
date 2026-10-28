@@ -401,7 +401,10 @@ class AssistantChatEndpoint(BaseAPIView):
             # user's role: the music catalog is admin-only everywhere else, so
             # members never get its tools (or buttons they cannot use).
             "capabilities": {
-                "contracts": WorkspaceFeature.FeatureKey.FILE_LIBRARY in enabled,
+                # Contracts (and templates) are admin-only; the library's own
+                # tools (organize, read files) stay with members.
+                "contracts": WorkspaceFeature.FeatureKey.FILE_LIBRARY in enabled and is_admin,
+                "library": WorkspaceFeature.FeatureKey.FILE_LIBRARY in enabled,
                 "music": WorkspaceFeature.FeatureKey.MUSIC_CATALOG in enabled and is_admin,
                 "references": WorkspaceFeature.FeatureKey.REFERENCES in enabled,
                 # Merging tags and starting an AI mapping are admin actions

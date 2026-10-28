@@ -97,19 +97,19 @@ def ctx_for(setup, user):
 
 
 class TestRegistryAccess:
-    def test_member_sees_contracts_but_music_is_restricted(self, setup):
-        cards = resolve_entities(
-            ctx_for(setup, setup["member"]),
-            [
-                {"entity_name": "contract", "id": str(setup["contract"].id)},
-                {"entity_name": "music_track", "id": str(setup["track"].id)},
-                {"entity_name": "music_track", "id": str(uuid4())},
-            ],
-        )
-        assert cards[0]["status"] == "ok" and cards[0]["title"] == "Contrato editorial"
-        # Music is admin-only: it exists, but its name is not revealed.
+    def test_contracts_and_music_are_restricted_for_members(self, setup):
+        items = [
+            {"entity_name": "contract", "id": str(setup["contract"].id)},
+            {"entity_name": "music_track", "id": str(setup["track"].id)},
+            {"entity_name": "music_track", "id": str(uuid4())},
+        ]
+        cards = resolve_entities(ctx_for(setup, setup["member"]), items)
+        # Contracts and music are admin-only: they exist, but their names are not revealed.
+        assert cards[0] == {"entity_name": "contract", "id": str(setup["contract"].id), "status": "restricted"}
         assert cards[1] == {"entity_name": "music_track", "id": str(setup["track"].id), "status": "restricted"}
         assert cards[2]["status"] == "missing"
+        admin_cards = resolve_entities(ctx_for(setup, setup["admin"]), items)
+        assert admin_cards[0]["status"] == "ok" and admin_cards[0]["title"] == "Contrato editorial"
 
     def test_a_disabled_module_hides_everything_in_it(self, setup):
         WorkspaceFeature.objects.filter(workspace=setup["workspace"], key="music_catalog").delete()
@@ -244,7 +244,7 @@ class TestEndpoints:
         assert response.status_code == 403
 
     def test_attach_then_read_both_directions(self, setup):
-        slug, client = setup["workspace"].slug, self.client_for(setup["member"])
+        slug, client = setup["workspace"].slug, self.client_for(setup["admin"])
         search = client.get(f"/api/workspaces/{slug}/entities/search/", {"q": "editorial", "types": "contract"})
         assert search.status_code == 200
         assert search.json()["results"]["contract"][0]["id"] == str(setup["contract"].id)
@@ -265,6 +265,17 @@ class TestEndpoints:
         assert removed.status_code == 204
         assert not EntityReference.objects.filter(source_id=setup["issue"].id).exists()
         assert Contract.objects.filter(id=setup["contract"].id).exists()
+
+    def test_members_neither_find_nor_attach_contracts(self, setup):
+        slug, client = setup["workspace"].slug, self.client_for(setup["member"])
+        search = client.get(f"/api/workspaces/{slug}/entities/search/", {"q": "editorial", "types": "contract"})
+        assert "contract" not in search.json()["results"]
+        attach = client.post(
+            f"/api/workspaces/{slug}/entities/issue/{setup['issue'].id}/references/",
+            {"entity_name": "contract", "id": str(setup["contract"].id)},
+            format="json",
+        )
+        assert attach.status_code == 404
 
     def test_members_cannot_attach_what_they_cannot_open(self, setup):
         response = self.client_for(setup["member"]).post(
@@ -496,8 +507,8 @@ class TestAssistantLookups:
         admin = self.get(f"{base}/tagged/", tag="3ballmty", user_id=str(setup["admin"].id)).json()
         assert set(admin["groups"]) == {"contract", "music_track"}
         member = self.get(f"{base}/tagged/", tag="3BallMTY", user_id=str(setup["member"].id)).json()
-        # Members cannot open the music catalog: the assistant must not name it.
-        assert set(member["groups"]) == {"contract"}
+        # Contracts and the music catalog are admin-only: the assistant must not name them.
+        assert set(member["groups"]) == set()
 
         found = self.get(f"{base}/search/", q="Canción", user_id=str(setup["member"].id)).json()
         assert "music_track" not in found["results"]
@@ -514,8 +525,11 @@ class TestAssistantLookups:
         workspace, issue = setup["workspace"], setup["issue"]
         sync_mentions(workspace.id, "issue", issue.id, mention("contract", setup["contract"].id), setup["admin"].id)
         base = f"/api/internal/workspaces/{workspace.id}/assistant"
-        data = self.get(f"{base}/references/contract/{setup['contract'].id}/", user_id=str(setup["member"].id)).json()
+        data = self.get(f"{base}/references/contract/{setup['contract'].id}/", user_id=str(setup["admin"].id)).json()
         assert [card["id"] for card in data["referenced_by"]] == [str(issue.id)]
+        # A member cannot open the contract, so its references stay hidden too
+        hidden = self.get(f"{base}/references/contract/{setup['contract'].id}/", user_id=str(setup["member"].id))
+        assert "referenced_by" not in hidden.json()
 
 
 class TestAutoClassifyUploads:
@@ -584,14 +598,17 @@ class TestBulkTagging:
         assert removed.json()["changed"] == 2
         assert len(tagged_ids(workspace.id, tag, "music_track")) == 2
 
-    def test_contracts_use_their_pdf_and_members_cannot_tag_music(self, setup):
+    def test_contracts_use_their_pdf_and_members_cannot_tag_them_or_music(self, setup):
         workspace = setup["workspace"]
         tag = FileTag.objects.create(workspace=workspace, name="Editorial")
-        member = APIClient()
+        admin, member = APIClient(), APIClient()
+        admin.force_authenticate(user=setup["admin"])
         member.force_authenticate(user=setup["member"])
         url = f"/api/workspaces/{workspace.slug}/shared-tags/{tag.id}/apply/"
-        response = member.post(url, {"entity_name": "contract", "ids": [str(setup["contract"].id)]}, format="json")
+        response = admin.post(url, {"entity_name": "contract", "ids": [str(setup["contract"].id)]}, format="json")
         assert response.json()["changed"] == 1
         assert FileTagLink.objects.filter(file_asset=setup["asset"], tag=tag).exists()
+        contract = member.post(url, {"entity_name": "contract", "ids": [str(setup["contract"].id)]}, format="json")
+        assert contract.status_code == 403
         music = member.post(url, {"entity_name": "music_track", "ids": [str(setup["track"].id)]}, format="json")
         assert music.status_code == 403

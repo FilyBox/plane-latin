@@ -21,7 +21,7 @@ from plane.utils.assistant_actions import ActionError, register_undo
 from plane.utils.assistant_undo import diff, revert_fields, snapshot, to_json
 from plane.utils.assistant_workspace import register_apply
 
-MEMBER = 15
+ADMIN = 20
 MAX_CONTRACTS = 50
 # Fields that may move on their own after an edit (effective end, status)
 DERIVED = ("fecha_fin_efectiva", "estatus_contrato")
@@ -34,12 +34,13 @@ def _contract_views():
 
 
 def can_edit(ctx) -> bool:
-    return ctx is not None and ctx.role >= MEMBER and "file_library" in ctx.features
+    # Contracts and their templates are for workspace admins only
+    return ctx is not None and ctx.role >= ADMIN and "file_library" in ctx.features
 
 
 def _require(ctx):
     if not can_edit(ctx):
-        raise ActionError("Only workspace members with the file library can correct contracts.")
+        raise ActionError("Only workspace admins can correct contracts.")
 
 
 def _editable():

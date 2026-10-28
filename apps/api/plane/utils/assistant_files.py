@@ -39,8 +39,10 @@ from plane.db.models import (
 )
 from plane.utils.assistant_actions import ActionError, register_undo
 from plane.utils.assistant_workspace import register_apply
+from plane.utils.contract_access import contract_file_q
 
 MEMBER = 15
+ADMIN = 20
 MAX_OPS = 200
 MAX_LIST = 500
 MAX_HASH = 300
@@ -64,9 +66,11 @@ def _require(ctx):
 
 
 def _files(ctx):
-    return FileAsset.objects.filter(
+    files = FileAsset.objects.filter(
         workspace_id=ctx.workspace_id, entity_type=LIBRARY, is_deleted=False, is_uploaded=True
     )
+    # Contract files are for admins only
+    return files if ctx.role >= ADMIN else files.exclude(contract_file_q())
 
 
 # ---------------------------------------------------------------- folders
@@ -395,7 +399,8 @@ def plan(ctx, ops) -> dict:
                     row["to"] = target or "/"
                 elif kind == "categorize":
                     category = _named(FileCategory, ctx.workspace_id, op.get("category"))
-                    if category is None:
+                    if category is None or (category.is_default and ctx.role < ADMIN):
+                        # "Contratos" makes a contract: admins only
                         raise ActionError(f"Category «{op.get('category')}» not found.")
                     if category.pdf_only and attributes.get("type") != "application/pdf" and not op.get("remove"):
                         raise ActionError(f"«{attributes.get('name')}»: only PDFs go to «{category.name}».")

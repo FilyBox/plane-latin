@@ -93,7 +93,7 @@ class InternalAssistantTemplateDryRunEndpoint(InternalBaseView):
 class AssistantTemplatePreviewEndpoint(FileLibraryBaseView):
     """The edited Word as a PDF, for the card to show before applying."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         workspace = Workspace.objects.get(slug=slug)
         variant = find_variant(workspace.id, variant_id)
@@ -142,7 +142,7 @@ class InternalAssistantContractProposalEndpoint(InternalBaseView):
 class AssistantContractDraftPreviewEndpoint(FileLibraryBaseView):
     """The contract with the card's values, as a PDF; nothing is stored."""
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, variant_id):
         workspace = Workspace.objects.get(slug=slug)
         variant = find_variant(workspace.id, variant_id)

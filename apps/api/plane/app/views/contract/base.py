@@ -298,7 +298,7 @@ class ContractsEndpoint(FileLibraryBaseView):
     serializer_class = ContractSerializer
     model = Contract
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         from plane.utils.contract_works import pending_suggestions_count
 
@@ -360,7 +360,7 @@ class ContractsExportEndpoint(FileLibraryBaseView):
 
     model = Contract
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         from plane.db.models.contract import ContractStatus, ContractType
 
@@ -407,7 +407,7 @@ class ContractCheckDuplicatesEndpoint(FileLibraryBaseView):
 
     model = Contract
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         files = request.data.get("files")
         if not isinstance(files, list) or len(files) > 500:
@@ -474,7 +474,7 @@ class ContractDetailEndpoint(FileLibraryBaseView):
     serializer_class = ContractSerializer
     model = Contract
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, contract_id):
         contract = (
             live_contracts()
@@ -484,7 +484,7 @@ class ContractDetailEndpoint(FileLibraryBaseView):
         )
         return Response(ContractDetailSerializer(contract).data, status=status.HTTP_200_OK)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def patch(self, request, slug, contract_id):
         contract = live_contracts().defer("extracted_text").get(id=contract_id, workspace__slug=slug)
         previous_end, previous_effective = contract.fecha_fin, contract.fecha_fin_efectiva
@@ -511,7 +511,7 @@ class ContractDetailEndpoint(FileLibraryBaseView):
             return Response(ContractDetailSerializer(contract).data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, contract_id):
         contract = Contract.objects.get(id=contract_id, workspace__slug=slug)
         delete_contracts([contract])
@@ -569,7 +569,7 @@ def _job_active_response():
 class ContractRetryEndpoint(FileLibraryBaseView):
     model = ContractProcessingJob
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, contract_id):
         contract = (
             Contract.objects.select_related("workspace")
@@ -592,7 +592,7 @@ class ContractRetryEndpoint(FileLibraryBaseView):
 class ContractReanalyzeEndpoint(FileLibraryBaseView):
     model = ContractProcessingJob
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, contract_id):
         contract = (
             Contract.objects.select_related("workspace")
@@ -621,7 +621,7 @@ class ContractReanalyzeConfirmEndpoint(FileLibraryBaseView):
 
     model = Contract
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, contract_id):
         from .internal import apply_extracted_data
 
@@ -658,7 +658,7 @@ class ContractJobCancelEndpoint(FileLibraryBaseView):
 
     model = ContractProcessingJob
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, contract_id, job_id):
         from .internal import stop_job
 
@@ -684,7 +684,7 @@ class ContractsBulkEndpoint(FileLibraryBaseView):
 
     model = ContractProcessingJob
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         action = request.data.get("action")
         contract_ids = request.data.get("contract_ids") or request.data.get("ids") or []
@@ -796,7 +796,7 @@ class ContractJobsEndpoint(FileLibraryBaseView):
     serializer_class = ContractProcessingJobSerializer
     model = ContractProcessingJob
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, contract_id=None):
         jobs = ContractProcessingJob.objects.filter(workspace__slug=slug)
         if contract_id:
@@ -814,13 +814,13 @@ class ContractQueryEndpoint(FileLibraryBaseView):
     serializer_class = ContractQuerySerializer
     model = ContractQuery
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         # Each person's query history is their own
         queries = ContractQuery.objects.filter(workspace__slug=slug, user=request.user).order_by("-created_at")[:50]
         return Response(ContractQuerySerializer(queries, many=True).data, status=status.HTTP_200_OK)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         user_query = (request.data.get("query") or "").strip()
         if not user_query:

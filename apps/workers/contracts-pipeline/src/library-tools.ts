@@ -20,7 +20,7 @@ ORDENAR LA BIBLIOTECA
 - "¿Qué hay en Contratos/2024?": list_folder con la ruta (o folder_id) y recursive si pide todo lo de adentro.
 - "Busca duplicados": find_duplicate_files (en una carpeta o en toda la biblioteca). Exactos = mismo contenido; posibles = mismo nombre y tamaño. Se conserva la copia con más vínculos (contrato, etiquetas, referencias, gasto) o la más antigua; las demás se proponen a la papelera.
 - "Ordena / renombra / mueve / pon en carpetas por artista y año": propose_file_organization con las operaciones (rename, move a una ruta como "Contratos/2024/Juan Pérez", create_folder, categorize, tag, trash). Nombres desde el contenido con un patrón constante: "Contrato de edición – Juan Pérez – 2024.pdf" (usa get_contract_details o read_file para saber de qué trata cada archivo). Renombrar cambia solo el nombre visible.
-- Poner un PDF en la categoría "Contratos" inicia su análisis con IA (tiene costo): dilo. La papelera nunca toma contratos analizados, comprobantes de gastos ni archivos de plantillas; si te lo piden, explica que eso se hace en su panel.
+- Poner un PDF en la categoría "Contratos" inicia su análisis con IA (tiene costo): dilo. Solo los admins del workspace ven contratos y pueden usar esa categoría; si no aparece, no la propongas. La papelera nunca toma contratos analizados, comprobantes de gastos ni archivos de plantillas; si te lo piden, explica que eso se hace en su panel.
 - Nunca digas que ya quedó hecho: la persona revisa y aplica en la tarjeta, y puede deshacer todo.`;
 
 const folderInput = {

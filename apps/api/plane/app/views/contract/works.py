@@ -5,8 +5,8 @@
 """Contract <-> music works links: the contract panel, the song/release
 panels, and the internal endpoints the Worker (analysis and assistant) calls.
 
-Contract-side endpoints follow the contracts module (ADMIN/MEMBER write,
-GUEST read); anything that picks or creates catalog items also needs music
+Contract-side endpoints follow the contracts module (workspace admins only);
+anything that picks or creates catalog items also needs music
 access (module on and workspace admin), as the music endpoints do.
 """
 
@@ -208,7 +208,7 @@ class ContractWorksEndpoint(FileLibraryBaseView):
 
     model = ContractWorkLink
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug, contract_id):
         contract = _contract(slug, contract_id)
         if contract is None:
@@ -217,7 +217,7 @@ class ContractWorksEndpoint(FileLibraryBaseView):
         include_all = request.query_params.get("all") in ("1", "true")
         return Response({"links": _links_for(contract, ctx, include_all)}, status=status.HTTP_200_OK)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, contract_id):
         contract = _contract(slug, contract_id)
         if contract is None:
@@ -242,7 +242,7 @@ class ContractWorksApplyEndpoint(FileLibraryBaseView):
 
     model = ContractWorkLink
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, contract_id):
         contract = _contract(slug, contract_id)
         if contract is None:
@@ -278,7 +278,7 @@ class ContractWorkLinkDetailEndpoint(FileLibraryBaseView):
             .first()
         )
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def patch(self, request, slug, link_id):
         link = self._link(slug, link_id)
         if link is None:
@@ -332,7 +332,7 @@ class ContractWorkLinkDetailEndpoint(FileLibraryBaseView):
         link.save()
         return Response(contract_links_payload([link], ctx)[0], status=status.HTTP_200_OK)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def delete(self, request, slug, link_id):
         link = self._link(slug, link_id)
         if link is None:
@@ -347,7 +347,7 @@ class ContractWorkLinkCreateInCatalogEndpoint(FileLibraryBaseView):
 
     model = ContractWorkLink
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug, link_id):
         link = (
             ContractWorkLink.objects.filter(id=link_id, workspace__slug=slug, contract__file_asset__is_deleted=False)

@@ -149,9 +149,18 @@ def split_body(setup, **extra):
 
 
 class TestSplit:
+    def test_a_member_splits_without_making_contracts(self, setup):
+        # Contracts are admin-only: a member's parts stay plain library files
+        response = client_for(setup["member"]).post(actions_url(setup), split_body(setup), format="json")
+        assert response.status_code == 201, response.content
+        files = FileAsset.objects.filter(folder_id=response.json()["result"]["folder"]["id"])
+        assert files.count() == 2
+        assert not Contract.objects.filter(file_asset__in=files).exists()
+        assert not FileCategoryLink.objects.filter(file_asset__in=files, category=setup["category"]).exists()
+
     def test_new_files_in_a_new_folder_analyzed_as_contracts(self, setup):
         original = stored(setup["package"])
-        response = client_for(setup["member"]).post(actions_url(setup), split_body(setup), format="json")
+        response = client_for(setup["admin"]).post(actions_url(setup), split_body(setup), format="json")
         assert response.status_code == 201, response.content
         result = response.json()["result"]
 
@@ -163,7 +172,7 @@ class TestSplit:
         assert texts(stored(files[0])) == ["Doc p3", "Doc p4", "Doc p5", "Doc p6"]
         assert files[1].attributes["page_count"] == 2
         assert files[1].attributes["derived_from"]["pages"] == "1-2"
-        assert files[1].created_by_id == setup["member"].id
+        assert files[1].created_by_id == setup["admin"].id
 
         # Each one is a contract in "Contratos" with its analysis queued
         contracts = Contract.objects.filter(file_asset__in=files)
@@ -182,7 +191,7 @@ class TestSplit:
         assert result["path"] == f"/{setup['workspace'].slug}/file-library?folder={folder.id}"
 
     def test_undo_removes_files_contracts_and_the_empty_folder(self, setup):
-        client = client_for(setup["member"])
+        client = client_for(setup["admin"])
         action = client.post(actions_url(setup), split_body(setup), format="json").json()
         ids = [item["id"] for item in action["result"]["files"]]
         with patch("plane.bgtasks.contract_task.terminate_contract_pipeline_task.delay"):
@@ -195,7 +204,7 @@ class TestSplit:
         assert not FileAsset.objects.get(id=setup["package"].id).is_deleted
 
     def test_undo_keeps_a_folder_someone_added_to(self, setup):
-        client = client_for(setup["member"])
+        client = client_for(setup["admin"])
         action = client.post(actions_url(setup), split_body(setup, analyze=False), format="json").json()
         folder = FileFolder.objects.get(id=action["result"]["folder"]["id"])
         added = add_pdf(setup["workspace"], "otro.pdf", make_pdf(1), folder=folder)
@@ -208,16 +217,16 @@ class TestSplit:
             workspace=setup["workspace"], parent=setup["folder"], name="separados de paquete 2024"
         )
         body = split_body(setup, analyze=False)
-        result = client_for(setup["member"]).post(actions_url(setup), body, format="json").json()["result"]
+        result = client_for(setup["admin"]).post(actions_url(setup), body, format="json").json()["result"]
         assert result["folder"]["name"] == "Separados de Paquete 2024 (2)"
-        renamed = client_for(setup["member"]).post(
+        renamed = client_for(setup["admin"]).post(
             actions_url(setup), {**body, "folder_name": "Contratos 2024"}, format="json"
         )
         assert renamed.json()["result"]["folder"]["name"] == "Contratos 2024"
 
     def test_without_analysis_no_contract_is_created(self, setup):
         result = (
-            client_for(setup["member"])
+            client_for(setup["admin"])
             .post(actions_url(setup), split_body(setup, analyze=False), format="json")
             .json()["result"]
         )
@@ -227,7 +236,7 @@ class TestSplit:
     def test_invalid_ranges_leave_nothing_behind(self, setup):
         before = (FileFolder.objects.count(), FileAsset.objects.count(), len(FakeStorage.objects))
         body = split_body(setup, segments=[{"start_page": 1, "end_page": 3}, {"start_page": 3, "end_page": 6}])
-        response = client_for(setup["member"]).post(actions_url(setup), body, format="json")
+        response = client_for(setup["admin"]).post(actions_url(setup), body, format="json")
         assert response.status_code == 400 and "overlap" in response.json()["error"]
         assert (FileFolder.objects.count(), FileAsset.objects.count(), len(FakeStorage.objects)) == before
 
@@ -238,13 +247,13 @@ class TestSplit:
                 from plane.utils.assistant_pdf import split_pdf
                 from plane.utils.entities import AccessContext
 
-                ctx = AccessContext.build(setup["workspace"].slug, setup["member"])
-                split_pdf(ctx, setup["member"], split_body(setup))
+                ctx = AccessContext.build(setup["workspace"].slug, setup["admin"])
+                split_pdf(ctx, setup["admin"], split_body(setup))
         assert len(FakeStorage.objects) == before
         assert not FileFolder.objects.filter(name__startswith="Separados").exists()
 
     def test_only_library_pdfs_the_user_can_open(self, setup):
-        client = client_for(setup["member"])
+        client = client_for(setup["admin"])
         other = WorkspaceFactory(owner=UserFactory(username=f"other-{uuid4().hex[:8]}"))
         foreign = add_pdf(other, "ajeno.pdf", make_pdf(2))
         music = add_pdf(
@@ -272,7 +281,7 @@ class TestMergeAndPages:
             "file_ids": [str(signed.id), str(setup["package"].id)],
             "name": "Expediente completo",
         }
-        response = client_for(setup["member"]).post(actions_url(setup), body, format="json")
+        response = client_for(setup["admin"]).post(actions_url(setup), body, format="json")
         assert response.status_code == 201, response.content
         result = response.json()["result"]
         assert result["folder"]["name"] == "Unidos – Expediente completo"
@@ -284,7 +293,7 @@ class TestMergeAndPages:
 
     def test_merge_refuses_repeats(self, setup):
         body = {"kind": "MERGE_PDF", "file_ids": [str(setup["package"].id)] * 2, "name": "x"}
-        response = client_for(setup["member"]).post(actions_url(setup), body, format="json")
+        response = client_for(setup["admin"]).post(actions_url(setup), body, format="json")
         assert response.status_code == 400
 
     @pytest.mark.parametrize(
@@ -303,7 +312,7 @@ class TestMergeAndPages:
             "pages": pages,
             "analyze": False,
         }
-        response = client_for(setup["member"]).post(actions_url(setup), body, format="json")
+        response = client_for(setup["admin"]).post(actions_url(setup), body, format="json")
         assert response.status_code == 201, response.content
         result = response.json()["result"]
         assert result["folder"]["name"] == "Páginas de Paquete 2024"
@@ -313,7 +322,7 @@ class TestMergeAndPages:
             assert created.attributes["name"] == f"Paquete 2024 (páginas {label}).pdf"
 
     def test_history_lists_the_new_kinds(self, setup):
-        client = client_for(setup["member"])
+        client = client_for(setup["admin"])
         client.post(actions_url(setup), split_body(setup, analyze=False), format="json")
         rows = client.get(actions_url(setup)).json()["actions"]
         assert rows[0]["kind"] == AssistantAction.Kind.SPLIT_PDF
@@ -322,7 +331,7 @@ class TestMergeAndPages:
 
 class TestInternalPages:
     def get(self, setup, path, user=None, **params):
-        user = user or setup["member"]
+        user = user or setup["admin"]
         with override_settings(PLANE_INTERNAL_API_SECRET="secret"):
             return APIClient().get(
                 f"/api/internal/workspaces/{setup['workspace'].id}/assistant/files/{path}",
@@ -377,14 +386,14 @@ class TestInternalPages:
 
 class TestLineage:
     def lineage(self, setup, asset_id):
-        response = client_for(setup["member"]).get(
+        response = client_for(setup["admin"]).get(
             f"/api/workspaces/{setup['workspace'].slug}/file-library/files/{asset_id}/lineage/"
         )
         assert response.status_code == 200, response.content
         return response.json()
 
     def test_split_parts_point_to_the_bundle_and_back(self, setup):
-        client = client_for(setup["member"])
+        client = client_for(setup["admin"])
         action = client.post(actions_url(setup), split_body(setup), format="json").json()
         files = action["result"]["files"]
 
@@ -418,7 +427,7 @@ class TestLineage:
         with override_settings(PLANE_INTERNAL_API_SECRET="secret"):
             read = APIClient().get(
                 f"/api/internal/workspaces/{setup['workspace'].id}/assistant/files/{setup['package'].id}/read/",
-                {"user_id": str(setup["member"].id)},
+                {"user_id": str(setup["admin"].id)},
                 HTTP_X_PLANE_INTERNAL_KEY="secret",
             )
         assert read.status_code == 200, read.content
@@ -436,7 +445,7 @@ class TestLineage:
             "name": "Expediente",
             "analyze": False,
         }
-        merged = client_for(setup["member"]).post(actions_url(setup), body, format="json").json()
+        merged = client_for(setup["admin"]).post(actions_url(setup), body, format="json").json()
         parents = self.lineage(setup, merged["result"]["files"][0]["id"])["parents"]
         assert [(row["name"], row["kind"], row["position"]) for row in parents] == [
             ("Carta.pdf", "MERGE", 1),
