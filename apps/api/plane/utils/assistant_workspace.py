@@ -29,6 +29,7 @@ def _load():
         assistant_contract_drafts,
         assistant_contract_edits,
         assistant_expenses,
+        assistant_files,
         assistant_templates,
         assistant_work_items,
     )

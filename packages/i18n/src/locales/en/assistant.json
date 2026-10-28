@@ -314,6 +314,18 @@
       "propose_expenses_from_documents": {
         "running": "Reading the receipts",
         "done": "Read the receipts"
+      },
+      "list_folder": {
+        "running": "Reading the folder",
+        "done": "Read the folder"
+      },
+      "find_duplicate_files": {
+        "running": "Looking for duplicates",
+        "done": "Looked for duplicates"
+      },
+      "propose_file_organization": {
+        "running": "Preparing the changes to the library",
+        "done": "Prepared the changes to the library"
       }
     },
     "export": {
@@ -864,6 +876,27 @@
       "done": "{count, plural, one {# expense registered} other {# expenses registered}}",
       "open": "See expenses",
       "apply": "{count, plural, one {Register # expense} other {Register # expenses}}"
+    },
+    "organize": {
+      "title": "{count, plural, one {Organize the library: # change} other {Organize the library: # changes}}",
+      "kinds": {
+        "create_folder": "{count, plural, one {New folder} other {# new folders}}",
+        "rename": "{count, plural, one {Rename} other {Rename # files}}",
+        "move": "{count, plural, one {Move} other {Move # files}}",
+        "categorize": "{count, plural, one {Category} other {# category changes}}",
+        "tag": "{count, plural, one {Tag} other {# tag changes}}",
+        "trash": "{count, plural, one {To the trash} other {# files to the trash}}"
+      },
+      "new_tag": "new tag",
+      "starts_analysis": "{count, plural, one {# PDF goes to Contracts: its AI analysis starts (it has a cost).} other {# PDFs go to Contracts: their AI analysis starts (it has a cost).}}",
+      "confirm_trash": "{count, plural, one {I confirm sending # file to the trash (it can be restored).} other {I confirm sending # files to the trash (they can be restored).}}",
+      "fields": {
+        "name": "name",
+        "folder": "folder"
+      },
+      "done": "{count, plural, one {# change applied} other {# changes applied}}",
+      "open": "Open the library",
+      "apply": "{count, plural, one {Apply # change} other {Apply # changes}}"
     }
   }
 }

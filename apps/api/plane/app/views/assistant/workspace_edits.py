@@ -17,6 +17,7 @@ from plane.utils.assistant_contract_edits import edit_preview
 from plane.utils.assistant_expenses import can_use as can_use_expenses
 from plane.utils.assistant_expenses import drafts as expense_drafts
 from plane.utils.assistant_expenses import start as start_expenses
+from plane.utils.assistant_files import find_duplicates, list_folder, plan
 from plane.utils.assistant_work_items import comment_preview, query_work_items, update_preview
 
 from plane.utils.entities import AccessContext
@@ -84,3 +85,28 @@ class AssistantExpenseDraftsEndpoint(BaseAPIView):
             return Response(expense_drafts(ctx, ids), status=status.HTTP_200_OK)
         except Exception:
             return Response({"error": "Invalid job ids"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class InternalAssistantFolderEndpoint(InternalBaseView):
+    def post(self, request, workspace_id):
+        def work(ctx, data):
+            if "file_library" not in ctx.features:
+                raise ActionError("The file library is not on in this workspace.")
+            return list_folder(ctx, data.get("folder_id"), data.get("path"), bool(data.get("recursive")))
+
+        return _run(request, workspace_id, work)
+
+
+class InternalAssistantDuplicatesEndpoint(InternalBaseView):
+    def post(self, request, workspace_id):
+        def work(ctx, data):
+            if "file_library" not in ctx.features:
+                raise ActionError("The file library is not on in this workspace.")
+            return find_duplicates(ctx, data.get("folder_id"), data.get("path"))
+
+        return _run(request, workspace_id, work)
+
+
+class InternalAssistantOrganizePlanEndpoint(InternalBaseView):
+    def post(self, request, workspace_id):
+        return _run(request, workspace_id, lambda ctx, data: plan(ctx, data.get("ops")))

@@ -314,6 +314,18 @@
       "propose_expenses_from_documents": {
         "running": "Leyendo los comprobantes",
         "done": "Leyó los comprobantes"
+      },
+      "list_folder": {
+        "running": "Leyendo la carpeta",
+        "done": "Leyó la carpeta"
+      },
+      "find_duplicate_files": {
+        "running": "Buscando duplicados",
+        "done": "Buscó duplicados"
+      },
+      "propose_file_organization": {
+        "running": "Preparando los cambios a la biblioteca",
+        "done": "Preparó los cambios a la biblioteca"
       }
     },
     "export": {
@@ -864,6 +876,27 @@
       "done": "{count, plural, one {# gasto registrado} other {# gastos registrados}}",
       "open": "Ver gastos",
       "apply": "{count, plural, one {Registrar # gasto} other {Registrar # gastos}}"
+    },
+    "organize": {
+      "title": "{count, plural, one {Ordenar la biblioteca: # cambio} other {Ordenar la biblioteca: # cambios}}",
+      "kinds": {
+        "create_folder": "{count, plural, one {Carpeta nueva} other {# carpetas nuevas}}",
+        "rename": "{count, plural, one {Renombrar} other {Renombrar # archivos}}",
+        "move": "{count, plural, one {Mover} other {Mover # archivos}}",
+        "categorize": "{count, plural, one {Categoría} other {# cambios de categoría}}",
+        "tag": "{count, plural, one {Etiqueta} other {# cambios de etiqueta}}",
+        "trash": "{count, plural, one {A la papelera} other {# archivos a la papelera}}"
+      },
+      "new_tag": "etiqueta nueva",
+      "starts_analysis": "{count, plural, one {# PDF pasa a Contratos: empieza su análisis con IA (tiene costo).} other {# PDF pasan a Contratos: empieza su análisis con IA (tiene costo).}}",
+      "confirm_trash": "{count, plural, one {Confirmo mandar # archivo a la papelera (se puede restaurar).} other {Confirmo mandar # archivos a la papelera (se pueden restaurar).}}",
+      "fields": {
+        "name": "nombre",
+        "folder": "carpeta"
+      },
+      "done": "{count, plural, one {# cambio aplicado} other {# cambios aplicados}}",
+      "open": "Abrir la biblioteca",
+      "apply": "{count, plural, one {Aplicar # cambio} other {Aplicar # cambios}}"
     }
   }
 }

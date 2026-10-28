@@ -6,6 +6,9 @@ from django.urls import path
 
 from plane.app.views import AssistantChatEndpoint, AssistantModelsEndpoint, AssistantMusicImportEndpoint
 from plane.app.views.assistant import (
+    InternalAssistantDuplicatesEndpoint,
+    InternalAssistantFolderEndpoint,
+    InternalAssistantOrganizePlanEndpoint,
     AssistantExpenseDraftsEndpoint,
     InternalAssistantExpensesFromDocumentsEndpoint,
     InternalAssistantContractEditPreviewEndpoint,
@@ -172,6 +175,21 @@ urlpatterns = [
         "workspaces/<str:slug>/assistant/expense-drafts/",
         AssistantExpenseDraftsEndpoint.as_view(),
         name="assistant-expense-drafts",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/files/folder/",
+        InternalAssistantFolderEndpoint.as_view(),
+        name="internal-assistant-files-folder",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/files/duplicates/",
+        InternalAssistantDuplicatesEndpoint.as_view(),
+        name="internal-assistant-files-duplicates",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/files/organize-plan/",
+        InternalAssistantOrganizePlanEndpoint.as_view(),
+        name="internal-assistant-files-organize-plan",
     ),
     path(
         "workspaces/<str:slug>/assistant/actions/<uuid:action_id>/undo/",

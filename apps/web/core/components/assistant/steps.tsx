@@ -72,6 +72,8 @@ export const TRACE_TOOLS = new Set([
   "find_contract_templates",
   "read_contract_template",
   "query_work_items",
+  "list_folder",
+  "find_duplicate_files",
 ]);
 
 export const formatDuration = (seconds: number) =>
@@ -705,6 +707,19 @@ export function buildTraceToolUIs(slug: string) {
         const base = (result.base as { template_name?: string; variant_name?: string }) ?? {};
         return [base.template_name, base.variant_name].filter(Boolean).join(" · ");
       },
+    }),
+    traceTool("list_folder", {
+      icon: FolderSearch,
+      input: (args) => text(args?.path),
+      output: (result, t) => t("assistant.steps.results", { count: Number(result.total ?? 0) }),
+    }),
+    traceTool("find_duplicate_files", {
+      icon: FolderSearch,
+      input: (args) => text(args?.path),
+      output: (result, t) =>
+        t("assistant.steps.results", {
+          count: ((result.exact as unknown[]) ?? []).length + ((result.possible as unknown[]) ?? []).length,
+        }),
     }),
     traceTool("query_work_items", {
       icon: ListChecks,
