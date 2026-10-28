@@ -150,6 +150,8 @@ def _apply_one(contract, item, user):
     return {
         "contract_id": str(contract.id),
         "titulo": contract.titulo,
+        # What was asked; the effective end and the status may follow it
+        "requested": fields,
         "changes": diff(before, snapshot(contract, tracked)),
         "evidence_before": to_json(evidence_before),
         "evidence_after": to_json(evidence_after),
@@ -180,7 +182,7 @@ def edit_contracts(ctx, request, data) -> AssistantAction:
                 edited.append(row)
         if not edited:
             raise ActionError("The contracts already have those values.")
-        fields = sum(len(row["changes"]) for row in edited)
+        fields = sum(len(row["requested"]) for row in edited)
         title = edited[0]["titulo"] or "contrato"
         summary = (
             f"Corrigió {fields} dato(s) de «{title}»"

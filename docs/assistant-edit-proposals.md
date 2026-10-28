@@ -1,6 +1,6 @@
 # Asistente: lo que crea pero no edita, y qué agregar
 
-Estado: propuesta (2026-10-28), sin implementar. Contexto general en `docs/plane-latin-context.md` (5.7).
+Estado: propuesta (2026-10-28). Implementado después, con el plan de `docs/assistant-workspace-actions.md`: el punto 1 para canciones (`update_music_track` → `CATALOG_FIXES`), tareas (2), contratos (3, sin reanalizar), archivos (5), gastos desde comprobantes y auditoría del catálogo; además las tarjetas guardan su estado en el servidor. Lo demás sigue pendiente. Contexto general en `docs/plane-latin-context.md` (5.7).
 
 Todas las propuestas siguen las reglas del asistente: propone en una tarjeta, la persona revisa y aplica, queda un `AssistantAction` con deshacer, y se respetan los permisos de quien pide.
 

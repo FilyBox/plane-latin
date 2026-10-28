@@ -33,7 +33,10 @@ def paragraph(content, props="", para_id=""):
     return f"<w:p{pid}>{props}{content}</w:p>"
 
 
-NUMBERED = "<w:pPr><w:pStyle w:val='Clausula'/><w:numPr><w:ilvl w:val='0'/><w:numId w:val='1'/></w:numPr><w:jc w:val='both'/></w:pPr>"
+NUMBERED = (
+    "<w:pPr><w:pStyle w:val='Clausula'/>"
+    "<w:numPr><w:ilvl w:val='0'/><w:numId w:val='1'/></w:numPr><w:jc w:val='both'/></w:pPr>"
+)
 
 
 def textbox(text):
@@ -109,16 +112,17 @@ def document_xml():
             # 11: a text box (written twice by Word)
             paragraph(run("Caja: ") + textbox("Juan Pérez en la caja")),
             # 12: a section break
-            paragraph(run("Fin de la sección"), "<w:pPr><w:sectPr><w:pgSz w:w='12240' w:h='15840'/></w:sectPr></w:pPr>"),
+            paragraph(
+                run("Fin de la sección"), "<w:pPr><w:sectPr><w:pgSz w:w='12240' w:h='15840'/></w:sectPr></w:pPr>"
+            ),
             # a table
-            "<w:tbl><w:tblPr/><w:tr><w:tc><w:tcPr/>"
-            + paragraph(run("Juan Pérez en tabla"))
-            + "</w:tc></w:tr></w:tbl>",
+            "<w:tbl><w:tblPr/><w:tr><w:tc><w:tcPr/>" + paragraph(run("Juan Pérez en tabla")) + "</w:tc></w:tr></w:tbl>",
             paragraph(run("Firma del artista")),
             "<w:sectPr><w:pgSz w:w='12240' w:h='15840'/><w:pgMar w:top='1440'/></w:sectPr>",
         ]
     )
-    return f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document {NAMESPACES}><w:body>{body}</w:body></w:document>'
+    declaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+    return f"{declaration}<w:document {NAMESPACES}><w:body>{body}</w:body></w:document>"
 
 
 def part(root, content):
@@ -152,7 +156,11 @@ def build_docx():
         ("word/styles.xml", STYLES, ZIP_DEFLATED),
         ("word/settings.xml", SETTINGS, ZIP_DEFLATED),
         ("word/media/image1.png", IMAGE, ZIP_STORED),
-        ("docProps/core.xml", "<cp:coreProperties xmlns:cp='urn:core'><cp:creator>Ana</cp:creator></cp:coreProperties>", ZIP_DEFLATED),
+        (
+            "docProps/core.xml",
+            "<cp:coreProperties xmlns:cp='urn:core'><cp:creator>Ana</cp:creator></cp:coreProperties>",
+            ZIP_DEFLATED,
+        ),
     ]
     output = BytesIO()
     with ZipFile(output, "w") as archive:
@@ -166,7 +174,8 @@ def build_docx():
 def simple_docx(paragraphs):
     """A plain document: one paragraph per text."""
     body = "".join(paragraph(run(text)) for text in paragraphs) + "<w:sectPr/>"
-    xml = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document {NAMESPACES}><w:body>{body}</w:body></w:document>'
+    declaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+    xml = f"{declaration}<w:document {NAMESPACES}><w:body>{body}</w:body></w:document>"
     output = BytesIO()
     with ZipFile(output, "w", ZIP_DEFLATED) as archive:
         archive.writestr("[Content_Types].xml", "<Types/>")

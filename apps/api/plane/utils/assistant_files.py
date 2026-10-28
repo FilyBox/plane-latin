@@ -536,7 +536,15 @@ def organize_files(ctx, request, data) -> AssistantAction:
         counts: dict = {}
         for row in done:
             counts[row["op"]] = counts.get(row["op"], 0) + 1
-        summary = "Ordenó la biblioteca: " + ", ".join(f"{count} {kind}" for kind, count in counts.items())
+        words = {
+            "create_folder": "carpeta(s) nueva(s)",
+            "rename": "renombrado(s)",
+            "move": "movido(s)",
+            "categorize": "cambio(s) de categoría",
+            "tag": "cambio(s) de etiqueta",
+            "trash": "a la papelera",
+        }
+        summary = "Ordenó la biblioteca: " + ", ".join(f"{count} {words[kind]}" for kind, count in counts.items())
         return AssistantAction.objects.create(
             workspace_id=ctx.workspace_id,
             kind=AssistantAction.Kind.ORGANIZE_FILES,

@@ -86,6 +86,7 @@ Guías completas: `CORRER-EN-LOCAL.md` (desde cero) y `docs/contracts-local.md` 
 - **Live**: `cd apps/live && pnpm exec tsdown && PORT=3103 API_BASE_URL=http://localhost:8000 node --env-file=.env dist/start.mjs` (el `.env` local trae valores pensados para Docker; las variables del comando los sobrescriben). Tarda unos segundos en responder y casi no imprime nada.
 - **Pruebas de Django**: `docker exec plane-latin-api-1 sh -c "cd /code && python -m pytest <ruta> -q -p no:cacheprovider"`. Sin Docker (sesión en la nube): Postgres 16 con pgvector y un venv con `requirements/test.txt` (sin `psycopg-c`) bastan; unas 25 pruebas que necesitan Redis o RabbitMQ fallan sin ellos.
 - **Pruebas del worker**: `cd apps/workers/contracts-pipeline && pnpm run check:types && pnpm test`.
+- **Sin Collabora en local**: la conversión a PDF (`/cool/convert-to/pdf`) se puede imitar con un servidor HTTP mínimo que llame a `soffice --headless --convert-to pdf` y `COLLABORA_URL` apuntando a él. Sirve para probar plantillas y borradores; LibreOffice no abre los .docx mínimos de las pruebas, solo documentos completos (python-docx).
 
 Trampas conocidas:
 
@@ -196,7 +197,12 @@ Trampas conocidas:
   - El usuario menciona con `@`.
   - El modelo escribe `:tipo[Nombre]{name=<id>}`, que se muestra como chip clicable (`mentions.tsx`).
   - Mientras una mención llega por streaming se ve como chip pendiente; el efecto de escritura corre antes de convertirla, así el texto no se reinicia.
-- **Acciones con tarjeta**: el asistente nunca cambia nada directamente. Propone en una tarjeta, la persona revisa y aplica, y queda un registro con deshacer (`AssistantAction`; tipos TAG_ITEMS, UNTAG_ITEMS, CREATE_WORK_ITEM, CREATE_PAGE, EDIT_PAGE, SPLIT_PDF, MERGE_PDF, EDIT_PDF_PAGES). Hay una vista "Cambios del asistente".
+- **Acciones con tarjeta**: el asistente nunca cambia nada directamente. Propone en una tarjeta, la persona revisa y aplica, y queda un registro con deshacer (`AssistantAction`). Hay una vista "Cambios del asistente".
+  - Tipos: TAG_ITEMS, UNTAG_ITEMS, CREATE_WORK_ITEM, CREATE_PAGE, EDIT_PAGE, SPLIT_PDF, MERGE_PDF, EDIT_PDF_PAGES, y desde la migración 0165 CREATE_TEMPLATE_VARIANT, EDIT_TEMPLATE_VARIANT, CREATE_CONTRACT_DRAFT, EDIT_CONTRACT, EDIT_WORK_ITEMS, COMMENT_WORK_ITEM, ORGANIZE_FILES, CREATE_EXPENSES, CATALOG_FIXES.
+  - **El estado de cada tarjeta vive en el servidor**: la acción guarda `tool_call_id` y `chat`; el chat pide `GET assistant/actions/?tool_call_ids=…` al abrirse (`outcome-store.ts`). Una tarjeta aplicada en otra pestaña sale aplicada, y aplicar dos veces devuelve la misma acción (candado por `tool_call_id`). El `sessionStorage` es solo caché.
+  - Los tipos nuevos se registran en `utils/assistant_workspace.py` (`register_apply`) y su deshacer con `register_undo` (`utils/assistant_actions.py`). Un módulo nuevo se importa en `_load()`.
+  - **Deshacer por campo** (`utils/assistant_undo.py`): se guarda antes/después de cada campo y deshacer solo regresa lo que sigue con el valor del asistente; lo demás queda como conflicto y la tarjeta lo lista ("se quedó: alguien lo cambió después").
+  - Piezas comunes de la web: `card-kit.tsx` (aplicar y deshacer, lista de conflictos).
 - **Herramientas del agente** (`src/assistant.ts`):
   - **Generales**: `ask_user`, `search_memory`, `propose_memory`, `search_workspace`, `get_references`, `read_file`.
   - **Tareas**: `propose_work_item`.
@@ -205,6 +211,11 @@ Trampas conocidas:
   - **Música**: `query_music_tracks`, `export_music_excel`, `list_music_files`, `read_import_file`, `plan_music_import`, `update_music_track`, `propose_album_grouping`.
   - **Etiquetas**: `find_tags`, `find_by_tag`, `propose_tagging`, `propose_tag_merge`, `start_tag_mapping`.
   - **PDFs** (`src/pdf-tools.ts`): `analyze_pdf_segments`, `propose_pdf_split`, `propose_pdf_merge`, `propose_pdf_pages`.
+  - **Plantillas** (`src/template-tools.ts`): `find_contract_templates`, `read_contract_template`, `propose_template_edit`, `propose_contract_from_template`.
+  - **Edición en el workspace** (`src/workspace-edit-tools.ts`): `propose_contract_edit`, `query_work_items`, `propose_work_item_update`, `propose_work_item_comment`.
+  - **Gastos** (`src/expense-tools.ts`, solo administradores con Pagos): `propose_expenses_from_documents`.
+  - **Biblioteca** (`src/library-tools.ts`): `list_folder`, `find_duplicate_files`, `propose_file_organization`.
+  - **Catálogo** (`src/catalog-tools.ts`, administradores): `audit_catalog`, `propose_catalog_fixes`.
 - **Separar y unir PDFs** (plan en `docs/pdf-split-merge.md`):
   - `analyze_pdf_segments` lee el PDF en lotes de 25 páginas con 2 de traslape: Django manda una versión liviana (`preview-pdf/`, JPEG en grises) y Gemini clasifica cada página con su texto. La reconciliación (`src/lib/pdf-segments.ts`) une los lotes y aplica reglas: "1 de N", anexos con su documento, adendum después de firmas.
   - Al aplicar, Django corta con PyMuPDF (`utils/pdf_ops.py`, `utils/assistant_pdf.py`). El original no cambia; los archivos nuevos van a una carpeta nueva dentro de la del original ("Separados de…", "Unidos – …", "Páginas de…", con número si ya existe) y se analizan como contratos (casilla activada por defecto).
@@ -217,16 +228,15 @@ Trampas conocidas:
   - Al aplicar (`edit_page` en `utils/assistant_actions.py`), la API llama a Live (`utils/assistant_pages.py`), que cambia el documento vivo: quien tenga la página abierta lo ve y nada se pisa.
   - Se niega si la página cambió desde que se leyó (huella del texto) y respeta los permisos de la página (privada, bloqueada, archivada). Sin Live configurado, reescribe el HTML guardado y vacía el binario colaborativo.
 - **Memoria del workspace**: datos, reglas y glosario que el asistente usa en cada conversación. Los administradores aprueban; los demás sugieren.
-- **Lo que solo crea y no edita**: análisis y propuesta priorizada en `docs/assistant-edit-proposals.md`. Resumen:
-  - Tareas: no cambia estado, responsable, fecha ni descripción.
-  - Etiquetas: no renombra, no borra ni cambia el tipo.
-  - Memoria: no edita ni borra.
-  - Lanzamientos: no edita sus datos.
-  - Canciones: solo edita fechas, ISRC y agregar video.
-  - Contratos: no edita sus datos.
-  - Gastos y presupuestos: ni crea ni edita.
-  - Archivos: crea PDFs (separar, unir, páginas); no renombra, mueve, categoriza ni borra.
-  - Sin deshacer: cambios de canción (`update_music_track`), agrupar álbumes y ligar obras aplican directo en su módulo y no quedan en "Cambios del asistente".
+- **Acciones sobre el workspace** (plan en `docs/assistant-workspace-actions.md`, implementado el 28 de octubre):
+  - **Plantillas de contrato** (`utils/docx_edit.py`, `utils/assistant_templates.py`): el asistente lee el Word como párrafos numerados y propone operaciones de texto (reemplazar, insertar texto o párrafos, borrar un párrafo, renombrar un marcador). Django las aplica con lxml sobre las corridas del .docx cambiando el mínimo de caracteres, respeta campos, control de cambios, cuadros de texto (las dos copias), notas y encabezados, y `verify_preserved` comprueba que nada más cambió (entradas del ZIP sin tocar idénticas byte a byte, esqueleto XML igual). Guardar crea **una variante nueva** por defecto (`ContractTemplateVariant.origin`, "Generada por el asistente"); cambiar una variante existente solo si se pide, y entonces es una versión nueva. Un borrador de Word abierto lo bloquea. Vista previa en PDF desde la tarjeta. `{{Variable}}` con `case: "upper"` se escribe en mayúsculas si la plantilla las tenía.
+  - **Contrato desde plantilla** (`utils/assistant_contract_drafts.py`): valores con su origen y firmantes por rol; "Crear borrador" deja la solicitud lista (READY) y abre la pantalla de envío. **El asistente nunca envía.** La lógica del POST de solicitudes de firma vive en `create_signature_request()` (`views/contract/workflow.py`), que usan el diálogo "Usar" y la acción. Cambios al texto solo para ese contrato crean primero una variante nueva.
+  - **Datos de contratos** (`utils/assistant_contract_edits.py`): mismo camino que el panel (serializer parcial, fin efectivo, estatus, etiquetas). Cada campo corregido queda en `evidence[campo]` con `manual: true`, cita, página, quién y cuándo; el panel muestra "corregido a mano" y un reanálisis lo marca y lo deja sin seleccionar.
+  - **Tareas** (`utils/assistant_work_items.py`): consulta con filtros y visibilidad de quien pide; cambios por el camino del PATCH de Plane (serializer más `issue_activity` con la instancia actual, así el historial y las notificaciones son iguales que a mano); nombres resueltos en Django con selector si son ambiguos; comentarios con menciones. Permiso: miembro del proyecto.
+  - **Gastos desde comprobantes** (`utils/cfdi.py`, `utils/assistant_expenses.py`): un CFDI 3.3/4.0 se lee con lxml seguro (sin entidades, DTD ni red, tope 2 MB) y queda listo al instante con montos exactos; fotos (incluye HEIC, que se lee con Gemini) y PDF van al análisis existente. PDF y XML de la misma factura se emparejan (UUID impreso, nombre de archivo o total y fecha) y se vuelven un solo gasto con los dos documentos. `Expense.cfdi_uuid`: un UUID repetido es duplicado seguro. El importador de la web también lee CFDI.
+  - **Biblioteca** (`utils/assistant_files.py`): listar carpetas por ruta, duplicados exactos (hash calculado al pedirlo para archivos viejos, como dato nuevo) y posibles (nombre y tamaño), y una tarjeta con renombrar, mover (crea la ruta), categorizar, etiquetar y papelera (se confirma aparte). La papelera nunca toma contratos analizados, comprobantes de gastos ni archivos de plantillas. Deshacer regresa todo y borra las carpetas creadas si quedaron vacías.
+  - **Auditoría del catálogo** (`utils/assistant_catalog.py`): 8 revisiones deterministas (canciones sin contrato o solo con vencidos, editoriales sin obras, ISRC/UPC, créditos, porcentajes, contrato vs. artista acreditado, etiquetas, huecos). Las correcciones (`CATALOG_FIXES`) llevan su origen; un ISRC faltante se reporta y solo se llena si el usuario da el código. `update_music_track` pasó a esta misma acción, con deshacer.
+- **Lo que todavía no edita**: memoria (corregir o retirar), etiquetas (renombrar, borrar, tipo), lanzamientos completos y créditos, presupuestos. ZIP de facturas del SAT y hojas de cálculo de gastos quedaron para después. Ver `docs/assistant-edit-proposals.md`.
 
 ### 5.8 Paneles laterales
 
@@ -255,7 +265,7 @@ Trampas conocidas:
   - Si vuelve a pasar, pedir la consola del navegador.
 - **Pendientes de producción sin confirmar** (vienen de sesiones anteriores; verificar con el usuario): `extra_params` de Collabora en Railway, webhook `RECIPIENT_EXPIRED` en el seed de Documenso (`../CRM`), reiniciar el Beat Worker, flag `references` del workspace `latin-power-music`.
 - **Plan de plantillas de contrato**: ver 5.3; confirmar qué fases faltan.
-- **Ideas que el usuario pidió considerar**: edición de tareas desde el asistente (siguiente candidata) y el resto de la lista de 5.7.
+- **Ideas que el usuario pidió considerar**: lo que sigue de `docs/assistant-edit-proposals.md` (memoria, etiquetas, lanzamientos) y, de gastos, ZIP de facturas y hojas de cálculo.
 
 ---
 
@@ -309,5 +319,6 @@ Trampas conocidas:
   - Separar, unir y editar páginas de PDFs con el asistente (detección de documentos con visión).
   - Limpieza de las miniaturas que nunca se generaron.
   - Relación padre–hijo entre el PDF original y lo que sale de él (linaje).
+  - El asistente edita en el workspace: plantillas de contrato (variante nueva o versión), borradores de contrato, datos de contratos, tareas y comentarios, gastos desde comprobantes (CFDI), orden de la biblioteca y auditoría del catálogo; tarjetas con estado en el servidor y deshacer por campo.
 
 Para el detalle: `git log --author=FilyBox --format='%h %ad %s' --date=short`.
