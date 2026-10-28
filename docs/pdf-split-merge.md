@@ -7,6 +7,7 @@ Dónde quedó cada pieza:
 - Django: `plane/utils/pdf_ops.py` (cortes y límites), `plane/utils/assistant_pdf.py` (acciones, carpeta nueva, análisis como contratos, deshacer), endpoints internos `pages/` y `preview-pdf/` en `views/assistant/files.py`, migración `0163_assistant_action_pdf`.
 - Worker: `src/pdf-tools.ts` (las cuatro herramientas y el prompt de visión), `src/lib/pdf-segments.ts` (lotes, traslape, reglas, validación de rangos), `src/lib/vision.ts`.
 - Web: `components/assistant/pdf-cards.tsx`; la biblioteca abre `?folder=<id>` y `?preview=<id>&page=N`.
+- Linaje (después del plan original): `FileDerivation` liga cada archivo nuevo con su origen; se ve en el panel del contrato y en el visor (`file-lineage.tsx`).
 - Pruebas: `tests/unit/test_assistant_pdf.py`, `plane/tests/unit/utils/test_pdf_ops.py`, `test/pdf-segments.test.ts`.
 
 ## Objetivo

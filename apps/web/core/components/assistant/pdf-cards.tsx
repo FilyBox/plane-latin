@@ -113,7 +113,7 @@ const pageLink = (viewPath: string | undefined, page: number) => (viewPath ? `${
 
 /** The library re-reads its files and folders after a change here. */
 const refreshLibrary = () =>
-  mutateGlobal((key) => typeof key === "string" && /^FILE_LIBRARY_(FILES|FOLDERS)_/.test(key));
+  mutateGlobal((key) => typeof key === "string" && /^(FILE_LIBRARY_(FILES|FOLDERS)_|FILE_LINEAGE_)/.test(key));
 
 /** "1-3, 7, 9–12" → [1, 2, 3, 7, 9, 10, 11, 12]; null when a part is not a page. */
 export function parsePageList(value: string): number[] | null {

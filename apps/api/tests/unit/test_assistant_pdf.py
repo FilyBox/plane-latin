@@ -19,6 +19,7 @@ from plane.db.models import (
     FileAsset,
     FileCategory,
     FileCategoryLink,
+    FileDerivation,
     FileFolder,
     WorkspaceFeature,
 )
@@ -50,6 +51,9 @@ class FakeStorage:
     def get_object_metadata(self, object_name):
         return {"ContentType": "application/pdf"}
 
+    def generate_presigned_url(self, object_name, expiration=None, filename=None, **kwargs):
+        return f"https://storage.test/{self.aws_storage_bucket_name}/{object_name}"
+
     def delete_files(self, object_names):
         for name in object_names:
             FakeStorage.objects.pop((self.aws_storage_bucket_name, name), None)
@@ -59,7 +63,10 @@ class FakeStorage:
 @pytest.fixture(autouse=True)
 def storage():
     FakeStorage.objects = {}
-    with patch("plane.utils.assistant_pdf.S3Storage", FakeStorage):
+    with (
+        patch("plane.utils.assistant_pdf.S3Storage", FakeStorage),
+        patch("plane.app.views.assistant.files.S3Storage", FakeStorage),
+    ):
         yield FakeStorage
 
 
@@ -366,6 +373,76 @@ class TestInternalPages:
     def test_someone_outside_the_workspace_gets_nothing(self, setup):
         outsider = UserFactory(username=f"out-{uuid4().hex[:8]}")
         assert self.get(setup, f"{setup['package'].id}/pages/", user=outsider).status_code == 403
+
+
+class TestLineage:
+    def lineage(self, setup, asset_id):
+        response = client_for(setup["member"]).get(
+            f"/api/workspaces/{setup['workspace'].slug}/file-library/files/{asset_id}/lineage/"
+        )
+        assert response.status_code == 200, response.content
+        return response.json()
+
+    def test_split_parts_point_to_the_bundle_and_back(self, setup):
+        client = client_for(setup["member"])
+        action = client.post(actions_url(setup), split_body(setup), format="json").json()
+        files = action["result"]["files"]
+
+        parent = self.lineage(setup, setup["package"].id)
+        assert parent["parents"] == []
+        assert [(row["name"], row["pages"], row["position"]) for row in parent["children"]] == [
+            ("Contrato Pérez.pdf", "1-2", 1),
+            ("Adendum 1.pdf", "3-6", 2),
+        ]
+        assert [row["contract_id"] for row in parent["children"]] == [row["contract_id"] for row in files]
+        assert parent["children"][0]["folder"]["name"] == "Separados de Paquete 2024"
+
+        child = self.lineage(setup, files[1]["id"])
+        assert child["children"] == []
+        assert [(row["id"], row["kind"], row["pages"]) for row in child["parents"]] == [
+            (str(setup["package"].id), "SPLIT", "3-6")
+        ]
+
+        # The assistant sees it in the contract's details
+        with override_settings(PLANE_INTERNAL_API_SECRET="secret"):
+            details = APIClient().post(
+                f"/api/internal/workspaces/{setup['workspace'].id}/contracts/details/",
+                {"contract_ids": [files[1]["contract_id"]]},
+                format="json",
+                HTTP_X_PLANE_INTERNAL_KEY="secret",
+            )
+        assert details.json()["results"][0]["origen"] == [
+            {"file_id": str(setup["package"].id), "name": "Paquete 2024.pdf", "kind": "SPLIT", "pages": "3-6"}
+        ]
+
+        with override_settings(PLANE_INTERNAL_API_SECRET="secret"):
+            read = APIClient().get(
+                f"/api/internal/workspaces/{setup['workspace'].id}/assistant/files/{setup['package'].id}/read/",
+                {"user_id": str(setup["member"].id)},
+                HTTP_X_PLANE_INTERNAL_KEY="secret",
+            )
+        assert read.status_code == 200, read.content
+        assert [row["name"] for row in read.json()["documentos_derivados"]] == ["Contrato Pérez.pdf", "Adendum 1.pdf"]
+
+        with patch("plane.bgtasks.contract_task.terminate_contract_pipeline_task.delay"):
+            client.post(actions_url(setup, f"{action['id']}/undo/"), format="json")
+        assert self.lineage(setup, setup["package"].id)["children"] == []
+
+    def test_a_merge_lists_its_sources_in_order(self, setup):
+        letter = add_pdf(setup["workspace"], "Carta.pdf", make_pdf(1, "C"), folder=setup["folder"])
+        body = {
+            "kind": "MERGE_PDF",
+            "file_ids": [str(letter.id), str(setup["package"].id)],
+            "name": "Expediente",
+            "analyze": False,
+        }
+        merged = client_for(setup["member"]).post(actions_url(setup), body, format="json").json()
+        parents = self.lineage(setup, merged["result"]["files"][0]["id"])["parents"]
+        assert [(row["name"], row["kind"], row["position"]) for row in parents] == [
+            ("Carta.pdf", "MERGE", 1),
+            ("Paquete 2024.pdf", "MERGE", 2),
+        ]
+        assert FileDerivation.objects.filter(source=setup["package"]).count() == 1
 
 
 class TestThumbnailCleanup:

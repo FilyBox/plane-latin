@@ -27,6 +27,7 @@ import { contractService } from "@/services/contract.service";
 import { fileLibraryService } from "@/services/file-library.service";
 // local imports
 import { CollaboraEditorModal } from "./collabora-editor-modal";
+import { FileLineage } from "./file-lineage";
 import { ProcessingBadge } from "./contracts/processing-badge";
 import { AskAssistantButton } from "@/components/assistant/ask";
 
@@ -334,6 +335,7 @@ export const FilePreviewModal = observer(function FilePreviewModal(props: Props)
                   )}
                 >
                   <div className="space-y-4 p-4">
+                    {!scope && <FileLineage workspaceSlug={workspaceSlug} assetId={file.assetId} />}
                     {showReferences && (
                       <div className="space-y-4">
                         <div>

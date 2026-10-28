@@ -1427,6 +1427,19 @@
     "collabora": {
       "edit": "Editar",
       "error": "No se pudo abrir el editor"
+    },
+    "lineage": {
+      "from": {
+        "SPLIT": "Separado de",
+        "MERGE": "Unido a partir de",
+        "PAGES": "Páginas tomadas de"
+      },
+      "children": "{count, plural, one {# archivo salió de este} other {# archivos salieron de este}}",
+      "part": "Parte {index} · p. {pages}",
+      "merged": "Unión",
+      "pages": "p. {pages}",
+      "analyzing": "Analizando",
+      "contract": "Contrato"
     }
   }
 }

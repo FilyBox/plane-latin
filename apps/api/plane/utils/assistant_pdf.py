@@ -22,7 +22,7 @@ from uuid import uuid4
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from plane.db.models import AssistantAction, FileAsset, FileCategory, FileCategoryLink, FileFolder
+from plane.db.models import AssistantAction, FileAsset, FileCategory, FileCategoryLink, FileDerivation, FileFolder
 from plane.settings.storage import S3Storage
 from plane.utils.assistant_actions import ActionError
 from plane.utils import pdf_ops
@@ -234,7 +234,7 @@ def _create(ctx, user, *, kind, sources, outputs, folder_name, analyze, summary,
                 }
                 for asset, output in zip(assets, outputs)
             ]
-            return AssistantAction.objects.create(
+            action = AssistantAction.objects.create(
                 workspace_id=ctx.workspace_id,
                 kind=kind,
                 summary=summary(folder)[:300],
@@ -247,6 +247,8 @@ def _create(ctx, user, *, kind, sources, outputs, folder_name, analyze, summary,
                     "path": f"/{ctx.slug}/file-library?folder={folder.id}",
                 },
             )
+            _link_derived(ctx.workspace_id, kind, sources, assets, outputs, action)
+            return action
     except Exception:
         for storage, key in uploaded:
             try:
@@ -254,6 +256,83 @@ def _create(ctx, user, *, kind, sources, outputs, folder_name, analyze, summary,
             except Exception as error:
                 log_exception(error)
         raise
+
+
+DERIVATION_KINDS = {
+    AssistantAction.Kind.SPLIT_PDF: FileDerivation.Kind.SPLIT,
+    AssistantAction.Kind.MERGE_PDF: FileDerivation.Kind.MERGE,
+    AssistantAction.Kind.EDIT_PDF_PAGES: FileDerivation.Kind.PAGES,
+}
+
+
+def _link_derived(workspace_id, kind, sources, assets, outputs, action):
+    """Each new file points to what it was made from: a split part to the
+    bundle (with its part number), a merge to every source in order."""
+    rows = []
+    for part, (asset, output) in enumerate(zip(assets, outputs), start=1):
+        for place, source in enumerate(sources, start=1):
+            rows.append(
+                FileDerivation(
+                    workspace_id=workspace_id,
+                    source=source,
+                    derived=asset,
+                    kind=DERIVATION_KINDS[kind],
+                    pages=(output.get("label") or "")[:500],
+                    position=place if kind == AssistantAction.Kind.MERGE_PDF else part,
+                    action=action,
+                )
+            )
+    FileDerivation.objects.bulk_create(rows)
+
+
+def lineage(workspace_id, asset) -> dict:
+    """Where a library file came from and what was made out of it (live
+    library files only, the ones every member can open)."""
+    from plane.db.models import Contract
+
+    def visible(queryset, side):
+        return queryset.filter(
+            **{
+                f"{side}__workspace_id": workspace_id,
+                f"{side}__entity_type": FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+                f"{side}__is_deleted": False,
+                f"{side}__is_uploaded": True,
+            }
+        ).select_related(side, f"{side}__folder")
+
+    links = FileDerivation.objects.filter(workspace_id=workspace_id)
+    parents = list(visible(links.filter(derived=asset), "source"))
+    children = list(
+        visible(links.filter(source=asset), "derived").order_by("-action__created_at", "position", "created_at")
+    )
+    related = [link.source for link in parents] + [link.derived for link in children]
+    contracts = {
+        str(file_asset_id): {"id": str(contract_id), "title": title, "status": state}
+        for file_asset_id, contract_id, title, state in Contract.objects.filter(file_asset__in=related).values_list(
+            "file_asset_id", "id", "titulo", "processing_status"
+        )
+    }
+
+    def row(link, other):
+        contract = contracts.get(str(other.id))
+        return {
+            "id": str(other.id),
+            "name": display_name(other),
+            "kind": link.kind,
+            "pages": link.pages,
+            "position": link.position,
+            "page_count": (other.attributes or {}).get("page_count"),
+            "folder": {"id": str(other.folder_id), "name": other.folder.name} if other.folder_id else None,
+            "contract_id": contract["id"] if contract else None,
+            "contract_title": contract["title"] if contract else None,
+            "contract_status": contract["status"] if contract else None,
+            "created_at": link.created_at.isoformat(),
+        }
+
+    return {
+        "parents": [row(link, link.source) for link in parents],
+        "children": [row(link, link.derived) for link in children],
+    }
 
 
 def _wants_analysis(data) -> bool:
@@ -396,6 +475,7 @@ def undo_pdf(action: AssistantAction):
     folder = FileFolder.objects.filter(
         workspace_id=action.workspace_id, id=(result.get("folder") or {}).get("id")
     ).first()
+    FileDerivation.objects.filter(action=action).delete()
     if folder is None:
         return
     in_use = (
@@ -434,3 +514,28 @@ def excerpt(text: str, lines: int = 15, limit: int = 1500) -> str:
         return joined
     half = limit // 2
     return f"{joined[:half]}\n…\n{joined[-half:]}"
+
+
+def lineage_summary(workspace_id, asset) -> dict:
+    """The same, compact, for the assistant: names, pages and contract ids."""
+    data = lineage(workspace_id, asset)
+
+    def short(row):
+        return {
+            key: value
+            for key, value in {
+                "file_id": row["id"],
+                "name": row["name"],
+                "kind": row["kind"],
+                "pages": row["pages"] or None,
+                "contract_id": row["contract_id"],
+            }.items()
+            if value
+        }
+
+    result = {}
+    if data["parents"]:
+        result["origen"] = [short(row) for row in data["parents"]]
+    if data["children"]:
+        result["documentos_derivados"] = [short(row) for row in data["children"][:50]]
+    return result

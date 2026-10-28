@@ -69,6 +69,7 @@ import { RetryOptionsModal } from "./retry-options-modal";
 import { useCanEditContracts } from "./use-can-edit";
 import { formatContractDateTime, isJobActive, stageLabel } from "./utils";
 import { ContractWorksSection } from "./works-section";
+import { FileLineage } from "../file-lineage";
 import { contractWorksKey } from "./works-shared";
 
 type Props = {
@@ -771,6 +772,7 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
           </div>
         </>
       )}
+      {contract?.file_asset_id && <ContractLineage workspaceSlug={workspaceSlug} assetId={contract.file_asset_id} />}
       {contract && referencesEnabled && (
         <div className="space-y-4 border-t border-subtle pt-3">
           <div className="space-y-1">
@@ -1175,3 +1177,12 @@ export const ContractPeekPanel = observer(function ContractPeekPanel(props: Prop
 
   return portalContainer ? createPortal(content, portalContainer) : content;
 });
+
+/** The bundle this contract was split off, or the parts split off it. */
+function ContractLineage({ workspaceSlug, assetId }: { workspaceSlug: string; assetId: string }) {
+  return (
+    <div className="border-t border-subtle pt-3 empty:hidden">
+      <FileLineage workspaceSlug={workspaceSlug} assetId={assetId} />
+    </div>
+  );
+}

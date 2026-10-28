@@ -1427,6 +1427,19 @@
     "collabora": {
       "edit": "Edit",
       "error": "Could not open the editor"
+    },
+    "lineage": {
+      "from": {
+        "SPLIT": "Split off",
+        "MERGE": "Merged from",
+        "PAGES": "Pages taken from"
+      },
+      "children": "{count, plural, one {# file made from this one} other {# files made from this one}}",
+      "part": "Part {index} · p. {pages}",
+      "merged": "Merge",
+      "pages": "p. {pages}",
+      "analyzing": "Analyzing",
+      "contract": "Contract"
     }
   }
 }

@@ -199,3 +199,43 @@ class FileCategoryLink(BaseModel):
 
     def __str__(self):
         return f"{self.file_asset_id} -> {self.category_id}"
+
+
+class FileDerivation(BaseModel):
+    """A file made out of another one: a document split off a bundled PDF, a
+    merge of several files, or a selection of pages.
+
+    The source never changes; this link is how a derived file (and its
+    contract) shows where it came from, and how the source lists what was
+    made out of it. A merge has one row per source, in merge order.
+    """
+
+    class Kind(models.TextChoices):
+        SPLIT = "SPLIT", "Split from"
+        MERGE = "MERGE", "Merged from"
+        PAGES = "PAGES", "Pages from"
+
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="file_derivations")
+    source = models.ForeignKey("db.FileAsset", on_delete=models.CASCADE, related_name="derivations_out")
+    derived = models.ForeignKey("db.FileAsset", on_delete=models.CASCADE, related_name="derivations_in")
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    # Source pages the derived file holds ("5-6", "1-4, 11-12"); empty for a merge
+    pages = models.CharField(max_length=500, blank=True)
+    # Part number in a split, or the source's place in a merge
+    position = models.PositiveIntegerField(default=0)
+    action = models.ForeignKey(
+        "db.AssistantAction", on_delete=models.SET_NULL, null=True, blank=True, related_name="file_derivations"
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["source"], name="file_derivation_source_idx"),
+            models.Index(fields=["derived"], name="file_derivation_derived_idx"),
+        ]
+        verbose_name = "File Derivation"
+        verbose_name_plural = "File Derivations"
+        db_table = "file_derivations"
+        ordering = ("position", "created_at")
+
+    def __str__(self):
+        return f"{self.source_id} -> {self.derived_id} ({self.kind})"

@@ -209,6 +209,7 @@ Trampas conocidas:
   - `analyze_pdf_segments` lee el PDF en lotes de 25 páginas con 2 de traslape: Django manda una versión liviana (`preview-pdf/`, JPEG en grises) y Gemini clasifica cada página con su texto. La reconciliación (`src/lib/pdf-segments.ts`) une los lotes y aplica reglas: "1 de N", anexos con su documento, adendum después de firmas.
   - Al aplicar, Django corta con PyMuPDF (`utils/pdf_ops.py`, `utils/assistant_pdf.py`). El original no cambia; los archivos nuevos van a una carpeta nueva dentro de la del original ("Separados de…", "Unidos – …", "Páginas de…", con número si ya existe) y se analizan como contratos (casilla activada por defecto).
   - Deshacer manda a la papelera los archivos y sus contratos (detiene análisis activos) y borra la carpeta si quedó vacía.
+  - **Linaje** (`FileDerivation`, migración 0164): cada archivo nuevo apunta a su origen (tipo SPLIT, MERGE o PAGES, páginas y número de parte). El panel del contrato y el visor muestran "Separado de…" y "N archivos salieron de este", agrupados por carpeta (`components/file-library/file-lineage.tsx`, endpoint `file-library/files/<id>/lineage/`). El asistente lo ve como `origen` y `documentos_derivados` en `get_contract_details` y `read_file`.
   - Límites: 300 páginas y 80 MB por archivo, 20 archivos al unir, 50 partes al separar.
 - **Editar páginas** (desde el commit `c7ed6d6c4`):
   - `read_page` convierte la página a Markdown (`utils/page_markdown.py`). Lo que el Markdown no puede representar (imágenes, listas de tareas, código, texto con color) viaja como marcador `[[bloque:<hash>]]` y vuelve intacto.
@@ -216,7 +217,7 @@ Trampas conocidas:
   - Al aplicar (`edit_page` en `utils/assistant_actions.py`), la API llama a Live (`utils/assistant_pages.py`), que cambia el documento vivo: quien tenga la página abierta lo ve y nada se pisa.
   - Se niega si la página cambió desde que se leyó (huella del texto) y respeta los permisos de la página (privada, bloqueada, archivada). Sin Live configurado, reescribe el HTML guardado y vacía el binario colaborativo.
 - **Memoria del workspace**: datos, reglas y glosario que el asistente usa en cada conversación. Los administradores aprueban; los demás sugieren.
-- **Lo que solo crea y no edita** (ideas pendientes):
+- **Lo que solo crea y no edita**: análisis y propuesta priorizada en `docs/assistant-edit-proposals.md`. Resumen:
   - Tareas: no cambia estado, responsable, fecha ni descripción.
   - Etiquetas: no renombra, no borra ni cambia el tipo.
   - Memoria: no edita ni borra.
@@ -224,6 +225,8 @@ Trampas conocidas:
   - Canciones: solo edita fechas, ISRC y agregar video.
   - Contratos: no edita sus datos.
   - Gastos y presupuestos: ni crea ni edita.
+  - Archivos: crea PDFs (separar, unir, páginas); no renombra, mueve, categoriza ni borra.
+  - Sin deshacer: cambios de canción (`update_music_track`), agrupar álbumes y ligar obras aplican directo en su módulo y no quedan en "Cambios del asistente".
 
 ### 5.8 Paneles laterales
 
@@ -305,5 +308,6 @@ Trampas conocidas:
 - **28 de octubre**:
   - Separar, unir y editar páginas de PDFs con el asistente (detección de documentos con visión).
   - Limpieza de las miniaturas que nunca se generaron.
+  - Relación padre–hijo entre el PDF original y lo que sale de él (linaje).
 
 Para el detalle: `git log --author=FilyBox --format='%h %ad %s' --date=short`.

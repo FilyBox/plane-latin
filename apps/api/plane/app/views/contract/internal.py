@@ -949,6 +949,11 @@ class InternalContractDetailsEndpoint(InternalBaseView):
                     "text_length": _text_length(contract),
                 }
             )
+            # Split off a bundled PDF, or the bundle its parts came from
+            if contract.file_asset_id:
+                from plane.utils.assistant_pdf import lineage_summary
+
+                row.update(lineage_summary(workspace_id, contract.file_asset))
             results.append(row)
         return Response({"results": results}, status=status.HTTP_200_OK)
 

@@ -22,7 +22,14 @@ from plane.app.views.contract.internal import InternalBaseView
 from plane.db.models import Contract, FileAsset, User, Workspace, WorkspaceMember
 from plane.settings.storage import S3Storage
 from plane.utils import pdf_ops
-from plane.utils.assistant_pdf import contract_pages, excerpt, is_pdf, read_bytes, remember_page_count
+from plane.utils.assistant_pdf import (
+    contract_pages,
+    excerpt,
+    is_pdf,
+    lineage_summary,
+    read_bytes,
+    remember_page_count,
+)
 
 MAX_TEXT = 20_000
 MAX_BYTES = 15 * 1024 * 1024
@@ -90,7 +97,8 @@ class InternalAssistantFileReadEndpoint(InternalBaseView):
         name = attributes.get("name") or os.path.basename(asset.asset.name)
         mime = str(attributes.get("type") or "")
         extension = os.path.splitext(name)[1].lower()
-        result = {"asset_id": str(asset.id), "name": name, "mime": mime}
+        # What it was split off or merged from, and what came out of it
+        result = {"asset_id": str(asset.id), "name": name, "mime": mime, **lineage_summary(asset.workspace_id, asset)}
 
         # An analyzed contract already has its text: never pay for it twice.
         contract = Contract.objects.filter(file_asset_id=asset.id).only("id", "extracted_text").first()
@@ -148,7 +156,9 @@ class InternalAssistantFileReadEndpoint(InternalBaseView):
             except Exception:
                 return Response({**result, "kind": "unsupported"}, status=status.HTTP_200_OK)
             text, truncated = _clip(text)
-            return Response({**result, "kind": "document", "text": text, "truncated": truncated}, status=status.HTTP_200_OK)
+            return Response(
+                {**result, "kind": "document", "text": text, "truncated": truncated}, status=status.HTTP_200_OK
+            )
 
         if extension in SHEET_EXTENSIONS:
             from plane.app.views.music.internal import _read_table, _S3Upload
@@ -205,6 +215,7 @@ class InternalAssistantFilePagesEndpoint(InternalBaseView):
             "is_library_file": asset.entity_type == FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
             "is_contract": contract is not None,
             "contract_id": str(contract.id) if contract else None,
+            **lineage_summary(asset.workspace_id, asset),
         }
         if not is_pdf(asset):
             return Response({**result, "error": "This file is not a PDF."}, status=status.HTTP_200_OK)

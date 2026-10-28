@@ -404,6 +404,26 @@ class FileLibraryAssetThumbnailEndpoint(FileLibraryBaseView):
         return HttpResponseRedirect(signed_url)
 
 
+class FileLibraryAssetLineageEndpoint(FileLibraryBaseView):
+    """Where a file came from (the PDF it was split off, the files merged into
+    it) and what was made out of it, each with its contract when it has one."""
+
+    model = FileAsset
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    def get(self, request, slug, asset_id):
+        from plane.utils.assistant_pdf import lineage
+
+        asset = FileAsset.objects.filter(
+            id=asset_id,
+            workspace__slug=slug,
+            entity_type=FileAsset.EntityTypeContext.WORKSPACE_FILE_LIBRARY,
+        ).first()
+        if asset is None:
+            return Response({"error": "File not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(lineage(asset.workspace_id, asset), status=status.HTTP_200_OK)
+
+
 class FileLibraryExportEndpoint(FileLibraryBaseView):
     """Streams the requested assets as one ZIP. Files are pulled from S3 and
     zipped on the fly (zipstream-ng) — nothing is buffered server-side, so the

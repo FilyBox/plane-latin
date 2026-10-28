@@ -21,6 +21,25 @@ import type {
 import { APIService } from "@/services/api.service";
 import { FileUploadService } from "@/services/file-upload.service";
 
+/** One side of a file's lineage (see FileDerivation on the API) */
+export type TFileLineageRow = {
+  id: string;
+  name: string;
+  kind: "SPLIT" | "MERGE" | "PAGES";
+  /** Source pages the derived file holds ("5-6"); empty for a merge */
+  pages: string;
+  /** Part number in a split, or the source's place in a merge */
+  position: number;
+  page_count?: number | null;
+  folder: { id: string; name: string } | null;
+  contract_id: string | null;
+  contract_title: string | null;
+  contract_status: string | null;
+  created_at: string;
+};
+
+export type TFileLineage = { parents: TFileLineageRow[]; children: TFileLineageRow[] };
+
 export class FileLibraryService extends APIService {
   private fileUploadService: FileUploadService;
 
@@ -287,6 +306,15 @@ export class FileLibraryService extends APIService {
   /** Contract PDFs only — 404s (broken image, handled gracefully by the UI) when absent */
   getFileThumbnailUrl(workspaceSlug: string, assetId: string): string {
     return `${API_BASE_URL}/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/thumbnail/`;
+  }
+
+  /** The file it was split off or merged from, and the files made out of it */
+  async getLineage(workspaceSlug: string, assetId: string): Promise<TFileLineage> {
+    return this.get(`/api/workspaces/${workspaceSlug}/file-library/files/${assetId}/lineage/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
   }
 
   /** Resolves the storage presigned URL so in-app viewers can fetch the file directly */
