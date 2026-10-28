@@ -69,12 +69,25 @@ def read_bytes(asset, limit: int = pdf_ops.MAX_BYTES) -> bytes:
 
 
 def remember_page_count(asset, count: int):
-    """Keeps the page count on the file, so lists and cards can show it."""
-    attributes = asset.attributes or {}
-    if attributes.get("page_count") == count:
+    """Keeps the page count on the file, so lists and cards can show it.
+
+    The attributes are re-read under a row lock right before writing: the
+    caller's copy may be seconds old (a PDF download in between), and writing
+    it back would undo a rename or any other change made meanwhile."""
+    if (asset.attributes or {}).get("page_count") == count:
         return
-    asset.attributes = {**attributes, "page_count": count}
-    FileAsset.objects.filter(id=asset.id).update(attributes=asset.attributes)
+    with transaction.atomic():
+        current = (
+            FileAsset.all_objects.select_for_update()
+            .filter(id=asset.id)
+            .values_list("attributes", flat=True)
+            .first()
+        )
+        attributes = dict(current or {})
+        if attributes.get("page_count") != count:
+            attributes["page_count"] = count
+            FileAsset.all_objects.filter(id=asset.id).update(attributes=attributes)
+    asset.attributes = attributes
 
 
 def _source(ctx, asset_id):

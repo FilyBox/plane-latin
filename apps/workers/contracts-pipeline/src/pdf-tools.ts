@@ -269,16 +269,37 @@ export function buildPdfTools(env: Env, api: Api, body: AssistantChatRequest): T
       const usage: Usage = { calls: 0, input_tokens: 0, output_tokens: 0 };
       const results: { from: number; to: number; verdicts: PageVerdict[] }[] = [];
       const unread: string[] = [];
+      /** One batch's verdicts; a failed batch (provider down, preview refused)
+       * comes back empty so the batches already read are not lost. */
+      const attempt = async (range: { from: number; to: number }): Promise<PageVerdict[]> => {
+        try {
+          return await classify({ ...info, page_count: total }, range, instructions, vision, usage);
+        } catch (error) {
+          console.log(
+            JSON.stringify({
+              message: "assistant pdf batch failed",
+              from: range.from,
+              to: range.to,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          );
+          return [];
+        }
+      };
       for (const range of batches(total)) {
         // One batch at a time: the provider's rate limits, and the Worker's memory
         // eslint-disable-next-line no-await-in-loop
-        let verdicts = await classify({ ...info, page_count: total }, range, instructions, vision, usage);
+        let verdicts = await attempt(range);
         if (verdicts.length < (range.to - range.from + 1) / 2) {
-          // eslint-disable-next-line no-await-in-loop -- one retry of a cut-off or empty answer
-          verdicts = await classify({ ...info, page_count: total }, range, instructions, vision, usage);
+          // eslint-disable-next-line no-await-in-loop -- one retry of a cut-off, empty or failed answer
+          const retry = await attempt(range);
+          if (retry.length > verdicts.length) verdicts = retry;
         }
         if (verdicts.length === 0) unread.push(pagesLabel(range.from, range.to));
         results.push({ ...range, verdicts });
+      }
+      if (results.every((result) => result.verdicts.length === 0)) {
+        return { error: `No pude leer «${info.name}» en este momento. Intenta de nuevo en un rato.` };
       }
       const texts = Object.fromEntries((info.pages ?? []).map((page) => [page.page, page.text]));
       const segments = reconcile(joinBatches(results, total), { annexes, texts });

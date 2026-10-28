@@ -449,3 +449,20 @@ class TestThumbnailCleanup:
     def test_old_jobs_with_the_thumbnail_option_still_retry(self):
         options = _retry_options({"extract_thumbnail": True, "tags": True}, contract_has_text=True)
         assert "extract_thumbnail" not in options and options["tags"] is True
+
+
+class TestPageCount:
+    def test_a_stale_copy_never_undoes_a_rename(self, setup):
+        from plane.utils.assistant_pdf import remember_page_count
+
+        package = setup["package"]
+        stale = FileAsset.objects.get(id=package.id)
+        # Someone renames the file while the PDF is being read
+        FileAsset.objects.filter(id=package.id).update(
+            attributes={**package.attributes, "name": "Paquete renombrado.pdf"}
+        )
+        remember_page_count(stale, 6)
+        attributes = FileAsset.objects.get(id=package.id).attributes
+        assert attributes["name"] == "Paquete renombrado.pdf"
+        assert attributes["page_count"] == 6
+        assert stale.attributes["page_count"] == 6
