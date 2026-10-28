@@ -173,7 +173,7 @@ export function ExpenseImports({
               ref={input}
               type="file"
               multiple
-              accept=".pdf,.xml,.png,.jpg,.jpeg,.webp,.tif,.tiff"
+              accept=".pdf,.xml,.png,.jpg,.jpeg,.webp,.tif,.tiff,.heic,.heif"
               className="hidden"
               onChange={(event) => {
                 pick([...(event.target.files ?? [])]);

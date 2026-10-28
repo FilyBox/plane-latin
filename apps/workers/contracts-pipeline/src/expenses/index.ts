@@ -1,6 +1,6 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import { generateStructuredJson } from "../lib/ai";
+import { generateStructuredJson, transcribeImage } from "../lib/ai";
 import { startTextDetection, getTextDetectionStatus, collectTextDetectionText } from "../lib/textract";
 import { parseJsonResponse } from "../lib/json-repair";
 import { RECEIPT_KEYS, receiptData, receiptPrompt } from "./extraction";
@@ -59,6 +59,19 @@ export class ExpensePipelineWorkflow extends WorkflowEntrypoint<ExpenseEnv, Para
           boundedText(await fetch(asset.url, { signal: AbortSignal.timeout(60000) }), 1024 * 1024)
         );
         // XML is treated as text: no entity expansion, network resolution or execution.
+      } else if (/image\/hei[cf]/.test(asset.type)) {
+        // OCR doesn't open iPhone photos: a vision model reads them
+        text = await step.do(
+          "read photo",
+          { timeout: "5 minutes", retries: { limit: 2, delay: "10 seconds" } },
+          async () => {
+            const response = await fetch(asset.url, { signal: AbortSignal.timeout(60000) });
+            if (!response.ok) throw new Error(`Upstream failed: ${response.status}`);
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            if (bytes.byteLength > 20 * 1024 * 1024) throw new NonRetryableError("Photo exceeds the limit");
+            return transcribeImage(this.env, bytes, asset.type);
+          }
+        );
       } else if ((this.env.TEXT_EXTRACTION_MODE || "textract") === "textract") {
         const id = await step.do(
           "start receipt ocr",

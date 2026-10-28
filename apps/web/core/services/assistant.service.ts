@@ -281,6 +281,13 @@ export class AssistantService extends APIService {
     ).then((response) => response.data as Blob);
   }
 
+  /** The receipts' analyses for an expenses card, paired into expenses. */
+  async expenseDrafts<T>(workspaceSlug: string, jobIds: string[]): Promise<T> {
+    return this.get(`/api/workspaces/${workspaceSlug}/assistant/expense-drafts/`, {
+      params: { job_ids: jobIds.join(",") },
+    }).then((response) => response.data);
+  }
+
   /** What each card already did, by tool call id (cards of one chat). */
   async getOutcomes(workspaceSlug: string, toolCallIds: string[]): Promise<Record<string, TAssistantAction>> {
     return this.get(`/api/workspaces/${workspaceSlug}/assistant/actions/`, {

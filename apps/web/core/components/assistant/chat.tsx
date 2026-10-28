@@ -38,6 +38,7 @@ import { AssistantHelp } from "./help";
 import { PageCard, PageEditCard, ReportCard } from "./page-card";
 import { PdfMergeCard, PdfPagesCard, PdfSplitCard } from "./pdf-cards";
 import { ContractDraftCard } from "./contract-draft-card";
+import { ExpensesCard } from "./expense-cards";
 import { ContractEditCard, WorkItemCommentCard, WorkItemsUpdateCard } from "./workspace-edit-cards";
 import { TemplateEditCard } from "./template-cards";
 import { AssistantAttachmentAdapter } from "./attachments";
@@ -498,6 +499,7 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
         <ContractEditCard />
         <WorkItemsUpdateCard />
         <WorkItemCommentCard />
+        <ExpensesCard />
         <DeepReviewCard />
         <StartTagMappingCard />
         <AskUserCard />

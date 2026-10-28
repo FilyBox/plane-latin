@@ -310,6 +310,10 @@
       "propose_work_item_comment": {
         "running": "Preparing the comment",
         "done": "Prepared the comment"
+      },
+      "propose_expenses_from_documents": {
+        "running": "Reading the receipts",
+        "done": "Read the receipts"
       }
     },
     "export": {
@@ -817,6 +821,49 @@
         "description_append": "Add to description",
         "description_html": "Description"
       }
+    },
+    "expenses": {
+      "title": "{count, plural, one {Register an expense} other {Register # expenses}}",
+      "analysing": "{count, plural, one {analysing # file} other {analysing # files}}",
+      "include": "Register this expense",
+      "paired": {
+        "uuid": "PDF and XML of the same invoice (fiscal UUID)",
+        "name": "PDF and XML of the same invoice (same file name)",
+        "total": "PDF and XML of the same invoice (same total and date)"
+      },
+      "waiting": "Waiting for the analysis",
+      "failed": "The file could not be analysed.",
+      "already": "Already registered: open the expense",
+      "fields": {
+        "concept": "Concept",
+        "vendor": "Vendor",
+        "amount": "Amount",
+        "currency": "Currency",
+        "date": "Date",
+        "expense_date": "Date",
+        "reference": "Reference",
+        "status": "Status",
+        "paid_at": "Paid on",
+        "budget": "Budget",
+        "scenario": "Budget",
+        "category": "Category",
+        "project": "Project",
+        "tags": "Tags",
+        "description": "Description"
+      },
+      "status": {
+        "pending": "Pending",
+        "paid": "Paid"
+      },
+      "suggested": "suggested",
+      "no_budget": "No budget",
+      "no_category": "No category",
+      "duplicate_sure": "This invoice is already registered: {concept} ({amount}, {date})",
+      "duplicate_maybe": "Looks like an expense already registered: {concept} ({amount}, {date})",
+      "missing": "{count, plural, one {# file was not found} other {# files were not found}}",
+      "done": "{count, plural, one {# expense registered} other {# expenses registered}}",
+      "open": "See expenses",
+      "apply": "{count, plural, one {Register # expense} other {Register # expenses}}"
     }
   }
 }

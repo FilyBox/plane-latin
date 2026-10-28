@@ -54,6 +54,7 @@ import { visionModel } from "./lib/vision";
 import { buildPdfTools } from "./pdf-tools";
 import { TEMPLATE_FORMAT_PROMPT, buildTemplateTools } from "./template-tools";
 import { WORKSPACE_EDIT_PROMPT, buildWorkspaceEditTools } from "./workspace-edit-tools";
+import { EXPENSES_PROMPT, buildExpenseTools } from "./expense-tools";
 import { ANALYSIS_SYSTEM, contractPrefix, worksPrompt } from "./prompts";
 
 export type AssistantPageContext = {
@@ -75,6 +76,7 @@ export type AssistantChatRequest = {
     tag_admin?: boolean;
     memory_admin?: boolean;
     deep_review?: boolean;
+    expenses?: boolean;
   };
   locale?: string | null;
   /** Who is asking: cross-module lookups answer with what this user may open. */
@@ -116,6 +118,8 @@ type Caps = {
   deepReview: boolean;
   /** Contract ⇄ catalog works: needs contracts, music and a known user */
   works: boolean;
+  /** Expenses from receipts: admins with Payments */
+  expenses: boolean;
 };
 
 const MEMORY_KINDS = ["FACT", "RULE", "GLOSSARY", "OWNER", "CONTEXT"] as const;
@@ -321,6 +325,7 @@ PDFs DE LA BIBLIOTECA (separar, unir, páginas)
 }
 ${caps.contracts ? TEMPLATE_FORMAT_PROMPT : ""}
 ${WORKSPACE_EDIT_PROMPT(caps.contracts)}
+${caps.expenses ? EXPENSES_PROMPT : ""}
 PÁGINAS
 - Cuándo: el usuario pide una página o "page" ("haz / crea / genera / arma una page", "pon esto en una página", "guárdalo como página", "hazme un informe, dossier, minuta o tabla en una página"), aunque lo diga de pasada o en inglés. Termina SIEMPRE con propose_page; no respondas solo con texto ni con una tabla en el chat.
 - Datos: primero reúne lo que vaya en la página con las herramientas (nunca inventes cifras, fechas ni nombres). Si la página es sobre algo de turnos anteriores ("esos contratos que me dijiste") y ya no tienes sus ids a la vista, vuelve a consultarlos antes de escribir.
@@ -678,6 +683,9 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
   }
   if (body.user_id) {
     tools = { ...tools, ...buildWorkspaceEditTools(api, body, caps.contracts) };
+  }
+  if (caps.expenses) {
+    tools = { ...tools, ...buildExpenseTools(api, body) };
   }
 
   if (caps.deepReview) {
@@ -1447,6 +1455,7 @@ export async function handleAssistantChat(env: Env, body: AssistantChatRequest):
     memoryAdmin: body.capabilities?.memory_admin === true,
     deepReview: body.capabilities?.deep_review === true && Boolean(body.user_id),
     works: body.capabilities?.contracts === true && body.capabilities?.music === true && Boolean(body.user_id),
+    expenses: body.capabilities?.expenses === true && Boolean(body.user_id),
   };
   const tools = resilient(buildTools(env, body, caps));
   const { model, id } = pickModel(env, body.model);

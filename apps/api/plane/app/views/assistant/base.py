@@ -411,6 +411,8 @@ class AssistantChatEndpoint(BaseAPIView):
                 "memory_admin": is_admin,
                 # Reading every contract costs real money: admins only.
                 "deep_review": WorkspaceFeature.FeatureKey.FILE_LIBRARY in enabled and is_admin,
+                # Expenses are admin-only, like the module.
+                "expenses": WorkspaceFeature.FeatureKey.PAYMENTS in enabled and is_admin,
             },
             "context": _page_context(request, slug, WorkspaceFeature.FeatureKey.REFERENCES in enabled),
             "mentions": _mentions(request, slug, messages, WorkspaceFeature.FeatureKey.REFERENCES in enabled),

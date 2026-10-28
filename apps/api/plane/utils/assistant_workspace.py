@@ -28,6 +28,7 @@ def _load():
     from plane.utils import (  # noqa: F401
         assistant_contract_drafts,
         assistant_contract_edits,
+        assistant_expenses,
         assistant_templates,
         assistant_work_items,
     )

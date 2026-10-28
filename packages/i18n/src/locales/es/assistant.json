@@ -310,6 +310,10 @@
       "propose_work_item_comment": {
         "running": "Preparando el comentario",
         "done": "Preparó el comentario"
+      },
+      "propose_expenses_from_documents": {
+        "running": "Leyendo los comprobantes",
+        "done": "Leyó los comprobantes"
       }
     },
     "export": {
@@ -817,6 +821,49 @@
         "description_append": "Agregar a la descripción",
         "description_html": "Descripción"
       }
+    },
+    "expenses": {
+      "title": "{count, plural, one {Registrar un gasto} other {Registrar # gastos}}",
+      "analysing": "{count, plural, one {analizando # archivo} other {analizando # archivos}}",
+      "include": "Registrar este gasto",
+      "paired": {
+        "uuid": "PDF y XML de la misma factura (UUID fiscal)",
+        "name": "PDF y XML de la misma factura (mismo nombre de archivo)",
+        "total": "PDF y XML de la misma factura (mismo total y fecha)"
+      },
+      "waiting": "Esperando el análisis",
+      "failed": "No se pudo analizar el archivo.",
+      "already": "Ya registrado: abrir el gasto",
+      "fields": {
+        "concept": "Concepto",
+        "vendor": "Proveedor",
+        "amount": "Monto",
+        "currency": "Moneda",
+        "date": "Fecha",
+        "expense_date": "Fecha",
+        "reference": "Referencia",
+        "status": "Estatus",
+        "paid_at": "Pagado el",
+        "budget": "Presupuesto",
+        "scenario": "Presupuesto",
+        "category": "Categoría",
+        "project": "Proyecto",
+        "tags": "Etiquetas",
+        "description": "Descripción"
+      },
+      "status": {
+        "pending": "Pendiente",
+        "paid": "Pagado"
+      },
+      "suggested": "sugerido",
+      "no_budget": "Sin presupuesto",
+      "no_category": "Sin categoría",
+      "duplicate_sure": "Esta factura ya está registrada: {concept} ({amount}, {date})",
+      "duplicate_maybe": "Parece un gasto ya registrado: {concept} ({amount}, {date})",
+      "missing": "{count, plural, one {No se encontró # archivo} other {No se encontraron # archivos}}",
+      "done": "{count, plural, one {# gasto registrado} other {# gastos registrados}}",
+      "open": "Ver gastos",
+      "apply": "{count, plural, one {Registrar # gasto} other {Registrar # gastos}}"
     }
   }
 }

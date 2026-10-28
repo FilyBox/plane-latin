@@ -43,12 +43,17 @@ const ACCEPTED = [
   ".webp",
   ".gif",
   ".heic",
+  ".heif",
+  ".tif",
+  ".tiff",
+  ".xml",
   ".docx",
   ".txt",
   ".md",
   ".json",
   "image/*",
   "application/pdf",
+  "application/xml",
   "text/*",
 ].join(",");
 

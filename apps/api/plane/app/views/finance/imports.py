@@ -81,10 +81,14 @@ def _suggestions(job, data):
 
 
 def _duplicates(job, data):
-    """Expenses already in the ledger that look like this same invoice."""
+    """Expenses already in the ledger that look like this same invoice. The
+    same fiscal UUID (CFDI) is a sure duplicate; the rest are look-alikes."""
     reference = str(data.get("reference") or "").strip()
     vendor = str(data.get("vendor") or "").strip()
+    cfdi_uuid = str(data.get("cfdi_uuid") or "").strip().upper()
     match = Q()
+    if cfdi_uuid:
+        match |= Q(cfdi_uuid__iexact=cfdi_uuid)
     if reference:
         match |= Q(reference__iexact=reference)
     try:
@@ -103,6 +107,7 @@ def _duplicates(job, data):
             "amount": str(row.amount),
             "currency": row.currency,
             "expense_date": row.expense_date.isoformat(),
+            "same_cfdi": bool(cfdi_uuid and row.cfdi_uuid.upper() == cfdi_uuid) or None,
         }
         for row in rows
     ]
@@ -138,6 +143,108 @@ def cancel_worker(attempt):
         pass
 
 
+ALLOWED_TYPES = {
+    "application/pdf",
+    "application/xml",
+    "text/xml",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/tiff",
+    "image/heic",
+    "image/heif",
+}
+MAX_IMPORT_BYTES = 20 * 1024 * 1024
+
+
+def read_asset_bytes(asset) -> bytes:
+    storage = S3Storage.for_asset(asset)
+    result = storage.s3_client.get_object(Bucket=storage.aws_storage_bucket_name, Key=asset.asset.name)
+    return result["Body"].read(MAX_IMPORT_BYTES + 1)
+
+
+EXTENSION_TYPES = {
+    ".pdf": "application/pdf",
+    ".xml": "application/xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+}
+
+
+def media_type(asset) -> str:
+    """The file's type; by its extension when the browser gave none (HEIC
+    photos often arrive as application/octet-stream)."""
+    attributes = asset.attributes or {}
+    declared = str(attributes.get("type") or "")
+    if declared in ALLOWED_TYPES:
+        return declared
+    name = str(attributes.get("name") or "").lower()
+    extension = name[name.rfind(".") :] if "." in name else ""
+    return EXTENSION_TYPES.get(extension, declared)
+
+
+def _is_xml(asset) -> bool:
+    attributes = asset.attributes or {}
+    return "xml" in str(attributes.get("type") or "") or str(attributes.get("name") or "").lower().endswith(".xml")
+
+
+def _read_cfdi(job) -> bool:
+    """A CFDI XML is read here, exactly, and the draft is ready at once.
+    Any other XML goes to the analysis like a receipt."""
+    from plane.utils.cfdi import NotCfdi, parse, to_expense
+
+    try:
+        data = to_expense(parse(read_asset_bytes(job.asset)))
+    except NotCfdi:
+        return False
+    data["suggestions"] = _suggestions(job, data)
+    data["duplicates"] = _duplicates(job, data)
+    job.status, job.stage, job.error, job.data = "READY", "", "", data
+    job.save()
+    return True
+
+
+def start_expense_imports(workspace, user, assets, scenario_id=None):
+    """Creates (or reuses) one analysis per file. A file already analysed
+    keeps its job; one whose analysis was discarded starts over."""
+    jobs = []
+    for asset in assets:
+        job = ExpenseImport.all_objects.filter(workspace=workspace, asset=asset).first()
+        created = job is None
+        if created:
+            job = ExpenseImport.objects.create(
+                workspace=workspace, asset=asset, scenario_id=scenario_id, created_by=user
+            )
+        elif job.deleted_at is not None:
+            # The file was analysed before and that analysis was discarded:
+            # start it over instead of hitting the one-job-per-file rule.
+            job.deleted_at = None
+            job.status, job.stage, job.error, job.data, job.expense = "QUEUED", "", "", {}, None
+            job.attempt, job.scenario_id = uuid.uuid4(), scenario_id
+            job.save()
+            created = True
+        if created and not (_is_xml(asset) and _read_cfdi(job)):
+            dispatch_import(job)
+        job.refresh_from_db()
+        jobs.append(job)
+    return jobs
+
+
+def unsupported_assets(assets):
+    def allowed(asset):
+        attributes = asset.attributes or {}
+        size = int(attributes.get("size") or asset.size or 0)
+        return media_type(asset) in ALLOWED_TYPES and size <= MAX_IMPORT_BYTES
+
+    return [asset for asset in assets if not allowed(asset)]
+
+
 class ExpenseImportEndpoint(FinanceBaseView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
@@ -155,34 +262,12 @@ class ExpenseImportEndpoint(FinanceBaseView):
         assets = list(FileAsset.objects.filter(id__in=ids, workspace=workspace, is_uploaded=True, is_deleted=False))
         if len(assets) != len(set(ids)):
             return Response({"error": "Some files are unavailable in this workspace"}, status=400)
-        allowed = {"application/pdf", "application/xml", "text/xml", "image/png", "image/jpeg", "image/webp", "image/tiff"}
-        for asset in assets:
-            attributes = asset.attributes or {}
-            if attributes.get("type") not in allowed or int(attributes.get("size") or 0) > 20 * 1024 * 1024:
-                return Response({"error": "Upload PDF, XML or receipt images up to 20 MB"}, status=400)
+        if unsupported_assets(assets):
+            return Response({"error": "Upload PDF, XML or receipt images up to 20 MB"}, status=400)
         scenario_id = serializers.UUIDField(allow_null=True).run_validation(request.data.get("scenario"))
         if scenario_id:
             get_object_or_404(BudgetScenario, id=scenario_id, workspace=workspace)
-        jobs = []
-        for asset in assets:
-            job = ExpenseImport.all_objects.filter(workspace=workspace, asset=asset).first()
-            created = job is None
-            if created:
-                job = ExpenseImport.objects.create(
-                    workspace=workspace, asset=asset, scenario_id=scenario_id, created_by=request.user
-                )
-            elif job.deleted_at is not None:
-                # The file was analysed before and that analysis was discarded:
-                # start it over instead of hitting the one-job-per-file rule.
-                job.deleted_at = None
-                job.status, job.stage, job.error, job.data, job.expense = "QUEUED", "", "", {}, None
-                job.attempt, job.scenario_id = uuid.uuid4(), scenario_id
-                job.save()
-                created = True
-            if created:
-                dispatch_import(job)
-            job.refresh_from_db()
-            jobs.append(job)
+        jobs = start_expense_imports(workspace, request.user, assets, scenario_id)
         return Response(ImportSerializer(jobs, many=True).data, status=201)
 
 
@@ -214,6 +299,8 @@ class ExpenseImportDetailEndpoint(FinanceBaseView):
                 serializer = ExpenseSerializer(data=request.data.get("expense", {}), context={"workspace_id": job.workspace_id})
                 serializer.is_valid(raise_exception=True)
                 expense = serializer.save(workspace_id=job.workspace_id)
+                if (job.data or {}).get("cfdi_uuid"):
+                    Expense.objects.filter(id=expense.id).update(cfdi_uuid=str(job.data["cfdi_uuid"])[:40])
                 ExpenseDocument.objects.create(workspace_id=job.workspace_id, expense=expense, asset=job.asset)
                 job.expense, job.status = expense, "IMPORTED"
                 job.save()
@@ -244,7 +331,7 @@ class InternalExpenseImportEndpoint(InternalBaseView):
         storage = S3Storage.for_asset(job.asset)
         return Response({
             "url": storage.generate_presigned_url(object_name=job.asset.asset.name),
-            "type": (job.asset.attributes or {}).get("type"),
+            "type": media_type(job.asset),
             "name": (job.asset.attributes or {}).get("name"),
             "s3_key": job.asset.asset.name, "s3_bucket": storage.aws_storage_bucket_name,
         })
@@ -265,8 +352,15 @@ class InternalExpenseImportEndpoint(InternalBaseView):
                 data = request.data.get("data")
                 if not isinstance(data, dict) or len(str(data)) > 50000:
                     return Response({"error": "Invalid extraction"}, status=400)
-                allowed = ("concept", "vendor", "amount", "currency", "expense_date", "reference", "description", "tags", "warnings")
+                allowed = (
+                    "concept", "vendor", "amount", "currency", "expense_date",
+                    "reference", "description", "tags", "warnings", "cfdi_uuid",
+                )
                 job.data = {key: data[key] for key in allowed if key in data}
+                # The fiscal folio printed on a PDF pairs it with its XML
+                from plane.utils.cfdi import uuid_in_text
+
+                job.data["cfdi_uuid"] = uuid_in_text(job.data.get("cfdi_uuid") or job.data.get("reference") or "")
                 # Never registered on its own: the extraction waits as a draft
                 # for someone to review it, with the budget and category it most
                 # likely belongs to and any invoice that looks already recorded.
