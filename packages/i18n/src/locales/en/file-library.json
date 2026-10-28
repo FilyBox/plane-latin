@@ -1145,7 +1145,8 @@
           "fields_ready": "Every signer has somewhere to sign.",
           "current_only": "No versions yet",
           "current_matches": "Same as version {number}.",
-          "no_versions": "No versions yet. The current document can already be used; a version is saved every time you publish Word changes."
+          "no_versions": "No versions yet. The current document can already be used; a version is saved every time you publish Word changes.",
+          "generated_by_assistant": "Made by the assistant"
         },
         "draft": {
           "badge": "Draft",

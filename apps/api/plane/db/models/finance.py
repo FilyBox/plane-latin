@@ -334,6 +334,8 @@ class Expense(BaseModel):
     description = models.TextField(blank=True)
     # Invoice folio / reference from the supplier
     reference = models.CharField(max_length=255, blank=True)
+    # SAT fiscal folio (TimbreFiscalDigital UUID) of the CFDI behind it: a repeat is a sure duplicate
+    cfdi_uuid = models.CharField(max_length=40, blank=True, default="", db_index=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     paid_at = models.DateField(null=True, blank=True)
     scenario = models.ForeignKey("db.BudgetScenario", on_delete=models.SET_NULL, null=True, blank=True, related_name="actual_expenses")

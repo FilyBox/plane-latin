@@ -1145,7 +1145,8 @@
           "fields_ready": "Cada firmante tiene dónde firmar.",
           "current_only": "Sin versiones aún",
           "current_matches": "Igual a la versión {number}.",
-          "no_versions": "Aún no hay versiones. El documento actual ya se puede usar; cada vez que publiques cambios del Word se guarda una versión."
+          "no_versions": "Aún no hay versiones. El documento actual ya se puede usar; cada vez que publiques cambios del Word se guarda una versión.",
+          "generated_by_assistant": "Generada por el asistente"
         },
         "draft": {
           "badge": "Borrador",

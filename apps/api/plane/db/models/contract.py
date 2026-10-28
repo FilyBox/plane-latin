@@ -357,6 +357,9 @@ class ContractTemplateVariant(BaseModel):
     # Optional per-variable settings and role names; empty means today's behaviour.
     variable_settings = models.JSONField(default=dict, blank=True)
     recipient_roles = models.JSONField(default=dict, blank=True)
+    # Who made it, when it did not come from a person: the assistant records
+    # {by, from_variant, from_revision, action_id}.
+    origin = models.JSONField(default=dict, blank=True)
     # Word edits go to a private draft copy until published as a new revision.
     draft_asset = models.ForeignKey(
         "db.FileAsset", on_delete=models.SET_NULL, null=True, blank=True, related_name="contract_variant_drafts"

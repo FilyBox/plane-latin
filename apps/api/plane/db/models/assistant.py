@@ -6,6 +6,7 @@
 across devices (they used to live in the browser's localStorage)."""
 
 from django.db import models
+from django.db.models import Q
 
 from .base import BaseModel
 
@@ -154,6 +155,15 @@ class AssistantAction(BaseModel):
         SPLIT_PDF = "SPLIT_PDF", "Split PDF"
         MERGE_PDF = "MERGE_PDF", "Merge PDFs"
         EDIT_PDF_PAGES = "EDIT_PDF_PAGES", "Edit PDF pages"
+        CREATE_TEMPLATE_VARIANT = "CREATE_TEMPLATE_VARIANT", "Create template variant"
+        EDIT_TEMPLATE_VARIANT = "EDIT_TEMPLATE_VARIANT", "Edit template variant"
+        CREATE_CONTRACT_DRAFT = "CREATE_CONTRACT_DRAFT", "Create contract draft"
+        EDIT_CONTRACT = "EDIT_CONTRACT", "Edit contract"
+        EDIT_WORK_ITEMS = "EDIT_WORK_ITEMS", "Edit work items"
+        COMMENT_WORK_ITEM = "COMMENT_WORK_ITEM", "Comment on work item"
+        ORGANIZE_FILES = "ORGANIZE_FILES", "Organize files"
+        CREATE_EXPENSES = "CREATE_EXPENSES", "Create expenses"
+        CATALOG_FIXES = "CATALOG_FIXES", "Catalog fixes"
 
     class Status(models.TextChoices):
         APPLIED = "APPLIED", "Applied"
@@ -171,12 +181,25 @@ class AssistantAction(BaseModel):
     undone_by = models.ForeignKey(
         "db.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="undone_assistant_actions"
     )
+    # The card that applied it: a card is applied once, and a reopened chat
+    # (in any tab) shows what happened.
+    tool_call_id = models.CharField(max_length=100, blank=True, default="")
+    chat = models.ForeignKey(
+        "db.AssistantChat", on_delete=models.SET_NULL, null=True, blank=True, related_name="actions"
+    )
 
     class Meta:
         verbose_name = "Assistant Action"
         verbose_name_plural = "Assistant Actions"
         db_table = "assistant_actions"
         ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "tool_call_id"],
+                condition=Q(deleted_at__isnull=True) & ~Q(tool_call_id=""),
+                name="unique_assistant_action_per_tool_call",
+            )
+        ]
 
 
 class AssistantDeepReview(BaseModel):

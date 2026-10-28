@@ -18,6 +18,7 @@ import { cn } from "@plane/utils";
 import { useProject } from "@/hooks/store/use-project";
 import { assistantService } from "@/services/assistant.service";
 import { CARD, FIELD, Footer, alreadyUndone, errorText, fold, useOutcome } from "./action-cards";
+import { outcomeFromAction } from "./outcome-store";
 import { AssistantLink } from "./links";
 import { markdownToPreviewHtml } from "./markdown-preview";
 import { TraceLine } from "./steps";
@@ -43,7 +44,7 @@ export const PageForm = observer(function PageForm({
   const { t } = useTranslation();
   const slug = proposal.workspace_slug!;
   const { joinedProjectIds, getProjectById } = useProject();
-  const [outcome, remember] = useOutcome(`assistant-page:${toolCallId}`);
+  const [outcome, remember, meta] = useOutcome(`assistant-page:${toolCallId}`);
   const projects = useMemo(
     () =>
       joinedProjectIds
@@ -72,13 +73,14 @@ export const PageForm = observer(function PageForm({
     remember({ state: "busy" });
     try {
       const action = await assistantService.createAction(slug, {
+        ...meta,
         kind: "CREATE_PAGE",
         project_id: projectId,
         name: title,
         markdown,
         private: isPrivate,
       });
-      remember({ state: "applied", id: action.id, result: action.result });
+      remember(outcomeFromAction(action));
     } catch (error) {
       remember({ state: "idle" });
       setToast({ type: TOAST_TYPE.ERROR, title: errorText(error, t("assistant.actions.failed")) });
@@ -245,7 +247,7 @@ const PageEditForm = observer(function PageEditForm({
 }) {
   const { t } = useTranslation();
   const slug = proposal.workspace_slug!;
-  const [outcome, remember] = useOutcome(`assistant-page-edit:${toolCallId}`);
+  const [outcome, remember, meta] = useOutcome(`assistant-page-edit:${toolCallId}`);
   const [markdown, setMarkdown] = useState(proposal.markdown ?? "");
   const [view, setView] = useState<"new" | "current" | "edit">("new");
   const busy = outcome.state === "busy";
@@ -261,12 +263,13 @@ const PageEditForm = observer(function PageEditForm({
     remember({ state: "busy" });
     try {
       const action = await assistantService.createAction(slug, {
+        ...meta,
         kind: "EDIT_PAGE",
         page_id: proposal.page_id,
         markdown,
         base_version: proposal.base_version,
       });
-      remember({ state: "applied", id: action.id, result: action.result });
+      remember(outcomeFromAction(action));
     } catch (error) {
       remember({ state: "idle" });
       setToast({ type: TOAST_TYPE.ERROR, title: errorText(error, t("assistant.actions.failed")) });

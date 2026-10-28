@@ -278,7 +278,19 @@
         "running": "Preparando las páginas",
         "done": "Preparó las páginas"
       },
-      "pdf_segments": "{name} · {documents, plural, one {# documento} other {# documentos}} en {pages, plural, one {# página} other {# páginas}}"
+      "pdf_segments": "{name} · {documents, plural, one {# documento} other {# documentos}} en {pages, plural, one {# página} other {# páginas}}",
+      "find_contract_templates": {
+        "running": "Buscando plantillas de contrato",
+        "done": "Buscó plantillas de contrato"
+      },
+      "read_contract_template": {
+        "running": "Leyendo la plantilla",
+        "done": "Leyó la plantilla"
+      },
+      "propose_template_edit": {
+        "running": "Preparando los cambios de la plantilla",
+        "done": "Preparó los cambios de la plantilla"
+      }
     },
     "export": {
       "title": "Excel listo",
@@ -693,6 +705,44 @@
         "IDENTIFICACION": "Identificación",
         "OTRO": "Otro"
       }
+    },
+    "templates": {
+      "title": "Cambiar la plantilla «{template}»",
+      "base": "Base: {variant}, versión {version}",
+      "draft_ignored": "tiene un borrador de Word sin publicar: se usó lo publicado",
+      "new_paragraph": "{count, plural, one {Párrafo nuevo} other {# párrafos nuevos}}",
+      "locations": {
+        "body": "Cuerpo",
+        "table": "Tabla",
+        "textbox": "Cuadro de texto",
+        "header": "Encabezado",
+        "footer": "Pie de página",
+        "footnote": "Nota al pie",
+        "endnote": "Nota al final"
+      },
+      "loose": "coincide sin mayúsculas ni acentos",
+      "variable_added": "Variable nueva: {label} · {key}",
+      "required": "obligatoria",
+      "upper": "en mayúsculas",
+      "variable_removed": "Se quita la variable {key}",
+      "signer_added": "El firmante {index} gana un campo",
+      "warnings": {
+        "mixed_format": "«{text}» tenía formatos mezclados; el valor saldrá con el formato de su parte más larga.",
+        "track_changes_on": "El documento tiene el control de cambios activado: estas ediciones se aplican directo, sin marcarse como cambios."
+      },
+      "manual_fields": "{count, plural, one {Hay # campo colocado a mano} other {Hay # campos colocados a mano}}: revísalos en Configurar campos.",
+      "verified": "Formato conservado: cambió el texto de {runs, plural, one {# tramo} other {# tramos}} en {paragraphs, plural, one {# párrafo} other {# párrafos}}; nada más en el documento.",
+      "new_variant_name": "Nombre de la variante nueva",
+      "new_version_of": "Se guardará como versión nueva de «{variant}» (pediste cambiar esa variante).",
+      "base_untouched": "La variante base y sus versiones no cambian.",
+      "preview": "Vista previa (PDF)",
+      "preview_failed": "No se pudo generar la vista previa.",
+      "pages_changed": "Cambia el número de páginas ({pages}).",
+      "created": "Variante «{name}» creada",
+      "versioned": "Versión {version} guardada",
+      "open": "Abrir",
+      "apply_new": "Crear variante",
+      "apply_version": "Guardar versión nueva"
     }
   }
 }

@@ -6,6 +6,10 @@ from django.urls import path
 
 from plane.app.views import AssistantChatEndpoint, AssistantModelsEndpoint, AssistantMusicImportEndpoint
 from plane.app.views.assistant import (
+    AssistantTemplatePreviewEndpoint,
+    InternalAssistantTemplateDryRunEndpoint,
+    InternalAssistantTemplateOutlineEndpoint,
+    InternalAssistantTemplatesEndpoint,
     AssistantBalanceEndpoint,
     AssistantActionUndoEndpoint,
     AssistantActionsEndpoint,
@@ -101,6 +105,26 @@ urlpatterns = [
         name="internal-assistant-page-read",
     ),
     path("workspaces/<str:slug>/assistant/actions/", AssistantActionsEndpoint.as_view(), name="assistant-actions"),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/contract-templates/",
+        InternalAssistantTemplatesEndpoint.as_view(),
+        name="internal-assistant-templates",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/contract-templates/variants/<uuid:variant_id>/outline/",
+        InternalAssistantTemplateOutlineEndpoint.as_view(),
+        name="internal-assistant-template-outline",
+    ),
+    path(
+        "internal/workspaces/<uuid:workspace_id>/assistant/contract-templates/variants/<uuid:variant_id>/dry-run/",
+        InternalAssistantTemplateDryRunEndpoint.as_view(),
+        name="internal-assistant-template-dry-run",
+    ),
+    path(
+        "workspaces/<str:slug>/contract-templates/variants/<uuid:variant_id>/assistant-preview/",
+        AssistantTemplatePreviewEndpoint.as_view(),
+        name="assistant-template-preview",
+    ),
     path(
         "workspaces/<str:slug>/assistant/actions/<uuid:action_id>/undo/",
         AssistantActionUndoEndpoint.as_view(),

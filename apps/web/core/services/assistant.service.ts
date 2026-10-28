@@ -28,12 +28,22 @@ export type TAssistantAction = {
     | "MERGE_TAGS"
     | "SPLIT_PDF"
     | "MERGE_PDF"
-    | "EDIT_PDF_PAGES";
+    | "EDIT_PDF_PAGES"
+    | "CREATE_TEMPLATE_VARIANT"
+    | "EDIT_TEMPLATE_VARIANT"
+    | "CREATE_CONTRACT_DRAFT"
+    | "EDIT_CONTRACT"
+    | "EDIT_WORK_ITEMS"
+    | "COMMENT_WORK_ITEM"
+    | "ORGANIZE_FILES"
+    | "CREATE_EXPENSES"
+    | "CATALOG_FIXES";
   status: "APPLIED" | "UNDONE";
   summary: string;
   result: Record<string, unknown>;
   created_at: string;
   undone_at: string | null;
+  tool_call_id?: string | null;
   /** Who made it (history across the workspace) */
   actor?: string;
 };
@@ -242,6 +252,31 @@ export class AssistantService extends APIService {
   /** Approved changes from the assistant's cards; each can be undone. */
   async createAction(workspaceSlug: string, data: Record<string, unknown>): Promise<TAssistantAction> {
     return this.post(`/api/workspaces/${workspaceSlug}/assistant/actions/`, data).then((response) => response.data);
+  }
+
+  /** The template's Word with the assistant's edits, as a PDF (nothing is saved). */
+  async templatePreview(
+    workspaceSlug: string,
+    variantId: string,
+    data: { revision?: number; edits: unknown[] }
+  ): Promise<{ blob: Blob; note: string | null }> {
+    return this.post(
+      `/api/workspaces/${workspaceSlug}/contract-templates/variants/${variantId}/assistant-preview/`,
+      data,
+      {
+        responseType: "blob",
+      }
+    ).then((response) => ({
+      blob: response.data as Blob,
+      note: (response.headers?.["x-layout-note"] as string | undefined) ?? null,
+    }));
+  }
+
+  /** What each card already did, by tool call id (cards of one chat). */
+  async getOutcomes(workspaceSlug: string, toolCallIds: string[]): Promise<Record<string, TAssistantAction>> {
+    return this.get(`/api/workspaces/${workspaceSlug}/assistant/actions/`, {
+      params: { tool_call_ids: toolCallIds.join(",") },
+    }).then((response) => response.data?.outcomes ?? {});
   }
 
   async getActions(

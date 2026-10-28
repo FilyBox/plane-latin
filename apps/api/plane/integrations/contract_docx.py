@@ -587,10 +587,11 @@ def format_variable_value(value, value_type, setting=None):
         return text
     kind = setting.get("type") or value_type
     if kind == "date" and setting.get("date_format") != "iso":
-        return format_long_spanish_date(text) or text
-    if setting.get("type") in {"number", "currency"}:
-        return format_number_es_mx(text, currency=setting.get("type") == "currency") or text
-    return text
+        text = format_long_spanish_date(text) or text
+    elif setting.get("type") in {"number", "currency"}:
+        text = format_number_es_mx(text, currency=setting.get("type") == "currency") or text
+    # Written in capitals where the template had them ("JUAN PÉREZ")
+    return text.upper() if setting.get("case") == "upper" else text
 
 
 SAMPLE_BY_WORD = (

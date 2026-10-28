@@ -68,6 +68,8 @@ export const TRACE_TOOLS = new Set([
   "read_page",
   "read_deep_review",
   "analyze_pdf_segments",
+  "find_contract_templates",
+  "read_contract_template",
 ]);
 
 export const formatDuration = (seconds: number) =>
@@ -689,6 +691,18 @@ export function buildTraceToolUIs(slug: string) {
     traceTool("read_page", {
       icon: FileText,
       output: (result) => String(result.name ?? ""),
+    }),
+    traceTool("find_contract_templates", {
+      icon: FileText,
+      input: (args) => text(args?.query),
+      output: (result, t) => t("assistant.steps.results", { count: ((result.templates as unknown[]) ?? []).length }),
+    }),
+    traceTool("read_contract_template", {
+      icon: FileText,
+      output: (result) => {
+        const base = (result.base as { template_name?: string; variant_name?: string }) ?? {};
+        return [base.template_name, base.variant_name].filter(Boolean).join(" · ");
+      },
     }),
     traceTool("analyze_pdf_segments", {
       icon: ScanText,

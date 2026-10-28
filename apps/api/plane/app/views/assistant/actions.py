@@ -4,12 +4,15 @@
 
 """Approved changes from the assistant's cards, and undoing them."""
 
+from uuid import UUID
+
+from django.db import connection, transaction
 from rest_framework import status
 from rest_framework.response import Response
 
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
-from plane.db.models import AssistantAction, TaggingRun, User, WorkspaceMember
+from plane.db.models import AssistantAction, AssistantChat, TaggingRun, User, WorkspaceMember
 from plane.utils.assistant_actions import (
     ActionError,
     action_payload,
@@ -56,6 +59,16 @@ class AssistantActionsEndpoint(BaseAPIView):
         """Recent changes made through the assistant: the user's own, or the
         whole workspace's for admins (?scope=all). Tag merges confirmed from
         the chat are included (they live as mapping runs)."""
+        calls = [value for value in (request.query_params.get("tool_call_ids") or "").split(",") if value][:200]
+        if calls:
+            # What each card of a chat did, so a reopened chat (any tab) shows it
+            found = AssistantAction.objects.filter(
+                workspace__slug=slug, created_by=request.user, tool_call_id__in=calls
+            )
+            return Response(
+                {"outcomes": {action.tool_call_id: action_payload(action) for action in found}},
+                status=status.HTTP_200_OK,
+            )
         everyone = request.query_params.get("scope") == "all" and _is_admin(request, slug)
         actions = AssistantAction.objects.filter(workspace__slug=slug)
         merges = TaggingRun.objects.filter(workspace__slug=slug, scope__source="assistant")
@@ -80,36 +93,87 @@ class AssistantActionsEndpoint(BaseAPIView):
         if ctx is None:
             return Response({"error": "Not a member of this workspace"}, status=status.HTTP_403_FORBIDDEN)
         data = request.data if isinstance(request.data, dict) else {}
-        kind = data.get("kind")
+        handler = HANDLERS.get(data.get("kind"))
+        if handler is None:
+            return Response({"error": "Unknown action"}, status=status.HTTP_400_BAD_REQUEST)
+        tool_call_id = str(data.get("tool_call_id") or "")[:100]
+        chat = (
+            AssistantChat.objects.filter(
+                id=data.get("chat_id"), workspace_id=ctx.workspace_id, user=request.user
+            ).first()
+            if _is_uuid(data.get("chat_id"))
+            else None
+        )
         try:
-            if kind in (AssistantAction.Kind.TAG_ITEMS, AssistantAction.Kind.UNTAG_ITEMS):
-                action = tag_items(
-                    ctx,
-                    request.user,
-                    tag_id=data.get("tag_id"),
-                    tag_name=data.get("tag_name"),
-                    items=data.get("items"),
-                    remove=kind == AssistantAction.Kind.UNTAG_ITEMS,
-                    payload=data,
-                )
-            elif kind == AssistantAction.Kind.CREATE_WORK_ITEM:
-                action = create_work_item(ctx, request.user, data, base_host(request=request, is_app=True), payload=data)
-            elif kind == AssistantAction.Kind.CREATE_PAGE:
-                action = create_page(ctx, request.user, data, payload=data)
-            elif kind == AssistantAction.Kind.EDIT_PAGE:
-                # The live server loads and saves the page as this person
-                action = edit_page(ctx, request.user, data, request.META.get("HTTP_COOKIE", ""), payload=data)
-            elif kind == AssistantAction.Kind.SPLIT_PDF:
-                action = split_pdf(ctx, request.user, data, payload=data)
-            elif kind == AssistantAction.Kind.MERGE_PDF:
-                action = merge_pdf(ctx, request.user, data, payload=data)
-            elif kind == AssistantAction.Kind.EDIT_PDF_PAGES:
-                action = edit_pdf_pages(ctx, request.user, data, payload=data)
-            else:
-                return Response({"error": "Unknown action"}, status=status.HTTP_400_BAD_REQUEST)
+            with transaction.atomic():
+                if tool_call_id:
+                    # One card, one change: a second apply (another tab, a double
+                    # click) waits for the first and gets its result back.
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                            [f"assistant-action:{ctx.workspace_id}:{tool_call_id}"],
+                        )
+                    existing = AssistantAction.objects.filter(
+                        workspace_id=ctx.workspace_id, tool_call_id=tool_call_id
+                    ).first()
+                    if existing is not None:
+                        return Response(action_payload(existing), status=status.HTTP_200_OK)
+                action = handler(ctx, request, data)
+                if tool_call_id or chat:
+                    action.tool_call_id = tool_call_id
+                    action.chat = chat
+                    action.save(update_fields=["tool_call_id", "chat", "updated_at"])
         except ActionError as error:
             return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(action_payload(action), status=status.HTTP_201_CREATED)
+
+
+def _is_uuid(value) -> bool:
+    try:
+        UUID(str(value))
+        return True
+    except ValueError:
+        return False
+
+
+def _origin(request) -> str:
+    return base_host(request=request, is_app=True)
+
+
+# kind → how to apply it. Each returns the AssistantAction it recorded.
+HANDLERS = {
+    AssistantAction.Kind.TAG_ITEMS: lambda ctx, request, data: tag_items(
+        ctx,
+        request.user,
+        tag_id=data.get("tag_id"),
+        tag_name=data.get("tag_name"),
+        items=data.get("items"),
+        payload=data,
+    ),
+    AssistantAction.Kind.UNTAG_ITEMS: lambda ctx, request, data: tag_items(
+        ctx,
+        request.user,
+        tag_id=data.get("tag_id"),
+        tag_name=data.get("tag_name"),
+        items=data.get("items"),
+        remove=True,
+        payload=data,
+    ),
+    AssistantAction.Kind.CREATE_WORK_ITEM: lambda ctx, request, data: create_work_item(
+        ctx, request.user, data, _origin(request), payload=data
+    ),
+    AssistantAction.Kind.CREATE_PAGE: lambda ctx, request, data: create_page(ctx, request.user, data, payload=data),
+    # The live server loads and saves the page as this person
+    AssistantAction.Kind.EDIT_PAGE: lambda ctx, request, data: edit_page(
+        ctx, request.user, data, request.META.get("HTTP_COOKIE", ""), payload=data
+    ),
+    AssistantAction.Kind.SPLIT_PDF: lambda ctx, request, data: split_pdf(ctx, request.user, data, payload=data),
+    AssistantAction.Kind.MERGE_PDF: lambda ctx, request, data: merge_pdf(ctx, request.user, data, payload=data),
+    AssistantAction.Kind.EDIT_PDF_PAGES: lambda ctx, request, data: edit_pdf_pages(
+        ctx, request.user, data, payload=data
+    ),
+}
 
 
 class AssistantActionUndoEndpoint(BaseAPIView):
@@ -129,3 +193,13 @@ class AssistantActionUndoEndpoint(BaseAPIView):
             return Response({"error": str(error)}, status=status.HTTP_409_CONFLICT)
         action.refresh_from_db()
         return Response(action_payload(action), status=status.HTTP_200_OK)
+
+
+def _register_workspace_actions():
+    """Edits across modules register themselves (contracts, work items, files…)."""
+    from plane.utils.assistant_workspace import APPLY_HANDLERS
+
+    HANDLERS.update(APPLY_HANDLERS)
+
+
+_register_workspace_actions()

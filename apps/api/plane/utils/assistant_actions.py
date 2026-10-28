@@ -424,10 +424,27 @@ def _undo_page_edit(action: AssistantAction, user, cookie: str):
     sync_mentions(action.workspace_id, "page", str(page.id), before_html, user.id)
 
 
+# kind → undo(action, user, origin, cookie). New kinds register here; one
+# that can only partly revert returns {"conflicts": [...]}, kept on the action
+# so the card can say which values stayed (someone changed them since).
+UNDO_HANDLERS: dict = {}
+
+
+def register_undo(*kinds):
+    def decorator(function):
+        for kind in kinds:
+            UNDO_HANDLERS[kind] = function
+        return function
+
+    return decorator
+
+
 @transaction.atomic
 def undo(action: AssistantAction, user, origin: str, cookie: str = "") -> AssistantAction:
+    action = AssistantAction.objects.select_for_update().get(id=action.id)
     if action.status != AssistantAction.Status.APPLIED:
         raise ActionError("This change was already undone.")
+    report = None
     if action.kind in (AssistantAction.Kind.TAG_ITEMS, AssistantAction.Kind.UNTAG_ITEMS):
         _undo_tagging(action)
     elif action.kind == AssistantAction.Kind.CREATE_WORK_ITEM:
@@ -440,11 +457,26 @@ def undo(action: AssistantAction, user, origin: str, cookie: str = "") -> Assist
         from plane.utils.assistant_pdf import undo_pdf
 
         undo_pdf(action)
+    else:
+        _load_handlers()
+        handler = UNDO_HANDLERS.get(action.kind)
+        if handler is None:
+            raise ActionError("This change can't be undone.")
+        report = handler(action, user, origin, cookie)
+    update_fields = ["status", "undone_at", "undone_by", "updated_at"]
+    if report and report.get("conflicts"):
+        action.result = {**(action.result or {}), "undo_conflicts": report["conflicts"]}
+        update_fields.append("result")
     action.status = AssistantAction.Status.UNDONE
     action.undone_at = timezone.now()
     action.undone_by = user
-    action.save(update_fields=["status", "undone_at", "undone_by", "updated_at"])
+    action.save(update_fields=update_fields)
     return action
+
+
+def _load_handlers():
+    """The modules that register undo handlers, imported on first use."""
+    import plane.utils.assistant_workspace  # noqa: F401
 
 
 def action_payload(action: AssistantAction) -> dict:
@@ -458,4 +490,5 @@ def action_payload(action: AssistantAction) -> dict:
         "created_at": action.created_at.isoformat(),
         "created_by": str(action.created_by_id) if action.created_by_id else None,
         "undone_at": action.undone_at.isoformat() if action.undone_at else None,
+        "tool_call_id": action.tool_call_id or None,
     }

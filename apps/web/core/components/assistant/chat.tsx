@@ -37,6 +37,7 @@ import { DeepReviewCard } from "./deep-review-card";
 import { AssistantHelp } from "./help";
 import { PageCard, PageEditCard, ReportCard } from "./page-card";
 import { PdfMergeCard, PdfPagesCard, PdfSplitCard } from "./pdf-cards";
+import { TemplateEditCard } from "./template-cards";
 import { AssistantAttachmentAdapter } from "./attachments";
 import {
   AskUserCard,
@@ -46,6 +47,7 @@ import {
   UpdateMusicTrackCard,
 } from "./cards";
 import { MemoryView, ProposeMemoryCard } from "./memory";
+import { AssistantChatContext, loadOutcomes } from "./outcome-store";
 import { MergeTagsCard, StartTagMappingCard } from "./tag-cards";
 import { useAssistantPageContext } from "./page-context";
 import type { TAssistantPageContext, TContextItem } from "./page-context";
@@ -398,6 +400,17 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
     )
   );
 
+  // What every card of this chat already did (any tab, any day): one request
+  useEffect(() => {
+    const ids = (session.messages as { parts?: { type?: string; toolCallId?: string }[] }[]).flatMap((message) =>
+      (message.parts ?? []).flatMap((part) =>
+        part.toolCallId && String(part.type ?? "").startsWith("tool-") ? [part.toolCallId] : []
+      )
+    );
+    if (ids.length > 0) void loadOutcomes(workspaceSlug, ids);
+  }, [session.messages, workspaceSlug]);
+  const chatContext = useMemo(() => ({ chatId: () => chatIdRef.current }), []);
+
   // Cost of the last answer and a run counter, for the balance meter
   const [turns, setTurns] = useState<TAssistantTurn[]>([]);
   const [finishedRuns, setFinishedRuns] = useState(0);
@@ -458,49 +471,54 @@ const ChatSession = observer(function ChatSession(props: SessionProps) {
   });
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      {traceTools.map(({ name, ToolUI }) => (
-        <ToolUI key={name} />
-      ))}
-      <ExportMusicExcelCard />
-      <PlanMusicImportCard />
-      <UpdateMusicTrackCard />
-      <MergeTagsCard />
-      <ProposeMemoryCard />
-      <TaggingCard />
-      <WorkItemCard />
-      <WorkLinksCard />
-      <AlbumGroupingCard />
-      <PageCard />
-      <PageEditCard />
-      <ReportCard />
-      <PdfSplitCard />
-      <PdfMergeCard />
-      <PdfPagesCard />
-      <DeepReviewCard />
-      <StartTagMappingCard />
-      <AskUserCard />
-      <ShowDocumentsCard />
-      <AssistantThread
-        suggestions={suggestions}
-        allowAttachments={libraryEnabled || musicImport}
-        composerAccessory={modelPicker}
-        composerTrailing={
-          <>
-            <AssistantHelp music={musicEnabled} />
-            {isAdmin && <AssistantUsageMeter workspaceSlug={workspaceSlug} turns={turns} finishedRuns={finishedRuns} />}
-          </>
-        }
-        contextBar={
-          <ContextBar
-            workspaceSlug={workspaceSlug}
-            context={effectiveContext}
-            resolveNames={referencesEnabled}
-            onRemove={(key) => setRemoved((value) => new Set(value).add(key))}
-          />
-        }
-      />
-    </AssistantRuntimeProvider>
+    <AssistantChatContext.Provider value={chatContext}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        {traceTools.map(({ name, ToolUI }) => (
+          <ToolUI key={name} />
+        ))}
+        <ExportMusicExcelCard />
+        <PlanMusicImportCard />
+        <UpdateMusicTrackCard />
+        <MergeTagsCard />
+        <ProposeMemoryCard />
+        <TaggingCard />
+        <WorkItemCard />
+        <WorkLinksCard />
+        <AlbumGroupingCard />
+        <PageCard />
+        <PageEditCard />
+        <ReportCard />
+        <PdfSplitCard />
+        <PdfMergeCard />
+        <PdfPagesCard />
+        <TemplateEditCard />
+        <DeepReviewCard />
+        <StartTagMappingCard />
+        <AskUserCard />
+        <ShowDocumentsCard />
+        <AssistantThread
+          suggestions={suggestions}
+          allowAttachments={libraryEnabled || musicImport}
+          composerAccessory={modelPicker}
+          composerTrailing={
+            <>
+              <AssistantHelp music={musicEnabled} />
+              {isAdmin && (
+                <AssistantUsageMeter workspaceSlug={workspaceSlug} turns={turns} finishedRuns={finishedRuns} />
+              )}
+            </>
+          }
+          contextBar={
+            <ContextBar
+              workspaceSlug={workspaceSlug}
+              context={effectiveContext}
+              resolveNames={referencesEnabled}
+              onRemove={(key) => setRemoved((value) => new Set(value).add(key))}
+            />
+          }
+        />
+      </AssistantRuntimeProvider>
+    </AssistantChatContext.Provider>
   );
 });
 

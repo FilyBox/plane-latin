@@ -804,6 +804,9 @@ def _normalise_variable_settings(value):
             item["required"] = bool(raw["required"])
         if raw.get("date_format") in {"long", "iso"}:
             item["date_format"] = raw["date_format"]
+        # The template wrote this value in capitals ("JUAN PÉREZ"): keep it so
+        if raw.get("case") == "upper":
+            item["case"] = "upper"
         if isinstance(raw.get("options"), list):
             item["options"] = [str(option)[:255] for option in raw["options"][:100] if str(option).strip()]
         if item:

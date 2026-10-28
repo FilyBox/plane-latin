@@ -527,6 +527,8 @@ export type TContractTemplateVariant = {
   variable_settings?: Record<string, TContractVariableSetting>;
   /** Role names by zero-based signer index, e.g. {"0": "Representante"}. */
   recipient_roles?: Record<string, string>;
+  /** Set when the assistant made the variant: {by: "assistant", from_variant, from_revision, action_id} */
+  origin?: { by?: string; from_variant?: string; from_revision?: number; action_id?: string };
   created_at: string;
   updated_at: string;
 };

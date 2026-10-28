@@ -52,6 +52,7 @@ import { repairTruncatedJson } from "./lib/json-repair";
 import { collectEntities, linkMentions } from "./lib/page-links";
 import { visionModel } from "./lib/vision";
 import { buildPdfTools } from "./pdf-tools";
+import { TEMPLATE_FORMAT_PROMPT, buildTemplateTools } from "./template-tools";
 import { ANALYSIS_SYSTEM, contractPrefix, worksPrompt } from "./prompts";
 
 export type AssistantPageContext = {
@@ -317,6 +318,7 @@ PDFs DE LA BIBLIOTECA (separar, unir, páginas)
 - Al proponer, di en una o dos frases cuántos archivos salen, que van a una carpeta nueva junto al original (que no cambia) y que se analizarán como contratos (la tarjeta permite apagarlo). Si analyze_pdf_segments marca cortes con confianza baja (low_confidence) o páginas sin leer, dilo en una frase. Nunca digas que ya quedó hecho: la persona revisa y aplica en la tarjeta.`
     : ""
 }
+${caps.contracts ? TEMPLATE_FORMAT_PROMPT : ""}
 PÁGINAS
 - Cuándo: el usuario pide una página o "page" ("haz / crea / genera / arma una page", "pon esto en una página", "guárdalo como página", "hazme un informe, dossier, minuta o tabla en una página"), aunque lo diga de pasada o en inglés. Termina SIEMPRE con propose_page; no respondas solo con texto ni con una tabla en el chat.
 - Datos: primero reúne lo que vaya en la página con las herramientas (nunca inventes cifras, fechas ni nombres). Si la página es sobre algo de turnos anteriores ("esos contratos que me dijiste") y ya no tienes sus ids a la vista, vuelve a consultarlos antes de escribir.
@@ -670,7 +672,7 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
   }
 
   if (caps.contracts && body.user_id) {
-    tools = { ...tools, ...buildPdfTools(env, api, body) };
+    tools = { ...tools, ...buildPdfTools(env, api, body), ...buildTemplateTools(api, body) };
   }
 
   if (caps.deepReview) {

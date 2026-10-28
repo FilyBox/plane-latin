@@ -23,21 +23,24 @@ import { useMember } from "@/hooks/store/use-member";
 import { useProject } from "@/hooks/store/use-project";
 import { assistantService } from "@/services/assistant.service";
 import { AssistantLink } from "./links";
+import { outcomeFromAction, setServerOutcome, useChatId, useServerOutcome } from "./outcome-store";
+import type { TOutcome } from "./outcome-store";
 import { TraceLine } from "./steps";
 
 export const CARD = "min-w-0 rounded-lg border border-subtle bg-layer-1 p-3";
 export const FIELD =
   "w-full rounded-md border border-subtle bg-transparent px-2 py-1.5 text-12 text-primary outline-none focus:border-accent-strong";
 
-type TOutcome = {
-  state: "idle" | "busy" | "applied" | "undone" | "discarded";
-  id?: string;
-  result?: Record<string, unknown>;
-};
-
-/** Card outcome kept per tool call, so a reopened chat shows what happened. */
+/**
+ * Card outcome per tool call. The server's record wins (a card applied in
+ * another tab shows as applied); sessionStorage only caches it. The third
+ * value goes with every apply: the server refuses to apply a card twice.
+ */
 export function useOutcome(key: string) {
-  const [outcome, setOutcome] = useState<TOutcome>(() => {
+  const toolCallId = key.slice(key.indexOf(":") + 1);
+  const chatId = useChatId();
+  const server = useServerOutcome(toolCallId);
+  const [local, setLocal] = useState<TOutcome>(() => {
     try {
       return JSON.parse(sessionStorage.getItem(key) ?? "null") ?? { state: "idle" };
     } catch {
@@ -45,14 +48,17 @@ export function useOutcome(key: string) {
     }
   });
   const remember = (next: TOutcome) => {
-    setOutcome(next);
+    setLocal(next);
+    if (next.state === "applied" || next.state === "undone") setServerOutcome(toolCallId, next);
     try {
       sessionStorage.setItem(key, JSON.stringify(next));
     } catch {
       // The outcome then lasts for this page only.
     }
   };
-  return [outcome, remember] as const;
+  const outcome = local.state === "busy" || !server ? local : server;
+  const meta = { tool_call_id: toolCallId, chat_id: chatId() ?? undefined };
+  return [outcome, remember, meta] as const;
 }
 
 export const alreadyUndone = (error: unknown) => /already undone/i.test(errorText(error, ""));
@@ -138,7 +144,7 @@ export const TaggingCard = makeAssistantToolUI<Record<string, unknown>, TTagging
   toolName: "propose_tagging",
   render: function TaggingRender({ result, status, toolCallId }) {
     const { t } = useTranslation();
-    const [outcome, remember] = useOutcome(`assistant-tagging:${toolCallId}`);
+    const [outcome, remember, meta] = useOutcome(`assistant-tagging:${toolCallId}`);
     const [excluded, setExcluded] = useState<Set<string>>(new Set());
     if (status.type === "running" || !result) {
       return <TraceLine live icon={Tag} label={t("assistant.steps.propose_tagging.running")} />;
@@ -156,12 +162,13 @@ export const TaggingCard = makeAssistantToolUI<Record<string, unknown>, TTagging
       remember({ state: "busy" });
       try {
         const action = await assistantService.createAction(slug, {
+          ...meta,
           kind: removing ? "UNTAG_ITEMS" : "TAG_ITEMS",
           tag_id: result.tag!.id,
           tag_name: result.tag!.is_new ? result.tag!.name : undefined,
           items: chosen.map(({ entity_name, id }) => ({ entity_name, id })),
         });
-        remember({ state: "applied", id: action.id, result: action.result });
+        remember(outcomeFromAction(action));
         void refreshTags();
       } catch (error) {
         remember({ state: "idle" });
@@ -286,7 +293,7 @@ const WorkItemForm = observer(function WorkItemForm({
   const slug = proposal.workspace_slug!;
   const { joinedProjectIds, getProjectById } = useProject();
   const memberRoot = useMember();
-  const [outcome, remember] = useOutcome(`assistant-work-item:${toolCallId}`);
+  const [outcome, remember, meta] = useOutcome(`assistant-work-item:${toolCallId}`);
 
   const projects = useMemo(
     () => joinedProjectIds.map((id) => getProjectById(id)).filter((project) => !!project && !project.archived_at),
@@ -331,6 +338,7 @@ const WorkItemForm = observer(function WorkItemForm({
     remember({ state: "busy" });
     try {
       const action = await assistantService.createAction(slug, {
+        ...meta,
         kind: "CREATE_WORK_ITEM",
         project_id: projectId,
         name,
@@ -340,7 +348,7 @@ const WorkItemForm = observer(function WorkItemForm({
         target_date: dueDate || undefined,
         references: references.map(({ entity_name, id }) => ({ entity_name, id })),
       });
-      remember({ state: "applied", id: action.id, result: action.result });
+      remember(outcomeFromAction(action));
     } catch (error) {
       remember({ state: "idle" });
       setToast({ type: TOAST_TYPE.ERROR, title: errorText(error, t("assistant.actions.failed")) });

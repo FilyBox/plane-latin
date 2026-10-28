@@ -34,6 +34,7 @@ import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { cn } from "@plane/utils";
 import { assistantService } from "@/services/assistant.service";
 import { CARD, FIELD, Footer, alreadyUndone, errorText, useOutcome } from "./action-cards";
+import { outcomeFromAction } from "./outcome-store";
 import { AssistantLink } from "./links";
 import { TraceLine } from "./steps";
 
@@ -154,12 +155,12 @@ export function pagesFor(
 /** Apply and undo for one card, with the outcome kept per tool call. */
 function usePdfAction(slug: string, key: string) {
   const { t } = useTranslation();
-  const [outcome, remember] = useOutcome(key);
+  const [outcome, remember, meta] = useOutcome(key);
   const apply = async (body: Record<string, unknown>) => {
     remember({ state: "busy" });
     try {
-      const action = await assistantService.createAction(slug, body);
-      remember({ state: "applied", id: action.id, result: action.result });
+      const action = await assistantService.createAction(slug, { ...meta, ...body });
+      remember(outcomeFromAction(action));
       void refreshLibrary();
     } catch (error) {
       remember({ state: "idle" });

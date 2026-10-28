@@ -12,12 +12,20 @@ import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft,
+  ClipboardCheck,
+  FileCog,
   FilePen,
+  FilePlus2,
+  FileSignature,
   FileStack,
   FileText,
   Files,
+  FolderCog,
+  ListChecks,
   ListTodo,
   Merge,
+  MessageSquare,
+  Receipt,
   Scissors,
   Tag,
   Tags,
@@ -43,6 +51,15 @@ const ICONS: Record<TAssistantAction["kind"], LucideIcon> = {
   SPLIT_PDF: Scissors,
   MERGE_PDF: Files,
   EDIT_PDF_PAGES: FileStack,
+  CREATE_TEMPLATE_VARIANT: FilePlus2,
+  EDIT_TEMPLATE_VARIANT: FileCog,
+  CREATE_CONTRACT_DRAFT: FileSignature,
+  EDIT_CONTRACT: FilePen,
+  EDIT_WORK_ITEMS: ListChecks,
+  COMMENT_WORK_ITEM: MessageSquare,
+  ORGANIZE_FILES: FolderCog,
+  CREATE_EXPENSES: Receipt,
+  CATALOG_FIXES: ClipboardCheck,
 };
 
 const errorText = (error: unknown, fallback: string) => {

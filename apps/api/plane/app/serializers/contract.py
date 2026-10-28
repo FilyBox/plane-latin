@@ -258,6 +258,7 @@ class ContractTemplateVariantSerializer(BaseSerializer):
             "authoring_settings",
             "variable_settings",
             "recipient_roles",
+            "origin",
             "draft",
             "created_at",
             "updated_at",

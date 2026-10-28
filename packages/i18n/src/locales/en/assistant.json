@@ -278,7 +278,19 @@
         "running": "Preparing the pages",
         "done": "Prepared the pages"
       },
-      "pdf_segments": "{name} · {documents, plural, one {# document} other {# documents}} in {pages, plural, one {# page} other {# pages}}"
+      "pdf_segments": "{name} · {documents, plural, one {# document} other {# documents}} in {pages, plural, one {# page} other {# pages}}",
+      "find_contract_templates": {
+        "running": "Looking for contract templates",
+        "done": "Looked for contract templates"
+      },
+      "read_contract_template": {
+        "running": "Reading the template",
+        "done": "Read the template"
+      },
+      "propose_template_edit": {
+        "running": "Preparing the template changes",
+        "done": "Prepared the template changes"
+      }
     },
     "export": {
       "title": "Excel ready",
@@ -693,6 +705,44 @@
         "IDENTIFICACION": "ID",
         "OTRO": "Other"
       }
+    },
+    "templates": {
+      "title": "Change the template «{template}»",
+      "base": "Base: {variant}, version {version}",
+      "draft_ignored": "it has an unpublished Word draft: the published text was used",
+      "new_paragraph": "{count, plural, one {New paragraph} other {# new paragraphs}}",
+      "locations": {
+        "body": "Body",
+        "table": "Table",
+        "textbox": "Text box",
+        "header": "Header",
+        "footer": "Footer",
+        "footnote": "Footnote",
+        "endnote": "Endnote"
+      },
+      "loose": "matched ignoring case and accents",
+      "variable_added": "New variable: {label} · {key}",
+      "required": "required",
+      "upper": "in capitals",
+      "variable_removed": "Variable removed: {key}",
+      "signer_added": "Signer {index} gets a field",
+      "warnings": {
+        "mixed_format": "«{text}» had mixed formats; the value will use the format of its longest part.",
+        "track_changes_on": "Track changes is on in this document: these edits are applied directly, not as tracked changes."
+      },
+      "manual_fields": "{count, plural, one {There is # field placed by hand} other {There are # fields placed by hand}}: check them in Configure fields.",
+      "verified": "Format kept: the text of {runs, plural, one {# run} other {# runs}} in {paragraphs, plural, one {# paragraph} other {# paragraphs}} changed; nothing else in the document.",
+      "new_variant_name": "Name of the new variant",
+      "new_version_of": "Saved as a new version of «{variant}» (you asked to change that variant).",
+      "base_untouched": "The base variant and its versions stay as they are.",
+      "preview": "Preview (PDF)",
+      "preview_failed": "The preview could not be made.",
+      "pages_changed": "The number of pages changes ({pages}).",
+      "created": "Variant «{name}» created",
+      "versioned": "Version {version} saved",
+      "open": "Open",
+      "apply_new": "Create variant",
+      "apply_version": "Save new version"
     }
   }
 }

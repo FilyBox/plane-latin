@@ -29,3 +29,9 @@ from .deep_review import (
     InternalDeepReviewStateEndpoint,
     InternalDeepReviewTextEndpoint,
 )
+from .templates import (
+    AssistantTemplatePreviewEndpoint,
+    InternalAssistantTemplateDryRunEndpoint,
+    InternalAssistantTemplateOutlineEndpoint,
+    InternalAssistantTemplatesEndpoint,
+)

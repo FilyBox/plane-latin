@@ -28,7 +28,7 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import useSWR, { useSWRConfig } from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
@@ -175,9 +175,17 @@ export function ContractTemplateDetail({ workspaceSlug, templateId }: Props) {
     { revalidateOnFocus: false }
   );
 
+  // ?variant=<id> (the assistant's link to a variant it made) selects it
+  const [searchParams] = useSearchParams();
+  const linkedVariantId = searchParams.get("variant");
   useEffect(() => {
-    if (!selectedVariantId && template?.variants[0]) setSelectedVariantId(template.variants[0].id);
-  }, [selectedVariantId, template]);
+    if (!template) return;
+    if (linkedVariantId && template.variants.some((variant) => variant.id === linkedVariantId)) {
+      if (!selectedVariantId) setSelectedVariantId(linkedVariantId);
+      return;
+    }
+    if (!selectedVariantId && template.variants[0]) setSelectedVariantId(template.variants[0].id);
+  }, [selectedVariantId, template, linkedVariantId]);
 
   useEffect(() => {
     setSelectedVersionId("CURRENT");
@@ -1306,6 +1314,11 @@ function VariantRail({
                   {hasPendingDraft(variant) ? (
                     <span className="rounded-sm bg-warning-primary/10 px-1 text-10 text-warning-primary">
                       {t("file_library.contracts.workflow.draft.badge")}
+                    </span>
+                  ) : null}
+                  {variant.origin?.by === "assistant" ? (
+                    <span className="rounded-sm bg-layer-2 px-1 text-10 text-secondary">
+                      {t("file_library.contracts.workflow.detail.generated_by_assistant")}
                     </span>
                   ) : null}
                 </span>
