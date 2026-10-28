@@ -326,6 +326,15 @@
       "propose_file_organization": {
         "running": "Preparando los cambios a la biblioteca",
         "done": "Preparó los cambios a la biblioteca"
+      },
+      "findings": "{count, plural, one {# hallazgo} other {# hallazgos}}",
+      "audit_catalog": {
+        "running": "Revisando el catálogo",
+        "done": "Revisó el catálogo"
+      },
+      "propose_catalog_fixes": {
+        "running": "Preparando las correcciones del catálogo",
+        "done": "Preparó las correcciones del catálogo"
       }
     },
     "export": {
@@ -371,7 +380,8 @@
         "video_url": "Video nuevo",
         "video_release_date": "Fecha del video",
         "video_isrc": "ISRC del video"
-      }
+      },
+      "source_user": "Lo pidió el usuario en el chat"
     },
     "ask": {
       "other": "Otra respuesta…",
@@ -897,6 +907,38 @@
       "done": "{count, plural, one {# cambio aplicado} other {# cambios aplicados}}",
       "open": "Abrir la biblioteca",
       "apply": "{count, plural, one {Aplicar # cambio} other {Aplicar # cambios}}"
+    },
+    "catalog_fixes": {
+      "title": "{count, plural, one {Corregir el catálogo: # elemento} other {Corregir el catálogo: # elementos}}",
+      "video": "video musical",
+      "source": "de: {source}",
+      "done": "{count, plural, one {# corrección aplicada} other {# correcciones aplicadas}}",
+      "apply": "{count, plural, one {Aplicar # corrección} other {Aplicar # correcciones}}",
+      "fields": {
+        "title": "Título",
+        "version": "Versión",
+        "isrc": "ISRC",
+        "isrc_video": "ISRC del video",
+        "release_date": "Fecha de lanzamiento",
+        "original_release_date": "Fecha de lanzamiento original",
+        "recording_date": "Fecha de grabación",
+        "language": "Idioma",
+        "explicit": "Explícito",
+        "instrumental": "Instrumental",
+        "p_line": "Línea ℗",
+        "c_line": "Línea ©",
+        "artist_percentage": "% artista",
+        "record_label_percentage": "% sello",
+        "distributor_percentage": "% distribuidora",
+        "aggregator_percentage": "% agregadora",
+        "writer_percentage": "% autor",
+        "upc": "UPC",
+        "label_name": "Sello",
+        "catalog_number": "Número de catálogo",
+        "copyright_year": "Año de copyright",
+        "percentage": "Porcentaje",
+        "publishing_share": "Porcentaje editorial"
+      }
     }
   }
 }

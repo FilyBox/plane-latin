@@ -26,6 +26,7 @@ def register_apply(kind):
 def _load():
     """Each module registers its kinds when imported."""
     from plane.utils import (  # noqa: F401
+        assistant_catalog,
         assistant_contract_drafts,
         assistant_contract_edits,
         assistant_expenses,

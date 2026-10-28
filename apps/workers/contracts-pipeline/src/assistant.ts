@@ -56,6 +56,7 @@ import { TEMPLATE_FORMAT_PROMPT, buildTemplateTools } from "./template-tools";
 import { WORKSPACE_EDIT_PROMPT, buildWorkspaceEditTools } from "./workspace-edit-tools";
 import { EXPENSES_PROMPT, buildExpenseTools } from "./expense-tools";
 import { LIBRARY_PROMPT, buildLibraryTools } from "./library-tools";
+import { CATALOG_AUDIT_PROMPT, buildCatalogTools } from "./catalog-tools";
 import { ANALYSIS_SYSTEM, contractPrefix, worksPrompt } from "./prompts";
 
 export type AssistantPageContext = {
@@ -285,7 +286,7 @@ CONTRATOS (cientos de documentos)
 CATÁLOGO MUSICAL
 - query_music_tracks para canciones (artista, año, fechas, ISRC, estado, con video, con enlaces, y por los videos: fechas, ISRC o UPC del video). Cada canción trae sus videos (ISRC, UPC, fecha, URLs) y sus enlaces. Devuelve pocas filas y el total; para listados largos usa export_music_excel o propose_report.
 - export_music_excel cuando pidan un listado descargable, con los mismos filtros.
-- update_music_track para cambiar una canción (fechas, ISRC, agregar un video). Devuelve una propuesta que el usuario aprueba.
+- update_music_track para cambiar una canción (fechas, ISRC, agregar un video) que pidió el usuario. Devuelve una propuesta que el usuario aprueba y puede deshacer.
 - IMPORTAR un CSV/XLSX: 1) read_import_file con el asset_id (los adjuntos del chat ya lo traen; si no, list_music_files). 2) Decide tú el mapeo leyendo el CONTENIDO de cada columna (column_samples), no solo su nombre. 3) plan_music_import con ese mapeo: valida el archivo sin importar nada. 4) Resume el plan en una o dos frases y dile al usuario que pulse "Revisar e importar": se abre el importador de Música con tu mapeo para revisar valores, duplicados y confirmar. No intentes resolver ahí cada fila.
 - AGRUPAR CANCIONES EN ÁLBUMES: cuando el usuario pida agrupar, armar o acomodar canciones en álbumes a partir de una lista (escrita en el chat o en un archivo adjunto o mencionado: PDF, Word, hoja de cálculo), 1) si es un archivo, léelo con read_file; 2) extrae cada álbum con su lista de canciones tal como aparece: título, artistas, UPC del álbum, ISRC, disco y número de pista solo si vienen; no inventes ni completes datos que no estén; 3) llama propose_album_grouping con todos los álbumes (una sola llamada). La tarjeta muestra para cada álbum el lanzamiento existente o uno nuevo, los duplicados que se unirán y la canción del catálogo de cada pista; el usuario revisa y aplica ahí. Resume en una frase lo que encontró (cuántas canciones coinciden, cuáles faltan o son ambiguas) y nunca digas que ya quedó agrupado.
 - "Junta / une los lanzamientos duplicados de X" (el mismo álbum repetido): propose_album_grouping con ese álbum (título y artistas) y sin canciones, o con las que el usuario nombre; la tarjeta lista los duplicados con su número de canciones para unirlos.`
@@ -328,6 +329,7 @@ ${caps.contracts ? TEMPLATE_FORMAT_PROMPT : ""}
 ${WORKSPACE_EDIT_PROMPT(caps.contracts)}
 ${caps.expenses ? EXPENSES_PROMPT : ""}
 ${caps.contracts ? LIBRARY_PROMPT : ""}
+${caps.music ? CATALOG_AUDIT_PROMPT : ""}
 PÁGINAS
 - Cuándo: el usuario pide una página o "page" ("haz / crea / genera / arma una page", "pon esto en una página", "guárdalo como página", "hazme un informe, dossier, minuta o tabla en una página"), aunque lo diga de pasada o en inglés. Termina SIEMPRE con propose_page; no respondas solo con texto ni con una tabla en el chat.
 - Datos: primero reúne lo que vaya en la página con las herramientas (nunca inventes cifras, fechas ni nombres). Si la página es sobre algo de turnos anteriores ("esos contratos que me dijiste") y ya no tienes sus ids a la vista, vuelve a consultarlos antes de escribir.
@@ -693,6 +695,9 @@ function buildTools(env: Env, body: AssistantChatRequest, caps: Caps) {
   }
   if (caps.expenses) {
     tools = { ...tools, ...buildExpenseTools(api, body) };
+  }
+  if (caps.music && body.user_id) {
+    tools = { ...tools, ...buildCatalogTools(api, body) };
   }
 
   if (caps.deepReview) {

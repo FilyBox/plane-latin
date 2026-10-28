@@ -25,7 +25,6 @@ import { mutate as mutateGlobal } from "swr";
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
-import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import type { TContractAgentDocument, TMusicFilters } from "@plane/types";
 import { cn } from "@plane/utils";
 import {
@@ -35,6 +34,8 @@ import {
 import { importDraftKey } from "@/components/music-catalog/import/constants";
 import { useUserPermissions } from "@/hooks/store/user";
 import { musicService } from "@/services/music.service";
+import { Footer, useOutcome } from "./action-cards";
+import { UndoConflicts, useCardActions } from "./card-kit";
 import { AssistantLink, useAssistantNavigate } from "./links";
 import { TraceLine } from "./steps";
 
@@ -232,20 +233,105 @@ const CHANGE_FIELDS = [
   "video_isrc",
 ] as const;
 
+/** A song change the user asked for: a CATALOG_FIXES action, undoable. */
+function UpdateTrackForm({ result, toolCallId }: { result: TUpdateResult; toolCallId: string }) {
+  const { t } = useTranslation();
+  const slug = result.workspace_slug!;
+  const [outcome, remember, meta] = useOutcome(`assistant-update-track:${toolCallId}`);
+  const { apply, undo } = useCardActions(slug, outcome, remember, meta);
+  // Cards applied before changes had undo kept only this marker
+  const [legacy] = useState(() => {
+    try {
+      return sessionStorage.getItem(`assistant-update:${toolCallId}`);
+    } catch {
+      return null;
+    }
+  });
+  const changes = result.changes ?? {};
+  const before = result.before ?? {};
+  const busy = outcome.state === "busy";
+
+  const run = async () => {
+    const fields: Record<string, string> = {};
+    for (const key of ["release_date", "original_release_date", "isrc"] as const) {
+      if (changes[key]) fields[key] = changes[key];
+    }
+    const action = await apply({
+      kind: "CATALOG_FIXES",
+      items: [
+        {
+          entity: "music_track",
+          id: result.track_id,
+          changes: fields,
+          add_video: changes.video_url
+            ? { video_url: changes.video_url, release_date: changes.video_release_date, isrc: changes.video_isrc }
+            : undefined,
+          source: t("assistant.update.source_user"),
+          source_type: "user",
+        },
+      ],
+    });
+    if (action)
+      void mutateGlobal((key) => typeof key === "string" && key.startsWith("MUSIC_"), undefined, { revalidate: true });
+  };
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-center gap-2">
+        <PencilLine className="size-4 shrink-0 text-tertiary" aria-hidden />
+        <p className="min-w-0 flex-1 truncate text-13 font-medium text-primary">{t("assistant.update.title")}</p>
+      </div>
+      <p className="mt-1 truncate text-12">
+        {result.path ? <AssistantLink href={result.path}>{result.title}</AssistantLink> : result.title}
+        {result.artists && <span className="text-tertiary"> · {result.artists}</span>}
+      </p>
+      <table className="mt-2 w-full text-12">
+        <thead>
+          <tr className="text-left text-11 text-tertiary">
+            <th className="font-normal py-1 pr-2">{t("assistant.update.field")}</th>
+            <th className="font-normal py-1 pr-2">{t("assistant.update.before")}</th>
+            <th className="font-normal py-1">{t("assistant.update.after")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {CHANGE_FIELDS.filter((key) => changes[key]).map((key) => (
+            <tr key={key} className="border-t border-subtle align-top">
+              <td className="py-1 pr-2 whitespace-nowrap text-tertiary">{t(`assistant.update.fields.${key}`)}</td>
+              <td className="py-1 pr-2 break-all text-tertiary line-through decoration-1">
+                {key.startsWith("video") ? "—" : String(before[key] ?? "—")}
+              </td>
+              <td className="py-1 break-all text-primary">{changes[key]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {changes.video_url && <p className="mt-1.5 text-11 text-tertiary">{t("assistant.update.video_added")}</p>}
+      <UndoConflicts outcome={outcome} label={(field) => t(`assistant.update.fields.${field}`)} />
+      {legacy === "applied" || legacy === "discarded" ? (
+        <p className="mt-2.5 flex items-center gap-1.5 text-12 text-tertiary">
+          {legacy === "applied" ? <Check className="size-3.5" /> : <X className="size-3.5" />}
+          {t(legacy === "applied" ? "assistant.update.applied" : "assistant.update.discarded")}
+        </p>
+      ) : (
+        <Footer
+          outcome={outcome}
+          busy={busy}
+          doneLabel={t("assistant.update.applied")}
+          applyLabel={t("assistant.update.approve")}
+          onApply={() => void run()}
+          onDiscard={() => remember({ state: "discarded" })}
+          onUndo={() => void undo()}
+        />
+      )}
+    </div>
+  );
+}
+
 export const UpdateMusicTrackCard = makeAssistantToolUI<Record<string, unknown>, TUpdateResult>({
   toolName: "update_music_track",
   render: function UpdateRender({ result, status, toolCallId }) {
     const { t } = useTranslation();
     const { workspaceSlug } = useParams();
-    // Remembered per call so a reopened chat keeps the outcome.
-    const storageKey = `assistant-update:${toolCallId}`;
-    const [state, setState] = useState<"idle" | "busy" | "applied" | "discarded">(() => {
-      try {
-        return (sessionStorage.getItem(storageKey) as "applied" | "discarded" | null) ?? "idle";
-      } catch {
-        return "idle";
-      }
-    });
     if (status.type === "running" || !result) {
       return <TraceLine live icon={PencilLine} label={t("assistant.steps.update_music_track.running")} />;
     }
@@ -264,97 +350,10 @@ export const UpdateMusicTrackCard = makeAssistantToolUI<Record<string, unknown>,
         </div>
       );
     }
-    if (result.error || !result.track_id) {
+    if (result.error || !result.track_id || !result.workspace_slug) {
       return <p className="text-12 text-tertiary">{result.error ?? t("assistant.update.not_found")}</p>;
     }
-
-    const changes = result.changes ?? {};
-    const remember = (next: "applied" | "discarded") => {
-      setState(next);
-      try {
-        sessionStorage.setItem(storageKey, next);
-      } catch {
-        // Outcome stays for this session only.
-      }
-    };
-    const apply = async () => {
-      setState("busy");
-      try {
-        const payload: Record<string, unknown> = { id: result.track_id };
-        for (const key of ["release_date", "original_release_date", "isrc"] as const) {
-          if (changes[key]) payload[key] = changes[key];
-        }
-        if (changes.video_url) {
-          payload.video_append = [
-            { video_url: changes.video_url, release_date: changes.video_release_date, isrc: changes.video_isrc },
-          ];
-        }
-        await musicService.saveTrack(result.workspace_slug ?? String(workspaceSlug), payload as never);
-        void mutateGlobal((key) => typeof key === "string" && key.startsWith("MUSIC_"), undefined, {
-          revalidate: true,
-        });
-        remember("applied");
-        setToast({ type: TOAST_TYPE.SUCCESS, title: t("assistant.update.applied") });
-      } catch {
-        setState("idle");
-        setToast({ type: TOAST_TYPE.ERROR, title: t("assistant.update.failed") });
-      }
-    };
-
-    const before = result.before ?? {};
-    return (
-      <div className={CARD}>
-        <div className="flex items-center gap-2">
-          <PencilLine className="size-4 shrink-0 text-tertiary" aria-hidden />
-          <p className="min-w-0 flex-1 truncate text-13 font-medium text-primary">{t("assistant.update.title")}</p>
-        </div>
-        <p className="mt-1 truncate text-12">
-          {result.path ? <AssistantLink href={result.path}>{result.title}</AssistantLink> : result.title}
-          {result.artists && <span className="text-tertiary"> · {result.artists}</span>}
-        </p>
-        <table className="mt-2 w-full text-12">
-          <thead>
-            <tr className="text-left text-11 text-tertiary">
-              <th className="font-normal py-1 pr-2">{t("assistant.update.field")}</th>
-              <th className="font-normal py-1 pr-2">{t("assistant.update.before")}</th>
-              <th className="font-normal py-1">{t("assistant.update.after")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {CHANGE_FIELDS.filter((key) => changes[key]).map((key) => (
-              <tr key={key} className="border-t border-subtle align-top">
-                <td className="py-1 pr-2 whitespace-nowrap text-tertiary">{t(`assistant.update.fields.${key}`)}</td>
-                <td className="py-1 pr-2 break-all text-tertiary line-through decoration-1">
-                  {key.startsWith("video") ? "—" : String(before[key] ?? "—")}
-                </td>
-                <td className="py-1 break-all text-primary">{changes[key]}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {changes.video_url && <p className="mt-1.5 text-11 text-tertiary">{t("assistant.update.video_added")}</p>}
-        {state === "applied" || state === "discarded" ? (
-          <p
-            className={cn(
-              "mt-2.5 flex items-center gap-1.5 text-12",
-              state === "applied" ? "text-success-primary" : "text-tertiary"
-            )}
-          >
-            {state === "applied" ? <Check className="size-3.5" /> : <X className="size-3.5" />}
-            {t(state === "applied" ? "assistant.update.applied" : "assistant.update.discarded")}
-          </p>
-        ) : (
-          <div className="mt-2.5 flex justify-end gap-1.5">
-            <Button variant="secondary" size="sm" disabled={state === "busy"} onClick={() => remember("discarded")}>
-              {t("assistant.update.discard")}
-            </Button>
-            <Button variant="primary" size="sm" loading={state === "busy"} onClick={() => void apply()}>
-              {t("assistant.update.approve")}
-            </Button>
-          </div>
-        )}
-      </div>
-    );
+    return <UpdateTrackForm result={result} toolCallId={toolCallId} />;
   },
 });
 

@@ -326,6 +326,15 @@
       "propose_file_organization": {
         "running": "Preparing the changes to the library",
         "done": "Prepared the changes to the library"
+      },
+      "findings": "{count, plural, one {# finding} other {# findings}}",
+      "audit_catalog": {
+        "running": "Checking the catalog",
+        "done": "Checked the catalog"
+      },
+      "propose_catalog_fixes": {
+        "running": "Preparing the catalog corrections",
+        "done": "Prepared the catalog corrections"
       }
     },
     "export": {
@@ -371,7 +380,8 @@
         "video_url": "New video",
         "video_release_date": "Video date",
         "video_isrc": "Video ISRC"
-      }
+      },
+      "source_user": "Asked by the user in the chat"
     },
     "ask": {
       "other": "Another answer…",
@@ -897,6 +907,38 @@
       "done": "{count, plural, one {# change applied} other {# changes applied}}",
       "open": "Open the library",
       "apply": "{count, plural, one {Apply # change} other {Apply # changes}}"
+    },
+    "catalog_fixes": {
+      "title": "{count, plural, one {Correct the catalog: # item} other {Correct the catalog: # items}}",
+      "video": "music video",
+      "source": "from: {source}",
+      "done": "{count, plural, one {# correction applied} other {# corrections applied}}",
+      "apply": "{count, plural, one {Apply # correction} other {Apply # corrections}}",
+      "fields": {
+        "title": "Title",
+        "version": "Version",
+        "isrc": "ISRC",
+        "isrc_video": "Video ISRC",
+        "release_date": "Release date",
+        "original_release_date": "Original release date",
+        "recording_date": "Recording date",
+        "language": "Language",
+        "explicit": "Explicit",
+        "instrumental": "Instrumental",
+        "p_line": "℗ line",
+        "c_line": "© line",
+        "artist_percentage": "Artist %",
+        "record_label_percentage": "Label %",
+        "distributor_percentage": "Distributor %",
+        "aggregator_percentage": "Aggregator %",
+        "writer_percentage": "Writer %",
+        "upc": "UPC",
+        "label_name": "Label",
+        "catalog_number": "Catalog number",
+        "copyright_year": "Copyright year",
+        "percentage": "Percentage",
+        "publishing_share": "Publishing share"
+      }
     }
   }
 }

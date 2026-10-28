@@ -38,6 +38,8 @@ from .templates import (
     InternalAssistantTemplatesEndpoint,
 )
 from .workspace_edits import (
+    InternalAssistantCatalogAuditEndpoint,
+    InternalAssistantCatalogFixesEndpoint,
     InternalAssistantDuplicatesEndpoint,
     InternalAssistantFolderEndpoint,
     InternalAssistantOrganizePlanEndpoint,

@@ -74,6 +74,7 @@ export const TRACE_TOOLS = new Set([
   "query_work_items",
   "list_folder",
   "find_duplicate_files",
+  "audit_catalog",
 ]);
 
 export const formatDuration = (seconds: number) =>
@@ -720,6 +721,16 @@ export function buildTraceToolUIs(slug: string) {
         t("assistant.steps.results", {
           count: ((result.exact as unknown[]) ?? []).length + ((result.possible as unknown[]) ?? []).length,
         }),
+    }),
+    traceTool("audit_catalog", {
+      icon: ScanSearch,
+      input: (args) => text(args?.artist ?? args?.release),
+      output: (result, t) => {
+        const checks = (result.checks as Record<string, { count?: number }>) ?? {};
+        return t("assistant.steps.findings", {
+          count: Object.values(checks).reduce((total, check) => total + (check.count ?? 0), 0),
+        });
+      },
     }),
     traceTool("query_work_items", {
       icon: ListChecks,

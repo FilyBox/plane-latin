@@ -13,6 +13,7 @@ from plane.app.permissions import ROLE, allow_permission
 from plane.app.views.base import BaseAPIView
 from plane.app.views.contract.internal import InternalBaseView
 from plane.utils.assistant_actions import ActionError
+from plane.utils.assistant_catalog import audit, fixes_preview
 from plane.utils.assistant_contract_edits import edit_preview
 from plane.utils.assistant_expenses import can_use as can_use_expenses
 from plane.utils.assistant_expenses import drafts as expense_drafts
@@ -110,3 +111,17 @@ class InternalAssistantDuplicatesEndpoint(InternalBaseView):
 class InternalAssistantOrganizePlanEndpoint(InternalBaseView):
     def post(self, request, workspace_id):
         return _run(request, workspace_id, lambda ctx, data: plan(ctx, data.get("ops")))
+
+
+class InternalAssistantCatalogAuditEndpoint(InternalBaseView):
+    def post(self, request, workspace_id):
+        return _run(
+            request,
+            workspace_id,
+            lambda ctx, data: audit(ctx, data.get("checks"), data.get("artist"), data.get("release")),
+        )
+
+
+class InternalAssistantCatalogFixesEndpoint(InternalBaseView):
+    def post(self, request, workspace_id):
+        return _run(request, workspace_id, lambda ctx, data: fixes_preview(ctx, data.get("items")))
